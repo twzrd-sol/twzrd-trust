@@ -1,0 +1,52 @@
+{
+  "name": "@wzrd_sol/plugin-trustgate",
+  "version": "0.1.2",
+  "description": "Buyer-side x402 trust gate for elizaOS agents - refuse to pay wash-flagged / block-rated sellers via the free TWZRD preflight. No auth, no cost, fail-open.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx test/gate.test.ts",
+    "test:live": "TWZRD_LIVE_GATE=1 tsx test/gate.live.test.ts",
+    "prepublishOnly": "tsc"
+  },
+  "keywords": [
+    "elizaos",
+    "plugin",
+    "x402",
+    "trust",
+    "agent",
+    "solana",
+    "twzrd",
+    "wash",
+    "sybil",
+    "spend-guard"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twzrd-sol/wzrd-final.git",
+    "directory": "packages/plugin-trustgate"
+  },
+  "homepage": "https://github.com/twzrd-sol/wzrd-final/tree/main/packages/plugin-trustgate#readme",
+  "peerDependencies": {
+    "@elizaos/core": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@elizaos/core": "^1.7.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

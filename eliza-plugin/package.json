@@ -1,0 +1,70 @@
+{
+  "name": "@wzrd_sol/eliza-plugin",
+  "version": "0.3.0",
+  "description": "WZRD Agent Intel for ElizaOS — preflight ReadinessCards, x402-paid signed trust receipts (V6 reputation leaf), offline verification on intel.twzrd.xyz. Also ships the legacy earn loop.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc && tsc -p tsconfig.test.json",
+    "test": "node --test dist/test/plugin-registration.intel.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@wzrd_sol/sdk": "^0.4.3",
+    "bs58": "^5.0.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "peerDependencies": {
+    "@elizaos/core": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@elizaos/core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@elizaos/core": "^1.0.0",
+    "@types/node": "^22.13.10",
+    "typescript": "^5.6.3"
+  },
+  "keywords": [
+    "solana",
+    "eliza",
+    "elizaos",
+    "wzrd",
+    "intel",
+    "x402",
+    "trust",
+    "receipt",
+    "reputation",
+    "preflight",
+    "ccm",
+    "inference",
+    "earn",
+    "ai-agent",
+    "mcp"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twzrd-sol/wzrd-velocity.git",
+    "directory": "agents/eliza-plugin"
+  },
+  "files": [
+    "dist",
+    "package.json",
+    "README.md"
+  ]
+}
