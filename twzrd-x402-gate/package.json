@@ -43,5 +43,13 @@
     "@types/node": "^20.11.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
+    "directory": "twzrd-x402-gate"
+  },
+  "bugs": {
+    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
   }
 }

@@ -37,10 +37,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/twzrd-sol/wzrd-final.git",
-    "directory": "packages/plugin-trustgate"
+    "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
+    "directory": "plugin-trustgate"
   },
-  "homepage": "https://github.com/twzrd-sol/wzrd-final/tree/main/packages/plugin-trustgate#readme",
+  "homepage": "https://github.com/twzrd-sol/twzrd-trust/tree/main/plugin-trustgate#readme",
   "peerDependencies": {
     "@elizaos/core": ">=1.0.0"
   },
@@ -48,5 +48,8 @@
     "@elizaos/core": "^1.7.2",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0"
+  },
+  "bugs": {
+    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
   }
 }
