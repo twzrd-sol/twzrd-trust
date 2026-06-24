@@ -9,15 +9,15 @@ description: |
 
   WHAT YOU GET FREE: pre-spend ReadinessCard, wallet trust scores, x402 leaderboard,
   counterparty + facilitator footprint, wash/sybil-fleet detection, batch + compare,
-  signed-receipt verification.
+  signed-receipt verification, Solana Market API intelligence (18 tools).
   PAID (x402, USDC on Solana): full renormalized trust model + portable Ed25519-signed
   v6 receipt at GET /v1/intel/trust/{pubkey} (0.05 USDC).
   TRIGGERS: should I pay this, is this wallet safe, check seller, x402 preflight, scam
   check, counterparty risk, wallet reputation, trust score, verify receipt, before
-  paying, solana wallet check, agent trust, readiness card
+  paying, solana wallet check, agent trust, readiness card, solana market
 homepage: https://intel.twzrd.xyz
 metadata:
-  version: "1.2"
+  version: "1.3"
 ---
 
 # TWZRD Trust - check the counterparty before the money moves
@@ -123,15 +123,18 @@ The signing key is published at `https://intel.twzrd.xyz/.well-known/x402` and i
 
 ## Optional: native MCP (streamable HTTP)
 
-The same intel is exposed as an MCP server - 17 tools, MCP 2025-03-26 over streamable
+The same intel is exposed as an MCP server — 18 tools, MCP 2025-03-26 over streamable
 HTTP, no local install. The install fact is the URL:
 
 ```
 https://intel.twzrd.xyz/mcp   (transport: streamable-http)
 ```
 
-Add it through your MCP client's server config. OpenClaw builds that expose an `mcp`
-command can use:
+Add it through your MCP client's server config. Tools include `get_readiness_card_tool`,
+`evaluate_x402_resource`, `get_solana_market_status`, `score_wallet_for_intel`, and 14 more.
+For the full list see the [README](https://github.com/twzrd-sol/twzrd-trust).
+
+OpenClaw builds that expose an `mcp` command can use:
 
 ```bash
 openclaw mcp add twzrd --url https://intel.twzrd.xyz/mcp --transport streamable-http
@@ -156,3 +159,4 @@ Paid surface is 0.05 USDC x402 (Solana mainnet).
 - Machine-readable service descriptor: `https://intel.twzrd.xyz/.well-known/x402`
 - Full agent orientation: `https://intel.twzrd.xyz/llms.txt`
 - OpenAPI 3.1 with x402 annotations: `https://intel.twzrd.xyz/openapi.json`
+- Source code: `https://github.com/twzrd-sol/twzrd-trust`
