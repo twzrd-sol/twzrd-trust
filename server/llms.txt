@@ -1,0 +1,45 @@
+# TWZRD Agent Intel — Agent Orientation
+
+## Live Server
+- **MCP endpoint:** `https://intel.twzrd.xyz/mcp` (streamable HTTP, 18 tools)
+- **HTTP API:** `https://intel.twzrd.xyz/v1/intel/...`
+- **Agent Card:** `https://intel.twzrd.xyz/.well-known/agent-card.json`
+
+## Core Flow
+
+Before paying any x402 endpoint:
+1. Call `get_readiness_card_tool(seller_wallet="...")` — free
+2. If `decision == "block"` → DO NOT PAY
+3. If `decision == "warn"` → optional: buy paid trust receipt ($0.05)
+4. If `decision == "allow"` → proceed with payment
+5. After payment → `verify_receipt(receipt)` to check the signed proof
+
+## All Free Tools
+
+- `get_readiness_card_tool` — primary pre-spend gate
+- `evaluate_x402_resource` — fetch URL + extract seller + preflight
+- `low_level_preflight` — richer preflight with evidence
+- `get_solana_market_status` — backend health probe
+- `get_solana_market_visibility_map` — active settlement markets
+- `get_solana_market_orderbook_depth` — liquidity depth per ticker
+- `get_solana_market_shape` — market structure signals
+- `get_solana_market_onchain_trades_summary` — recent trades
+- `score_wallet_for_intel` — wallet intel score (0-100)
+- `get_top_intel_agents` — active agent leaderboard
+- `get_provider_reputation` — seller-side reputation tier
+- `is_wash_fleet` — circular-flow wash check
+- `verify_receipt` — offline receipt verification
+- `get_facilitator_footprint` — facilitator breadth
+- `get_counterparties` — who a wallet pays
+- `score_wallets_batch` — batch score (up to 25)
+- `compare_wallets` — side-by-side comparison
+- `verify_root_inputs` — WZRD protocol root verification
+
+## Pricing
+
+All MCP tools are FREE. The only x402-paid surface:
+`GET /v1/intel/trust/{pubkey}` (0.05 USDC, Solana mainnet) — full renorm model + signed v6 receipt.
+
+## Source
+- Public repo: https://github.com/twzrd-sol/twzrd-trust
+- Scoring engine (intel_scoring, wash_signal, trust_renorm): private

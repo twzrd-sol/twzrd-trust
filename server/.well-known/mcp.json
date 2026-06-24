@@ -1,0 +1,11 @@
+{
+  "name": "twzrd-agent-intel",
+  "version": "0.5.2",
+  "description": "Agent intelligence and reputation tools for the Solana x402 agent economy. Check a counterparty before you pay.",
+  "tools": 18,
+  "endpoint": "https://intel.twzrd.xyz/mcp",
+  "transport": "streamable-http",
+  "x402": true,
+  "free_tier": true,
+  "paid_trust_usdc": 0.05
+}
