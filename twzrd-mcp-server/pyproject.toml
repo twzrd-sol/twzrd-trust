@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twzrd-mcp"
+version = "0.1.2"
+description = "Auto-pay MCP server for the TWZRD Trust API (Solana x402). Free preflight/lookup/receipt-verify + auto-paid trust intel with spend caps. Payment path mainnet-proven via the official x402 SDK."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "TWZRD" }]
+keywords = ["mcp", "model-context-protocol", "x402", "solana", "twzrd", "trust", "agent", "auto-pay", "reputation"]
+dependencies = [
+    "mcp>=1.0",
+    "x402>=2.10",
+    "requests>=2.31",
+    "solders>=0.21",
+    "twzrd-receipt-verifier>=1.2.0",
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+]
+
+[project.urls]
+Homepage = "https://intel.twzrd.xyz"
+Repository = "https://github.com/twzrd-sol/twzrd-trust"
+
+[project.scripts]
+twzrd-mcp = "twzrd_mcp:main"
+
+[tool.setuptools]
+py-modules = ["twzrd_mcp"]
+
+[tool.setuptools.package-dir]
+"" = "py"

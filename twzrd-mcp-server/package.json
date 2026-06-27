@@ -1,0 +1,31 @@
+{
+  "name": "twzrd-mcp-server",
+  "version": "0.2.0",
+  "description": "TWZRD Trust API MCP server with Solana x402 auto-pay (official @x402 SDK, spend-capped, preflight-gated).",
+  "type": "module",
+  "bin": { "twzrd-mcp": "./dist/index.js" },
+  "main": "./dist/index.js",
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "https://github.com/twzrd-sol/twzrd-trust.git", "directory": "twzrd-mcp-server" },
+  "homepage": "https://intel.twzrd.xyz",
+  "keywords": ["mcp", "x402", "solana", "agent", "trust", "twzrd", "reputation"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@x402/core": "^2.17.0",
+    "@x402/svm": "^2.17.0",
+    "@x402/fetch": "^2.17.0",
+    "@solana/kit": "^5.1.0",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0"
+  },
+  "license": "MIT"
+}
