@@ -14,6 +14,13 @@
  * server validates. (An earlier draft hand-rolled both and the server rejected
  * it — the hand-rolled header never matched the official x402 PaymentPayload.)
  *
+ * SPEND AUTHORIZATION (Surface #1): every paid tool call first POSTs to
+ * POST /v1/spend/authorize. In shadow mode the server always returns
+ * authorized=true, collecting data. When enforce mode is enabled, blocked
+ * calls return an error before any x402 payment is initiated. The existing
+ * cap guards (MAX_PER_CALL, MAX_TOTAL) remain as a safety net beneath the
+ * spend authorizer.
+ *
  * SAFETY GUARDRAILS (all enforced in the payment-requirements selector, BEFORE
  * any signature):
  *   - Hard per-call cap (TWZRD_MAX_USDC_PER_CALL, default 0.05)
@@ -133,6 +140,38 @@ async function twzrdFetch(
   return fetch(url, init);
 }
 
+// ── Spend authorization (Surface #1) ─────────────────────────────────────────
+// Called before every paid tool. In shadow mode the server always returns
+// authorized=true. In enforce mode, a denial blocks the spend before x402.
+interface SpendAuthResponse {
+  authorized: boolean;
+  reason?: string;
+  mode?: string;
+}
+async function authorizeSpend(
+  wallet: string,
+  provider: string,
+  amountMicro: number,
+): Promise<void> {
+  const resp = await twzrdFetch("/v1/spend/authorize", {
+    method: "POST",
+    body: { wallet, provider, amount_micro: amountMicro },
+  });
+  if (!resp.ok) {
+    // If the authorizer itself is down, allow the spend (fail-open in shadow).
+    // The x402 cap guards still protect against runaway spends.
+    console.error(`TWZRD MCP: spend authorizer unreachable (${resp.status}), allowing`);
+    return;
+  }
+  const body: SpendAuthResponse = await resp.json();
+  if (!body.authorized) {
+    throw new Error(
+      `Spend denied by TWZRD authorizer: ${body.reason || "authorization_failed"}` +
+        (body.mode ? ` (mode: ${body.mode})` : ""),
+    );
+  }
+}
+
 // ── Tools (free vs paid clearly separated; paid tools pass { paid: true }) ───
 const TOOLS = [
   { name: "preflight", description: "FREE pre-payment check. readiness_card with allow/warn/block + trust_score. No payment.", inputSchema: { type: "object", properties: { seller_wallet: { type: "string" }, resource_name: { type: "string" }, price_usdc: { type: "number" } }, required: ["seller_wallet"] } },
@@ -159,10 +198,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // NOT gate the purchase on that wallet's own trust score; that would be backwards
   // (you'd be blocked from buying intel on exactly the wallets you most need it for).
   // The `preflight` tool exists separately to vet a SELLER you are about to pay
-  // ELSEWHERE. Spend caps + the payment selector are the safety controls here.
+  // ELSEWHERE. Spend caps + the payment selector + the spend authorizer are the
+  // safety controls here.
   switch (name) {
-    case "quick_trust": return { content: [{ type: "text", text: await api(`/v1/intel/quick/${String(a.wallet)}`, { paid: true }) }] };
-    case "full_trust": return { content: [{ type: "text", text: await api(`/v1/intel/trust/${String(a.wallet)}${a.seller_wallet ? `?seller_wallet=${a.seller_wallet}` : ""}`, { paid: true }) }] };
+    case "quick_trust":
+      await authorizeSpend(String(a.wallet), "/v1/intel/quick", 1000);
+      return { content: [{ type: "text", text: await api(`/v1/intel/quick/${String(a.wallet)}`, { paid: true }) }] };
+    case "full_trust":
+      await authorizeSpend(String(a.wallet), "/v1/intel/trust", 50000);
+      return { content: [{ type: "text", text: await api(`/v1/intel/trust/${String(a.wallet)}${a.seller_wallet ? `?seller_wallet=${a.seller_wallet}` : ""}`, { paid: true }) }] };
     case "preflight": return { content: [{ type: "text", text: await api("/v1/intel/preflight", { method: "POST", body: { seller_wallet: a.seller_wallet, resource_name: a.resource_name || "MCP", price_usdc: a.price_usdc ?? 0.05 } }) }] };
     case "verify_receipt": return { content: [{ type: "text", text: await api("/v1/receipts/verify", { method: "POST", body: { leaf: a.leaf, signature: a.signature, signing_pubkey: a.signing_pubkey } }) }] };
     case "wallet_lookup": return { content: [{ type: "text", text: await api(`/v1/intel/get_facilitator_footprint?wallet=${String(a.wallet)}`) }] };
