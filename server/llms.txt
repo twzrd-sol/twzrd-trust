@@ -4,6 +4,7 @@
 - **MCP endpoint:** `https://intel.twzrd.xyz/mcp` (streamable HTTP, 18 tools)
 - **HTTP API:** `https://intel.twzrd.xyz/v1/intel/...`
 - **Agent Card:** `https://intel.twzrd.xyz/.well-known/agent-card.json`
+- **OpenAPI:** `https://intel.twzrd.xyz/openapi.json`
 
 ## Core Flow
 
@@ -13,6 +14,20 @@ Before paying any x402 endpoint:
 3. If `decision == "warn"` → optional: buy paid trust receipt ($0.05)
 4. If `decision == "allow"` → proceed with payment
 5. After payment → `verify_receipt(receipt)` to check the signed proof
+
+## 🛡️ Self-Serve Trust Badges (free, embeddable, cacheable)
+
+Add instant credibility to your Smithery / CDP Bazaar / marketplace listing with a one-line image embed:
+
+- **Wash trust badge:** `<img src="https://api.twzrd.xyz/v1/wash/badge/YOUR_WALLET">`
+  Shows real-time wash detection score for your wallet. Auto-updates hourly.
+- **Provider reputation badge:** `<img src="https://api.twzrd.xyz/v1/reputation/badge/YOUR_WALLET">`
+  Dynamic provider reputation tier from the live provider_reputation engine.
+- **Full reputation report:** `POST https://api.twzrd.xyz/v1/reputation/analyze`
+  Body: `{"wallet":"YOURS","merchants":["MERCHANT_PUBKEY"]}`
+  Returns tier, confidence, evidence (heavy-fleet CV, captive payer %, revenue).
+
+Both badges are free, require no API key, and cache with `Cache-Control: public, max-age=3600`.
 
 ## All Free Tools
 
@@ -35,11 +50,35 @@ Before paying any x402 endpoint:
 - `compare_wallets` — side-by-side comparison
 - `verify_root_inputs` — WZRD protocol root verification
 
+## Receipts API (query + verify + export)
+
+- `GET /v1/receipts` — query receipts by wallet, date range, tx hash
+- `GET /v1/receipts/:id` — single receipt detail
+- `POST /v1/receipts/verify` — offline V6 receipt verification
+- `POST /v1/receipts/export` — bulk export (CSV/JSON)
+
+## Spend Authorization (Surface #1)
+
+Every MCP paid tool call (quick_trust at $0.001, full_trust at $0.05) now POSTs to `/v1/spend/authorize` before x402 payment. In shadow mode all calls are authorized and logged. Signals: wallet reputation (wash), provider reputation, velocity caps, policy match.
+
+- `POST /v1/spend/authorize` — multi-signal gate
+- `GET /v1/spend/policy/:wallet` — read wallet policy
+- `PUT /v1/spend/policy/:wallet` — set wallet policy
+- `GET /v1/spend/stats` — shadow mode metrics
+
 ## Pricing
 
-All MCP tools are FREE. The only x402-paid surface:
-`GET /v1/intel/trust/{pubkey}` (0.05 USDC, Solana mainnet) — full renorm model + signed v6 receipt.
+Free MCP tools, free badge embeds, free receipt verification. Paid x402 surfaces:
+- `GET /v1/intel/trust/{pubkey}` (0.05 USDC) — full renorm model + signed V6 receipt
+- `GET /v1/intel/quick/{pubkey}` (0.001 USDC) — quick tier+score
+- Market data routes (0.03 USDC each)
+- Spend authorization check (free, pre-payment)
 
 ## Source
 - Public repo: https://github.com/twzrd-sol/twzrd-trust
 - Scoring engine (intel_scoring, wash_signal, trust_renorm): private
+- MCP auto-pay server (npm): twzrd-mcp-server@0.2.9 (spend-authorization wired)
+
+## Live Mainnet Proof
+- Settle tx: `5inMkSPpe9v3jD7ca3VZpTV6kHnqBU8mNgDwAysBvUFN4YapspeCTZZFcrTwAU73vr5Ec2FUFqxiM8jdBjFFwtda`
+- Evidence: `docs/launch/evidence/twzrd-mcp-settle-proof-2026-06-26T02-57-57Z.md`
