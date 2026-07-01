@@ -1,6 +1,6 @@
 {
   "name": "@wzrd_sol/eliza-plugin",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "WZRD Agent Intel for ElizaOS \u2014 preflight ReadinessCards, x402-paid signed trust receipts (V6 reputation leaf), offline verification on intel.twzrd.xyz. Also ships the legacy earn loop.",
   "type": "module",
   "main": "dist/index.js",
@@ -60,14 +60,14 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
-    "directory": "eliza-plugin"
+    "directory": "agents/eliza-plugin"
+  },
+  "bugs": {
+    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
   },
   "files": [
     "dist",
     "package.json",
     "README.md"
-  ],
-  "bugs": {
-    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
-  }
+  ]
 }

@@ -1,0 +1,40 @@
+/** Extract keypair from ElizaOS runtime, return cached WzrdClient. */
+import { Keypair } from '@solana/web3.js';
+import { WzrdClient } from './client.js';
+import { getIntelBase, withTimeout } from './intel-helpers.js';
+import { resolvePayingFetch } from './paying-fetch.js';
+import { intelPreflight, fetchIntelTrust, verifyReceipt } from '@wzrd_sol/sdk';
+const cache = new Map();
+/** Intel API base URL from runtime settings (default https://intel.twzrd.xyz). */
+export function getIntelApiBase(runtime) {
+    return getIntelBase(runtime);
+}
+export function getWzrdClient(runtime) {
+    const sk = runtime.getSetting('SOLANA_PRIVATE_KEY');
+    if (!sk)
+        throw new Error('SOLANA_PRIVATE_KEY not configured in ElizaOS runtime');
+    const kp = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(String(sk))));
+    const pub = kp.publicKey.toBase58();
+    if (!cache.has(pub)) {
+        const apiUrl = runtime.getSetting('WZRD_API_URL');
+        cache.set(pub, new WzrdClient(kp, typeof apiUrl === 'string' ? apiUrl : undefined));
+    }
+    return cache.get(pub);
+}
+/** Reset client cache — useful for tests. */
+export function clearClientCache() {
+    cache.clear();
+}
+/** Intel client (per plan): reads WZRD_INTEL_URL + paying fetch; thin delegate to SDK. */
+export function getIntelClient(runtime) {
+    const apiBase = getIntelApiBase(runtime);
+    return {
+        preflight: (input) => withTimeout(() => intelPreflight(input, apiBase)),
+        trust: (pubkey) => withTimeout((signal) => {
+            const f = resolvePayingFetch(runtime);
+            const abortingFetch = ((input, init) => f(input, { ...(init || {}), signal }));
+            return fetchIntelTrust(pubkey, { apiBase, fetchImpl: abortingFetch });
+        }),
+        verify: (receipt, opts) => withTimeout(() => verifyReceipt(receipt, { apiBase, ...(opts || {}) })),
+    };
+}
