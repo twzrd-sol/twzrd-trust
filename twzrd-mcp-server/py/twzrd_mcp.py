@@ -3,10 +3,10 @@
 
 Uses the official x402 SDK client (ExactSvmClientScheme + KeypairSigner +
 x402_requests) — the exact wiring proven on mainnet 2026-06-26 ($0.001 settle,
-HTTP 200, paid:true). This is the part the hand-rolled TS draft got wrong: only
-the SDK produces a PaymentPayload the intel host accepts.
+HTTP 200, paid:true). The SDK-produced PaymentPayload is the server-compatible
+path for TWZRD's Solana exact scheme.
 
-Free tools never pay. Paid tools auto-pay via x402 with spend caps + preflight.
+Free tools never pay. Paid tools auto-pay via x402 with spend caps.
 
 ENV:
   TWZRD_WALLET_KEYPAIR     path to a Solana keypair json (default ~/.config/solana/id.json)
@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 
 import requests
 from mcp.server import Server
@@ -31,6 +32,7 @@ API_BASE = os.environ.get("TWZRD_API_URL", "https://intel.twzrd.xyz")
 MAX_PER_CALL = float(os.environ.get("TWZRD_MAX_USDC_PER_CALL", "0.05"))
 MAX_TOTAL = float(os.environ.get("TWZRD_MAX_USDC_TOTAL", "1.00"))
 PAYMENTS_ENABLED = os.environ.get("TWZRD_MCP_PAYMENTS_ENABLED") == "1"
+VERSION = "0.1.4"
 
 _paid_session: requests.Session | None = None
 _spent = 0.0
@@ -155,6 +157,44 @@ async def _main() -> None:
 
 def main() -> None:
     """Console-script entry point (`twzrd-mcp`). Runs the stdio MCP server."""
+    if any(arg in sys.argv for arg in ("--help", "-h")):
+        print(f"""twzrd-mcp v{VERSION}
+
+TWZRD Trust API MCP server with Solana x402 auto-pay.
+
+Usage:
+  twzrd-mcp                 Start stdio MCP server
+  twzrd-mcp --help          Show this help
+  twzrd-mcp --version       Print version
+
+Free tools work with no wallet:
+  preflight, wallet_lookup, verify_receipt
+
+Paid tools require:
+  TWZRD_MCP_PAYMENTS_ENABLED=1
+  TWZRD_WALLET_KEYPAIR=/path/to/solana-keypair.json
+  TWZRD_RPC_URL=<mainnet Solana RPC>
+  TWZRD_MAX_USDC_PER_CALL=0.05
+  TWZRD_MAX_USDC_TOTAL=1.00
+
+MCP config:
+  {{
+    "mcpServers": {{
+      "twzrd": {{
+        "command": "twzrd-mcp",
+        "env": {{
+          "TWZRD_RPC_URL": "<mainnet rpc>",
+          "TWZRD_WALLET_KEYPAIR": "<keypair json>",
+          "TWZRD_MCP_PAYMENTS_ENABLED": "1"
+        }}
+      }}
+    }}
+  }}
+""")
+        return
+    if any(arg in sys.argv for arg in ("--version", "-v")):
+        print(VERSION)
+        return
     asyncio.run(_main())
 
 
