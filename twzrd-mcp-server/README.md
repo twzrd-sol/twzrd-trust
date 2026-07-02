@@ -1,77 +1,44 @@
-# twzrd-mcp-server - auto-pay MCP for the TWZRD Trust API
+# twzrd-mcp-server / twzrd-mcp — auto-pay MCP for the TWZRD Trust API
 
 <!-- mcp-name: xyz.twzrd/twzrd-mcp -->
 
-> Payment mechanism is mainnet-verified via the official x402 SDK (Python path,
-> $0.001 moved 2026-06-26 - see Status). As of v0.2.0 the bundled TypeScript path
-> uses the official x402 JS SDK (`@x402/core` + `@x402/svm` + `@x402/fetch`) and
-> is construct-verified against the live mainnet challenge; one real on-chain
-> settle remains before npm publish.
+Check — and optionally auto-pay for — trust intel on any Solana wallet or x402
+seller, straight from your agent. Add one `mcpServers` entry: **free** tools vet a
+counterparty before you pay; **paid** tools buy fresh trust intel, spend-capped and
+opt-in. Solana-native x402 via the official `@x402` SDK — it refuses any non-Solana
+challenge instead of mis-signing.
 
-Auto-pay MCP server for TWZRD's Trust API, matching the competitor GTM shape
-(anchor-x402, Br0ski777, BitBooth all ship one). An agent adds one `mcpServers`
-entry; paid tool calls auto-handle the x402 challenge. Free tools never pay.
+- **npm** (Node): [`twzrd-mcp-server`](https://www.npmjs.com/package/twzrd-mcp-server)
+- **PyPI** (Python): [`twzrd-mcp`](https://pypi.org/project/twzrd-mcp/)
+- Trust API: <https://intel.twzrd.xyz> · repo: [twzrd-sol/twzrd-trust](https://github.com/twzrd-sol/twzrd-trust)
 
-## Why this is a corrected rebuild
-A first draft signed **EIP-3009 on Base (EVM/viem)**. TWZRD settles x402 on
-**Solana** (`scheme:"exact"`, USDC, sponsored `feePayer`) — the EVM scheme never
-matches the challenge, so that draft could not pay TWZRD at all (it would `tsc`-pass
-yet fail every real call). This version is Solana-native and **refuses** any
-non-Solana challenge instead of mis-signing.
+## Tools
 
-## Safety guardrails (enforced before any signature)
-- Per-call cap `TWZRD_MAX_USDC_PER_CALL` (default 0.05)
-- Cumulative session cap `TWZRD_MAX_USDC_TOTAL` (default 1.00)
-- Free discovery tools never enter the payment path
-- No cross-chain fallback — a non-`exact`/non-`solana:` challenge is rejected
-- Paid calls run the free preflight first; `decision=block` aborts the pay
+| Tool | Cost | What |
+|------|------|------|
+| `preflight` | free | allow / warn / block + trust score for a **seller you're about to pay** |
+| `wallet_lookup` | free | facilitators + counterparty breadth for a wallet |
+| `verify_receipt` | free | offline-verify a wallet's cNFT receipt (Ed25519 vs genesis authority `2ELSDx`) — trust no server |
+| `quick_trust` | $0.001 | quick tier + score for any wallet |
+| `full_trust` | $0.05 | full trust intel + signed V6 receipt |
 
-## Status — payment path VERIFIED on mainnet 2026-06-26
+> These five are the **auto-pay client** tools. The full **18-tool** read-only
+> surface (market data, wash checks, leaderboards, batch scoring) is the live MCP
+> server at `https://intel.twzrd.xyz/mcp` — free, no auth, connect any MCP client.
+>
+> `quick_trust` / `full_trust` buy intel on **any** wallet (you look risky ones up
+> on purpose) — they don't refuse a target. Use `preflight` to vet a wallet you're
+> about to *pay elsewhere*.
 
-Two authorized settles from dev wallet `2pHjZLqs…`:
+## Install & config
 
-1. **Hand-rolled `X-Payment` (this MCP's original approach): FAILED** — HTTP 402,
-   no USDC moved. The intel host validates via the official x402 lib's
-   `PaymentPayload`, so a hand-built header is rejected. (Green `tsc` ≠ settles —
-   fail-closed default was correct.)
-2. **Official x402 SDK: SUCCEEDED** — `GET /v1/intel/quick/CqtQPaAuQ5UR…` →
-   **HTTP 200, `"paid":true,"charged_amount_usdc":0.001`**, tier Silver score 53.6.
-   USDC balance moved `0.057236 → 0.056236` (exactly $0.001). A second call against
-   a no-data pubkey returned `422 charged:false` — the server's no-charge-on-empty
-   guard works.
+Paid tools are **opt-in on both runtimes**: they sign only when you set
+`TWZRD_MCP_PAYMENTS_ENABLED=1` **and** provide a wallet key. For free tools, omit
+both — the server runs read-only and never signs. Spend is bounded by per-call and
+session caps.
 
-**Conclusion: auto-pay works ONLY via the official x402 SDK, not a hand-rolled
-header.** Proven client wiring (Python):
+### Python — `pip install twzrd-mcp`
 
-```python
-from x402.client import x402ClientSync
-from x402.mechanisms.svm.signers import KeypairSigner
-from x402.mechanisms.svm.exact import register_exact_svm_client
-from x402.http.clients.requests import x402_requests
-client = x402ClientSync()
-register_exact_svm_client(client, KeypairSigner(keypair), rpc_url=RPC)
-session = x402_requests(client)
-session.get("https://intel.twzrd.xyz/v1/intel/quick/<wallet>")  # auto-pays $0.001
-```
-
-### TypeScript path — integrated (v0.2.0)
-The hand-rolled `payAndRetry` is replaced with the official x402 JS SDK
-(`@x402/core` client + `@x402/svm` ExactSvmScheme + `@x402/fetch`
-`wrapFetchWithPayment`). `@x402/svm` reads the challenge `extra.feePayer` and builds
-the partially-signed sponsored transfer (verified no-spend against the live mainnet
-challenge: 496-byte tx, 2 signature slots), and the SDK encodes the `X-PAYMENT`
-header the server validates. Spend caps + preflight gate + free/paid split are
-preserved — caps are enforced in the payment selector before any signature.
-**Remaining:** one real $0.001 on-chain settle to confirm end-to-end, then npm
-publish + MCP-registry listing.
-
-## Install & Config
-
-### Python (recommended — the mainnet-proven path)
-```bash
-pip install twzrd-mcp
-```
-MCP client config (`mcpServers`):
 ```json
 { "mcpServers": { "twzrd": {
   "command": "twzrd-mcp",
@@ -84,33 +51,58 @@ MCP client config (`mcpServers`):
   }
 }}}
 ```
-The **free** tools (`preflight`, `wallet_lookup`) need no wallet and no flags — leave
-`TWZRD_MCP_PAYMENTS_ENABLED` unset and they work read-only. Only the paid tools need
-the keypair + `TWZRD_MCP_PAYMENTS_ENABLED=1`.
 
-### Node (`npx twzrd-mcp-server`) — v0.2.0, x402 JS SDK
+### Node — `npx -y twzrd-mcp-server`
+
 ```json
 { "mcpServers": { "twzrd": {
   "command": "npx", "args": ["-y", "twzrd-mcp-server"],
   "env": {
-    "TWZRD_WALLET_SECRET_KEY": "<base58 Solana secret>",
     "TWZRD_RPC_URL": "<your Solana RPC url>",
+    "TWZRD_WALLET_SECRET_KEY": "<base58 Solana secret>",
+    "TWZRD_MCP_PAYMENTS_ENABLED": "1",
     "TWZRD_MAX_USDC_PER_CALL": "0.05",
     "TWZRD_MAX_USDC_TOTAL": "1.00"
   }
 }}}
 ```
-Auto-pay is enabled whenever `TWZRD_WALLET_SECRET_KEY` is present (set
-`TWZRD_MCP_PAYMENTS_ENABLED=0` to force paid tools off). Free tools need no wallet.
-Construct-verified against the live mainnet challenge; pending one real settle +
-npm publish (until published, `npx twzrd-mcp-server` is not yet resolvable — see
-the Python package above for a path that is live on PyPI today).
 
-## Tools
-- `preflight` (free) — allow/warn/block + trust_score before you pay a **seller** you're about to transact with
-- `wallet_lookup` (free) — facilitators + counterparty breadth for a Solana wallet
-- `verify_receipt` (free) — independently verify a wallet's cNFT Receipt offline (Ed25519 vs the genesis authority `2ELSDx`); no trust in any TWZRD server
-- `quick_trust` ($0.001, auto-pay) — quick tier + score for any wallet
-- `full_trust` ($0.05, auto-pay) — full trust intel + signed V6 receipt
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `TWZRD_MCP_PAYMENTS_ENABLED` | unset (off) | set `1` to arm paid tools — **required on both runtimes** |
+| `TWZRD_WALLET_SECRET_KEY` (Node) / `TWZRD_WALLET_KEYPAIR` (Python) | — | signer for paid tools |
+| `TWZRD_MAX_USDC_PER_CALL` | `0.05` | per-call spend cap |
+| `TWZRD_MAX_USDC_TOTAL` | `1.00` | cumulative session spend cap |
+| `TWZRD_RPC_URL` | mainnet-beta | Solana RPC endpoint |
 
-> Note: `quick_trust`/`full_trust` pay TWZRD a fixed micro-fee for intel on **any** wallet — they do **not** refuse "risky" targets (you look those up on purpose). Use `preflight` to vet a counterparty you're about to *pay elsewhere*.
+## Safety
+
+- **Opt-in payments** — paid tools sign only with `TWZRD_MCP_PAYMENTS_ENABLED=1`; a wallet key alone never arms spending.
+- **Spend caps** — per-call and session caps enforced in the payment selector *before* any signature.
+- **Solana-only** — a non-`exact` / non-`solana:` challenge is refused, never mis-signed.
+- **Single-shot retry** — at most one signed retry per tool call; a second 402 is surfaced, not silently re-paid.
+- **Free tools never enter the payment path.**
+
+## Verify receipts offline (trust no one)
+
+`full_trust` returns a portable Ed25519-signed v6 receipt. Verify it without
+trusting any TWZRD server:
+
+```bash
+npx twzrd-receipt-verifier <receipt.json> --pubkey <published key>
+```
+
+## Demo
+
+```bash
+npm run build && npm run demo   # lists tools + runs a free preflight, no spend by default
+```
+
+To run the operator-authorized `$0.001` settle proof, set `TWZRD_DEMO_PAID=quick`,
+provide a wallet key, and pin both caps to `0.001` (see `examples/agent-drop-in.mjs`).
+
+---
+
+Links: [intel.twzrd.xyz](https://intel.twzrd.xyz) · [llms.txt](https://intel.twzrd.xyz/llms.txt) · [OpenAPI](https://intel.twzrd.xyz/openapi.json)
+
+License: MIT

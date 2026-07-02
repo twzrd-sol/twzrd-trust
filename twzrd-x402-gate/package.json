@@ -1,7 +1,7 @@
 {
   "name": "twzrd-x402-gate",
-  "version": "0.1.0",
-  "description": "Buyer-side x402 trust gate. Run a free TWZRD preflight (ReadinessCard) before signing USDC to any x402 merchant. Wraps fetch (HTTP 402) and the @x402/mcp onPaymentRequested hook; fail-open on preflight unavailability.",
+  "version": "0.3.0",
+  "description": "Buyer-side x402 trust gate. Run a free TWZRD preflight (ReadinessCard) before signing USDC to any x402 merchant, and autonomously escalate a `warn` to a $0.001 paid trust check that re-decides — blocking the spend on bad paid intel, no human in the loop. Wraps fetch (HTTP 402) and the @x402/mcp onPaymentRequested hook. BREAKING(0.2.0): fail-closed by default — set TWZRD_FAIL_OPEN=true to restore legacy allow-on-outage behavior.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,7 +19,10 @@
     "build": "tsc",
     "prepublishOnly": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts"
+    "test": "tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts",
+    "guard-demo": "tsx examples/agentic-market-gate.ts",
+    "autoreceipt-demo": "tsx examples/auto-receipt.ts --dry-run",
+    "sponsored-demo": "tsx examples/sponsored-payer.ts --dry-run"
   },
   "keywords": [
     "x402",
@@ -43,13 +46,5 @@
     "@types/node": "^20.11.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
-    "directory": "twzrd-x402-gate"
-  },
-  "bugs": {
-    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
   }
 }

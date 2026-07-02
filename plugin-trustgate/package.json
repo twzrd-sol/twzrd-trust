@@ -1,7 +1,7 @@
 {
   "name": "@wzrd_sol/plugin-trustgate",
-  "version": "0.1.2",
-  "description": "Buyer-side x402 trust gate for elizaOS agents - refuse to pay wash-flagged / block-rated sellers via the free TWZRD preflight. No auth, no cost, fail-open.",
+  "version": "0.3.0",
+  "description": "x402 trust gate via the free TWZRD preflight. Buyer-side spend guard for elizaOS agents (canSpendSafely) AND a facilitator-side onBeforeSettle hook to screen every brokered settlement. No auth, no cost. BREAKING(0.3.0): fail-closed by default \u2014 pass failOpen:true to restore legacy allow-on-outage behavior.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./facilitator": {
+      "types": "./dist/facilitator.d.ts",
+      "import": "./dist/facilitator.js"
     }
   },
   "files": [
@@ -20,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx test/gate.test.ts",
     "test:live": "TWZRD_LIVE_GATE=1 tsx test/gate.live.test.ts",
-    "prepublishOnly": "tsc"
+    "prepublishOnly": "tsc",
+    "guard-demo": "tsx examples/first-installer.ts"
   },
   "keywords": [
     "elizaos",
@@ -38,7 +43,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
-    "directory": "plugin-trustgate"
+    "directory": "packages/plugin-trustgate"
   },
   "homepage": "https://github.com/twzrd-sol/twzrd-trust/tree/main/plugin-trustgate#readme",
   "peerDependencies": {
@@ -49,7 +54,9 @@
     "tsx": "^4.7.0",
     "typescript": "^5.4.0"
   },
-  "bugs": {
-    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
+  "peerDependenciesMeta": {
+    "@elizaos/core": {
+      "optional": true
+    }
   }
 }
