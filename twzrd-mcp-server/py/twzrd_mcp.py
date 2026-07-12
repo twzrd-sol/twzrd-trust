@@ -32,7 +32,7 @@ API_BASE = os.environ.get("TWZRD_API_URL", "https://intel.twzrd.xyz")
 MAX_PER_CALL = float(os.environ.get("TWZRD_MAX_USDC_PER_CALL", "0.05"))
 MAX_TOTAL = float(os.environ.get("TWZRD_MAX_USDC_TOTAL", "1.00"))
 PAYMENTS_ENABLED = os.environ.get("TWZRD_MCP_PAYMENTS_ENABLED") == "1"
-VERSION = "0.1.4"
+VERSION = "0.1.6"
 
 _paid_session: requests.Session | None = None
 _spent = 0.0
@@ -115,7 +115,7 @@ def _verify_receipt(wallet: str) -> str:
 app = Server("twzrd-mcp-server")
 
 TOOLS = [
-    Tool(name="preflight", description="FREE pre-pay check: allow/warn/block + trust_score.", inputSchema={"type": "object", "properties": {"seller_wallet": {"type": "string"}, "price_usdc": {"type": "number"}}, "required": ["seller_wallet"]}),
+    Tool(name="preflight", description="FREE pre-pay check: allow/warn/block + trust_score.", inputSchema={"type": "object", "properties": {"seller_wallet": {"type": "string"}, "resource_name": {"type": "string"}, "price_usdc": {"type": "number"}}, "required": ["seller_wallet"]}),
     Tool(name="wallet_lookup", description="FREE: facilitators + counterparty breadth for a Solana wallet.", inputSchema={"type": "object", "properties": {"wallet": {"type": "string"}}, "required": ["wallet"]}),
     Tool(name="verify_receipt", description="FREE: independently verify a wallet's cNFT Receipt offline (Ed25519 vs the genesis authority 2ELSDx). No trust in any TWZRD server.", inputSchema={"type": "object", "properties": {"wallet": {"type": "string"}}, "required": ["wallet"]}),
     Tool(name="quick_trust", description="PAID $0.001 (auto-pay x402, Solana): quick tier+score for a wallet.", inputSchema={"type": "object", "properties": {"wallet": {"type": "string"}}, "required": ["wallet"]}),

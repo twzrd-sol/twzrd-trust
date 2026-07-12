@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "twzrd-mcp"
-version = "0.1.5"
+version = "0.1.6"
 description = "Auto-pay MCP server for the TWZRD Trust API (Solana x402). Free preflight/lookup/receipt-verify + auto-paid trust intel with spend caps. Payment path mainnet-proven via the official x402 SDK."
 readme = "README.md"
 requires-python = ">=3.10"

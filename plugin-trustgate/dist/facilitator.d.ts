@@ -80,7 +80,7 @@ export interface FacilitatorGateConfig extends TrustGateConfig {
  * Build an `onBeforeSettle` hook that screens the seller wallet through the free
  * TWZRD preflight and aborts the settlement when the verdict is a hard block.
  *
- * Defaults tuned for a settle hot path: 500ms timeout, fail-open, Solana-only.
+ * Defaults tuned for a settle hot path: 500ms timeout, fail-closed, Solana-only.
  */
 export declare function createOnBeforeSettleHook(config?: FacilitatorGateConfig): OnBeforeSettleHook;
 export { checkTrust, canSpendSafely } from "./gate.js";

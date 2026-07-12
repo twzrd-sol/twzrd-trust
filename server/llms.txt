@@ -77,7 +77,8 @@ Free MCP tools, free badge embeds, free receipt verification. Paid x402 surfaces
 ## Source
 - Public repo: https://github.com/twzrd-sol/twzrd-trust
 - Scoring engine (intel_scoring, wash_signal, trust_renorm): private
-- MCP auto-pay server (npm): twzrd-mcp-server@0.2.9 (spend-authorization wired)
+- MCP auto-pay server (npm): twzrd-mcp-server@0.4.0 (TWZRD_RPC_URL required for paid)
+- MCP auto-pay server (PyPI): twzrd-mcp@0.1.6
 
 ## Live Mainnet Proof
 - Settle tx: `5inMkSPpe9v3jD7ca3VZpTV6kHnqBU8mNgDwAysBvUFN4YapspeCTZZFcrTwAU73vr5Ec2FUFqxiM8jdBjFFwtda`

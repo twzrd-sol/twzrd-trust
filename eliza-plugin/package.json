@@ -60,7 +60,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
-    "directory": "agents/eliza-plugin"
+    "directory": "eliza-plugin"
   },
   "bugs": {
     "url": "https://github.com/twzrd-sol/twzrd-trust/issues"

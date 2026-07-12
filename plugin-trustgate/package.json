@@ -1,7 +1,7 @@
 {
   "name": "@wzrd_sol/plugin-trustgate",
-  "version": "0.3.0",
-  "description": "x402 trust gate via the free TWZRD preflight. Buyer-side spend guard for elizaOS agents (canSpendSafely) AND a facilitator-side onBeforeSettle hook to screen every brokered settlement. No auth, no cost. BREAKING(0.3.0): fail-closed by default \u2014 pass failOpen:true to restore legacy allow-on-outage behavior.",
+  "version": "0.3.1",
+  "description": "Buyer-side x402 trust gate for elizaOS: free TWZRD preflight (ReadinessCard allow/warn/block) via canSpendSafely + optional facilitator onBeforeSettle. Opt-in enforcement (does not auto-intercept signatures). Preflight-only in this package - pair with @wzrd_sol/eliza-plugin or twzrd-x402-gate for free merchant_card wash refuse. BREAKING(0.3.0): fail-closed by default; pass failOpen:true for legacy allow-on-outage.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,7 +25,9 @@
     "test": "tsx test/gate.test.ts",
     "test:live": "TWZRD_LIVE_GATE=1 tsx test/gate.live.test.ts",
     "prepublishOnly": "tsc",
-    "guard-demo": "tsx examples/first-installer.ts"
+    "guard-demo": "tsx examples/first-installer.ts",
+    "payai-demo": "tsx examples/payai-facilitator.ts",
+    "resource-gate-demo": "tsx examples/resource-server-gate.ts"
   },
   "keywords": [
     "elizaos",
@@ -35,15 +37,21 @@
     "agent",
     "solana",
     "twzrd",
+    "preflight",
+    "readiness-card",
     "wash",
     "sybil",
-    "spend-guard"
+    "spend-guard",
+    "marketplace"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
-    "directory": "packages/plugin-trustgate"
+    "directory": "plugin-trustgate"
+  },
+  "bugs": {
+    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
   },
   "homepage": "https://github.com/twzrd-sol/twzrd-trust/tree/main/plugin-trustgate#readme",
   "peerDependencies": {

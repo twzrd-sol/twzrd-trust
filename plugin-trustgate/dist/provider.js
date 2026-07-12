@@ -60,5 +60,5 @@ export function createTrustGateProvider(config = {}) {
         },
     };
 }
-/** Default provider (hits https://intel.twzrd.xyz, decision-only gating, fail-open). */
+/** Default provider (hits https://intel.twzrd.xyz, decision-only gating, fail-closed). */
 export const trustGateProvider = createTrustGateProvider();

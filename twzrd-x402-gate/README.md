@@ -18,8 +18,11 @@ const client = new x402Client();
 client.register("solana:*", new ExactSvmScheme(svmSigner));
 // Optional: client.register("eip155:*", new ExactEvmScheme(evmSigner));
 
-installTwzrdX402ClientHook(client, { gateOnCanSpend: true });
-// → onBeforePaymentCreation: scores selectedRequirements, abort if policy denies
+installTwzrdX402ClientHook(client, {
+  gateOnCanSpend: false, // decision-only default (warn allowed)
+  refuseWashFlagged: true,
+});
+// Strict opt-in: gateOnCanSpend: true — also block when can_spend=false
 
 const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 await fetchWithPayment("https://merchant.example/paid");

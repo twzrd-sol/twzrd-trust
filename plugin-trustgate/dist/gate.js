@@ -60,7 +60,8 @@ export async function checkTrust(sellerWallet, config = {}) {
             ? card.paid_trust_endpoint ??
                 `/v1/intel/trust/${sellerWallet}`
             : undefined;
-        return { sellerWallet, decision, trustScore, canSpend, blocked, reason, gateAvailable: true, paidDeepDive };
+        const preflightId = typeof body.preflight_id === "number" ? body.preflight_id : undefined;
+        return { sellerWallet, decision, trustScore, canSpend, blocked, reason, gateAvailable: true, paidDeepDive, preflightId };
     }
     catch (err) {
         const msg = String(err?.message ?? err).slice(0, 80);

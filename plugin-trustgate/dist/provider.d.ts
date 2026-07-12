@@ -11,5 +11,5 @@ import type { Provider } from "@elizaos/core";
 import { type TrustGateConfig } from "./gate.js";
 /** Build a trust-gate provider with custom config (host, minScore, failOpen, timeout). */
 export declare function createTrustGateProvider(config?: TrustGateConfig): Provider;
-/** Default provider (hits https://intel.twzrd.xyz, decision-only gating, fail-open). */
+/** Default provider (hits https://intel.twzrd.xyz, decision-only gating, fail-closed). */
 export declare const trustGateProvider: Provider;
