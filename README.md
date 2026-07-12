@@ -1,7 +1,7 @@
 # TWZRD Agent Intel
 
 **Live MCP** • [`https://intel.twzrd.xyz/mcp`](https://intel.twzrd.xyz/mcp) (**23 tools**, streamable HTTP)
-**Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.5.3` — policy before `wallet.signTransaction`
+**Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.5.4` — policy before `wallet.signTransaction`
 **Seller graph** • directory → merchant card → readiness → (optional) paid trust
 **Self-host mirror** • public wiring only (scoring engine stays private)
 
@@ -9,7 +9,7 @@ TWZRD is the pre-spend trust layer for agents paying over x402 on Solana. Vet th
 **seller and service** before USDC leaves your wallet. Free tier needs no signup; pay
 only when you want the portable signed V6 receipt.
 
-**Live corpus (intel 0.5.3):** 549 listed services · 152 payTos · 167 challenge-verified (`live_402`).
+**Live corpus (2026-07-12):** 562 listed services · 155 payTos · 186 challenge-verified (`live_402`). Listed ≠ live — see [`/health`](https://intel.twzrd.xyz/health).
 
 ---
 
@@ -28,7 +28,7 @@ Most agents should follow this order:
 4. **Optional paid trust** — `GET /v1/intel/trust/{pubkey}?seller_wallet=<seller>` (0.05 USDC)
 5. **Pay the resource** — only after steps 1–3 (and optional 4) approve
 
-**Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.5.3` so step 3
+**Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.5.4` so step 3
 runs automatically before signing (see [Buyer-side gate](#buyer-side-gate-pre-sign-enforcement)).
 
 ---
@@ -61,7 +61,7 @@ Free preflight is **advisory** unless you wire a gate package or payment-hook.
 
 | Directory / npm | What |
 |-----------------|------|
-| [`twzrd-x402-gate`](./twzrd-x402-gate) · `npm i twzrd-x402-gate@0.5.3` | Buyer-side pre-sign seatbelt: `withTwzrdGuard`, `installTwzrdAutoGate`, `installTwzrdX402ClientHook`, `twzrdBeforePaymentCreation` |
+| [`twzrd-x402-gate`](./twzrd-x402-gate) · `npm i twzrd-x402-gate@0.5.4` | Buyer-side pre-sign seatbelt: `withTwzrdGuard`, `installTwzrdAutoGate`, `installTwzrdX402ClientHook`, `twzrdBeforePaymentCreation` |
 | [`twzrd-mcp-server`](./twzrd-mcp-server) · `npx -y twzrd-mcp-server` | Local auto-pay MCP (npm `0.4.0`); paid intel opt-in via env |
 | [`plugin-trustgate`](./plugin-trustgate) | ElizaOS / facilitator `onBeforeSettle` — **requirer** seat, not buyer wrap |
 | [`eliza-plugin`](./eliza-plugin) | Full Agent Intel plugin for ElizaOS |
@@ -99,6 +99,18 @@ Official x402 client hook (same policy engine):
 ```typescript
 import { installTwzrdX402ClientHook } from "twzrd-x402-gate";
 installTwzrdX402ClientHook(x402Client, { gateOnCanSpend: false, refuseWashFlagged: true });
+```
+
+**Run attribution (opt-in, preflight-only):** stamp `X-TWZRD-Integration` / `X-TWZRD-Run-Id` on free preflight so integrator transcripts join server-observed decisions. Counts as external only when the same `runId` appears in your transcript **and** intel logs a real policy decision with non-internal lineage.
+
+```typescript
+import { twzrdBeforePaymentCreation } from "twzrd-x402-gate";
+
+beforePaymentCreation: (ctx) =>
+  twzrdBeforePaymentCreation(ctx.selectedRequirements, {
+    gateOnCanSpend: false,
+    attribution: { integration: "my-stack", runId: crypto.randomUUID() },
+  }),
 ```
 
 ---
