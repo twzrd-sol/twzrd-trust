@@ -1,6 +1,6 @@
 # Seller graph + pay-guard closeout (2026-07-12)
 
-**Status:** production-validated on `https://intel.twzrd.xyz` (package `0.5.3`).  
+**Status:** production-validated on `https://intel.twzrd.xyz` (package `0.5.4`; seatbelt unchanged from `0.5.3`).
 **Scope:** free discovery → merchant card → `next_action` → AutoGate block before sign.  
 **Not claimed:** settlement reliability, real funded allow-path, or third-party independent run (see scoreboard).
 
@@ -64,7 +64,7 @@ Also proven in the same harness (non-settlement):
 ### Install
 
 ```bash
-npm i twzrd-x402-gate@0.5.3
+npm i twzrd-x402-gate@0.5.4
 ```
 
 ### Official x402 client hook (recommended)
@@ -98,14 +98,14 @@ Runnable instrumented example (no funds):
 
 ## 3. Metric snapshot (public)
 
-Captured from `GET https://intel.twzrd.xyz/health` → `service_catalog`:
+Captured from `GET https://intel.twzrd.xyz/health` → `service_catalog`. **Listed ≠ live** — directory breadth and challenge-verified counts diverge by design.
 
-| Metric | Value at 2026-07-12 (observation) |
-|--------|-----------------------------------|
-| `package_version` | 0.5.3 |
-| `service_count` | 549 |
-| `covered_paytos` | 152 |
-| `live_402_service_count` | 148 (rising; hourly crawl) |
+| Metric | At closeout (2026-07-12 AM) | Current (live `/health`) |
+|--------|----------------------------|--------------------------|
+| Gate package | 0.5.3 | `twzrd-x402-gate@0.5.4` on npm |
+| `service_count` | 549 | 562 |
+| `covered_paytos` | 152 | 155 |
+| `live_402_service_count` | 148 | 186 (hourly crawl; rising) |
 
 ## 4. Crawler truth
 
@@ -158,7 +158,9 @@ Please send back: decision, reason, signer invocation count, and whether the hoo
 | Item | Status |
 |------|--------|
 | Stable proof URL | **this file on `twzrd-trust` `main`** |
-| External guard run | pending |
+| PayAI pre-sign PR | [#38](https://github.com/PayAINetwork/x402-solana/pull/38) or [#39](https://github.com/PayAINetwork/x402-solana/pull/39) (either/or; maintainer pick) |
+| Run attribution (0.5.4) | live on intel preflight observe |
+| External guard run | pending (foreign signer=0) |
 | Independent transcript | pending |
 
 ---

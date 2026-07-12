@@ -32,10 +32,18 @@ async function run() {
     false,
     "block decision denies even at high score",
   );
+  // DEFAULT (gateOnCanSpend omitted) is decision-only: can_spend=false does NOT
+  // deny — gating on it by default would block ~every seller (TWZRD policy).
   assert.equal(
-    evaluateReadinessCard({ card: { decision: "allow", can_spend: false, trust_score: 90 }, preflightMinScore: 40, blockDecisions: bd() }).reason,
+    evaluateReadinessCard({ card: { decision: "allow", can_spend: false, trust_score: 90 }, preflightMinScore: 40, blockDecisions: bd() }).approved,
+    true,
+    "default (gateOnCanSpend omitted): can_spend=false is allowed (decision-only)",
+  );
+  // Opt-in: gateOnCanSpend:true ALSO denies can_spend=false.
+  assert.equal(
+    evaluateReadinessCard({ card: { decision: "allow", can_spend: false, trust_score: 90 }, preflightMinScore: 40, blockDecisions: bd(), gateOnCanSpend: true }).reason,
     "twzrd_can_spend_false",
-    "can_spend=false denies",
+    "gateOnCanSpend=true (opt-in): can_spend=false denies",
   );
   assert.match(
     evaluateReadinessCard({ card: { decision: "allow", trust_score: 20 }, preflightMinScore: 40, blockDecisions: bd() }).reason,
@@ -97,11 +105,44 @@ async function run() {
   assert.equal(fo.approved, true);
   assert.equal(fo.failOpen, true);
   assert.equal(fo.reason, "twzrd_fail_open");
-  // --- fail-closed re-throws ---
-  await assert.rejects(
-    () => twzrdApprovePayment({ payTo: "S" }, resolveConfig({ failOpen: false, fetch: throwFetch })),
-    "failOpen=false must propagate the preflight error",
-  );
+  // --- fail-closed (default, 0.2.0): preflight outage returns a BLOCKED verdict
+  // (approved:false, failOpen:false) and logs loudly — it does NOT throw. This
+  // mirrors the fail-open branch (which returns approved:true) and the sister
+  // package plugin-trustgate.checkTrust, which never throws on a gate outage. ---
+  const fc = await twzrdApprovePayment({ payTo: "S" }, resolveConfig({ failOpen: false, fetch: throwFetch }));
+  assert.equal(fc.approved, false, "failOpen=false: preflight outage blocks the payment");
+  assert.equal(fc.failOpen, false, "failOpen=false: verdict carries failOpen:false");
+  assert.match(fc.reason, /twzrd_fail_closed/, "failOpen=false: reason marks the fail-closed path");
+
+  // --- malformed/unidentifiable payTo fails closed, unconditionally ---
+  // A 402 whose payment requirements yield no seller wallet is not "an unknown
+  // seller" (which proceeds by default at warn/score~45) - it's evidence there is
+  // nothing to evaluate. Must block WITHOUT ever calling the preflight fetch, and
+  // regardless of failOpen (failOpen is about gate *unavailability*, not a missing
+  // recipient).
+  let preflightCalled = false;
+  const spyFetch: typeof fetch = (async () => {
+    preflightCalled = true;
+    return new Response(JSON.stringify({ readiness_card: { decision: "allow", trust_score: 90 } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+
+  const noPayTo = await twzrdApprovePayment({}, resolveConfig({ fetch: spyFetch }));
+  assert.equal(noPayTo.approved, false, "missing payTo/sellerWallet blocks");
+  assert.equal(noPayTo.verdict, "block");
+  assert.equal(noPayTo.reason, "twzrd_unidentifiable_payment_recipient");
+  assert.equal(preflightCalled, false, "the preflight network call is never made for an unidentifiable recipient");
+
+  const emptyPayTo = await twzrdApprovePayment({ payTo: "" }, resolveConfig({ fetch: spyFetch }));
+  assert.equal(emptyPayTo.approved, false, "empty-string payTo blocks");
+  assert.equal(emptyPayTo.reason, "twzrd_unidentifiable_payment_recipient");
+
+  const noPayToFailOpen = await twzrdApprovePayment({}, resolveConfig({ failOpen: true, fetch: spyFetch }));
+  assert.equal(noPayToFailOpen.approved, false, "unidentifiable recipient blocks even when failOpen=true");
+  assert.equal(noPayToFailOpen.reason, "twzrd_unidentifiable_payment_recipient");
+  assert.equal(preflightCalled, false, "still never reaches the network");
 
   console.log("policy.test.ts: ALL PASSED");
 }
