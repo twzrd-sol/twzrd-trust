@@ -39,3 +39,34 @@ export function createTwzrdGate(overrides?: TwzrdGateConfig): TwzrdGate {
 
 /** Default gate using process.env / global fetch */
 export const defaultGate: TwzrdGate = createTwzrdGate();
+
+/**
+ * Decorator-style guard for agent payment flows.
+ * Runs TWZRD preflight on the seller before invoking `fn`.
+ * Throws if policy denies; passes through on allow/warn.
+ *
+ * @example
+ * const safePay = withTwzrdGuard(
+ *   (seller) => agentcashFetch(`https://api.seller.xyz/paid`),
+ *   { preflightMinScore: 50 }
+ * );
+ * const result = await safePay("SELLER_WALLET_BASE58");
+ */
+export function withTwzrdGuard<TArgs extends unknown[], TReturn>(
+  fn: (sellerWallet: string, ...args: TArgs) => Promise<TReturn>,
+  config?: TwzrdGateConfig,
+): (sellerWallet: string, ...args: TArgs) => Promise<TReturn> {
+  const cfg = resolveConfig(config);
+  return async (sellerWallet: string, ...args: TArgs): Promise<TReturn> => {
+    const { approved, verdict, score, reason } = await twzrdApprovePayment(
+      { sellerWallet, agentIntent: "withTwzrdGuard" },
+      cfg,
+    );
+    if (!approved) {
+      throw new Error(
+        `[twzrd] withTwzrdGuard blocked: ${reason} (verdict=${verdict}, score=${score})`,
+      );
+    }
+    return fn(sellerWallet, ...args);
+  };
+}

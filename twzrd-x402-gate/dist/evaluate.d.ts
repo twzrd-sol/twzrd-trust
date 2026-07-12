@@ -59,6 +59,10 @@ export type EvaluateX402Result = {
     escalatedScore?: number | null;
     /** the paid quick-tier label (Bronze/Silver/Gold/Platinum) from the escalation */
     escalatedTier?: TwzrdTier | null;
+    network?: string;
+    networkSupported?: boolean;
+    reputationScored?: boolean;
+    policyAction?: "allow" | "block";
 };
 /**
  * Evaluate an x402 resource before the buyer pays:

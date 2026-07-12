@@ -1,5 +1,26 @@
 import type { X402PaymentRequirements } from "./types.js";
 
+/**
+ * Pick the best payment requirements from an x402 accepts[] array.
+ * Prefers the Solana-network entry when multiple networks are listed
+ * (e.g. CDP 402 bodies list EVM first, Solana second).
+ */
+export function pickRequirements(
+  accepts?: Array<Record<string, unknown>>,
+): X402PaymentRequirements {
+  const list = accepts ?? [];
+  const isSolana = (e: Record<string, unknown>) =>
+    String(e.network ?? "").toLowerCase().includes("solana");
+  // Prefer mainnet: bare "solana", "mainnet" substring, or CAIP-2 with mainnet genesis prefix.
+  const isMainnet = (e: Record<string, unknown>) => {
+    const n = String(e.network ?? "").toLowerCase();
+    return n === "solana" || n.includes("mainnet") || n.includes("5eykt4");
+  };
+  const solanaMainnet = list.find((e) => isSolana(e) && isMainnet(e));
+  const solanaAny = list.find(isSolana);
+  return (solanaMainnet ?? solanaAny ?? list[0] ?? {}) as X402PaymentRequirements;
+}
+
 export function payToFromRequirements(req: X402PaymentRequirements): {
   payTo: string | undefined;
   amountMicro: string | undefined;

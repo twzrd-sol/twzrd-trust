@@ -1,28 +1,39 @@
 {
   "name": "twzrd-x402-gate",
-  "version": "0.3.0",
-  "description": "Buyer-side x402 trust gate. Run a free TWZRD preflight (ReadinessCard) before signing USDC to any x402 merchant, and autonomously escalate a `warn` to a $0.001 paid trust check that re-decides — blocking the spend on bad paid intel, no human in the loop. Wraps fetch (HTTP 402) and the @x402/mcp onPaymentRequested hook. BREAKING(0.2.0): fail-closed by default — set TWZRD_FAIL_OPEN=true to restore legacy allow-on-outage behavior.",
+  "version": "0.5.4",
+  "description": "Buyer-side x402 trust gate. Run a free TWZRD preflight (ReadinessCard) before signing USDC to any x402 merchant, and autonomously escalate a `warn` to a $0.001 paid trust check that re-decides — blocking the spend on bad paid intel, no human in the loop. Default refuse when free merchant_card.wash_flagged (opt out TWZRD_REFUSE_WASH_FLAGGED=0). A 402 with no extractable payTo fails closed (twzrd_unidentifiable_payment_recipient) instead of falling through to the generic unknown-seller warn. Wraps fetch (HTTP 402) and the @x402/mcp onPaymentRequested hook — fixed in 0.5.2 to read the real @x402/mcp v2 nested `paymentRequired.accepts` shape (verified against @x402/mcp@2.17.0; previously only the flat legacy shape was read, causing a silent 100%-false-block once wired into a real runtime). installTwzrdAutoGate(payWrap) is the default-on one-liner: guards the raw fetch, then hands it to your x402 client, so the correct guard-before-pay composition can't be built backwards. BREAKING(0.2.0): fail-closed by default — set TWZRD_FAIL_OPEN=true to restore legacy allow-on-outage behavior.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "twzrd-safe-fetch": "./bin/twzrd-safe-fetch.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./safe-fetch": {
+      "types": "./dist/safe-fetch.d.ts",
+      "import": "./dist/safe-fetch.js"
     }
   },
   "files": [
     "dist",
+    "bin",
     "README.md"
   ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts",
+    "test": "tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts && tsx test/wash-refuse.test.ts && tsx test/auto-gate.test.ts && tsx test/network.test.ts && tsx test/safe-fetch.test.ts && tsx test/challenge-swap.test.ts && tsx test/x402-client-hook.test.ts && tsx test/run-attribution.test.ts",
+    "safe-fetch": "tsx src/safe-fetch.ts",
     "guard-demo": "tsx examples/agentic-market-gate.ts",
     "autoreceipt-demo": "tsx examples/auto-receipt.ts --dry-run",
-    "sponsored-demo": "tsx examples/sponsored-payer.ts --dry-run"
+    "sponsored-demo": "tsx examples/sponsored-payer.ts --dry-run",
+    "wash-dogfood": "tsx examples/wash-refuse-dogfood.ts",
+    "official-dogfood": "tsx examples/official-x402-dogfood.ts"
   },
   "keywords": [
     "x402",
@@ -38,12 +49,39 @@
     "mcp"
   ],
   "homepage": "https://intel.twzrd.xyz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
+    "directory": "twzrd-x402-gate"
+  },
+  "bugs": {
+    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=18"
   },
+  "peerDependencies": {
+    "@scure/base": ">=1.0.0",
+    "@solana/kit": ">=5.1.0",
+    "@x402/core": ">=2.0.0",
+    "@x402/fetch": ">=2.0.0",
+    "@x402/svm": ">=2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@scure/base": { "optional": true },
+    "@solana/kit": { "optional": true },
+    "@x402/core": { "optional": true },
+    "@x402/fetch": { "optional": true },
+    "@x402/svm": { "optional": true }
+  },
   "devDependencies": {
+    "@scure/base": "^1.2.0",
+    "@solana/kit": "^5.1.0",
     "@types/node": "^20.11.0",
+    "@x402/core": "^2.17.0",
+    "@x402/fetch": "^2.17.0",
+    "@x402/svm": "^2.17.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0"
   }

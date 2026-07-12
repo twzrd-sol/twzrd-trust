@@ -34,7 +34,11 @@ export function withTwzrdGuard(innerFetch, opts) {
         blockDecisions: opts?.blockDecisions,
         failOpen: opts?.failOpen,
         gateOnCanSpend: opts?.gateOnCanSpend,
+        refuseWashFlagged: opts?.refuseWashFlagged,
+        washMaxUsdc: opts?.washMaxUsdc,
+        unsupportedNetworkMode: opts?.unsupportedNetworkMode,
         fetch: opts?.fetch ?? innerFetch,
+        attribution: opts?.attribution,
     });
     return async (input, init) => {
         const resp = await innerFetch(input, init);
@@ -56,7 +60,11 @@ export function withTwzrdGuard(innerFetch, opts) {
             blockDecisions: config.blockDecisions,
             failOpen: config.failOpen,
             gateOnCanSpend: config.gateOnCanSpend,
+            refuseWashFlagged: config.refuseWashFlagged,
+            washMaxUsdc: config.washMaxUsdc ?? undefined,
+            unsupportedNetworkMode: config.unsupportedNetworkMode,
             fetch: config.fetch,
+            attribution: config.attribution,
             autoReceipt: opts?.autoReceipt,
             x402Fetch: opts?.x402Fetch,
             onReceipt: opts?.onReceipt,

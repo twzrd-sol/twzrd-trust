@@ -24,7 +24,11 @@ export async function evaluate_x402_resource(resourceUrl, paymentRequirements, o
         // Decision-only gate: unknown sellers score warn (~45), not block.
         // Gating on can_spend would block every Agentic.Market seller not in corpus.
         gateOnCanSpend: opts.gateOnCanSpend,
+        refuseWashFlagged: opts.refuseWashFlagged,
+        washMaxUsdc: opts.washMaxUsdc,
+        unsupportedNetworkMode: opts.unsupportedNetworkMode,
         fetch: opts.fetch,
+        attribution: opts.attribution,
     });
     const { payTo, amountMicro, resource } = payToFromRequirements(paymentRequirements);
     const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
@@ -33,9 +37,18 @@ export async function evaluate_x402_resource(resourceUrl, paymentRequirements, o
         payTo,
         priceUsdc,
         agentIntent: "evaluate_x402_resource",
-    }, config);
-    const decision = (approval.card.decision ?? "unknown");
-    const receiptUrl = payTo
+        // Evaluate the exact network on the requirement the pay client will use
+        // (pickRequirements prefers Solana when dual-listed).
+        chain: paymentRequirements.network,
+    }, 
+    // resolveConfig already embeds refuseWashFlagged / washMaxUsdc
+    config);
+    // Unscored networks: decision stays "unknown" — never map to reputation allow/warn/block.
+    const decision = (approval.verdict === "unknown"
+        ? "unknown"
+        : (approval.card.decision ?? approval.verdict ?? "unknown"));
+    // Paid trust receipt is Solana-only product surface — omit for unscored nets.
+    const receiptUrl = payTo && approval.reputationScored === true
         ? `${config.intelBase}/v1/intel/trust/${encodeURIComponent(payTo)}`
         : undefined;
     const base = {
@@ -46,6 +59,10 @@ export async function evaluate_x402_resource(resourceUrl, paymentRequirements, o
         card: approval.card,
         failOpen: approval.failOpen,
         receiptUrl,
+        network: approval.network,
+        networkSupported: approval.networkSupported,
+        reputationScored: approval.reputationScored,
+        policyAction: approval.policyAction,
     };
     // Autonomous risk-escalation: a *proceeding* `warn` (uncertain / unknown seller)
     // is vetted by settling the cheap $0.001 quick tier and re-deciding on the paid
