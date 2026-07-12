@@ -1,7 +1,7 @@
 /**
- * WZRD_INTEL_TRUST — Paid trust payload + signed receipt (V5/V6) via x402-capable
- * fetch. Preflight-gated: the free ReadinessCard runs BEFORE the payment and a
- * decision=block aborts before any spend (the protocol's preflight-before-pay rule).
+ * WZRD_INTEL_TRUST — Paid trust payload + signed V6 receipt via x402-capable
+ * fetch. Preflight-gated: free ReadinessCard + free merchant_card wash check run
+ * BEFORE payment; decision=block or wash_flagged aborts before any spend.
  */
 import type { Action } from '@elizaos/core';
 export declare const intelTrustAction: Action;

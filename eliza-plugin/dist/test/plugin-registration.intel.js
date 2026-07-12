@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { describe, it, before, after } from 'node:test';
 import { AgentRuntime } from '@elizaos/core';
-import wzrdPlugin, { intelPreflightAction, intelTrustAction, verifyReceiptAction, setPayingFetch, clearPayingFetch, getIntelClient, resolvePayingFetch, } from '@wzrd_sol/eliza-plugin';
+import wzrdPlugin, { createWzrdPlugin, wzrdPluginWithLegacyEarn, intelPreflightAction, merchantCardAction, intelTrustAction, verifyReceiptAction, setPayingFetch, clearPayingFetch, getIntelClient, resolvePayingFetch, } from '@wzrd_sol/eliza-plugin';
 function mockMemory(content) {
     return {
         id: '00000000-0000-0000-0000-000000000001',
@@ -43,8 +43,29 @@ describe('wzrdPlugin intel registration + E2E (real runtime load)', () => {
     it('constructs runtime with plugins and registers intel actions', () => {
         const names = runtime.actions.map((a) => a.name);
         assert.ok(names.includes('WZRD_INTEL_PREFLIGHT'), 'preflight must be registered');
+        assert.ok(names.includes('WZRD_MERCHANT_CARD'), 'merchant card must be registered');
         assert.ok(names.includes('WZRD_INTEL_TRUST'), 'trust must be registered');
         assert.ok(names.includes('WZRD_VERIFY_RECEIPT'), 'verify must be registered');
+    });
+    it('default plugin (0.6+) does not register legacy earn actions', () => {
+        const names = runtime.actions.map((a) => a.name);
+        for (const legacy of ['WZRD_INFER', 'WZRD_REPORT', 'WZRD_EARN', 'WZRD_CLAIM', 'WZRD_REWARDS']) {
+            assert.equal(names.includes(legacy), false, `${legacy} must be opt-in in 0.6+`);
+        }
+    });
+    it('createWzrdPlugin({ legacyEarnActions: true }) registers earn actions', async () => {
+        const rt = new AgentRuntime({
+            character: { name: 'wzrd-legacy-earn-test', bio: 'test', plugins: [] },
+            settings: {},
+        });
+        await rt.registerPlugin(createWzrdPlugin({ legacyEarnActions: true }));
+        const names = rt.actions.map((a) => a.name);
+        for (const legacy of ['WZRD_INFER', 'WZRD_REPORT', 'WZRD_EARN', 'WZRD_CLAIM', 'WZRD_REWARDS']) {
+            assert.ok(names.includes(legacy), `${legacy} must register when legacyEarnActions is true`);
+        }
+    });
+    it('wzrdPluginWithLegacyEarn matches createWzrdPlugin legacy opt-in', () => {
+        assert.deepEqual(wzrdPluginWithLegacyEarn.actions?.map((a) => a.name), createWzrdPlugin({ legacyEarnActions: true }).actions?.map((a) => a.name));
     });
     it('preflight handler accepts seller_wallet + price + resource_name, returns success + decision/score text (live)', { timeout: 10000 }, async () => {
         const rt = mockRuntime({ WZRD_INTEL_URL: 'https://intel.twzrd.xyz' });
@@ -121,25 +142,32 @@ describe('wzrdPlugin intel registration + E2E (real runtime load)', () => {
             assert.ok(result.data);
     });
     it('PREFLIGHT-BEFORE-PAY: decision=block aborts the trust purchase before any payment', async () => {
-        // preSpendGate runs the FREE preflight via the SDK's intelPreflight, which uses
-        // the global fetch (not the injected paying fetch — that is reserved for the
-        // paid leg). So we stub global fetch to return a block ReadinessCard, and put a
-        // tripwire on the injected paying fetch: if the pay leg runs after a block, the
-        // tripwire fires and the test fails.
+        // preSpendGate runs FREE preflight + merchant_card via global fetch (not the
+        // injected paying fetch). Stub both; tripwire on pay leg.
         const realFetch = globalThis.fetch;
         let payAttempted = false;
         setPayingFetch(async () => {
             payAttempted = true;
             return { ok: true, status: 200, json: async () => ({}) };
         });
-        globalThis.fetch = (async () => ({
-            ok: true,
-            status: 200,
-            json: async () => ({
-                readiness_card: { decision: 'block', trust_score: 5, can_spend: false },
-                reason: 'seller flagged by corpus',
-            }),
-        }));
+        globalThis.fetch = (async (input) => {
+            const url = String(input);
+            if (url.includes('/merchant_card/')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ wash_flagged: false }),
+                };
+            }
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    readiness_card: { decision: 'block', trust_score: 5, can_spend: false },
+                    reason: 'seller flagged by corpus',
+                }),
+            };
+        });
         try {
             const callbacks = [];
             const result = await intelTrustAction.handler(mockRuntime(), mockMemory({ pubkey: '4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE' }), undefined, undefined, async (r) => {
@@ -150,6 +178,79 @@ describe('wzrdPlugin intel registration + E2E (real runtime load)', () => {
             assert.equal(result?.error, 'preflight_block');
             assert.equal(payAttempted, false, 'payment must NOT be attempted after a block decision');
             assert.match(callbacks.join('\n'), /blocked|No payment was sent/i);
+        }
+        finally {
+            globalThis.fetch = realFetch;
+        }
+    });
+    it('WASH REFUSE: wash_flagged aborts trust purchase even when preflight allows', async () => {
+        const realFetch = globalThis.fetch;
+        let payAttempted = false;
+        setPayingFetch(async () => {
+            payAttempted = true;
+            return { ok: true, status: 200, json: async () => ({}) };
+        });
+        globalThis.fetch = (async (input) => {
+            const url = String(input);
+            if (url.includes('/merchant_card/')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        merchant: '4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE',
+                        wash_flagged: true,
+                        wash_label: 'fleet_dominated',
+                    }),
+                };
+            }
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    readiness_card: { decision: 'allow', trust_score: 80, can_spend: true },
+                    reason: 'preflight decision=allow',
+                }),
+            };
+        });
+        try {
+            const callbacks = [];
+            const result = await intelTrustAction.handler(mockRuntime(), mockMemory({ pubkey: '4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE' }), undefined, undefined, async (r) => {
+                callbacks.push(r.text ?? '');
+                return [];
+            });
+            assert.equal(result?.success, false);
+            assert.equal(result?.error, 'wash_flagged');
+            assert.equal(payAttempted, false, 'payment must NOT run after wash refuse');
+            assert.match(callbacks.join('\n'), /wash|No payment was sent/i);
+        }
+        finally {
+            globalThis.fetch = realFetch;
+        }
+    });
+    it('merchant card handler returns wash / catalog fields (mocked)', async () => {
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                merchant: '4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE',
+                in_corpus: true,
+                wash_flagged: false,
+                wash_label: 'provider_organic_broad',
+                catalog_enriched: false,
+                offering_status: 'Offering unknown — graph only',
+                unique_payers_90d: 12,
+            }),
+        }));
+        try {
+            const callbacks = [];
+            const result = await merchantCardAction.handler(mockRuntime(), mockMemory({ pubkey: '4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE' }), undefined, undefined, async (r) => {
+                callbacks.push(r.text ?? '');
+                return [];
+            });
+            assert.equal(result?.success, true);
+            assert.match(callbacks.join('\n'), /Wash flagged: no/i);
+            assert.match(callbacks.join('\n'), /graph only/i);
         }
         finally {
             globalThis.fetch = realFetch;

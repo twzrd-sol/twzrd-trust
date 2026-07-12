@@ -4,8 +4,9 @@ import { resolvePayingFetch } from '../paying-fetch.js';
 export const intelTrustAction = {
     name: 'WZRD_INTEL_TRUST',
     similes: ['WZRD_TRUST_RECEIPT', 'INTEL_TRUST', 'GET_TRUST_RECEIPT'],
-    description: 'Paid GET /v1/intel/trust/{pubkey} (~0.05 USDC). Returns trust score + signed twzrd_receipt (V5/V6). ' +
-        'Runs the free preflight first and aborts on decision=block before spending. ' +
+    description: 'Paid GET /v1/intel/trust/{pubkey} (~0.05 USDC on Solana). Returns renormalized trust score + signed V6 ' +
+        'twzrd_receipt (portable offline proof). Runs free preflight + merchant_card wash check first; ' +
+        'aborts on decision=block or wash_flagged before any spend. ' +
         'Requires an x402-capable fetchImpl (setPayingFetch or host service). ' +
         'Surfaces payment requirements if no payer is configured.',
     examples: [
@@ -24,24 +25,32 @@ export const intelTrustAction = {
         }
         const apiBase = getIntelBase(runtime);
         const baseFetchImpl = resolvePayingFetch(runtime);
-        // preflight-before-pay: run the FREE ReadinessCard on the counterparty and
-        // abort on decision=block BEFORE any payment is signed/sent. failOpen=false so
+        // preflight-before-pay + wash refuse: FREE ReadinessCard + free merchant_card.
+        // Abort on decision=block or wash_flagged before any payment. failOpen=false so
         // the block-on-block guarantee holds even if the gate errors — a reference
-        // plugin must demonstrate the safe posture, not bypass it. The preflight call
-        // is free (the gate only ever reads), so this adds no spend.
+        // plugin must demonstrate the safe posture, not bypass it. Free reads only.
         try {
-            const gate = await preSpendGate({ seller_wallet: pubkey }, { apiBase, failOpen: false, fetchImpl: baseFetchImpl });
+            const gate = await preSpendGate({ seller_wallet: pubkey }, { apiBase, failOpen: false, refuseWashFlagged: true, fetchImpl: baseFetchImpl });
             if (!gate.allow) {
+                const washLine = gate.washFlagged === true
+                    ? `Wash flagged: yes (merchant_card refuse default)\n`
+                    : '';
                 await callback?.({
                     text: `Preflight blocked the trust purchase for ${pubkey}.\n` +
                         `Decision: ${gate.decision}${gate.trustScore != null ? `, trust_score=${gate.trustScore}` : ''}\n` +
+                        washLine +
                         `Reason: ${gate.reason}\n` +
                         `No payment was sent.`,
                 });
                 return {
                     success: false,
-                    error: 'preflight_block',
-                    data: { decision: gate.decision, trustScore: gate.trustScore, reason: gate.reason },
+                    error: gate.washFlagged === true ? 'wash_flagged' : 'preflight_block',
+                    data: {
+                        decision: gate.decision,
+                        trustScore: gate.trustScore,
+                        reason: gate.reason,
+                        washFlagged: gate.washFlagged ?? null,
+                    },
                 };
             }
         }

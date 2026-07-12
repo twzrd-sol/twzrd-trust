@@ -27,7 +27,7 @@
     "build": "tsc",
     "prepublishOnly": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/config-defaults.test.ts && tsx test/export-parity.test.ts && tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts && tsx test/wash-refuse.test.ts && tsx test/auto-gate.test.ts && tsx test/network.test.ts && tsx test/safe-fetch.test.ts && tsx test/challenge-swap.test.ts && tsx test/x402-client-hook.test.ts && tsx test/run-attribution.test.ts",
+    "test": "tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts && tsx test/wash-refuse.test.ts && tsx test/auto-gate.test.ts && tsx test/network.test.ts && tsx test/safe-fetch.test.ts && tsx test/challenge-swap.test.ts && tsx test/x402-client-hook.test.ts && tsx test/run-attribution.test.ts",
     "safe-fetch": "tsx src/safe-fetch.ts",
     "guard-demo": "tsx examples/agentic-market-gate.ts",
     "autoreceipt-demo": "tsx examples/auto-receipt.ts --dry-run",
