@@ -5,14 +5,16 @@
  * Proves: preflight runs, strict gate blocks, signer is never invoked.
  * No wallet funding or settlement required.
  *
- * Usage:
- *   npm i twzrd-x402-gate@0.5.3
- *   node zero-spend-guard-check.mjs
+ * Usage (local checked-in package — not a silent npm install):
+ *   node docs/proofs/examples/zero-spend-guard-check.mjs
+ *
+ * Optional published copy:
+ *   npm i twzrd-x402-gate@0.5.4
  *
  * Optional:
  *   TWZRD_TEST_URL=https://example.com/paid node zero-spend-guard-check.mjs
  */
-import { installTwzrdAutoGate } from "twzrd-x402-gate";
+import { installTwzrdAutoGate } from "../../../twzrd-x402-gate/dist/index.js";
 
 const TARGET =
   process.env.TWZRD_TEST_URL?.trim() ||
