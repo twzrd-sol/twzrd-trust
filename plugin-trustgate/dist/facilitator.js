@@ -45,7 +45,7 @@ function resolveNetwork(ctx) {
  * Build an `onBeforeSettle` hook that screens the seller wallet through the free
  * TWZRD preflight and aborts the settlement when the verdict is a hard block.
  *
- * Defaults tuned for a settle hot path: 500ms timeout, fail-open, Solana-only.
+ * Defaults tuned for a settle hot path: 500ms timeout, fail-closed, Solana-only.
  */
 export function createOnBeforeSettleHook(config = {}) {
     const { solanaOnly = true, onVerdict, timeoutMs = 500, ...gateRest } = config;

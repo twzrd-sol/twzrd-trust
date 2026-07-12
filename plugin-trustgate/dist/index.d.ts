@@ -3,16 +3,16 @@
  *
  * Two pieces, NOT a magic interceptor:
  *   - the provider INJECTS the seller's trust verdict ("BLOCK - do not pay") into the
- *     agent's context, so the model won't choose to pay a wash-flagged merchant.
+ *     agent's context, so the model won't choose to pay a blocked merchant.
  *   - canSpendSafely(payTo) is the ENFORCEMENT primitive your payment action calls
  *     before signing (returns false to abort). The plugin does not auto-intercept
  *     signatures - you wire the guard into your spend path.
  *
- * Scores via the FREE TWZRD preflight (corpus-backed wash/sybil reputation). No auth,
- * no cost, no Solana dep in the gate. Fail-open by default (failOpen:false = strict).
+ * Scores via FREE TWZRD preflight only (ReadinessCard). Does NOT call merchant_card;
+ * for wash_flagged refuse + paid V6 trust, use @wzrd_sol/eliza-plugin or twzrd-x402-gate.
+ * Fail-closed by default (failOpen:false = block on preflight outage).
  *
  *   import { trustGatePlugin, canSpendSafely } from "@wzrd_sol/plugin-trustgate";
- *   // register trustGatePlugin so the agent SEES trust in context, then gate the spend:
  *   if (!(await canSpendSafely(payTo))) return; // do not sign
  */
 import type { Plugin } from "@elizaos/core";

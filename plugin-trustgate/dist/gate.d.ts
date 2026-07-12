@@ -43,6 +43,12 @@ export interface TrustVerdict {
     gateAvailable: boolean;
     /** On warn verdict: path to the paid trust receipt endpoint, e.g. /v1/intel/trust/{wallet}. */
     paidDeepDive?: string;
+    /**
+     * Server-issued preflight id from the free preflight response (top-level `preflight_id`).
+     * Echo it as the `x-twzrd-preflight-id` header on the paid /v1/intel/trust call so the
+     * verify->act funnel can attribute the paid call back to this preflight.
+     */
+    preflightId?: number;
 }
 /**
  * Score a seller wallet via the free TWZRD preflight. Never throws.

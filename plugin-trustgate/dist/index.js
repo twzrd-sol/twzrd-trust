@@ -2,8 +2,10 @@ import { canSpendSafely } from "./gate.js";
 import { trustGateProvider } from "./provider.js";
 export const trustGatePlugin = {
     name: "twzrd-trustgate",
-    description: "Buyer-side x402 trust gate. Scores a seller wallet via the free TWZRD preflight before the " +
-        "agent signs a payment, refusing wash-flagged / block-rated merchants. Fail-open.",
+    description: "Buyer-side x402 trust gate. Scores a seller via free TWZRD preflight (ReadinessCard) before " +
+        "the agent signs; refuses decision=block merchants. Enforcement is opt-in (call canSpendSafely). " +
+        "Preflight-only here - use @wzrd_sol/eliza-plugin preSpendGate or twzrd-x402-gate for free " +
+        "merchant_card wash refuse. Fail-closed by default.",
     providers: [trustGateProvider],
 };
 export default trustGatePlugin;
