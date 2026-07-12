@@ -1,4 +1,4 @@
-import { payToFromRequirements, pickRequirements } from "./payto.js";
+import { payToFromRequirements, pickRequirements, priceUsdcFromAmountMicro, } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 function requestUrl(input) {
     if (typeof input === "string")
@@ -25,12 +25,15 @@ export function wrapFetchWithTwzrdGate(innerFetch, config) {
             return resp;
         }
         const first = pickRequirements(body.accepts);
-        const { payTo, resource } = payToFromRequirements(first);
+        const { payTo, resource, amountMicro } = payToFromRequirements(first);
         const url = requestUrl(input);
+        const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
         const { approved, reason } = await twzrdApprovePayment({
             resourceUrl: resource ?? url,
             payTo,
+            priceUsdc,
             agentIntent: "wrapFetch_402_gate",
+            chain: first.network,
         }, config);
         if (!approved) {
             throw new Error(`[twzrd] payment blocked: ${reason} payTo=${payTo} url=${url}`);

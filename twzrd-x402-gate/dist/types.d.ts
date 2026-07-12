@@ -1,4 +1,10 @@
 export type TwzrdDecision = "allow" | "warn" | "block";
+/**
+ * Extended decision used when the payment network is recognized but not scored
+ * (e.g. Base/EVM). Distinct from reputation "allow" — never claim TWZRD intel
+ * approved an unscored chain payment.
+ */
+export type TwzrdGateDecision = TwzrdDecision | "unknown";
 export type TwzrdReadinessCard = {
     decision?: TwzrdDecision;
     trust_score?: number;
@@ -44,6 +50,26 @@ export type TwzrdGateConfig = {
      * policy documented for ClawRouter/BlockRun in the twzrd-clawrouter skill.
      */
     gateOnCanSpend?: boolean;
+    /**
+     * After free preflight, also GET free merchant_card for payTo and refuse
+     * when wash_flagged=true. Default: true (trustless step 3 open default).
+     * Fail-open if the card is unreachable — never invent wash. Opt out with
+     * refuseWashFlagged:false or TWZRD_REFUSE_WASH_FLAGGED=0.
+     */
+    refuseWashFlagged?: boolean;
+    /**
+     * Soft cap instead of hard refuse: when wash_flagged and priceUsdc <= this,
+     * allow (reason twzrd_wash_capped_*). Above the cap (or unknown price) refuse.
+     * Only applies when refuseWashFlagged is true. Env: TWZRD_WASH_MAX_USDC.
+     */
+    washMaxUsdc?: number;
+    /**
+     * How to handle payments on networks TWZRD does not reputation-score (Base/EVM/…).
+     * - observe (default): allow payment, emit decision=unknown + telemetry
+     * - strict: block before signing (policy_action=block)
+     * Env: TWZRD_UNSUPPORTED_NETWORK_MODE=observe|strict
+     */
+    unsupportedNetworkMode?: "observe" | "strict";
     /** Custom fetch (for tests or non-Node runtimes). Default: global fetch */
     fetch?: typeof fetch;
     /**
@@ -53,6 +79,24 @@ export type TwzrdGateConfig = {
      * Example: (ctx) => paidFetch(`https://intel.twzrd.xyz${ctx.upsellUrl}`)
      */
     onWarnUpsell?: (ctx: TwzrdUpsellContext) => void | Promise<void>;
+    /**
+     * Opt-in run attribution. When set, the gate stamps the TWZRD *preflight*
+     * request (and no other request) with correlation headers so an integrator's
+     * run can be matched to a server-observed preflight:
+     *   X-TWZRD-Integration: <integration>
+     *   X-TWZRD-Run-Id:      <runId>
+     *   X-TWZRD-Client:      twzrd-x402-gate/<version>
+     * This is correlation evidence, not proof of adoption — the runId is
+     * caller-supplied and spoofable. A run only counts when the same runId appears
+     * in the integrator's own transcript AND is observed server-side from
+     * non-internal lineage. No PII, secrets, or payload is added.
+     */
+    attribution?: {
+        /** Stable integration label, e.g. "payai-x402-solana-pr38". */
+        integration: string;
+        /** Unique per-run id (e.g. crypto.randomUUID()). Echo it in your transcript. */
+        runId: string;
+    };
 };
 export type TwzrdApproveContext = {
     resourceUrl?: string;
@@ -75,9 +119,12 @@ export type TwzrdUpsellContext = {
 };
 export type TwzrdApprovalResult = {
     approved: boolean;
-    /** Exact card decision: allow | warn | block. Prefer this over inspecting `approved` for warn. */
-    verdict: TwzrdDecision;
-    /** card.trust_score or null when unavailable (fail-open path). */
+    /**
+     * Card decision when reputation-scored: allow | warn | block.
+     * For unscored networks: "unknown" (never a reputation "allow").
+     */
+    verdict: TwzrdGateDecision;
+    /** card.trust_score or null when unavailable / unscored network. */
     score: number | null;
     card: TwzrdReadinessCard;
     reason: string;
@@ -85,6 +132,21 @@ export type TwzrdApprovalResult = {
     failOpen?: boolean;
     /** Server-issued preflight id, threaded from the preflight for verify->act funnel attribution. */
     preflightId?: number;
+    /** Free merchant_card.wash_flagged when fetched; null if unavailable / fail-open */
+    washFlagged?: boolean | null;
+    /** true when wash_flagged but payment allowed under washMaxUsdc */
+    washCapped?: boolean;
+    /** Raw payment network (CAIP-2 / x402 wire), when known */
+    network?: string;
+    /** True when the network identifier is recognized by the gate */
+    networkSupported?: boolean;
+    /** True only when TWZRD ran Solana behavioral reputation for this payment */
+    reputationScored?: boolean;
+    /**
+     * Policy action for the payment (may allow an unscored network).
+     * Distinct from reputation verdict — never confuse policy allow with trust allow.
+     */
+    policyAction?: "allow" | "block";
 };
 export type X402PaymentRequirements = {
     payTo?: string;
@@ -95,6 +157,8 @@ export type X402PaymentRequirements = {
     description?: string;
     /** x402 wire field for chain context ("solana", "base-sepolia", "base-mainnet", etc.) */
     network?: string;
+    /** Optional asset mint / token address from accepts[] */
+    asset?: string;
 };
 export type X402PaymentRequiredBody = {
     accepts?: Array<Record<string, unknown>>;
@@ -109,5 +173,20 @@ export type X402McpPaymentRequest = {
         sellerWallet?: string;
         buyerWallet?: string;
     };
+};
+/**
+ * The REAL `@x402/mcp` (v2.x) onPaymentRequested context shape:
+ * `{ toolName, arguments, paymentRequired }` with accepts[] nested under
+ * `paymentRequired` — NOT at the top level. Verified against
+ * @x402/mcp@2.17.0 dist types (PaymentRequestedContext). twzrdOnPaymentRequested
+ * accepts either this or the legacy flat X402McpPaymentRequest shape.
+ */
+export type X402McpPaymentRequestedContext = {
+    /** The tool being called */
+    toolName?: string;
+    /** The arguments passed to the tool */
+    arguments?: Record<string, unknown>;
+    /** The payment requirements from the server ({ x402Version, accepts, ... }) */
+    paymentRequired?: X402PaymentRequiredBody & Record<string, unknown>;
 };
 //# sourceMappingURL=types.d.ts.map

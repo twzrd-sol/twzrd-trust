@@ -29,9 +29,37 @@ export function resolveConfig(overrides) {
     const gateOnCanSpend = overrides?.gateOnCanSpend ??
         (process.env.TWZRD_GATE_ON_CAN_SPEND === "true" ||
             process.env.TWZRD_GATE_ON_CAN_SPEND === "1");
+    // Default true: free merchant_card.wash_flagged → refuse pay (trustless step 3).
+    // Opt out: refuseWashFlagged:false or TWZRD_REFUSE_WASH_FLAGGED=0|false.
+    const refuseWashEnv = process.env.TWZRD_REFUSE_WASH_FLAGGED;
+    const refuseWashFlagged = overrides?.refuseWashFlagged ??
+        !(refuseWashEnv === "0" || refuseWashEnv === "false");
+    let washMaxUsdc = null;
+    if (overrides?.washMaxUsdc != null && Number.isFinite(overrides.washMaxUsdc)) {
+        washMaxUsdc = overrides.washMaxUsdc;
+    }
+    else if (process.env.TWZRD_WASH_MAX_USDC != null && process.env.TWZRD_WASH_MAX_USDC !== "") {
+        const n = Number(process.env.TWZRD_WASH_MAX_USDC);
+        if (Number.isFinite(n) && n >= 0)
+            washMaxUsdc = n;
+    }
+    // Default observe: Base/EVM payments are allowed but marked decision=unknown
+    // (policy allow ≠ reputation allow). Strict blocks unscored networks before sign.
+    const envMode = (process.env.TWZRD_UNSUPPORTED_NETWORK_MODE ?? "").trim().toLowerCase();
+    const unsupportedNetworkMode = overrides?.unsupportedNetworkMode ??
+        (envMode === "strict" ? "strict" : "observe");
     const fetchFn = overrides?.fetch ?? globalThis.fetch;
     if (typeof fetchFn !== "function") {
         throw new Error("[twzrd-x402-gate] fetch is not available; pass config.fetch");
+    }
+    // Opt-in preflight attribution. Sent ONLY when both fields resolve (no partial
+    // stamping). Overrides win; env fallback (TWZRD_ATTRIBUTION_INTEGRATION +
+    // TWZRD_ATTRIBUTION_RUN_ID) exists for the zero-spend harness.
+    let attribution;
+    const attrIntegration = overrides?.attribution?.integration ?? process.env.TWZRD_ATTRIBUTION_INTEGRATION;
+    const attrRunId = overrides?.attribution?.runId ?? process.env.TWZRD_ATTRIBUTION_RUN_ID;
+    if (attrIntegration && attrRunId) {
+        attribution = { integration: attrIntegration, runId: attrRunId };
     }
     return {
         intelBase,
@@ -39,8 +67,12 @@ export function resolveConfig(overrides) {
         blockDecisions,
         failOpen,
         gateOnCanSpend,
+        refuseWashFlagged,
+        washMaxUsdc,
+        unsupportedNetworkMode,
         fetch: fetchFn,
         onWarnUpsell: overrides?.onWarnUpsell,
+        attribution,
     };
 }
 //# sourceMappingURL=config.js.map

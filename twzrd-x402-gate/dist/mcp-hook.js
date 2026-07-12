@@ -1,22 +1,45 @@
 import { payToFromRequirements, priceUsdcFromAmountMicro, pickRequirements } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 /**
- * x402 MCP client hook. Wire as `onPaymentRequested` on createX402MCPClient.
+ * x402 MCP client hook. Wire as `onPaymentRequested` on the @x402/mcp client
+ * (`new x402MCPClient(mcp, paymentClient, { onPaymentRequested })` or
+ * `createx402MCPClient({ ..., onPaymentRequested })`).
  * Returns false to deny the payment, true to allow.
+ *
+ * Accepts BOTH context shapes:
+ * - the real @x402/mcp v2 PaymentRequestedContext:
+ *   `{ toolName, arguments, paymentRequired: { accepts } }` — accepts[] is
+ *   nested under paymentRequired (verified against @x402/mcp@2.17.0);
+ * - the legacy flat shape `{ accepts, context }` this package documented
+ *   before this fix.
+ *
+ * Before this fix only the flat shape was read: wired into the real runtime,
+ * `req.accepts` was undefined, so every payment hit the unidentifiable-recipient
+ * fail-closed path — safe, but a 100% false-block. The nested shape is now
+ * detected first.
+ *
+ * For official @x402/core clients (not MCP), prefer `installTwzrdX402ClientHook`,
+ * which registers on the client's own `onBeforePaymentCreation` lifecycle hook.
+ *
+ * @see https://docs.x402.org/advanced-concepts/lifecycle-hooks
  */
 export async function twzrdOnPaymentRequested(req, config) {
-    const first = pickRequirements(req.accepts);
+    const real = req;
+    const legacy = req;
+    const accepts = (real.paymentRequired?.accepts ?? legacy.accepts);
+    const toolName = real.toolName ?? legacy.context?.toolName;
+    const first = pickRequirements(accepts);
     const { payTo, amountMicro, resource } = payToFromRequirements(first);
     const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
     const chain = first.network ?? undefined;
     try {
         const { approved, card, reason } = await twzrdApprovePayment({
-            resourceUrl: req.context?.resource ?? resource,
-            resourceName: req.context?.toolName,
-            sellerWallet: req.context?.sellerWallet,
+            resourceUrl: legacy.context?.resource ?? resource,
+            resourceName: toolName,
+            sellerWallet: legacy.context?.sellerWallet,
             payTo,
             priceUsdc,
-            buyerWallet: req.context?.buyerWallet,
+            buyerWallet: legacy.context?.buyerWallet,
             agentIntent: "x402_mcp_onPaymentRequested",
             chain,
         }, config);

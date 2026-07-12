@@ -1,5 +1,9 @@
 import type { ResolvedTwzrdGateConfig } from "./config.js";
-import { payToFromRequirements } from "./payto.js";
+import {
+  payToFromRequirements,
+  pickRequirements,
+  priceUsdcFromAmountMicro,
+} from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 import type { X402PaymentRequiredBody, X402PaymentRequirements } from "./types.js";
 
@@ -32,15 +36,18 @@ export function wrapFetchWithTwzrdGate(
       return resp;
     }
 
-    const first = (body.accepts?.[0] ?? {}) as X402PaymentRequirements;
-    const { payTo, resource } = payToFromRequirements(first);
+    const first = pickRequirements(body.accepts as Array<Record<string, unknown>> | undefined);
+    const { payTo, resource, amountMicro } = payToFromRequirements(first);
     const url = requestUrl(input);
+    const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
 
     const { approved, reason } = await twzrdApprovePayment(
       {
         resourceUrl: resource ?? url,
         payTo,
+        priceUsdc,
         agentIntent: "wrapFetch_402_gate",
+        chain: first.network,
       },
       config,
     );
