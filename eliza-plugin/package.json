@@ -1,7 +1,7 @@
 {
   "name": "@wzrd_sol/eliza-plugin",
   "version": "0.3.2",
-  "description": "WZRD Agent Intel for ElizaOS \u2014 preflight ReadinessCards, x402-paid signed trust receipts (V6 reputation leaf), offline verification on intel.twzrd.xyz. Also ships the legacy earn loop.",
+  "description": "WZRD Agent Intel for ElizaOS. Free buyer sequence: preflight ReadinessCard, optional merchant_card wash policy via twzrd-x402-gate. Paid: signed V6 trust receipt (0.05 USDC). Offline verify on intel.twzrd.xyz.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -47,9 +47,9 @@
     "receipt",
     "reputation",
     "preflight",
-    "ccm",
-    "inference",
-    "earn",
+    "merchant_card",
+    "wash",
+    "marketplace",
     "ai-agent",
     "mcp"
   ],
