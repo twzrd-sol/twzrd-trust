@@ -9,7 +9,7 @@ description: |
 
   WHAT YOU GET FREE: pre-spend ReadinessCard, wallet trust scores, x402 leaderboard,
   counterparty + facilitator footprint, wash/sybil-fleet detection, batch + compare,
-  signed-receipt verification, Solana Market API intelligence (18 tools).
+  signed-receipt verification, seller graph + directory tools (23 MCP tools).
   PAID (x402, USDC on Solana): full renormalized trust model + portable Ed25519-signed
   v6 receipt at GET /v1/intel/trust/{pubkey} (0.05 USDC).
   TRIGGERS: should I pay this, is this wallet safe, check seller, x402 preflight, scam
@@ -123,7 +123,7 @@ The signing key is published at `https://intel.twzrd.xyz/.well-known/x402` and i
 
 ## Optional: native MCP (streamable HTTP)
 
-The same intel is exposed as an MCP server — 18 tools, MCP 2025-03-26 over streamable
+The same intel is exposed as an MCP server — 23 tools, MCP 2025-03-26 over streamable
 HTTP, no local install. The install fact is the URL:
 
 ```
