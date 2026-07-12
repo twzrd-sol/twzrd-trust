@@ -1,7 +1,7 @@
 {
   "name": "@wzrd_sol/eliza-plugin",
-  "version": "0.3.2",
-  "description": "WZRD Agent Intel for ElizaOS. Free buyer sequence: preflight ReadinessCard, optional merchant_card wash policy via twzrd-x402-gate. Paid: signed V6 trust receipt (0.05 USDC). Offline verify on intel.twzrd.xyz.",
+  "version": "0.6.0",
+  "description": "WZRD Agent Intel for ElizaOS. Default plugin registers intel actions only: free preflight ReadinessCard + merchant_card (wash_flagged refuse default), paid GET /v1/intel/trust (0.05 USDC) V6 receipt, offline verify. Legacy earn loop (infer/report/claim) is opt-in via createWzrdPlugin({ legacyEarnActions: true }).",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,9 +19,10 @@
   },
   "dependencies": {
     "@solana/web3.js": "^1.95.0",
-    "@wzrd_sol/sdk": "^0.4.3",
+    "@wzrd_sol/sdk": "^0.4.7",
     "bs58": "^5.0.0",
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "twzrd-x402-gate": "^0.5.4"
   },
   "peerDependencies": {
     "@elizaos/core": "^1.0.0"
@@ -50,6 +51,7 @@
     "merchant_card",
     "wash",
     "marketplace",
+    "legacy-earn",
     "ai-agent",
     "mcp"
   ],

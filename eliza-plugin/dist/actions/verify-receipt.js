@@ -3,11 +3,11 @@ import { getIntelBase, parseReceipt, withTimeout } from '../intel-helpers.js';
 export const verifyReceiptAction = {
     name: 'WZRD_VERIFY_RECEIPT',
     similes: ['WZRD_VERIFY', 'VERIFY_TWZRD_RECEIPT', 'CHECK_RECEIPT'],
-    description: 'Offline verify a TwzrdReceipt (V5 or V6): recompute keccak leaf from preimage and check Ed25519 signature ' +
-        'against the published TWZRD key. No network required when trustedPubkey is known.',
+    description: 'Offline verify a TwzrdReceipt (V6 primary; older V5 still accepted): recompute keccak leaf from preimage ' +
+        'and check Ed25519 signature against the published TWZRD key. No network required when trustedPubkey is known.',
     examples: [
         [
-            { name: '{{user1}}', content: { text: 'Verify this receipt: {"version":"v5","leaf":"0x...","preimage":{...}}' } },
+            { name: '{{user1}}', content: { text: 'Verify this receipt: {"version":"v6","leaf":"0x...","preimage":{...}}' } },
             { name: '{{agentName}}', content: { text: 'Receipt valid: leaf OK, signature OK.' } },
         ],
     ],

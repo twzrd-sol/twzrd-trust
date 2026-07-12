@@ -43,7 +43,8 @@ export const intelPreflightAction = {
     similes: ['WZRD_PREFLIGHT', 'INTEL_PREFLIGHT', 'READINESS_CARD'],
     description: 'Free pre-spend ReadinessCard for a seller/resource/price/intent. Returns decision (allow/warn/block), ' +
         'trust_score, can_spend, caveats, paid_deep_dive upsell, and root_provenance when applicable. ' +
-        'Run this before any x402 payment.',
+        'Step 1 of the buyer sequence before any x402 payment; follow with WZRD_MERCHANT_CARD (wash refuse default) ' +
+        'or preSpendGate which runs both free checks.',
     examples: [
         [
             {
