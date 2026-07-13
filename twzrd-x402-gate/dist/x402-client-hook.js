@@ -12,6 +12,10 @@
 import { resolveConfig } from "./config.js";
 import { priceUsdcFromAmountMicro } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
+import { x402RequirementsToIntent } from "./intent-adapters.js";
+import { evaluateIntent } from "./policy-runtime.js";
+import { createSeededDecisionSigner, } from "./decision-token.js";
+import { counterpartyKnownFromApproval } from "./intelligence.js";
 function pickReq(ctx) {
     return ctx.selectedRequirements ?? ctx.requirements ?? {};
 }
@@ -35,6 +39,23 @@ function pickReq(ctx) {
  */
 export function installTwzrdX402ClientHook(client, options) {
     const cfg = resolveConfig(options);
+    // Resolve the Payment Control signer once at install time (fail fast).
+    // EXACTLY one of signer/secret — never silently prefer one when both are set.
+    let pcSigner;
+    if (options?.paymentControl) {
+        const { signer, secret } = options.paymentControl;
+        const hasSigner = signer != null;
+        const hasSecret = typeof secret === "string" && secret.length > 0;
+        if (hasSigner && hasSecret) {
+            throw new Error("[twzrd] paymentControl: provide exactly one of `signer` or `secret` — both were given. " +
+                "Silently choosing one would sign decisions with a key you did not intend.");
+        }
+        if (!hasSigner && !hasSecret) {
+            throw new Error("[twzrd] paymentControl: provide exactly one of `signer` or `secret` — neither was given. " +
+                "Decisions must be signed to be verifiable at the signer boundary.");
+        }
+        pcSigner = hasSigner ? signer : createSeededDecisionSigner(secret);
+    }
     client.onBeforePaymentCreation(async (context) => {
         const req = pickReq(context);
         const payTo = req.payTo ?? req.pay_to;
@@ -48,6 +69,47 @@ export function installTwzrdX402ClientHook(client, options) {
             agentIntent: "x402_onBeforePaymentCreation",
             chain: network,
         }, cfg);
+        // Opt-in Payment Control: build the canonical intent and run the policy
+        // runtime, feeding the preflight result in as remote intelligence. Skipped
+        // when payTo/amount are missing — the legacy gate already denies those.
+        let intent;
+        let decision;
+        if (options?.paymentControl && payTo && amountMicro) {
+            const pc = options.paymentControl;
+            // x402RequirementsToIntent converts the wire micro-amount to decimal USD.
+            intent = x402RequirementsToIntent(req, {
+                resourceUrl: req.resource,
+                method: pc.method,
+                facilitator: pc.facilitator,
+                purpose: pc.purpose,
+            });
+            decision = await evaluateIntent(intent, {
+                signer: pcSigner,
+                policy: pc.policy,
+                mandate: pc.mandate,
+                ledger: pc.ledger,
+                ttlMs: pc.ttlMs,
+                now: options.now?.(),
+                // Ledger hygiene: never record spend for a payment the legacy gate
+                // already denied — the hook aborts it regardless of this decision,
+                // so recording would pollute cumulative/monthly caps.
+                recordSpend: approval.approved,
+                intelligence: () => ({
+                    // NOT reputationScored — that flag is true for any scored Solana path,
+                    // including a wallet we have never observed, which would mark every
+                    // recipient known:true and disable unknownCounterparty entirely.
+                    // Same shared mapping as the standalone intelligence provider.
+                    known: counterpartyKnownFromApproval(approval),
+                    washFlagged: approval.washFlagged ?? undefined,
+                    decision: approval.verdict === "allow" ||
+                        approval.verdict === "warn" ||
+                        approval.verdict === "block"
+                        ? approval.verdict
+                        : undefined,
+                    trustScore: approval.score ?? undefined,
+                }),
+            });
+        }
         try {
             options?.onDecision?.({
                 approved: approval.approved,
@@ -58,16 +120,21 @@ export function installTwzrdX402ClientHook(client, options) {
                 amountMicro,
                 reputationScored: approval.reputationScored,
                 policyAction: approval.policyAction,
+                intent,
+                decision,
             });
         }
         catch {
             // never break payment path on telemetry
         }
-        if (!approval.approved) {
-            return {
-                abort: true,
-                reason: `[twzrd] ${approval.reason} payTo=${payTo ?? "unknown"} network=${network ?? "unknown"}`,
-            };
+        // Payment Control can only TIGHTEN: abort if the legacy gate denied OR the
+        // signed decision blocks. Never loosen a legacy denial.
+        const pcBlocks = decision?.decision === "block";
+        if (!approval.approved || pcBlocks) {
+            const reason = pcBlocks && approval.approved
+                ? `[twzrd] payment_control_block:${decision?.reasonCodes.join(",")} payTo=${payTo ?? "unknown"}`
+                : `[twzrd] ${approval.reason} payTo=${payTo ?? "unknown"} network=${network ?? "unknown"}`;
+            return { abort: true, reason };
         }
         // void / undefined → proceed to payment payload creation (same selectedRequirements)
     });

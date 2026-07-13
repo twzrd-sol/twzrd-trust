@@ -18,7 +18,11 @@ const client = new x402Client();
 client.register("solana:*", new ExactSvmScheme(svmSigner));
 // Optional: client.register("eip155:*", new ExactEvmScheme(evmSigner));
 
-installTwzrdX402ClientHook(client, { gateOnCanSpend: true });
+installTwzrdX402ClientHook(client, {
+  gateOnCanSpend: false, // decision-only default (warn allowed)
+  refuseWashFlagged: true,
+});
+// Strict opt-in: gateOnCanSpend: true — also block when can_spend=false
 // → onBeforePaymentCreation: scores selectedRequirements, abort if policy denies
 
 const fetchWithPayment = wrapFetchWithPayment(fetch, client);
@@ -88,6 +92,144 @@ Dogfood:
 ```bash
 npm install twzrd-x402-gate
 ```
+
+## TWZRD Payment Control (protocol-neutral authorization core)
+
+The gate now ships a protocol-neutral policy runtime underneath the x402 surface.
+Defining invariant: **a signer path that calls `assertIntentApproved` will not sign
+an intent that differs from what TWZRD evaluated.** (Honest scope: TWZRD does not
+own third-party wallets - the binding is enforceable exactly where the check runs
+before the signer, not as a claim over arbitrary wallet internals.)
+
+```typescript
+import {
+  evaluateIntent,
+  assertIntentApproved,
+  createLocalDecisionSigner,
+  createDecisionRegistry,
+  x402RequirementsToIntent, // or ap2CheckoutToIntent
+} from "twzrd-x402-gate";
+
+const signer = createLocalDecisionSigner();
+const registry = createDecisionRegistry(); // consume-once
+
+const intent = x402RequirementsToIntent(selectedRequirements, { resourceUrl });
+const token = await evaluateIntent(intent, {
+  signer,
+  mandate,                    // user/company mandate (purpose, ceilings, resource scope)
+  policy,                     // local hard controls (caps, lists, recurring checks)
+  intelligence: twzrdIntel,   // optional remote counterparty intelligence
+});
+
+// Wallet-side, immediately before signing the EXACT intent:
+assertIntentApproved(intentBeingSigned, token, {
+  registry,                       // replay / consume-once
+  publicKeyPem: signer.publicKeyPem, // signature verification
+});
+// throws INTENT_HASH_MISMATCH | DECISION_EXPIRED | DECISION_NOT_ALLOW |
+//        DECISION_REPLAYED | BAD_SIGNATURE -> the signer is never invoked
+```
+
+- `PaymentIntent` v1 (frozen): protocol `x402 | ap2 | ucp | mpp | direct` +
+  network/asset/amount/payTo + resource + facilitator + mandate + recurrence
+  context, bound into one canonical `tiv1:` intent hash.
+- Decisions are signed, expiring `DecisionToken`s - "policy version X approved
+  this exact transaction at this timestamp", auditable offline.
+- A **block is a signed decision**, not an exception - refusals audit the same
+  way approvals do.
+- Local hard controls (mandate scope, ceilings, allow/blocklists, cumulative
+  caps, recurring price checks) never depend on API availability; remote
+  intelligence (wash/fleet, counterparty score) plugs in via a provider.
+- The category test lives in
+  [`test/payment-control.test.ts`](./test/payment-control.test.ts): a mandate
+  permits software under $100, a $12 checkout is approved, orchestration
+  mutates `payTo` after approval, the wallet refuses on hash mismatch,
+  `signerInvocationCount === 0`, and both the decision and the refusal verify
+  from audit records alone.
+
+### On the client hook (opt-in)
+
+`installTwzrdX402ClientHook` wires the runtime into the official
+`onBeforePaymentCreation` seat. Pass `paymentControl` to build the canonical
+intent, run the policy runtime (with the hook's own preflight fed in as remote
+intelligence), and surface a signed, intent-bound `PaymentDecision`:
+
+```typescript
+import { installTwzrdX402ClientHook, createLocalDecisionSigner } from "twzrd-x402-gate";
+
+const signer = createLocalDecisionSigner();
+installTwzrdX402ClientHook(client, {
+  paymentControl: {
+    signer,
+    mandate,                       // optional user/company mandate
+    policy: { maxAmountUsd: "50" }, // optional local hard controls
+  },
+  onDecision: ({ intent, decision }) => handOff(intent, decision), // → assertIntentApproved
+});
+```
+
+- **Tighten-only composition:** a `paymentControl` block aborts even when the
+  legacy preflight allowed; it never loosens a legacy denial.
+- **Opt-in:** with `paymentControl` unset the hook behaves exactly as before.
+- x402 wire amounts (USDC micro units) are converted to the decimal USD the
+  runtime expects by `x402RequirementsToIntent` (`decimals` defaults to 6;
+  override via the intent context for other assets), so amount-based policies
+  are not mis-scaled.
+- Hook binding test:
+  [`test/intent-binding.test.ts`](./test/intent-binding.test.ts).
+
+### On MPP (Machine Payments Protocol) — Solana charge only
+
+`createTwzrdMppOnChallenge` guards `Mppx.create({ onChallenge })`. The mppx
+Solana method signs AND broadcasts the transaction inside `createCredential()`,
+so `onChallenge` is the last deterministic checkpoint before money moves - and
+mppx re-throws `onChallenge` errors, so a TWZRD block is an exception that means
+**`createCredential()` never runs and nothing signs**. On allow, the guard
+creates the credential for the exact challenge it evaluated; non-`solana/charge`
+challenges fail closed (`allowUnevaluated: true` to opt out).
+
+```typescript
+import { Mppx } from "mppx/client";
+import { client as solanaClient } from "mppx-solana";
+import { createTwzrdMppOnChallenge, createLocalDecisionSigner } from "twzrd-x402-gate";
+
+const mppx = Mppx.create({
+  methods: [solanaClient({ signer: wallet })],
+  onChallenge: createTwzrdMppOnChallenge({
+    signer: createLocalDecisionSigner(),
+    policy: { maxAmountUsd: "1.00" },
+  }),
+});
+```
+
+**Scope limit (honest):** the guard is authoritative only when no
+`onChallengeReceived` event handler supplies a credential. mppx resolves
+`eventCredential ?? onChallenge(...)`, so an event handler returning a credential
+short-circuits the guard and pays ungated. Do not register both on one client.
+
+**What it refuses, and why.** Each of these is a case where the transaction mppx
+would actually sign is *not* the transaction the decision covers - so the guard
+fails closed rather than approve a payment it cannot bind:
+
+| Case | Code | Reason |
+|---|---|---|
+| Sponsored charge | `SPONSORED_CHARGE` | `sponsored` / `sponsorPath` / `feeTokenAmount` make mppx-solana build a **second transfer** to the sponsor on top of the advertised amount. PaymentIntent v1 binds one amount to one payTo, so approving it would authorize strictly more value than the decision covers. |
+| Non-USD-pegged asset | `UNPRICED_ASSET` | Policy ceilings are USD; the wire amount is base-unit tokens. Pricing SOL would store `asset: solana:native` beside a **dollar** `amount` and lose the token quantity actually transferred. (A 1.5 SOL charge of `1500000000` at 9 decimals would otherwise evaluate as "$1.50" and sail under a $5 ceiling while moving ~$270.) USDC/USDT only until an intent version carries token amount + quote. |
+| Unknown cluster | `UNKNOWN_CLUSTER` | mppx-solana's `resolveEndpoint` returns an unrecognized `cluster` **verbatim as the RPC endpoint URL**, and a network string containing "solana" is otherwise scored as mainnet - so `solana:https://seller-rpc.example` would inherit mainnet reputation for a chain never observed. Known cluster names only. |
+| Misdeclared decimals | `MALFORMED_CHALLENGE` | A known stablecoin declaring the wrong decimals is a discount attempt, not a rounding error. |
+
+The intent binds a **digest of the entire normalized challenge**, not just
+`realm:id` - swapping `recipient` or `amount` under the same challenge id changes
+the intent hash, so the decision no longer matches.
+
+**Verdicts:** `block` throws. `warn` **proceeds to pay** by default - set
+`treatWarnAsBlock: true` to refuse on warn too.
+
+- `mppChallengeToIntent` binds the challenge id + realm into the intent
+  (`resource.operation`), so the signed decision covers this exact challenge.
+- Cluster names stay honest: `solana:devnet` classifies recognized-but-unscored.
+- Proof: [`test/mpp-hook.test.ts`](./test/mpp-hook.test.ts) - block means
+  credential count 0 and signer count 0.
 
 ### Experimental CLI: `twzrd-safe-fetch` (AgentCash advisory pre-check)
 

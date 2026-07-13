@@ -11,8 +11,14 @@ export { evaluate_x402_resource, type EvaluateX402Options, type EvaluateX402Resu
 export { withTwzrdGuard, type TwzrdGuardOptions } from "./with-guard.js";
 export { installTwzrdAutoGate, type PayWrap, type InstallAutoGateOptions, } from "./auto-gate.js";
 export { safeFetch, runAgentcashFetch, main as safeFetchMain, type SafeFetchOptions, type SafeFetchResult, } from "./safe-fetch.js";
-export { installTwzrdX402ClientHook, twzrdBeforePaymentCreation, type X402ClientLike, type X402SelectedRequirements, type BeforePaymentCreationContext, type BeforePaymentCreationResult, type InstallX402ClientHookOptions, } from "./x402-client-hook.js";
+export { installTwzrdX402ClientHook, twzrdBeforePaymentCreation, type X402ClientLike, type X402SelectedRequirements, type BeforePaymentCreationContext, type BeforePaymentCreationResult, type InstallX402ClientHookOptions, type X402PaymentControlOptions, } from "./x402-client-hook.js";
 export { quickCheck, QUICK_PRICE_USDC, type QuickCheckResult, type QuickCheckOptions, type TwzrdTier, } from "./quick.js";
 export { createSponsoredX402Fetch, type SponsorSettle, type SponsoredX402Options, } from "./sponsored.js";
 export type { TwzrdDecision, TwzrdReadinessCard, TwzrdPreflightInput, TwzrdGateConfig, TwzrdApproveContext, TwzrdApprovalResult, TwzrdUpsellContext, X402PaymentRequirements, X402PaymentRequiredBody, X402McpPaymentRequest, X402McpPaymentRequestedContext, } from "./types.js";
+export { canonicalJson, intentHash, toMicroUsd, INTENT_HASH_PREFIX, type PaymentIntent, type PaymentProtocol, } from "./intent.js";
+export { assertIntentApproved, createDecisionRegistry, createLocalDecisionSigner, createSeededDecisionSigner, decisionPreimage, newDecisionId, signDecision, verifyDecisionSignature, TwzrdIntentBindingError, type AssertIntentApprovedOptions, type BindingErrorCode, type DecisionConstraints, type DecisionRegistry, type DecisionSigner, type PaymentDecision, type PaymentDecisionVerdict, } from "./decision-token.js";
+export { createMemorySpendLedger, evaluateIntent, POLICY_VERSION, type CounterpartyIntelligence, type EvaluateIntentOptions, type IntelligenceProvider, type Mandate, type SpendLedger, type SpendPolicy, } from "./policy-runtime.js";
+export { ap2CheckoutToIntent, x402RequirementsToIntent, type Ap2Cart, type Ap2UserMandate, type X402IntentContext, } from "./intent-adapters.js";
+export { createTwzrdMppOnChallenge, mppChallengeToIntent, mppChallengeDigest, NATIVE_SOL_CURRENCY, TwzrdMppBlockError, type MppChallenge, type MppIntentContext, type MppOnChallengeHelpers, type MppOnChallengeOptions, type MppSolanaChargeRequest, } from "./mpp-hook.js";
+export { approvalToIntelligence, counterpartyKnownFromApproval, createTwzrdIntelligenceProvider, intentAmountToPriceUsd, type TwzrdIntelligenceOptions, } from "./intelligence.js";
 //# sourceMappingURL=index.d.ts.map
