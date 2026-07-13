@@ -1,6 +1,6 @@
 {
   "name": "twzrd-x402-gate",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Buyer-side x402 trust gate. Run a free TWZRD preflight (ReadinessCard) before signing USDC to any x402 merchant, and autonomously escalate a `warn` to a $0.001 paid trust check that re-decides \u2014 blocking the spend on bad paid intel, no human in the loop. Default refuse when free merchant_card.wash_flagged (opt out TWZRD_REFUSE_WASH_FLAGGED=0). A 402 with no extractable payTo fails closed (twzrd_unidentifiable_payment_recipient) instead of falling through to the generic unknown-seller warn. Wraps fetch (HTTP 402) and the @x402/mcp onPaymentRequested hook \u2014 fixed in 0.5.2 to read the real @x402/mcp v2 nested `paymentRequired.accepts` shape (verified against @x402/mcp@2.17.0; previously only the flat legacy shape was read, causing a silent 100%-false-block once wired into a real runtime). installTwzrdAutoGate(payWrap) is the default-on one-liner: guards the raw fetch, then hands it to your x402 client, so the correct guard-before-pay composition can't be built backwards. BREAKING(0.2.0): fail-closed by default \u2014 set TWZRD_FAIL_OPEN=true to restore legacy allow-on-outage behavior.",
   "type": "module",
   "main": "./dist/index.js",
