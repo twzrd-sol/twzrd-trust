@@ -24,4 +24,7 @@ export { createMemorySpendLedger, evaluateIntent, POLICY_VERSION, } from "./poli
 export { ap2CheckoutToIntent, x402RequirementsToIntent, } from "./intent-adapters.js";
 export { createTwzrdMppOnChallenge, mppChallengeToIntent, mppChallengeDigest, NATIVE_SOL_CURRENCY, TwzrdMppBlockError, } from "./mpp-hook.js";
 export { approvalToIntelligence, counterpartyKnownFromApproval, createTwzrdIntelligenceProvider, intentAmountToPriceUsd, } from "./intelligence.js";
+// Seller-side (resource server) pre-settlement payer screening — the mirror of
+// the buyer gate. Attaches to x402ResourceServer.onBeforeSettle; advisory + fail-open.
+export { createTwzrdSettleGuard, defaultExtractPayer, extractSvmPayerFromTransaction, twzrdPayerScreen, toPayaiVerifyResult, } from "./seller-hook.js";
 //# sourceMappingURL=index.js.map

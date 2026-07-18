@@ -1,7 +1,7 @@
 # TWZRD Agent Intel
 
 **Live MCP** • [`https://intel.twzrd.xyz/mcp`](https://intel.twzrd.xyz/mcp) (**23 tools**, streamable HTTP)
-**Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.7.1` — policy before `wallet.signTransaction`
+**Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.8.1` — policy before `wallet.signTransaction`
 **Seller graph** • directory → merchant card → readiness → (optional) paid trust
 **Self-host mirror** • public wiring only (scoring engine stays private)
 
@@ -28,7 +28,7 @@ Most agents should follow this order:
 4. **Optional paid trust** — `GET /v1/intel/trust/{pubkey}?seller_wallet=<seller>` (0.05 USDC)
 5. **Pay the resource** — only after steps 1–3 (and optional 4) approve
 
-**Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.7.1` so step 3
+**Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.8.1` so step 3
 runs automatically before signing (see [Buyer-side gate](#buyer-side-gate-pre-sign-enforcement)).
 
 ---
@@ -61,7 +61,7 @@ Free preflight is **advisory** unless you wire a gate package or payment-hook.
 
 | Directory / npm | What |
 |-----------------|------|
-| [`twzrd-x402-gate`](./twzrd-x402-gate) · `npm i twzrd-x402-gate@0.7.1` | Buyer-side pre-sign seatbelt: `withTwzrdGuard`, `installTwzrdAutoGate`, `installTwzrdX402ClientHook`, `twzrdBeforePaymentCreation` |
+| [`twzrd-x402-gate`](./twzrd-x402-gate) · `npm i twzrd-x402-gate@0.8.1` | Buyer-side pre-sign seatbelt: `withTwzrdGuard`, `installTwzrdAutoGate`, `installTwzrdX402ClientHook`, `twzrdBeforePaymentCreation` |
 | [`twzrd-mcp-server`](./twzrd-mcp-server) · `npx -y twzrd-mcp-server` | Local auto-pay MCP (npm `0.4.0`); paid intel opt-in via env |
 | [`plugin-trustgate`](./plugin-trustgate) | ElizaOS / facilitator `onBeforeSettle` — **requirer** seat, not buyer wrap |
 | [`eliza-plugin`](./eliza-plugin) | Full Agent Intel plugin for ElizaOS |

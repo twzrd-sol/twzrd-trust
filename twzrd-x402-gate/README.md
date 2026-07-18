@@ -2,9 +2,91 @@
 
 **TWZRD is the default `onBeforePaymentCreation` policy engine for official x402 clients.**
 
-Agent-side firewall: after the client selects the exact payment requirement and **before**
-payment payload creation / wallet signing — free preflight + merchant_card wash refuse.
-Chain-neutral envelope; **Solana-deep** reputation only (Base/EVM = explicit `unknown`).
+**Core product (buyer gate):** after the client selects the exact payment requirement and
+**before** payment payload creation / wallet signing — free preflight + merchant_card wash
+refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutral envelope;
+**Solana-deep** reputation only (Base/EVM = explicit `unknown`).
+
+**Optional (0.8.1):** a resource-server settle hook so merchants can apply **customer policy**
+before they settle and serve (abuse, sanctions, bots, “don’t serve this payer”). Not an equal
+mirror of the buyer problem — settled USDC is final; wash resistance is mainly TWZRD scoring.
+
+## Seller settle guard (`onBeforeSettle`) — optional 0.8.1
+
+Resource servers can screen the **payer** before *they* settle an inbound payment and serve
+the resource. Use for merchant policy (abuse / sanctions / bots / customer selection). TWZRD is
+not in the settlement path: advisory + fail-open by default. Attaches to official
+`x402ResourceServer.onBeforeSettle` (inherited by `@x402/express|hono|next|fastify` and Python x402).
+
+Do **not** treat this as “protect merchant reputation by rejecting USDC” — anyone can still
+transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, not forced
+revenue refusal.
+
+```bash
+npm install twzrd-x402-gate@0.8.1
+```
+
+```typescript
+import { x402ResourceServer } from "@x402/core/server";
+import { createTwzrdSettleGuard, twzrdPayerScreen } from "twzrd-x402-gate";
+
+const server = new x402ResourceServer(facilitator);
+server.onBeforeSettle(
+  createTwzrdSettleGuard({ screen: twzrdPayerScreen() }),
+);
+```
+
+**Defaults (fail-open / advisory):**
+
+| Behavior | Default |
+|----------|---------|
+| Abort settlement | `decision=block` **or** `wash_flagged=true` |
+| `warn` | **allowed** (continues) unless you set `abortOn.warn` |
+| Default screen | free `GET /v1/intel/merchant_card/{payer}` via `twzrdPayerScreen()` |
+| Screen/extract timeout | `timeoutMs: 3000` — on timeout, **continue** (fail-open) |
+| Unresolved payer / null screen / screen error | **continue** unless `failOpen: false` |
+| Paid `/v1/intel/trust` | **not** default — inject a custom `screen` if you want it |
+
+Payer identity prefers signed/encoded scheme fields (EIP-3009 `authorization.from`, Permit2
+`permit2Authorization.from`, exact-SVM `payload.transaction` via optional peer `@x402/svm`)
+over client-supplied loose aliases — so a spoofed `payload.payer` cannot bypass screening.
+
+Offline demo: `npx tsx examples/seller-settle-guard.ts`
+Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
+`test/fixtures/exact-svm-transfer-checked.ts`.
+
+
+## Demonstrable refuse mechanism (free, fail-open, reproducible)
+
+**Status (2026-07-16):** mechanism proof — not adoption or demand.
+
+Install the published gate and run against wash fixtures:
+
+```bash
+npm install twzrd-x402-gate@0.8.1
+# from package root after install, or from a checkout:
+npm run wash-dogfood
+```
+
+**Verified live (2026-07-16):**
+
+| Fixture | preflight_id | decision | note |
+|---------|--------------|----------|------|
+| `7G73PL…` wash dogfood | 378468 | **block** | wash_flagged=true |
+| `HuSiSpc…` | 378469 | **block** | wash_flagged=true, fleet≈98% |
+| `BJGds…` alt wash | 378470 | warn | wash_flagged=true (nuance — not all wash is hard-block) |
+| `4LkEF…` clean control | 378471 | warn | not wash |
+
+Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**, **tx broadcast = none**, ALL PASS.
+
+**Public transcript:** https://gist.github.com/twzrd-sol/2882bddee912f89e99061f3bc1da8227
+
+**Accurate paste line:**
+
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.8.1 && npm run wash-dogfood` or gist above.
+
+This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
+
 
 ## Canonical integration (official x402 client)
 
@@ -83,15 +165,27 @@ Canonical path for every agent that spends USDC on Solana x402:
 
 **Order note:** `onWarnUpsell` (points at paid `/trust`) fires on preflight `warn` **before** the merchant_card wash check. A wash-flagged seller that preflighted as `warn` may still get the upsell hook, then be refused on step 2.
 
-Dogfood:
+Dogfood (one public live proof path):
 - Free only (wash refuse): `npm run wash-dogfood` → [`examples/wash-refuse-dogfood.ts`](./examples/wash-refuse-dogfood.ts)
 - Official client + Path E hook (live Solana ≤$0.001): `npm run official-dogfood` → [`examples/official-x402-dogfood.ts`](./examples/official-x402-dogfood.ts). Needs `@x402/fetch` `@x402/svm` `@x402/core` `@solana/kit` `@scure/base` and a funded Solana key (`SVM_KEYPAIR_PATH` or `~/.agentcash/solana-wallet.json`). `--block` exercises hard `gateOnCanSpend` abort with $0 spend.
+- Multi-hook composition (amount cap then TWZRD, abort short-circuit) is proven offline against the real `x402Client` in `test/x402-official-compat.test.ts`.
+- Release identity: `CLIENT_VERSION` is read from `package.json` (single source of truth); `npm test` includes `version-identity`; `npm run pack-smoke` packs the tarball and checks the installed header.
 
 ## Install
 
 ```bash
-npm install twzrd-x402-gate
+npm install twzrd-x402-gate@0.8.1
 ```
+
+Current npm truth: `0.8.1` (buyer gate + optional seller settle guard + payer-extract hardening).
+Check `npm view twzrd-x402-gate version` if in doubt (do not pin stale **0.5.4** / **0.7.1**).
+
+Optional settle guard (resource-server **payer** policy): see **Seller settle guard
+(`onBeforeSettle`) — optional 0.8.1** above. Do not confuse with facilitator
+`createOnBeforeSettleHook` in `@wzrd_sol/plugin-trustgate/facilitator` — that screens
+the **merchant/payTo** on a brokered settle (buyer-side counterparty check at the rail).
+
+Live card screen: `npx tsx examples/seller-settle-guard.ts --live <payerWallet>`
 
 ## TWZRD Payment Control (protocol-neutral authorization core)
 
