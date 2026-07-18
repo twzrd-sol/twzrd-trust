@@ -41,10 +41,10 @@ export type TwzrdGateConfig = {
     preflightMinScore?: number;
     /** decision values that deny payment. Default: ["block"] */
     blockDecisions?: Iterable<string>;
-    /** On preflight HTTP/network failure, approve payment. Default: true */
+    /** On preflight HTTP/network failure, approve payment (fail-open). Default: false (fail-closed); opt in with TWZRD_FAIL_OPEN=true. */
     failOpen?: boolean;
     /**
-     * Deny when the card reports can_spend=false. Default: true.
+     * Deny when the card reports can_spend=false. Default: false (decision-only; opt in with TWZRD_GATE_ON_CAN_SPEND=true).
      * Free-tier preflight returns can_spend=false for most sellers (including
      * well-known ones), so set false to follow the "gate only on decision=block"
      * policy documented for ClawRouter/BlockRun in the twzrd-clawrouter skill.
