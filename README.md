@@ -202,6 +202,8 @@ npx twzrd-receipt-verifier@1.2.0 receipt.json \
 
 ## Related
 
+- [Trust assurance and reproducible security boundaries](./docs/security-assurance.md) — receipt integrity, pre-sign enforcement, trust assumptions, and current limitations
+- [Security policy](./SECURITY.md) — disclosure scope and response targets
 - [Pay-guard closeout proof](./docs/proofs/seller-graph-payguard-closeout-2026-07-12.md) — zero-funds strict block, signer count 0
 - [Zero-spend guard check](./docs/proofs/examples/zero-spend-guard-check.mjs) — runnable harness
 - [Receipt Verifier](https://github.com/twzrd-sol/twzrd-receipt-verifier) — offline crypto
