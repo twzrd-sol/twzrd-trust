@@ -1,42 +1,47 @@
-# twzrd-mcp-server / twzrd-mcp — pre-spend trust MCP for Solana x402 agents
+# twzrd-mcp-server / twzrd-mcp — pre-spend seller reputation for Solana x402
 
 <!-- mcp-name: xyz.twzrd/twzrd-mcp -->
 
-Vet a counterparty **before** you pay over Solana x402. Free tools return
-allow / warn / block for the seller you're about to pay; optional paid tools buy
-a score or a signed V6 receipt — spend-capped and opt-in. **Prefer the
-zero-install remote MCP; use this package only when you want local auto-pay for
-paid intel.**
+Check a seller wallet and requested resource **before** you pay over Solana x402.
+Free tools return allow / warn / block; optional paid tools buy deeper reputation
+evidence or a signed V6 receipt with explicit spend caps. TWZRD scores observed
+wallet and payment behavior. It does not prove a person, company, or autonomous
+agent identity.
+
+**Prefer the zero-install hosted Agent Intelligence MCP. Use this package only
+when you want local auto-pay for paid intel.**
 
 ```json
-// Recommended — 23 tools, no wallet, nothing to install
+// Recommended — 24 tools, no wallet, nothing to install
 { "mcpServers": { "twzrd": { "url": "https://intel.twzrd.xyz/mcp" } } }
 ```
 
 ```bash
-# Local auto-pay client — 5 tools; wallet only if you enable paid calls
+# Local auto-pay client — 6 tools; wallet only if you enable paid calls
 npx -y twzrd-mcp-server        # Node
 pip install twzrd-mcp          # Python
 ```
 
 - **npm** (Node): [`twzrd-mcp-server`](https://www.npmjs.com/package/twzrd-mcp-server)
 - **PyPI** (Python): [`twzrd-mcp`](https://pypi.org/project/twzrd-mcp/)
-- Trust API: <https://intel.twzrd.xyz> · repo: [twzrd-sol/twzrd-trust](https://github.com/twzrd-sol/twzrd-trust)
+- Agent Intelligence: <https://intel.twzrd.xyz> · repo: [twzrd-sol/twzrd-trust](https://github.com/twzrd-sol/twzrd-trust/tree/main/twzrd-mcp-server)
 
 ## Which surface do I want?
 
 | Surface | Tools | Wallet | Use when |
 |---------|-------|--------|----------|
-| `https://intel.twzrd.xyz/mcp` (remote) | 23 | No | Default. Preflight, merchant cards, wash checks, watches, markets — all free. |
+| `https://intel.twzrd.xyz/mcp` (hosted) | 24 | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, and observed-market research. |
 | `twzrd-mcp-server` / `twzrd-mcp` (this package) | 5 | Only for paid | You want `quick_trust` / `full_trust` auto-paid locally with caps. |
 
-Remote is also on Smithery: `https://smithery.ai/servers/wzrd/twzrd-agent-intel`.
+Start with hosted `twzrd_demo_gate` for a zero-setup, zero-spend proof of the
+block path. The hosted MCP is also [listed on Smithery](https://smithery.ai/servers/wzrd/twzrd-agent-intel).
 
-## The 5 local client tools
+## The 6 local client tools
 
 | Tool | Cost | What |
 |------|------|------|
 | `preflight` | free | allow / warn / block + trust score for a **seller you're about to pay** |
+| `merchant_card` | free | seller graph card — `wash_flagged: true` → **don't pay** (locked sequence step 2) |
 | `wallet_lookup` | free | facilitators + counterparty breadth for a wallet |
 | `verify_receipt` | free | offline-verify a wallet's cNFT receipt (Ed25519 vs genesis authority `2ELSDxLkb7dYrN6EUG69tNtULAq4Fo7WPvXyrZPmuFif`) — trust no server |
 | `quick_trust` | $0.001 | quick tier + score for any wallet |
@@ -50,8 +55,9 @@ Remote is also on Smithery: `https://smithery.ai/servers/wzrd/twzrd-agent-intel`
 
 1. **Free `preflight`** on the seller's receive wallet.
 2. `block` → don't pay. Done, $0 spent.
-3. `warn` → consider a $0.05 `full_trust` signed receipt before deciding.
-4. `allow` + small spend → pay. Keep the receipt; scores decay, so re-check stale decisions.
+3. **Free `merchant_card`** on the same wallet — `wash_flagged: true` → don't pay.
+4. `warn` → consider a $0.05 `full_trust` signed receipt before deciding.
+5. `allow` + clean card + small spend → pay. Keep the receipt; scores decay, so re-check stale decisions.
 
 ## Install & config
 
@@ -126,6 +132,6 @@ npx twzrd-receipt-verifier <receipt.json> --pubkey 9V6Pn19kiUA5Rn6JpQfNduanvGt2a
 
 ---
 
-Links: [intel.twzrd.xyz](https://intel.twzrd.xyz) · [llms.txt](https://intel.twzrd.xyz/llms.txt) · [OpenAPI](https://intel.twzrd.xyz/openapi.json)
+Links: [Agent Intelligence](https://intel.twzrd.xyz) · [hosted MCP](https://intel.twzrd.xyz/mcp) · [llms.txt](https://intel.twzrd.xyz/llms.txt) · [llms-full.txt](https://intel.twzrd.xyz/llms-full.txt) · [OpenAPI](https://intel.twzrd.xyz/openapi.json)
 
 License: MIT
