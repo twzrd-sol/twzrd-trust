@@ -1,23 +1,25 @@
 # TWZRD Agent Intel
 
-**Live MCP** • [`https://intel.twzrd.xyz/mcp`](https://intel.twzrd.xyz/mcp) (**23 tools**, streamable HTTP)
-**Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.8.1` — policy before `wallet.signTransaction`
-**Seller graph** • directory → merchant card → readiness → (optional) paid trust
+**Live MCP** • [`https://intel.twzrd.xyz/mcp`](https://intel.twzrd.xyz/mcp) (**24 tools**, streamable HTTP)
+**Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.8.3` — `installTwzrdAutoGate` before any pay
+**Seller graph** • resources → merchant card → readiness → (optional) paid trust
+**Facilitator (Path B, opt-in)** • `GET /supported` feePayer `4LkEFj…` → `/verify` + `/settle` → receipt attach
 **Self-host mirror** • public wiring only (scoring engine stays private)
 
 TWZRD is the pre-spend trust layer for agents paying over x402 on Solana. Vet the
 **seller and service** before USDC leaves your wallet. Free tier needs no signup; pay
-only when you want the portable signed V6 receipt.
+only when you want the portable signed V6 receipt. Not a wallet product and not a
+payment network — a trust + receipt layer that can also facilitate settle (opt-in).
 
 **Live corpus (2026-07-13):** ~515 listed services · ~143 payTos · ~498 challenge-verified (`live_402`). Listed ≠ live — see [`/health`](https://intel.twzrd.xyz/health) for live counts. Merchant cards expose `payable_conformance` (feePayer stability, live_402 density).
 
 ---
 
-## Default path (seller-first)
+## Default path (seller-first / resources-first)
 
 Most agents should follow this order:
 
-1. **Directory** — `GET /v1/intel/x402-directory` or MCP `get_x402_directory`
+1. **Resources (SOT)** — `GET /v1/intel/resources` (listed | live_402; not the settlement graph)
 2. **Merchant card** — `GET /v1/intel/merchant_card/{pay_to}` or MCP `get_merchant_card`
    - Refuse when `wash_flagged=true` (default in gate packages)
    - `listed_unverified` when catalog rows exist but no challenge-verified endpoint yet
@@ -27,8 +29,10 @@ Most agents should follow this order:
    - `allow` → established organic seller — still not a vouch for large spends
 4. **Optional paid trust** — `GET /v1/intel/trust/{pubkey}?seller_wallet=<seller>` (0.05 USDC)
 5. **Pay the resource** — only after steps 1–3 (and optional 4) approve
+6. **Optional Path B settle** — pin feePayer from `GET /supported` and settle via TWZRD
+   for free `twzrd_receipt` + `merchant_attach` (see [Facilitator](#facilitator-path-b-opt-in))
 
-**Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.8.1` so step 3
+**Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.8.3` so step 3
 runs automatically before signing (see [Buyer-side gate](#buyer-side-gate-pre-sign-enforcement)).
 
 ---
@@ -61,7 +65,7 @@ Free preflight is **advisory** unless you wire a gate package or payment-hook.
 
 | Directory / npm | What |
 |-----------------|------|
-| [`twzrd-x402-gate`](./twzrd-x402-gate) · `npm i twzrd-x402-gate@0.8.1` | Buyer-side pre-sign seatbelt: `withTwzrdGuard`, `installTwzrdAutoGate`, `installTwzrdX402ClientHook`, `twzrdBeforePaymentCreation` |
+| [`twzrd-x402-gate`](./twzrd-x402-gate) · `npm i twzrd-x402-gate@0.8.3` | Buyer-side pre-sign seatbelt: `withTwzrdGuard`, `installTwzrdAutoGate`, `installTwzrdX402ClientHook`, `twzrdBeforePaymentCreation` |
 | [`twzrd-mcp-server`](./twzrd-mcp-server) · `npx -y twzrd-mcp-server` | Local auto-pay MCP (npm `0.4.0`); paid intel opt-in via env |
 | [`plugin-trustgate`](./plugin-trustgate) | ElizaOS / facilitator `onBeforeSettle` — **requirer** seat, not buyer wrap |
 | [`eliza-plugin`](./eliza-plugin) | Full Agent Intel plugin for ElizaOS |
@@ -115,7 +119,33 @@ beforePaymentCreation: (ctx) =>
 
 ---
 
-## Live MCP Surface (23 tools — free tier, no auth)
+## Facilitator (Path B, opt-in)
+
+Settle through TWZRD when you want money-move and trust memory in one hop:
+
+```bash
+curl -s https://intel.twzrd.xyz/supported
+# exact · Solana mainnet · feePayer 4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE
+# + twzrd.merchant_attach
+```
+
+1. Pin payment `extra.feePayer` to the feePayer from `/supported` (not blindly accepts[0]).
+2. `POST /verify` then `POST /settle` on `https://intel.twzrd.xyz`.
+3. Success returns on-chain USDC move + `twzrd_receipt` (V6) + `merchant_attach` on `payTo`
+   (best-effort; never voids settle).
+
+**Path A (default for paid trust 402 today):** multi-rail external feePayers (CDP / PayAI /
+Dexter). That is not Path B. Path A feePayer ≠ Path B feePayer until you pin `/supported`.
+
+Pitch: *Settle through TWZRD. Get on-chain settlement, a signed V6 receipt, and merchant
+track-record attach on the payTo for free.*
+
+Full agent contract: [`intel.twzrd.xyz/llms.txt`](https://intel.twzrd.xyz/llms.txt) · skill:
+[`intel.twzrd.xyz/skill.md`](https://intel.twzrd.xyz/skill.md)
+
+---
+
+## Live MCP Surface (24 tools — free tier, no auth)
 
 Connect any MCP client to `https://intel.twzrd.xyz/mcp` (requires `Accept: application/json` **and** `Accept: text/event-stream`).
 
@@ -129,6 +159,7 @@ Connect any MCP client to `https://intel.twzrd.xyz/mcp` (requires `Accept: appli
 | `evaluate_x402_resource` | One-shot: fetch URL → extract 402 payTo → preflight |
 | `get_provider_reputation` | Seller reputation from x402 corpus |
 | `is_wash_fleet` | Wash / sybil-fleet check on a payer wallet |
+| `twzrd_demo_gate` | No-spend proof of the buyer gate path |
 | `twzrd_watch_add` | Register seller re-check watch (webhook optional) |
 | `twzrd_watch_list` | List active watches |
 | `twzrd_watch_remove` | Deactivate a watch |
@@ -193,9 +224,9 @@ Pin the issuer key from the well-known endpoint (do not invent keys):
 ```bash
 curl -s https://intel.twzrd.xyz/.well-known/twzrd-receipt-pubkey
 
-npx twzrd-receipt-verifier@1.2.0 receipt.json \
+npx twzrd-receipt-verifier@1.2.2 receipt.json \
   --pubkey 9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf
-# or: pip install 'twzrd-receipt-verifier>=1.2.0'
+# or: pip install 'twzrd-receipt-verifier>=1.2.2'
 ```
 
 ---
