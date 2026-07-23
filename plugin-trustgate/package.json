@@ -1,7 +1,7 @@
 {
   "name": "@wzrd_sol/plugin-trustgate",
-  "version": "0.3.1",
-  "description": "Buyer-side x402 trust gate for elizaOS: free TWZRD preflight (ReadinessCard allow/warn/block) via canSpendSafely + optional facilitator onBeforeSettle. Opt-in enforcement (does not auto-intercept signatures). Preflight-only in this package - pair with @wzrd_sol/eliza-plugin or twzrd-x402-gate for free merchant_card wash refuse. BREAKING(0.3.0): fail-closed by default; pass failOpen:true for legacy allow-on-outage.",
+  "version": "0.3.3",
+  "description": "Buyer-side x402 reputation gate: free TWZRD ReadinessCard preflight before signing, opt-in canSpendSafely, facilitator onBeforeSettle (daydreams), and Faremeter payerChooser pre-sign guard. Fail-closed by default; no keys or auto-spend.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,21 +13,33 @@
     "./facilitator": {
       "types": "./dist/facilitator.d.ts",
       "import": "./dist/facilitator.js"
+    },
+    "./faremeter": {
+      "types": "./dist/faremeter.d.ts",
+      "import": "./dist/faremeter.js"
     }
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "elizaos.plugin.json"
   ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/gate.test.ts",
+    "test": "node test/release.test.mjs && tsx test/gate.test.ts && tsx test/facilitator.test.ts && tsx test/faremeter.test.ts",
+    "test:release": "node test/release.test.mjs",
+    "test:facilitator": "tsx test/facilitator.test.ts",
+    "test:faremeter": "tsx test/faremeter.test.ts",
     "test:live": "TWZRD_LIVE_GATE=1 tsx test/gate.live.test.ts",
     "prepublishOnly": "tsc",
     "guard-demo": "tsx examples/first-installer.ts",
     "payai-demo": "tsx examples/payai-facilitator.ts",
-    "resource-gate-demo": "tsx examples/resource-server-gate.ts"
+    "resource-gate-demo": "tsx examples/resource-server-gate.ts",
+    "demo:wash-abort": "tsx examples/wash-abort-demo.ts",
+    "demo:wash-abort:live": "TWZRD_LIVE_DEMO=1 tsx examples/wash-abort-demo.ts",
+    "demo:faremeter-chooser": "tsx examples/faremeter-payer-chooser.ts",
+    "demo:faremeter-chooser:live": "TWZRD_LIVE_DEMO=1 tsx examples/faremeter-payer-chooser.ts"
   },
   "keywords": [
     "elizaos",
@@ -42,7 +54,7 @@
     "wash",
     "sybil",
     "spend-guard",
-    "marketplace"
+    "intel"
   ],
   "license": "MIT",
   "repository": {

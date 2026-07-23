@@ -2,6 +2,43 @@
 
 Buyer-side **x402 trust gate** for elizaOS agents. Before your agent signs a payment to a seller, score that seller via the **free** TWZRD preflight (ReadinessCard: allow / warn / block) and refuse `block`-rated merchants. No auth, no cost, no Solana dependency in the gate; fail-closed by default.
 
+
+## Dated refuse proof (free, no-spend)
+
+**Status (2026-07-16):** mechanism proof — not adoption or demand.
+
+Current compatible fetch-gate release:
+
+```bash
+npm install twzrd-x402-gate@0.8.2
+```
+
+The results below were captured on 2026-07-16, before `0.8.2` was published.
+They are dated mechanism evidence, not a claim that this exact release command
+was rerun for the current package.
+
+**Verified live (2026-07-16):**
+
+| Fixture | preflight_id | decision | note |
+|---------|--------------|----------|------|
+| `7G73PL…` wash dogfood | 378468 | **block** | wash_flagged=true |
+| `HuSiSpc…` | 378469 | **block** | wash_flagged=true, fleet≈98% |
+| `BJGds…` alt wash | 378470 | warn | wash_flagged=true (nuance — not all wash is hard-block) |
+| `4LkEF…` clean control | 378471 | warn | not wash |
+
+Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**, **tx broadcast = none**, ALL PASS.
+
+**Public transcript:** https://gist.github.com/twzrd-sol/2882bddee912f89e99061f3bc1da8227
+
+**Accurate paste line:**
+
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Transcript: gist above. Current paired gate release: `twzrd-x402-gate@0.8.2`.
+
+This transcript demonstrates that the free gate blocked known wash sellers with
+stamped `preflight_id`s and zero spend on that date. It is **not** proof that
+external agents already default to this path at scale.
+
+
 ## Marketplace alignment (honest scope)
 
 TWZRD's full free buyer sequence on the marketplace is:
@@ -23,6 +60,10 @@ It does **not** call `GET /v1/intel/merchant_card` and does **not** auto-refuse 
 ```bash
 npm install @wzrd_sol/plugin-trustgate
 ```
+
+Compatibility: `@elizaos/core >=1.0.0`. The package has no direct dependency on
+`twzrd-x402-gate`; the reproducible fetch-gate example above is pinned to the
+current `twzrd-x402-gate@0.8.2` release.
 
 ## Use (3 lines)
 
@@ -73,10 +114,40 @@ import { withTwzrdGuard } from "@wzrd_sol/plugin-trustgate";
 await withTwzrdGuard(payTo, () => signAndSendPayment(payTo, amount));
 ```
 
+## Faremeter / Corbits buyers (payerChooser)
+
+Faremeter's fetch wrap exposes a **pure-config** pre-sign seam:
+`ProcessPaymentRequiredResponseOpts.payerChooser`. Each candidate carries
+`requirements.payTo` **before** `exec()` signs. Drop in
+`createTwzrdPayerChooser()` — no fork of Faremeter.
+
+```ts
+import { createTwzrdPayerChooser } from "@wzrd_sol/plugin-trustgate/faremeter";
+
+// wire into Faremeter wrap / processPaymentRequiredResponse options:
+const payerChooser = createTwzrdPayerChooser();
+// wrap(fetch, { handlers, payerChooser })
+```
+
+Hard-blocks only `decision === "block"` (and optional `minScore`). Free-tier
+`warn` / `can_spend=false` does **not** reject alone. Fail-closed on preflight
+outage. Solana-only by default. Throws `TwzrdPayerChooserBlockedError` when all
+scoreable candidates are blocked — **no signature**.
+
+```bash
+npm run demo:faremeter-chooser --workspace=packages/plugin-trustgate
+```
+
 ## Facilitator operators
 
-Screen **every settlement** brokered by your self-hostable x402 facilitator with the
-`/facilitator` subpath export (dep-free, no `@elizaos/core`, no `@x402/core`):
+Two facilitator shapes (do not mix them):
+
+| Subpath | Seam | Stack |
+|---------|------|--------|
+| `./facilitator` | `onBeforeSettle(ctx) => void \| {abort,reason}` | daydreamsai/facilitator, @x402/core |
+| `./faremeter` | `payerChooser(execers) => execer` (buyer) | Faremeter wrap / handler composition |
+
+Screen **every settlement** on a daydreams-style facilitator:
 
 ```bash
 npm install @wzrd_sol/plugin-trustgate
