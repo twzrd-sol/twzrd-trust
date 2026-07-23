@@ -11,7 +11,7 @@ const VERSION = createRequire(import.meta.url)("../package.json").version;
 function printHelp() {
     console.log(`twzrd-mcp-server v${VERSION}
 
-TWZRD Trust API MCP server with Solana x402 auto-pay.
+TWZRD Agent Intelligence client with Solana x402 auto-pay.
 
 Usage:
   twzrd-mcp-server                 Start stdio MCP server
@@ -19,7 +19,7 @@ Usage:
   twzrd-mcp-server --version       Print version
 
 Free tools work with no wallet:
-  preflight, wallet_lookup, verify_receipt
+  preflight, merchant_card, wallet_lookup, verify_receipt
 
 Paid tools require (opt-in):
   TWZRD_MCP_PAYMENTS_ENABLED=1
@@ -248,6 +248,7 @@ async function authorizeSpend(wallet, provider, amountMicro) {
 }
 const TOOLS = [
     { name: "preflight", description: "FREE pre-payment check. readiness_card with allow/warn/block + trust_score. No payment.", inputSchema: { type: "object", properties: { seller_wallet: { type: "string" }, resource_name: { type: "string" }, price_usdc: { type: "number" } }, required: ["seller_wallet"] } },
+    { name: "merchant_card", description: "FREE: seller graph card for a payTo wallet or resource id. wash_flagged=true -> do not pay (locked buyer sequence step 2). No payment.", inputSchema: { type: "object", properties: { wallet: { type: "string" } }, required: ["wallet"] } },
     { name: "wallet_lookup", description: "FREE: facilitators + counterparty breadth for a Solana wallet.", inputSchema: { type: "object", properties: { wallet: { type: "string" } }, required: ["wallet"] } },
     { name: "verify_receipt", description: "FREE: independently verify a wallet's cNFT Receipt offline (Ed25519 vs the genesis authority 2ELSDx). No trust in any TWZRD server.", inputSchema: { type: "object", properties: { wallet: { type: "string" } }, required: ["wallet"] } },
     { name: "quick_trust", description: "PAID $0.001 (auto-pay, Solana x402): quick tier+score for a Solana wallet.", inputSchema: { type: "object", properties: { wallet: { type: "string" } }, required: ["wallet"] } },
@@ -275,6 +276,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return { content: [{ type: "text", text: attachOfflineVerification(trustText) }] };
         }
         case "preflight": return { content: [{ type: "text", text: await api("/v1/intel/preflight", { method: "POST", body: { seller_wallet: a.seller_wallet, resource_name: a.resource_name || "MCP", price_usdc: a.price_usdc ?? 0.05 } }) }] };
+        case "merchant_card": return { content: [{ type: "text", text: await api(`/v1/intel/merchant_card/${String(a.wallet)}`) }] };
         case "verify_receipt": return { content: [{ type: "text", text: await verifyReceiptByWallet(String(a.wallet)) }] };
         case "wallet_lookup": return { content: [{ type: "text", text: await api(`/v1/intel/get_facilitator_footprint?wallet=${String(a.wallet)}`) }] };
         default: throw new Error(`Unknown tool: ${name}`);

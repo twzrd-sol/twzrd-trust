@@ -121,6 +121,20 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
     }) => void;
 };
 /**
+ * Resolve Payment Control signer once at install / first evaluate.
+ * EXACTLY one of signer/secret — never silently prefer one when both are set.
+ */
+export declare function resolvePaymentControlSigner(paymentControl: X402PaymentControlOptions | undefined): DecisionSigner | undefined;
+/**
+ * Shared evaluator used by both `installTwzrdX402ClientHook` and
+ * `twzrdBeforePaymentCreation`. Same legacy preflight + optional Payment
+ * Control + onDecision telemetry — one security semantic under both entry points.
+ *
+ * @param pcSigner Pre-resolved signer (install-time) or leave undefined to
+ *   resolve from options.paymentControl on each call.
+ */
+export declare function evaluateBeforePaymentCreation(selectedRequirements: X402SelectedRequirements, options?: InstallX402ClientHookOptions, pcSigner?: DecisionSigner): Promise<BeforePaymentCreationResult>;
+/**
  * Install TWZRD as the default onBeforePaymentCreation policy engine.
  *
  * @example
@@ -142,7 +156,11 @@ export declare function installTwzrdX402ClientHook(client: X402ClientLike, optio
 /**
  * Standalone handler for runtimes that expose an equivalent hook API
  * (Python on_before_payment_creation, Go OnBeforePaymentCreation).
- * Returns abort result without requiring a client instance.
+ *
+ * Full parity with `installTwzrdX402ClientHook`: same shared evaluator
+ * (legacy preflight + optional Payment Control + onDecision). Prefer the
+ * install helper when you have an x402Client instance; use this when the host
+ * only provides the selected requirements object.
  */
 export declare function twzrdBeforePaymentCreation(selectedRequirements: X402SelectedRequirements, options?: InstallX402ClientHookOptions): Promise<BeforePaymentCreationResult>;
 export {};

@@ -1,0 +1,30 @@
+{
+  "id": "twzrd-trustgate",
+  "name": "TWZRD Trust Gate",
+  "description": "Buyer-side x402 reputation gate that adds free TWZRD seller preflight context to elizaOS agents. Payment enforcement remains an explicit caller decision.",
+  "version": "0.3.3",
+  "kind": "provider",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "providers": [
+    "TWZRD_TRUST_GATE"
+  ],
+  "requiredSecrets": [],
+  "optionalSecrets": [],
+  "author": "TWZRD",
+  "homepage": "https://github.com/twzrd-sol/twzrd-trust/tree/main/plugin-trustgate",
+  "repository": "https://github.com/twzrd-sol/twzrd-trust",
+  "license": "MIT",
+  "keywords": [
+    "elizaos",
+    "x402",
+    "reputation",
+    "payments",
+    "solana",
+    "preflight",
+    "spend-guard"
+  ]
+}

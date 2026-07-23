@@ -1,6 +1,11 @@
 /**
  * Package version, stamped on the `X-TWZRD-Client` preflight attribution header.
- * Keep in sync with package.json `version`.
+ *
+ * Single source of truth: package.json `version`. Never hand-edit a duplicate
+ * string here — require the package root so src/ (tsx) and dist/ (published)
+ * both resolve the same file one level up.
  */
-export const CLIENT_VERSION = "0.8.1";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+export const CLIENT_VERSION = require("../package.json").version;
 //# sourceMappingURL=version.js.map

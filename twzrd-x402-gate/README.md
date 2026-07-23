@@ -23,7 +23,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.8.1
+npm install twzrd-x402-gate@0.8.2
 ```
 
 ```typescript
@@ -51,7 +51,7 @@ Payer identity prefers signed/encoded scheme fields (EIP-3009 `authorization.fro
 `permit2Authorization.from`, exact-SVM `payload.transaction` via optional peer `@x402/svm`)
 over client-supplied loose aliases — so a spoofed `payload.payer` cannot bypass screening.
 
-Offline demo: `npx tsx examples/seller-settle-guard.ts`
+Offline demo: `npx tsx examples/seller-settle-guard.ts`  
 Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 `test/fixtures/exact-svm-transfer-checked.ts`.
 
@@ -63,7 +63,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.8.1
+npm install twzrd-x402-gate@0.8.2
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -174,10 +174,10 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.8.1
+npm install twzrd-x402-gate@0.8.2
 ```
 
-Current npm truth: `0.8.1` (buyer gate + optional seller settle guard + payer-extract hardening).
+Current npm truth: `0.8.2` (buyer gate + optional seller settle guard + payer-extract hardening).
 Check `npm view twzrd-x402-gate version` if in doubt (do not pin stale **0.5.4** / **0.7.1**).
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
@@ -357,6 +357,18 @@ probe request → TWZRD scores challenge A → (if allowed) AgentCash request �
 Library: `import { safeFetch } from "twzrd-x402-gate/safe-fetch"`.
 
 ## Quickstart: `installTwzrdAutoGate` (default-on)
+
+Canonical entry point (design: `docs/strategy/install-autogate-design.md`). One name, three adapters:
+
+| Call | Adapter |
+|------|---------|
+| `installTwzrdAutoGate(payWrap, opts?)` | Fetch: guard raw fetch → pay client |
+| `installTwzrdAutoGate(x402Client, opts?)` | Official x402 `onBeforePaymentCreation` |
+| `installTwzrdAutoGate("mpp", opts)` | MPP `onChallenge` (returns handler) |
+
+Aliases: `installTwzrdX402ClientHook`, `createTwzrdMppOnChallenge` remain; docs prefer AutoGate.
+Kill switch: `TWZRD_GATE_ENABLED=false` or `TWZRD_AUTO_GATE=0`. Uninstall x402 installs with `uninstallTwzrdAutoGate(client)`.
+
 
 `installTwzrdAutoGate` is the one-liner form of "guard the raw fetch, then hand it to your
 x402 client." It takes a `payWrap` function — whatever composes your paying client on top of
@@ -651,6 +663,16 @@ A 402 whose payment requirements yield **no identifiable seller wallet** (missin
 | `disabled` (`installTwzrdAutoGate` only) | `TWZRD_AUTO_GATE=0`/`false` | `false` | Bypass the guard entirely — `payWrap` gets the raw, unguarded fetch |
 | `attribution` | `TWZRD_ATTRIBUTION_INTEGRATION` + `TWZRD_ATTRIBUTION_RUN_ID` | — | Opt-in run attribution (see below) |
 
+## Gate adoption proof (no-spend harness)
+
+Deterministic install→transcript path for operators (no wallet, no USDC):
+
+```bash
+npm run adoption-proof -- --integration <YOUR_ID> --run-id <UUID>
+```
+
+Emits `twzrd.gate_adoption_transcript.v1` JSON: block path aborts with `signerInvocations: 0`, allow path emits decision, attribution headers stamped on mocked preflight. Full acceptance criteria (what counts as `EXTERNAL_RUN` vs dogfood): monorepo `docs/strategy/gate-adoption-operator-proof.md`.
+
 ## Run attribution (optional, for integration correlation)
 
 When you set `attribution`, the gate stamps **only the TWZRD preflight request** (never the
@@ -691,8 +713,10 @@ If you're composing `withTwzrdGuard` manually instead, pass the raw (non-paying)
 
 `GET /v1/intel/trust/{wallet}` is the **paid** ($0.05 USDC) deep-intel surface — not a gate.
 `POST /v1/intel/preflight` is the **free** `ReadinessCard` for the pre-spend decision.
-This package only ever calls the free preflight; you decide whether to proceed before any
-USDC leaves your wallet.
+The gate path only ever calls free endpoints — the preflight plus, by default
+(`refuseWashFlagged: true`), the free merchant_card wash check. Paid intel
+(`quickCheck`, `autoReceipt`) is opt-in and never runs implicitly; you decide
+whether to proceed before any USDC leaves your wallet.
 
 ## License
 

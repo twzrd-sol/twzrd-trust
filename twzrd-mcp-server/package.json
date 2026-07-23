@@ -1,7 +1,7 @@
 {
   "name": "twzrd-mcp-server",
-  "version": "0.4.0",
-  "description": "TWZRD Trust API MCP server with Solana x402 auto-pay (official @x402 SDK, spend-capped, preflight-gated).",
+  "version": "0.5.0",
+  "description": "Local, spend-capped Solana x402 client for TWZRD Agent Intelligence; prefer the 24-tool hosted MCP.",
   "type": "module",
   "bin": {
     "twzrd-mcp-server": "dist/index.js"
