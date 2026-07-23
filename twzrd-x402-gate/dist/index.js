@@ -2,6 +2,7 @@
 // gate.ts also defines a generic-fn wrapper of the same name; re-exporting both here
 // is a duplicate-export collision that esbuild/tsx/Vite reject (tsc silently keeps the
 // last one). The fetch wrapper is the documented public API, so we export only that.
+export { CLIENT_VERSION } from "./version.js";
 export { createTwzrdGate, defaultGate } from "./gate.js";
 export { resolveConfig } from "./config.js";
 export { evaluateReadinessCard, buildPreflightInput, twzrdPreflight, twzrdApprovePayment, } from "./policy.js";
@@ -12,9 +13,10 @@ export { twzrdOnPaymentRequested } from "./mcp-hook.js";
 export { wrapFetchWithTwzrdGate } from "./wrap-fetch.js";
 export { evaluate_x402_resource, } from "./evaluate.js";
 export { withTwzrdGuard } from "./with-guard.js";
-export { installTwzrdAutoGate, } from "./auto-gate.js";
+export { installTwzrdAutoGate, uninstallTwzrdAutoGate, isTwzrdAutoGateDisabled, } from "./auto-gate.js";
 export { safeFetch, runAgentcashFetch, main as safeFetchMain, } from "./safe-fetch.js";
 export { installTwzrdX402ClientHook, twzrdBeforePaymentCreation, } from "./x402-client-hook.js";
+export { runGateAdoptionProof, main as adoptionProofMain, ADOPTION_TRANSCRIPT_SCHEMA, ADOPTION_PROOF_SELLER, ADOPTION_PROOF_NETWORK, ADOPTION_PROOF_RESOURCE, } from "./adoption-proof.js";
 export { quickCheck, QUICK_PRICE_USDC, } from "./quick.js";
 export { createSponsoredX402Fetch, } from "./sponsored.js";
 /* ── TWZRD Payment Control (protocol-neutral authorization core) ── */
@@ -24,7 +26,7 @@ export { createMemorySpendLedger, evaluateIntent, POLICY_VERSION, } from "./poli
 export { ap2CheckoutToIntent, x402RequirementsToIntent, } from "./intent-adapters.js";
 export { createTwzrdMppOnChallenge, mppChallengeToIntent, mppChallengeDigest, NATIVE_SOL_CURRENCY, TwzrdMppBlockError, } from "./mpp-hook.js";
 export { approvalToIntelligence, counterpartyKnownFromApproval, createTwzrdIntelligenceProvider, intentAmountToPriceUsd, } from "./intelligence.js";
-// Seller-side (resource server) pre-settlement payer screening — the mirror of
-// the buyer gate. Attaches to x402ResourceServer.onBeforeSettle; advisory + fail-open.
+// Optional resource-server settle guard (merchant policy on the payer).
+// Core product remains the buyer gate. Attaches to onBeforeSettle; advisory + fail-open.
 export { createTwzrdSettleGuard, defaultExtractPayer, extractSvmPayerFromTransaction, twzrdPayerScreen, toPayaiVerifyResult, } from "./seller-hook.js";
 //# sourceMappingURL=index.js.map

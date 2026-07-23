@@ -1,12 +1,13 @@
 /**
- * Seller-side x402 pre-settlement guard — the MIRROR of the buyer gate.
+ * Optional seller-side x402 pre-settlement guard (merchant customer policy).
  *
- * The rest of this package gates a PAYER's outgoing spend (buyer screens the
- * seller before paying). This module is the other direction: a resource server
- * (SELLER), before it settles an incoming x402 payment, screens the PAYER
- * against TWZRD's payer-graph reputation and can veto settlement of
- * wash / sybil / abusive payers — keeping the seller's own demand-quality
- * reputation clean (captive/wash inbound is exactly what TWZRD flags).
+ * Core product of this package is the BUYER gate: a payer screens the merchant
+ * (payTo) before spending. This module is the other direction and is optional:
+ * a resource server (merchant), before it settles an inbound x402 payment, can
+ * screen the payer for policy reasons (abuse, sanctions, bots, customer selection)
+ * and veto settlement. It is not an equal product mirror of the buyer gate —
+ * settled USDC is final; wash resistance is primarily TWZRD scoring (discount
+ * bad edges), not forcing merchants to reject revenue to stay "clean."
  *
  * Attaches to the official, unit-tested `x402ResourceServer.onBeforeSettle`
  * hook (inherited by @x402/express|hono|next|fastify and python x402), whose

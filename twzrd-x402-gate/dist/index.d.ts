@@ -1,3 +1,4 @@
+export { CLIENT_VERSION } from "./version.js";
 export { createTwzrdGate, defaultGate, type TwzrdGate } from "./gate.js";
 export { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
 export { evaluateReadinessCard, buildPreflightInput, twzrdPreflight, twzrdApprovePayment, type PolicyEvaluateInput, } from "./policy.js";
@@ -9,9 +10,10 @@ export { twzrdOnPaymentRequested } from "./mcp-hook.js";
 export { wrapFetchWithTwzrdGate } from "./wrap-fetch.js";
 export { evaluate_x402_resource, type EvaluateX402Options, type EvaluateX402Result, } from "./evaluate.js";
 export { withTwzrdGuard, type TwzrdGuardOptions } from "./with-guard.js";
-export { installTwzrdAutoGate, type PayWrap, type InstallAutoGateOptions, } from "./auto-gate.js";
+export { installTwzrdAutoGate, uninstallTwzrdAutoGate, isTwzrdAutoGateDisabled, type PayWrap, type InstallAutoGateOptions, type InstallAutoGateFetchOptions, type InstallAutoGateX402Options, type InstallAutoGateMppOptions, type TwzrdAutoGateCommonOptions, } from "./auto-gate.js";
 export { safeFetch, runAgentcashFetch, main as safeFetchMain, type SafeFetchOptions, type SafeFetchResult, } from "./safe-fetch.js";
 export { installTwzrdX402ClientHook, twzrdBeforePaymentCreation, type X402ClientLike, type X402SelectedRequirements, type BeforePaymentCreationContext, type BeforePaymentCreationResult, type InstallX402ClientHookOptions, type X402PaymentControlOptions, } from "./x402-client-hook.js";
+export { runGateAdoptionProof, main as adoptionProofMain, ADOPTION_TRANSCRIPT_SCHEMA, ADOPTION_PROOF_SELLER, ADOPTION_PROOF_NETWORK, ADOPTION_PROOF_RESOURCE, type GateAdoptionTranscript, type GateAdoptionStep, type GateAdoptionAssertions, type GateAdoptionLineage, type RunGateAdoptionProofOptions, } from "./adoption-proof.js";
 export { quickCheck, QUICK_PRICE_USDC, type QuickCheckResult, type QuickCheckOptions, type TwzrdTier, } from "./quick.js";
 export { createSponsoredX402Fetch, type SponsorSettle, type SponsoredX402Options, } from "./sponsored.js";
 export type { TwzrdDecision, TwzrdReadinessCard, TwzrdPreflightInput, TwzrdGateConfig, TwzrdApproveContext, TwzrdApprovalResult, TwzrdUpsellContext, X402PaymentRequirements, X402PaymentRequiredBody, X402McpPaymentRequest, X402McpPaymentRequestedContext, } from "./types.js";
