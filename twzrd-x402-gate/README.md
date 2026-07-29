@@ -7,6 +7,32 @@
 refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutral envelope;
 **Solana-deep** reputation only (Base/EVM = explicit `unknown`).
 
+### Default-on AutoGate (5 lines)
+
+```bash
+npm install twzrd-x402-gate@0.8.6 @x402/core @x402/fetch @x402/svm
+```
+
+```typescript
+import { x402Client } from "@x402/core/client";
+import { installTwzrdAutoGate } from "twzrd-x402-gate";
+
+const client = new x402Client();
+// refuseWashFlagged defaults true; gateOnCanSpend stays false unless you opt in
+installTwzrdAutoGate(client, { refuseWashFlagged: true });
+// then register schemes + wrapFetchWithPayment as usual
+```
+
+**Intercept proof (0 USDC, wash seller never reaches signer):**
+
+```bash
+cd packages/twzrd-x402-gate && npm run autogate-block-proof
+# writes block-proof-<run_id>.json  (schema twzrd.autogate_block_proof.v1)
+# public reason: TWZRD_TRUST_GATE_BLOCK: wash_flagged
+```
+
+`gateOnCanSpend` remains **opt-in** (`false` by default; set `true` or `TWZRD_GATE_ON_CAN_SPEND=1` only when you want hard cap enforcement).
+
 **Optional (0.8.1):** a resource-server settle hook so merchants can apply **customer policy**
 before they settle and serve (abuse, sanctions, bots, “don’t serve this payer”). Not an equal
 mirror of the buyer problem — settled USDC is final; wash resistance is mainly TWZRD scoring.
@@ -23,7 +49,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.8.2
+npm install twzrd-x402-gate@0.8.6
 ```
 
 ```typescript
@@ -55,6 +81,10 @@ Offline demo: `npx tsx examples/seller-settle-guard.ts`
 Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 `test/fixtures/exact-svm-transfer-checked.ts`.
 
+**PayAI agentic-payments** (the active PayAI SDK, not the dormant x402-solana):
+`npx tsx examples/payai-agentic-onPaymentVerified.ts` — wire `onPaymentVerified`
+→ `toPayaiVerifyResult` to screen payers before serving. Fail-open by default.
+
 
 ## Demonstrable refuse mechanism (free, fail-open, reproducible)
 
@@ -63,7 +93,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.8.2
+npm install twzrd-x402-gate@0.8.6
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -83,9 +113,43 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.8.1 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.8.5 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
+
+### Foreign-wallet block proof (official @x402 stack, fresh key, zero history)
+
+**Verified 2026-07-23:** the same pre-sign block with a **brand-new wallet that has
+zero TWZRD/corpus history** — proving the mechanism is wallet-independent, not a
+whitelisted internal path.
+
+- Wallet: `3GMuabSAATKEXTchSpyP1y5raBS7y6Kx8GShdAbiDLce` (generated fresh; corpus
+  pre-check: `intel_score: 0`, `paid_calls: 0`, facilitator footprint `found: false`)
+- Stack: official `@x402/core` client + `@x402/fetch` + `@x402/svm` `ExactSvmScheme`,
+  TWZRD via `installTwzrdX402ClientHook` at `onBeforePaymentCreation`
+- Result: `verdict: green_block` · `reason: twzrd_can_spend_false` ·
+  `sign_after_abort: false` · `decision_count: 1` · `usdc_spent: 0` — payload
+  creation aborted on a live mainnet 402 (`payTo GFpLvo…`, $0.001) before any signing
+
+Repro with your own fresh key (no SOL/USDC needed — the block path never funds):
+
+```bash
+node --input-type=module -e "
+import { randomBytes } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { createKeyPairSignerFromPrivateKeyBytes } from '@solana/kit';
+import { base58 } from '@scure/base';
+const seed = randomBytes(32);
+const s = await createKeyPairSignerFromPrivateKeyBytes(seed);
+writeFileSync('fresh-wallet.json', JSON.stringify({ privateKey: base58.encode(seed), address: s.address }), { mode: 0o600 });
+console.log(s.address);
+"
+SVM_KEYPAIR_PATH=./fresh-wallet.json npm run official-dogfood -- --block
+```
+
+Honest scope: run by the TWZRD team on TWZRD infra, so it is wallet-independence
+proof, **not** an external adoption datapoint — that requires a non-internal
+operator running this same command with their own attribution flags.
 
 
 ## Canonical integration (official x402 client)
@@ -134,7 +198,7 @@ import { installTwzrdAutoGate } from "twzrd-x402-gate";
 import { wrapFetchWithPayment } from "@x402/fetch"; // or @x402/svm helper
 
 // Guard RAW fetch, then hand to a client that still surfaces 402 to the guard layer
-// — OR prefer installTwzrdX402ClientHook on x402Client (above).
+// — OR installTwzrdAutoGate(x402Client) (canonical) / installTwzrdX402ClientHook alias.
 const payingFetch = installTwzrdAutoGate((guarded) =>
   wrapFetchWithPayment(guarded, client),
 );
@@ -174,10 +238,10 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.8.2
+npm install twzrd-x402-gate@0.8.6
 ```
 
-Current npm truth: `0.8.2` (buyer gate + optional seller settle guard + payer-extract hardening).
+Current npm truth: `0.8.5` (buyer gate + optional seller settle guard + payer-extract hardening).
 Check `npm view twzrd-x402-gate version` if in doubt (do not pin stale **0.5.4** / **0.7.1**).
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
@@ -243,7 +307,7 @@ assertIntentApproved(intentBeingSigned, token, {
 
 ### On the client hook (opt-in)
 
-`installTwzrdX402ClientHook` wires the runtime into the official
+`installTwzrdAutoGate(client)` (or alias `installTwzrdX402ClientHook`) wires the runtime into the official
 `onBeforePaymentCreation` seat. Pass `paymentControl` to build the canonical
 intent, run the policy runtime (with the hook's own preflight fed in as remote
 intelligence), and surface a signed, intent-bound `PaymentDecision`:
@@ -343,7 +407,7 @@ the intent hash, so the decision no longer matches.
 npx twzrd-safe-fetch https://example/paid --gate-on-can-spend --payment-network solana --json
 
 # Dry-run: preflight only, zero USDC
-npx twzrd-safe-fetch 'https://intel.twzrd.xyz/v1/intel/quick/<pubkey>' --dry-run --json
+npx twzrd-safe-fetch 'https://intel.twzrd.xyz/v1/intel/quick/BJGdsDXJFy63eCAnX3UmGfShp8BuqbtkTfcamyRGr7VQ' --dry-run --json
 ```
 
 ```text
@@ -580,6 +644,33 @@ const result = await evaluate_x402_resource(url, requirements, {
 // result.receiptFeeCaptured — true when fee landed
 ```
 
+## Fee-payer preference (multi-facilitator `accepts[]`)
+
+When a seller lists more than one facilitator in its 402 `accepts[]` (e.g. Dexter
+*and* TWZRD), you can tell the gate which fee payer to settle through. It selects
+the matching entry the seller **already offers** — it never adds, rewrites, or
+forces an entry onto the seller's 402, and falls back to the normal
+Solana-mainnet preference when nothing matches.
+
+Opt-in, off by default. Set once via env:
+
+```bash
+# prefer TWZRD's facilitator when a seller multi-lists (alias resolves to its feePayer)
+export TWZRD_PREFER_FEE_PAYER=twzrd
+# or any explicit base58 fee payer you want to route to
+export TWZRD_PREFER_FEE_PAYER=4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE
+```
+
+or programmatically:
+
+```typescript
+import { pickRequirements, TWZRD_FEE_PAYER } from "twzrd-x402-gate";
+
+const chosen = pickRequirements(body.accepts, { preferFeePayer: TWZRD_FEE_PAYER });
+```
+
+With no preference set, selection is unchanged (first Solana-mainnet entry).
+
 ## Lower-level APIs
 
 ### Direct approval call
@@ -668,7 +759,7 @@ A 402 whose payment requirements yield **no identifiable seller wallet** (missin
 Deterministic install→transcript path for operators (no wallet, no USDC):
 
 ```bash
-npm run adoption-proof -- --integration <YOUR_ID> --run-id <UUID>
+npm run adoption-proof -- --integration demo-autogate-proof --run-id 00000000-0000-4000-8000-000000000001
 ```
 
 Emits `twzrd.gate_adoption_transcript.v1` JSON: block path aborts with `signerInvocations: 0`, allow path emits decision, attribution headers stamped on mocked preflight. Full acceptance criteria (what counts as `EXTERNAL_RUN` vs dogfood): monorepo `docs/strategy/gate-adoption-operator-proof.md`.

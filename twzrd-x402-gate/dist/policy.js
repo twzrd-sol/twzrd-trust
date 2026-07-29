@@ -51,13 +51,21 @@ export function buildPreflightInput(context) {
 }
 export async function twzrdPreflight(input, config) {
     const cfg = config ?? resolveConfig();
-    // Attribution headers are stamped ONLY on this preflight request (never on the
-    // paid /v1/intel/trust call or the resource fetch). Correlation evidence only.
-    const headers = { "content-type": "application/json" };
+    // Seat identity is ALWAYS stamped on preflight (fork-1 metric: gate installs
+    // that hit intel). Paid /trust and resource fetch never get these headers.
+    // Opt-in attribution (integration+runId) adds correlatable run IDs on top.
+    const clientTag = `twzrd-x402-gate/${CLIENT_VERSION}`;
+    const headers = {
+        "content-type": "application/json",
+        "X-TWZRD-Client": clientTag,
+        // Maps to preflight_requests.caller_id (intel server). Default seat label.
+        "X-Twzrd-Caller": clientTag,
+    };
     if (cfg.attribution) {
         headers["X-TWZRD-Integration"] = cfg.attribution.integration;
         headers["X-TWZRD-Run-Id"] = cfg.attribution.runId;
-        headers["X-TWZRD-Client"] = `twzrd-x402-gate/${CLIENT_VERSION}`;
+        // Prefer explicit integration as caller when provided (e.g. partner name).
+        headers["X-Twzrd-Caller"] = `${cfg.attribution.integration}@${CLIENT_VERSION}`;
     }
     const resp = await cfg.fetch(`${cfg.intelBase}/v1/intel/preflight`, {
         method: "POST",

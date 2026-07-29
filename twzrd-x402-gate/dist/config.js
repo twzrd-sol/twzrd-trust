@@ -52,9 +52,9 @@ export function resolveConfig(overrides) {
     if (typeof fetchFn !== "function") {
         throw new Error("[twzrd-x402-gate] fetch is not available; pass config.fetch");
     }
-    // Opt-in preflight attribution. Sent ONLY when both fields resolve (no partial
-    // stamping). Overrides win; env fallback (TWZRD_ATTRIBUTION_INTEGRATION +
-    // TWZRD_ATTRIBUTION_RUN_ID) exists for the zero-spend harness.
+    // Run attribution (integration + runId). When set, also narrows X-Twzrd-Caller.
+    // Seat identity (X-Twzrd-Caller / X-TWZRD-Client) is always stamped in
+    // twzrdPreflight even without this pair — see policy.ts fork-1 seat metric.
     let attribution;
     const attrIntegration = overrides?.attribution?.integration ?? process.env.TWZRD_ATTRIBUTION_INTEGRATION;
     const attrRunId = overrides?.attribution?.runId ?? process.env.TWZRD_ATTRIBUTION_RUN_ID;

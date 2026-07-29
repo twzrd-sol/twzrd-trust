@@ -1,7 +1,7 @@
 # TWZRD Agent Intel
 
 **Live MCP** • [`https://intel.twzrd.xyz/mcp`](https://intel.twzrd.xyz/mcp) (**24 tools**, streamable HTTP)
-**Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.8.3` — `installTwzrdAutoGate` before any pay
+**Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.8.6` — `installTwzrdAutoGate` before any pay
 **Seller graph** • resources → merchant card → readiness → (optional) paid trust
 **Facilitator (Path B, opt-in)** • `GET /supported` feePayer `4LkEFj…` → `/verify` + `/settle` → receipt attach
 **Self-host mirror** • public wiring only (scoring engine stays private)
@@ -32,7 +32,7 @@ Most agents should follow this order:
 6. **Optional Path B settle** — pin feePayer from `GET /supported` and settle via TWZRD
    for free `twzrd_receipt` + `merchant_attach` (see [Facilitator](#facilitator-path-b-opt-in))
 
-**Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.8.3` so step 3
+**Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.8.6` so step 3
 runs automatically before signing (see [Buyer-side gate](#buyer-side-gate-pre-sign-enforcement)).
 
 ---
@@ -65,7 +65,7 @@ Free preflight is **advisory** unless you wire a gate package or payment-hook.
 
 | Directory / npm | What |
 |-----------------|------|
-| [`twzrd-x402-gate`](./twzrd-x402-gate) · `npm i twzrd-x402-gate@0.8.3` | Buyer-side pre-sign seatbelt: `withTwzrdGuard`, `installTwzrdAutoGate`, `installTwzrdX402ClientHook`, `twzrdBeforePaymentCreation` |
+| [`twzrd-x402-gate`](./twzrd-x402-gate) · `npm i twzrd-x402-gate@0.8.6` | Buyer-side pre-sign seatbelt: `withTwzrdGuard`, `installTwzrdAutoGate`, `installTwzrdX402ClientHook`, `twzrdBeforePaymentCreation` |
 | [`twzrd-mcp-server`](./twzrd-mcp-server) · `npx -y twzrd-mcp-server` | Local auto-pay MCP (npm `0.4.0`); paid intel opt-in via env |
 | [`plugin-trustgate`](./plugin-trustgate) | ElizaOS / facilitator `onBeforeSettle` — **requirer** seat, not buyer wrap |
 | [`eliza-plugin`](./eliza-plugin) | Full Agent Intel plugin for ElizaOS |
@@ -224,9 +224,9 @@ Pin the issuer key from the well-known endpoint (do not invent keys):
 ```bash
 curl -s https://intel.twzrd.xyz/.well-known/twzrd-receipt-pubkey
 
-npx twzrd-receipt-verifier@1.2.2 receipt.json \
+npx twzrd-receipt-verifier@1.2.5 receipt.json \
   --pubkey 9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf
-# or: pip install 'twzrd-receipt-verifier>=1.2.2'
+# or: pip install 'twzrd-receipt-verifier>=1.2.5'
 ```
 
 ---
