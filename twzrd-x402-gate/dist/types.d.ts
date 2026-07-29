@@ -80,16 +80,14 @@ export type TwzrdGateConfig = {
      */
     onWarnUpsell?: (ctx: TwzrdUpsellContext) => void | Promise<void>;
     /**
-     * Opt-in run attribution. When set, the gate stamps the TWZRD *preflight*
-     * request (and no other request) with correlation headers so an integrator's
-     * run can be matched to a server-observed preflight:
-     *   X-TWZRD-Integration: <integration>
-     *   X-TWZRD-Run-Id:      <runId>
-     *   X-TWZRD-Client:      twzrd-x402-gate/<version>
-     * This is correlation evidence, not proof of adoption — the runId is
-     * caller-supplied and spoofable. A run only counts when the same runId appears
-     * in the integrator's own transcript AND is observed server-side from
-     * non-internal lineage. No PII, secrets, or payload is added.
+     * Optional run attribution (integration + runId). Preflight ALWAYS stamps
+     * seat identity (fork-1 metric):
+     *   X-TWZRD-Client: twzrd-x402-gate/<version>
+     *   X-Twzrd-Caller: twzrd-x402-gate/<version>
+     * When this pair is set, also:
+     *   X-TWZRD-Integration / X-TWZRD-Run-Id
+     *   X-Twzrd-Caller: <integration>@<version>
+     * runId is caller-supplied and spoofable — pair with server-side observation.
      */
     attribution?: {
         /** Stable integration label, e.g. "payai-x402-solana-pr38". */

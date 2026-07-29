@@ -21,6 +21,7 @@
  * Never wrap agentcash fetch with withTwzrdGuard — that is too late.
  * Do not market this CLI as a secure AgentCash firewall.
  */
+import { type DeliveryCaptureResult } from "./delivery-capture.js";
 import type { TwzrdApprovalResult } from "./types.js";
 export type SafeFetchOptions = {
     url: string;
@@ -43,6 +44,11 @@ export type SafeFetchOptions = {
     agentcashPackage?: string;
     /** Extra args after `fetch <url>` */
     agentcashExtraArgs?: string[];
+    /**
+     * Post-settle delivery observation capture (Phase 2 delivery-proof).
+     * Default true; also disabled by TWZRD_DELIVERY_CAPTURE=0|false.
+     */
+    deliveryCapture?: boolean;
     /** Inject fetch for tests */
     fetch?: typeof fetch;
     /** Inject payer runner for tests */
@@ -107,6 +113,12 @@ export type SafeFetchResult = {
     targetRequestCount: number;
     /** Security classification of this adapter */
     cliSecurityClassification: "advisory_precheck";
+    /**
+     * Post-settle delivery observation (paid phase only). posted=false when
+     * capture is disabled or the collector endpoint is unreachable; the
+     * observation itself is still returned for local transcripts.
+     */
+    deliveryCapture?: DeliveryCaptureResult;
 };
 export declare function runAgentcashFetch(args: {
     url: string;

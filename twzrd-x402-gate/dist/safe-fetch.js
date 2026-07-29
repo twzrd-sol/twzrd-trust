@@ -23,6 +23,7 @@
  */
 import { spawn } from "node:child_process";
 import { resolveConfig } from "./config.js";
+import { captureDeliveryObservation, } from "./delivery-capture.js";
 import { amountBucket, classifyNetwork, } from "./network.js";
 import { payToFromRequirements, pickRequirements, priceUsdcFromAmountMicro, } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
@@ -287,6 +288,7 @@ export async function safeFetch(opts) {
             agentcashPackage: opts.agentcashPackage,
             extraArgs: opts.agentcashExtraArgs,
         }));
+    const payerStartedAt = Date.now();
     const payer = await runPayer({
         url: opts.url,
         method,
@@ -294,6 +296,7 @@ export async function safeFetch(opts) {
         headers: opts.headers ?? [],
         paymentNetwork: opts.paymentNetwork,
     });
+    const payerLatencyMs = Date.now() - payerStartedAt;
     emit(opts, eventOrder, "payer_invoke_done", {
         exitCode: payer.exitCode,
         stdout_len: payer.stdout.length,
@@ -330,6 +333,26 @@ export async function safeFetch(opts) {
         requirement_scored_matches_requirement_signed: false,
         note: "AgentCash CLI re-fetches the target; challenge may differ from probe",
     });
+    // Post-settle delivery observation (Phase 2 delivery-proof): passive,
+    // fire-and-forget, never throws into the pay path. Verdict is against the
+    // merchant's own advertised output from the 402 challenge.
+    const deliveryCapture = await captureDeliveryObservation({
+        merchantWallet: payTo,
+        httpStatus: 200,
+        resourceBody,
+        challengeBody: body,
+        payerOutput: resourceBody,
+        latencyMs: payerLatencyMs,
+        resource: resource ?? opts.url,
+        network,
+        enabled: opts.deliveryCapture,
+    }, cfg);
+    emit(opts, eventOrder, "delivery_observation", {
+        posted: deliveryCapture.posted,
+        schema_match: deliveryCapture.observation.schema_match,
+        check_level: deliveryCapture.observation.check_level,
+        has_settlement_tx: deliveryCapture.observation.settlement_tx != null,
+    });
     return {
         ok: true,
         phase: "paid",
@@ -348,6 +371,7 @@ export async function safeFetch(opts) {
         requirementScoredMatchesRequirementSigned: false,
         targetRequestCount: 2,
         cliSecurityClassification: "advisory_precheck",
+        deliveryCapture,
     };
 }
 // --- CLI ---

@@ -27,7 +27,7 @@ The security loop is:
 | Pre-sign policy | `twzrd-x402-gate` evaluates the seller before signature creation | [`twzrd-x402-gate/`](../twzrd-x402-gate/) |
 | Decision transparency | Preflight returns `allow`, `warn`, or `block`, plus confidence, reason codes, risk factors, recommended action, and a spend cap | [`POST /v1/intel/preflight`](https://intel.twzrd.xyz/openapi.json) |
 | Portable proof | V6 receipts bind provenance fields into a Keccak-256 leaf and sign the leaf with Ed25519 | [`twzrd-receipt-verifier`](https://github.com/twzrd-sol/twzrd-receipt-verifier) |
-| Offline verification | A verifier can pin the signing key and validate without calling TWZRD | [`twzrd-receipt-verifier@1.2.2`](https://www.npmjs.com/package/twzrd-receipt-verifier) |
+| Offline verification | A verifier can pin the signing key and validate without calling TWZRD | [`twzrd-receipt-verifier@1.2.5`](https://www.npmjs.com/package/twzrd-receipt-verifier) |
 | Public machine contracts | OpenAPI, agent card, MCP descriptor, and signing key are published independently | [`openapi.json`](https://intel.twzrd.xyz/openapi.json), [agent card](https://intel.twzrd.xyz/.well-known/agent-card.json) |
 | No payment custody | TWZRD recommends or enforces buyer policy; the underlying x402 client signs and settles | [`README.md`](../README.md) |
 
@@ -43,7 +43,7 @@ curl -fsS -X POST https://intel.twzrd.xyz/v1/receipts/verify \
   -H 'content-type: application/json' \
   --data-binary @/tmp/twzrd-sample-receipt.json | jq '.result'
 
-npx -y twzrd-receipt-verifier@1.2.2 \
+npx -y twzrd-receipt-verifier@1.2.5 \
   /tmp/twzrd-sample-receipt.json \
   --pubkey 9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf \
   --self-test
