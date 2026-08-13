@@ -107,7 +107,9 @@ session caps.
 ## Safety
 
 - **Opt-in payments** — paid tools sign only with `TWZRD_MCP_PAYMENTS_ENABLED=1`; a wallet key alone never arms spending.
-- **Spend caps** — per-call and session caps enforced in the payment selector *before* any signature.
+- **Spend caps** — per-call and session caps enforced in the payment selector *before* any signature. Caps are evaluated on the charge's **true** on-chain decimals, not the merchant-declared `decimals` — a challenge that declares mismatched decimals for a known stablecoin is refused, not scaled. A malformed cap env var (e.g. `"$0.05"`) falls back to the safe default and warns; it never disables the cap.
+- **Known-asset only** — a charge is paid only when its `asset` is a recognized USD-pegged stablecoin (USDC/USDT) with known decimals; any other mint is refused, since a USD cap cannot bound an unpriced asset.
+- **Identifiable recipient** — a challenge with no `payTo` is refused; the signer is never handed an unidentifiable recipient.
 - **Solana-only** — a non-`exact` / non-`solana:` challenge is refused, never mis-signed.
 - **Single-shot retry** — at most one signed retry per tool call; a second 402 is surfaced, not silently re-paid.
 - **Free tools never enter the payment path.**
