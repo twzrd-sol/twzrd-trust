@@ -195,7 +195,7 @@ Wire `twzrdOnPaymentRequested` / prefer `onPaymentRequired` + `onBeforePayment` 
 
 ```typescript
 import { installTwzrdAutoGate } from "twzrd-x402-gate";
-import { wrapFetchWithPayment } from "@x402/fetch"; // or @x402/svm helper
+import { wrapFetchWithPayment } from "@x402/fetch";
 
 // Guard RAW fetch, then hand to a client that still surfaces 402 to the guard layer
 // — OR installTwzrdAutoGate(x402Client) (canonical) / installTwzrdX402ClientHook alias.
@@ -441,7 +441,7 @@ ever gets a chance to sign.
 
 ```typescript
 import { installTwzrdAutoGate } from "twzrd-x402-gate";
-import { wrapFetchWithPayment } from "@x402/svm";
+import { wrapFetchWithPayment } from "@x402/fetch";
 
 const payingFetch = installTwzrdAutoGate((guarded) => wrapFetchWithPayment(guarded, buyerWallet));
 
@@ -492,7 +492,7 @@ manage the raw/paying composition yourself:
 
 ```typescript
 import { withTwzrdGuard } from "twzrd-x402-gate";
-import { wrapFetchWithPayment } from "@x402/svm";
+import { wrapFetchWithPayment } from "@x402/fetch";
 
 const raw = globalThis.fetch;               // MUST still surface HTTP 402
 const guarded = withTwzrdGuard(raw);        // guard sits upstream
@@ -535,7 +535,7 @@ for the counterparty before you pay the resource.
 `@x402/svm` sponsored-feePayer client — the same one `twzrd-mcp-server` uses:
 
 ```typescript
-import { wrapFetchWithPayment } from "@x402/svm";
+import { wrapFetchWithPayment } from "@x402/fetch";
 const x402Fetch = wrapFetchWithPayment(fetch, buyerWallet); // settles 402 challenges
 ```
 
