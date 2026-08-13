@@ -10,7 +10,7 @@ Buyer-side **x402 trust gate** for elizaOS agents. Before your agent signs a pay
 Current compatible fetch-gate release:
 
 ```bash
-npm install twzrd-x402-gate@0.8.6
+npm install twzrd-x402-gate@0.8.16
 ```
 
 The results below were captured on 2026-07-16, before `0.8.2` was published.
