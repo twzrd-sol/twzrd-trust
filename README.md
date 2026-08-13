@@ -3,7 +3,7 @@
 **Live MCP** • [`https://intel.twzrd.xyz/mcp`](https://intel.twzrd.xyz/mcp) (**24 tools**, streamable HTTP)
 **Pre-sign seatbelt** • [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) `@0.8.6` — `installTwzrdAutoGate` before any pay
 **Seller graph** • resources → merchant card → readiness → (optional) paid trust
-**Facilitator (Path B, opt-in)** • `GET /supported` feePayer `4LkEFj…` → `/verify` + `/settle` → receipt attach
+**Settle rail (opt-in facilitator)** • `GET /supported` feePayer `4LkEFj…` → `/verify` + `/settle` → receipt attach
 **Self-host mirror** • public wiring only (scoring engine stays private)
 
 TWZRD is the pre-spend trust layer for agents paying over x402 on Solana. Vet the
@@ -29,8 +29,8 @@ Most agents should follow this order:
    - `allow` → established organic seller — still not a vouch for large spends
 4. **Optional paid trust** — `GET /v1/intel/trust/{pubkey}?seller_wallet=<seller>` (0.05 USDC)
 5. **Pay the resource** — only after steps 1–3 (and optional 4) approve
-6. **Optional Path B settle** — pin feePayer from `GET /supported` and settle via TWZRD
-   for free `twzrd_receipt` + `merchant_attach` (see [Facilitator](#facilitator-path-b-opt-in))
+6. **Optional settle rail** — pin feePayer from `GET /supported` and settle via TWZRD
+   for free `twzrd_receipt` + `merchant_attach` (see [Settle rail](#settle-rail-opt-in-facilitator))
 
 **Pre-sign enforcement:** wrap your payment client with `twzrd-x402-gate@0.8.6` so step 3
 runs automatically before signing (see [Buyer-side gate](#buyer-side-gate-pre-sign-enforcement)).
@@ -79,6 +79,8 @@ Free preflight is **advisory** unless you wire a gate package or payment-hook.
 
 ## Buyer-side gate (pre-sign enforcement)
 
+**Path B** is this seat: refuse before sign. Success is `signer_invocation_count=0`. It is not settle.
+
 Default machine rule: **decision-only** (`gateOnCanSpend: false`) + **wash refuse** (`refuseWashFlagged: true`).
 
 ```typescript
@@ -119,7 +121,7 @@ beforePaymentCreation: (ctx) =>
 
 ---
 
-## Facilitator (Path B, opt-in)
+## Settle rail (opt-in facilitator)
 
 Settle through TWZRD when you want money-move and trust memory in one hop:
 
@@ -135,7 +137,8 @@ curl -s https://intel.twzrd.xyz/supported
    (best-effort; never voids settle).
 
 **Path A (default for paid trust 402 today):** multi-rail external feePayers (CDP / PayAI /
-Dexter). That is not Path B. Path A feePayer ≠ Path B feePayer until you pin `/supported`.
+Dexter). That is not the settle rail. Path A feePayer ≠ settle-rail feePayer until you pin `/supported`.
+Path B is the buyer AutoGate refuse seat, not settle.
 
 Pitch: *Settle through TWZRD. Get on-chain settlement, a signed V6 receipt, and merchant
 track-record attach on the payTo for free.*
