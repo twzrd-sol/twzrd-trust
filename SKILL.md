@@ -21,7 +21,7 @@ description: |
   resource join, discover x402, facilitator settle, merchant attach, track record
 homepage: https://intel.twzrd.xyz
 metadata:
-  version: "1.13.7"
+  version: "1.13.8"
   canonical_url: https://intel.twzrd.xyz/skill.md
   gate_npm: twzrd-x402-gate@0.8.16
   x402_solana_npm: x402-solana@2.1.0
