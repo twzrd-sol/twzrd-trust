@@ -96,5 +96,6 @@ The buyer must still validate settlement state, resource delivery, freshness, an
 - Broad external buyer adoption is not claimed from corpus counts alone.
 - The proprietary scoring engine is not open source; public packages expose integration and verification contracts.
 - Coverage is strongest for observed Solana x402 activity. Thin or unknown sellers intentionally receive conservative treatment.
+- Receipt transparency (append-only log, signed tree heads, Solana anchoring) is specified with a public reference verifier ([spec](./transparency-log.md), [`twzrd-log-verifier`](../twzrd-log-verifier/)) but is **not yet served by the live API**; until the log endpoints ship, receipts prove authorship and integrity, not non-equivocation.
 
 These limitations are stated so diligence can distinguish implemented controls from roadmap or marketing language.

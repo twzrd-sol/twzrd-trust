@@ -69,6 +69,7 @@ Free preflight is **advisory** unless you wire a gate package or payment-hook.
 | [`twzrd-mcp-server`](./twzrd-mcp-server) · `npx -y twzrd-mcp-server` | Local auto-pay MCP (npm `0.4.0`); paid intel opt-in via env |
 | [`plugin-trustgate`](./plugin-trustgate) | ElizaOS / facilitator `onBeforeSettle` — **requirer** seat, not buyer wrap |
 | [`eliza-plugin`](./eliza-plugin) | Full Agent Intel plugin for ElizaOS |
+| [`twzrd-log-verifier`](./twzrd-log-verifier) | Offline verifier for the Receipt Transparency log: inclusion/consistency proofs, Solana anchors, equivocation detection ([spec](./docs/transparency-log.md)) |
 | [`server/`](./server) | Public MCP card, `llms.txt`, well-known endpoints |
 
 **PayAI client seam (external, open):** [x402-solana #39](https://github.com/PayAINetwork/x402-solana/pull/39) — vendor-neutral optional `beforePayment` pre-sign hook (no TWZRD dependency in core). Wire TWZRD separately via `installTwzrdX402ClientHook` / `twzrdBeforePaymentCreation` when you own the client.
@@ -234,6 +235,7 @@ npx twzrd-receipt-verifier@1.2.5 receipt.json \
 ## Related
 
 - [Trust assurance and reproducible security boundaries](./docs/security-assurance.md) — receipt integrity, pre-sign enforcement, trust assumptions, and current limitations
+- [Receipt Transparency log spec](./docs/transparency-log.md) — append-only Merkle log of issued receipts, signed tree heads, Solana anchoring, equivocation proofs; verifier: [`twzrd-log-verifier`](./twzrd-log-verifier)
 - [Security policy](./SECURITY.md) — disclosure scope and response targets
 - [Pay-guard closeout proof](./docs/proofs/seller-graph-payguard-closeout-2026-07-12.md) — zero-funds strict block, signer count 0
 - [Zero-spend guard check](./docs/proofs/examples/zero-spend-guard-check.mjs) — runnable harness
