@@ -7,6 +7,7 @@ import { ExactSvmScheme, SOLANA_MAINNET_CAIP2 } from "@x402/svm";
 import { createKeyPairSignerFromBytes } from "@solana/kit";
 import { createRequire } from "node:module";
 import bs58 from "bs58";
+import { parseCap, selectSolanaExact as pickSolanaExact } from "./select-solana-exact.js";
 const VERSION = createRequire(import.meta.url)("../package.json").version;
 function printHelp() {
     console.log(`twzrd-mcp-server v${VERSION}
@@ -53,35 +54,8 @@ if (process.argv.includes("--version") || process.argv.includes("-v")) {
     process.exit(0);
 }
 const API_BASE = process.env.TWZRD_API_URL || "https://intel.twzrd.xyz";
-// Parse a USD spend cap. A malformed value (e.g. "$0.05", "0,05" -> NaN) must
-// NOT silently disable the cap: `amount > NaN` is always false, so a NaN cap
-// removes all spend limits. Fall back to the safe default and warn loudly
-// instead of ever arming with an unbounded cap.
-function parseCap(raw, fallback, name) {
-    if (raw === undefined || raw === "")
-        return fallback;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0) {
-        console.error(`TWZRD MCP: WARNING — ${name}=${JSON.stringify(raw)} is not a ` +
-            `finite non-negative number; falling back to safe default $${fallback}. ` +
-            `Spend caps are NEVER disabled on a malformed value.`);
-        return fallback;
-    }
-    return n;
-}
 const MAX_PER_CALL = parseCap(process.env.TWZRD_MAX_USDC_PER_CALL, 0.05, "TWZRD_MAX_USDC_PER_CALL");
-const MAX_TOTAL = parseCap(process.env.TWZRD_MAX_USDC_TOTAL, 1.0, "TWZRD_MAX_USDC_TOTAL");
-// Assets we can price 1:1 against USD without an oracle, with their REAL
-// on-chain decimals. The whole cap system is denominated in USD, so an amount
-// can only be evaluated against a cap when its asset + true decimals are known.
-// A challenge that declares different decimals for these mints is lying (or
-// broken) — either way it is not evaluable, so it is refused. Mirrors the
-// USD_PEGGED_ASSETS guard already shipped in twzrd-x402-gate's MPP hook.
-const USD_PEGGED_ASSETS = {
-    EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 6, // USDC mainnet
-    Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr: 6, // USDC devnet
-    Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 6, // USDT mainnet
-};
+const MAX_TOTAL = parseCap(process.env.TWZRD_MAX_USDC_TOTAL, 1.00, "TWZRD_MAX_USDC_TOTAL");
 const PAYMENTS_ENABLED = process.env.TWZRD_MCP_PAYMENTS_ENABLED === "1";
 const ALLOW_PUBLIC_RPC = process.env.TWZRD_ALLOW_PUBLIC_RPC === "1";
 const PUBLIC_RPC = "https://api.mainnet-beta.solana.com";
@@ -90,50 +64,11 @@ const SECRET = process.env.TWZRD_WALLET_SECRET_KEY || "";
 const RECEIPT_PUBKEY = process.env.TWZRD_RECEIPT_PUBKEY || "9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf";
 let spentUsdc = 0;
 function selectSolanaExact(_x402Version, accepts) {
-    const req = (accepts || []).find((a) => a?.scheme === "exact" && String(a?.network || "").startsWith("solana:"));
-    if (!req) {
-        throw new Error(`Refusing to pay: no Solana "exact" payment option in challenge (${JSON.stringify((accepts || []).map((a) => ({ scheme: a?.scheme, network: a?.network })))})`);
-    }
-    // Recipient must be identifiable. Never hand the signer a challenge with no
-    // payTo — an unidentifiable recipient cannot be scored, capped, or trusted.
-    const payTo = req.payTo ?? req.pay_to;
-    if (typeof payTo !== "string" || payTo.length === 0) {
-        throw new Error(`Refusing to pay: challenge has no payment recipient (payTo)`);
-    }
-    // Amount must be a base-unit integer. Anything else (decimals, sign, hex,
-    // scientific notation) is not a base-unit charge and must not be scaled and
-    // paid as if it were.
-    const rawAmount = req.amount ?? req.maxAmountRequired;
-    if (!/^\d+$/.test(String(rawAmount).trim())) {
-        throw new Error(`Refusing to pay: charge amount is not a base-unit integer (${JSON.stringify(rawAmount)})`);
-    }
-    // The cap is a USD figure, so the charge is only evaluable when its asset is
-    // a known USD-pegged stablecoin with known true decimals. Reject unknown
-    // assets rather than trusting a merchant-supplied `decimals` — the old code
-    // scaled the cap check by `req.extra.decimals`, so a challenge declaring
-    // decimals:18 made a 50-USDC charge evaluate as ~5e-11 and slip under the
-    // cap while `req.amount` base units were still transferred.
-    const asset = req.asset;
-    const trueDecimals = typeof asset === "string" ? USD_PEGGED_ASSETS[asset] : undefined;
-    if (trueDecimals === undefined) {
-        throw new Error(`Refusing to pay: asset ${JSON.stringify(asset)} is not a known USD-pegged ` +
-            `stablecoin, so its charge cannot be evaluated against a USD spend cap. ` +
-            `Supported: ${Object.keys(USD_PEGGED_ASSETS).join(", ")}`);
-    }
-    // If the challenge also declares decimals, it must match the mint's real
-    // decimals. A mismatch is a lying/broken challenge — refuse, do not scale.
-    const declaredDecimals = req.extra?.decimals;
-    if (declaredDecimals !== undefined && Number(declaredDecimals) !== trueDecimals) {
-        throw new Error(`Refusing to pay: challenge declares decimals=${JSON.stringify(declaredDecimals)} ` +
-            `for ${asset}, which really has ${trueDecimals} decimals. Not evaluable.`);
-    }
-    const amountUsdc = Number(BigInt(rawAmount)) / 10 ** trueDecimals;
-    if (amountUsdc > MAX_PER_CALL) {
-        throw new Error(`Refusing: call price $${amountUsdc} exceeds per-call cap $${MAX_PER_CALL}`);
-    }
-    if (spentUsdc + amountUsdc > MAX_TOTAL) {
-        throw new Error(`Refusing: would exceed session cap $${MAX_TOTAL} (spent $${spentUsdc})`);
-    }
+    const { req, amountUsdc } = pickSolanaExact(_x402Version, accepts || [], {
+        maxPerCall: MAX_PER_CALL,
+        maxTotal: MAX_TOTAL,
+        spentUsdc,
+    });
     spentUsdc += amountUsdc;
     return req;
 }
