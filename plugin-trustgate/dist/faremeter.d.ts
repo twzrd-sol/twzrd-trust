@@ -29,6 +29,8 @@ import { type TrustGateConfig, type TrustVerdict } from "./gate.js";
 export type FaremeterPaymentExecer = {
     requirements: {
         payTo?: string;
+        /** Some x402 stacks emit snake_case accepts[] (mirrors x402-client-hook). */
+        pay_to?: string;
         network?: string;
         amount?: string;
         [k: string]: unknown;
@@ -42,7 +44,9 @@ export type FaremeterPayerChooser = (execers: FaremeterPaymentExecer[]) => Promi
 export interface FaremeterChooserConfig extends TrustGateConfig {
     /**
      * Only screen Solana (CAIP-2 `solana:*` or bare `solana`). Non-Solana
-     * candidates pass unscored. Default true — TWZRD corpus is Solana-only.
+     * candidates pass unscored — but only via the first-available fallback, so a
+     * blocked Solana seller cannot be evaded through a non-Solana alt-rail.
+     * Default true — TWZRD corpus is Solana-only.
      */
     solanaOnly?: boolean;
     /**
