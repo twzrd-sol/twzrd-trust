@@ -39,7 +39,9 @@ export class TwzrdPayerChooserBlockedError extends Error {
     }
 }
 function payToOf(e) {
-    return String(e?.requirements?.payTo ?? "").trim();
+    // Mirror x402-client-hook's `payTo ?? pay_to`: a snake_case candidate must be
+    // SCREENED, not skipped into the unscored first-available fallback (#1632).
+    return String(e?.requirements?.payTo ?? e?.requirements?.pay_to ?? "").trim();
 }
 function networkOf(e) {
     return String(e?.requirements?.network ?? "").trim();
@@ -66,10 +68,13 @@ export function createTwzrdPayerChooser(config = {}) {
         for (const execer of execers) {
             const payTo = payToOf(execer);
             const network = networkOf(execer);
-            // Confirmed non-Solana → pass through unscored (corpus is Solana).
+            // Confirmed non-Solana → not scoreable in the TWZRD corpus. Do NOT return
+            // immediately: a blocked Solana seller must not be paid via a non-Solana
+            // alt-rail in the same accepts[] (#1632). Unscored candidates reach the
+            // first-available fallback below only when nothing scoreable blocked.
             if (solanaOnly && network !== "" && !SOLANA_NETWORK_RE.test(network)) {
                 onVerdict?.({ skipped: true, reason: "non_solana_network", payTo: payTo || undefined });
-                return execer;
+                continue;
             }
             if (!payTo) {
                 onVerdict?.({ skipped: true, reason: "missing_payTo" });

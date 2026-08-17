@@ -2,7 +2,7 @@
   "id": "twzrd-trustgate",
   "name": "TWZRD Trust Gate",
   "description": "Buyer-side x402 reputation gate that adds free TWZRD seller preflight context to elizaOS agents. Payment enforcement remains an explicit caller decision.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "kind": "provider",
   "configSchema": {
     "type": "object",

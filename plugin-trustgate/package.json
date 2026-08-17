@@ -1,6 +1,6 @@
 {
   "name": "@wzrd_sol/plugin-trustgate",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Buyer-side x402 reputation gate: free TWZRD ReadinessCard preflight before signing, opt-in canSpendSafely, facilitator onBeforeSettle (daydreams), and Faremeter payerChooser pre-sign guard. Fail-closed by default; no keys or auto-spend.",
   "type": "module",
   "main": "./dist/index.js",
