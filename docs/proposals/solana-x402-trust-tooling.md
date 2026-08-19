@@ -7,21 +7,21 @@
 **Delivery window:** 14 weeks  
 **Proposal date:** 2026-08-19  
 **Primary rail:** Solana  
-**License for funded public outputs:** MIT
+**License for funded public outputs:** MIT (code); CC BY 4.0 (datasets and method documentation)
 
 ## Summary
 
-TWZRD Agent Intelligence is a pre-spend trust gate for agents paying over x402 on Solana. It gives a buyer a free `allow | warn | block` decision after the client has selected the exact payment requirement and before the wallet signs. A buyer may separately purchase a signed V6 trust receipt. TWZRD is not a wallet, KYC provider, marketplace, or payment gateway.
+TWZRD Agent Intelligence is a pre-spend trust gate for agents paying over x402 on Solana. It provides a free `allow | warn | block` decision after the client has selected the exact payment requirement. When the public gate is installed in the client's pre-payment hook, a `block` aborts payment creation before the signer is invoked; without the hook installed, the hosted decision is advisory. A buyer may separately purchase a signed V6 trust receipt. TWZRD does not custody buyer funds or provide identity/KYC; its optional Solana facilitator rail is documented separately from the buyer-side trust gate.
 
-The tooling already exists: the `twzrd-x402-gate` buyer hook, a hosted MCP surface, a public skill, signed V6 receipts, and a two-basis Solana settlement corpus. This grant turns those shipped components into a durable public good: a reproducible refuse-before-sign integration, a current and inspectable settlement graph, and one independently operated payment-path integration.
+A working baseline is already shipped: the `twzrd-x402-gate` buyer hook (published on npm, with TypeScript source, tests, and examples in the public mirror), a hosted MCP surface, a public skill, signed V6 receipts, and a two-basis Solana settlement corpus. This grant hardens that baseline into a durable, reproducible public good: deterministic refuse-before-sign fixtures with clean-checkout CI, a current and inspectable settlement graph, and one independently operated payment-path integration.
 
-The grant does not fund a private directory or a closed score. The funded outputs are the public hook, proof harness, corpus refreshes, Dune dashboard, wash/score methodology, integration documentation, and milestone evidence.
+The grant does not fund a private directory or a closed score. TWZRD may continue operating a private hosted implementation, but the grant-funded input definitions, exclusions, scoring formula used for public decisions, reference queries, and versioned decision methodology will be public and sufficient for an independent reviewer to reproduce a published decision from released inputs. If the published material does not in fact reproduce a published decision, that is a Milestone 2 failure rather than a permitted gap. The funded outputs are the public hook, proof harness, corpus refreshes, Dune dashboard, wash/score methodology, integration documentation, and milestone evidence.
 
 ## Problem
 
 x402 makes machine payments easy. That does not make the counterparty safe.
 
-A client can receive a valid HTTP 402, construct a valid Solana payment, and still pay a seller whose observed settlement behavior is thin, concentrated, self-seeded, or wash-like. Facilitators verify and settle payments; directories show what can be called. Neither is a public, inspectable counterparty check before the wallet signs.
+A client can receive a valid HTTP 402, construct a valid Solana payment, and still pay a seller whose observed settlement behavior is thin, concentrated, self-seeded, or wash-like. Facilitators verify, sponsor, screen, and settle payments; directories show what can be called. Neither exposes this proposal's specific control: a public, settlement-graph-derived seller decision in the buyer client before payment creation.
 
 The gap has two parts:
 
@@ -39,16 +39,16 @@ The following is the dated baseline for this proposal, not a claim of external a
 | Hosted service | `https://intel.twzrd.xyz` — Agent Intelligence v0.5.8 |
 | Buyer hook | `twzrd-x402-gate@0.8.18` |
 | Agent surfaces | Hosted MCP, `llms.txt`, and public `skill.md` |
-| Public distribution mirror | `https://github.com/twzrd-sol/twzrd-trust` — MIT, byte-identical to the published npm artifact (runnable JavaScript, type declarations, proof CLIs). TypeScript source, tests, fixtures, and build config are **not** yet public; publishing them is a Milestone 1 output. |
+| Public source | `https://github.com/twzrd-sol/twzrd-trust` — MIT mirror carrying the published package plus the gate's TypeScript source, tests, and examples; deterministic fixtures and clean-checkout CI are Milestone 1 outputs |
 | Dashboard | `https://dune.com/twzrd_analyst/twzrd-x402-on-solana-official` |
-| Existing mechanism proof | On `0.8.18` from a clean checkout, a TWZRD-owned fixture reaches `twzrd_decision=block` with `signer_invocation_count=0` and `usdc_spent=0`, aborting at payload creation; a `warn`/`can_spend=true` control on a different counterparty shows the refusal is selective |
+| Existing mechanism proof | TWZRD-operated block and clean-control runs on the published `twzrd-x402-gate@0.8.18` (2026-08-19 transcript): the block leg reaches `approved=false` with `signer_invocation_count=0`, zero broadcast, zero spend; the control leg is approved and reaches the signer |
 | External adoption baseline | Not claimed; an independently operated Path B refusal or qualifying seller integration remains a grant outcome |
 
-Package registry metadata is the release source of truth. The public mirror was brought byte-identical to the published `0.8.18` artifact on 2026-08-19, before this application; that synchronization is **not** part of the funded work. Milestone 1 funds what remains: publishing the TypeScript source, tests, and build configuration, and adding CI that fails on drift.
+Package registry metadata is the release source of truth, and the live agent surfaces (`llms.txt`, `skill.md`, `.well-known/agent.json`) currently agree with it at `0.8.18`. The mirror was brought byte-identical to the published `0.8.18` artifact on 2026-08-19, before this application; that synchronization is **not** part of the funded work. Milestone 1 adds the compatibility matrix and the clean-checkout CI that fails on any future drift between repository, registry, and hosted install guidance.
 
 ### Dated Solana corpus baseline
 
-Complete through **2026-07-09 UTC** (Dune dashboard 215276):
+Public dashboard values from the dated refresh, complete through **2026-07-09 UTC** (Dune dashboard 215276). Definitions, the reproduction query, exclusion arithmetic, and a dated post-hoc re-run are in the [corpus note](./corpus-note-2026-07-09.md):
 
 - 1,649,588 observed payments
 - 103,243 raw payers
@@ -70,17 +70,17 @@ These are ecosystem observations. They are not customer counts, and the raw and 
 
 #### Deliverables
 
-- Publish the TypeScript source, test suite, deterministic fixtures, and build configuration for the current gate, so the documented `npm test` and build scripts run from a clean checkout.
-- Reconcile the emitted transcript schema with the acceptance fields below; `twzrd.gate_eval_refuse.v1` currently emits `signer_invocation_count` and `usdc_spent` under those names but not `decision`, `approved`, or `transaction_broadcast_count`.
-- Document the canonical buyer integration for the official x402 client lifecycle using `@x402/core`, `@x402/fetch`, and `@x402/svm`.
-- Document the compatible Solana seam for clients that expose a pre-payment hook, including `x402-solana` where applicable.
-- Publish a self-contained refuse-before-sign harness with both block and clean-control paths.
+- Publish deterministic local fixtures for the block and clean-control paths so the harness runs from a clean checkout without depending on the hosted service.
+- Reconcile the emitted transcript schema with the acceptance fields below: `twzrd.gate_eval_refuse.v1` currently emits `signer_invocation_count` and `usdc_spent` under those names, while `decision` appears as `twzrd_decision`, `approved` is not emitted, and `transaction_broadcast_count` is derived rather than recorded. The published schema must assert all five directly.
+- Document the canonical buyer integration for the official x402 client lifecycle using `@x402/core`, `@x402/fetch`, and `@x402/svm`, with a published compatibility matrix of tested versions.
+- Document the compatible Solana seam for clients that expose a pre-payment hook, including the supported `x402-solana@2.1.0` seam.
+- Productize the refuse-before-sign harness with both block and clean-control paths (the 2026-08-19 transcript is the manual baseline this replaces).
 - Publish a machine-readable transcript schema containing the selected payment requirement, TWZRD decision, reason, signer invocation count, broadcast count, and USDC spent.
-- Add clean-checkout CI covering the deterministic proof path and failing on version drift across the package, the repository documentation, and the hosted `llms.txt` and `skill.md` pins.
+- Add clean-checkout CI that runs the deterministic proof path and fails on package, documentation, or hosted-pin drift — covering the repository, the npm registry, and the live `skill.md` and `llms.txt`.
 
 #### Acceptance criteria
 
-A reviewer can start from a clean checkout, install the documented public package, and reproduce a block against the published fixture or live test 402. The resulting transcript must show:
+A reviewer can start from a clean checkout, install the documented public package, and reproduce a block against the published deterministic fixture; a live test 402 may serve as supplementary evidence but is not required for acceptance. The resulting transcript must show:
 
 - `decision=block`
 - `approved=false`
@@ -102,7 +102,7 @@ A TWZRD-operated fixture proves mechanism only. It does not satisfy Milestone 3 
 - Refresh and publish the Solana x402 corpus on two explicit bases:
   - **Raw:** observed settlement activity.
   - **Scrubbed:** event-level exclusions for disclosed internal, demo-exposed, and test-shaped activity.
-- Keep the public Dune dashboard current during the milestone and display a visible coverage watermark.
+- Publish at least four dated corpus refreshes during the eight-week milestone, no more than 14 days apart, unless a dated upstream-pause notice is displayed; the Dune dashboard displays a visible coverage watermark throughout.
 - Publish the corpus construction and refresh runbook.
 - Publish the wash and score methodology used for public decisions, including definitions, thresholds, equations or SQL, exclusions, known failure modes, and interpretation guidance.
 - Publish reconciliation checks showing that headline totals, scrubbed demand tables, and dashboard panels use the intended basis.
@@ -110,7 +110,7 @@ A TWZRD-operated fixture proves mechanism only. It does not satisfy Milestone 3 
 
 #### Acceptance criteria
 
-- At least one dated corpus refresh is published at milestone close, with raw and scrubbed payer bases separately labeled.
+- At least four dated corpus refreshes are published across the milestone, no more than 14 days apart absent a dated pause note, each with raw and scrubbed payer bases separately labeled.
 - The Dune dashboard and downloadable/public query outputs show the same coverage date and reconcile to the published refresh notes.
 - An independent reviewer can follow the public method and reproduce the published wash/score inputs from the released tables or queries.
 - No public table silently substitutes the raw payer count for the scrubbed demand base.
@@ -125,7 +125,7 @@ The success metric is inspectability and reproducibility, not a larger catalog o
 
 #### Deliverables
 
-- Productize the optional settle-gate path in shadow mode.
+- Complete settle-gate shadow coverage on the hosted settlement path. The hosted service already runs `enabled=true, shadow=true, enforcing=false`; the funded work is what does not exist yet: durable decision logging on the path that actually settles, the published sample-size/error threshold, and the evaluation over real shadow traffic.
 - Before any enforce activation, publish the named sample-size/error threshold, the observed shadow result, and a dated go/no-go note.
 - If the threshold is not met, remain in shadow mode and publish a written pause. Safety takes precedence over claiming enforcement.
 - Support and document an integration on infrastructure not operated by TWZRD.
@@ -136,7 +136,7 @@ The success metric is inspectability and reproducibility, not a larger catalog o
 Milestone 3 requires the product-development deliverables above **and at least one** of the following independently operated outcomes:
 
 1. **Foreign Path B refusal:** an external x402 buyer seats the TWZRD hook on its payment client and publishes a refusal transcript with `signer_invocation_count=0` and `usdc_spent=0`; or
-2. **Foreign seller integration:** a live Solana x402 seller operated outside TWZRD publishes a 402 payment requirement that names fee payer `4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE`.
+2. **Foreign seller integration:** a live Solana x402 seller operated outside TWZRD publishes a 402 payment requirement that names fee payer `4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE`, and the closeout includes a returned TWZRD trust artifact from that rail (for example the `merchant_attach` returned on settle). Naming the fee payer alone proves routing through TWZRD, not use of the trust gate.
 
 The artifact must identify the integration, timestamp the run, show the selected Solana payment requirement, and pass TWZRD's published internal/demo scrub rules.
 
@@ -149,16 +149,18 @@ The following do **not** satisfy this milestone:
 - a TWZRD-owned wallet or seller
 - a self-declared run without matching operator and server-side evidence
 
+If neither independently operated outcome exists by milestone close, Milestone 3 is not paid. Its scope may be revised only by written agreement with the Foundation; no internal substitute will be claimed.
+
 ## Budget
 
 | Milestone | Use of funds | Amount |
 |---|---|---:|
-| 1. Refuse before sign | Source/test/fixture publication, client adapters, transcript-schema reconciliation, proof harness, clean-checkout CI, and reproducible documentation | USD 12,000 |
-| 2. Settlement graph public good | Corpus pipeline, Dune refreshes, two-basis QA, public wash/score method, and refresh documentation | USD 14,000 |
-| 3. Foreign seats | Settle-gate shadow/evaluation work, external integration support, and independently verifiable closeout evidence | USD 14,000 |
+| 1. Refuse before sign | Deterministic fixtures and proof harness (~40%), client adapters and compatibility matrix (~25%), clean-checkout CI and drift gates (~20%), reproducible documentation and examples (~15%) | USD 12,000 |
+| 2. Settlement graph public good | Corpus/query engineering and refresh automation (~40%), public wash/score method documentation (~25%), two-basis QA and reconciliation (~20%), infrastructure costs for Dune/RPC/hosting (~15%) | USD 14,000 |
+| 3. Foreign seats | External integration support (~40%), settle-gate shadow coverage and evaluation (~35%), independently verifiable closeout evidence and QA (~25%) | USD 14,000 |
 | **Total** |  | **USD 40,000** |
 
-Funding is milestone-based and contingent on the acceptance criteria above. Catalog size, free preflight traffic, and the team's own fixtures are not substitutes for delivery.
+Percentages are planning allocations tied to the deliverables above, not a market average. Funding is milestone-based and contingent on the acceptance criteria above. Catalog size, free preflight traffic, and the team's own fixtures are not substitutes for delivery.
 
 ## Public-good commitment
 
@@ -172,27 +174,25 @@ The following grant outputs will remain public:
 - the wash/score methodology needed to inspect and reproduce public decisions
 - milestone closeout reports
 
-### Boundary: public method, private hosted implementation
-
-TWZRD will continue to operate a private hosted scoring implementation, and the repository says so ("public wiring only (scoring engine stays private)"). That is compatible with this grant only under an explicit boundary, so here it is: the grant-funded **input definitions, event-level exclusion rules, the scoring formula used for public decisions, reference queries, and the versioned decision methodology** will be public and sufficient for an independent reviewer to reproduce a published decision from released inputs. The hosted service's implementation, infrastructure, and operational tuning are not funded deliverables and are not promised. If the published material turns out not to reproduce a published decision, that is a Milestone 2 failure, not a permitted gap.
-
-The hosted free preflight will remain available without signup during the grant period. Optional paid V6 receipts may support post-grant maintenance, but the public method and funded tooling will not be withdrawn behind the paid receipt.
+The hosted free preflight will remain available without signup during the grant period and for at least 12 months after grant completion, subject to a published deprecation and migration policy if it must ever change. Optional paid V6 receipts may support post-grant maintenance, but the public method and funded tooling will not be withdrawn behind the paid receipt.
 
 ## Why Solana
 
 Solana makes small, frequent x402 payments economically plausible, while its public ledger makes the settlement graph reconstructable. Its explicit transaction construction and signing lifecycle also provides a crisp enforcement boundary: a deny can abort before the payer's signer is invoked. Fee-payer sponsorship allows a resource server to cover SOL fees while the buyer pays in USDC, which is directly relevant to the seller-integration acceptance path.
 
+The funded artifacts are Solana-specific even though the high-level gate interface is portable: the public corpus is reconstructed from Solana USDC transfers and Solana fee-payer/facilitator semantics, and the seller path validates SVM transaction construction, SPL-token payment requirements, and zero-SOL buyer operation. Those datasets, fixtures, and transaction-level controls do not transfer to another network without rebuilding them.
+
 The gate envelope can recognize other networks, but this proposal does not claim equivalent behavioral coverage elsewhere. The grant scope is Solana settlement data, Solana USDC payment requirements, and Solana pre-sign enforcement.
 
 ## Ecosystem role
 
-Coinbase facilitators, PayAI, Dexter, and other x402 infrastructure move, verify, settle, or report payments. TWZRD's funded role is narrower: evaluate the seller from observed Solana settlement behavior before the buyer signs, and make the evidence and method inspectable.
+Coinbase facilitators, PayAI, Dexter, and other x402 infrastructure verify, sponsor, settle, screen, or report payments. TWZRD's funded role is narrower: evaluate the seller from observed Solana settlement behavior before the buyer signs, and make the evidence and method inspectable.
 
-The project will not claim affiliation with Coinbase, the x402 Foundation, Solana Foundation, or t54. Public data is derived from public chain activity and published facilitator or resource directories.
+The project will not claim affiliation with Coinbase, the x402 Foundation, Solana Foundation, or t54. The funded public datasets and decisions are derived from public chain activity and published facilitator or resource directories.
 
 ## Team and execution advantage
 
-TWZRD is operated by the builder who shipped the existing gate, hosted MCP, signed V6 receipts, public Solana corpus, and Dune dashboard. The grant begins from working software and dated evidence rather than a concept-stage implementation.
+TWZRD is operated by [OPERATOR NAME — fill before submission], [role — fill before submission], the builder who shipped the existing gate, hosted MCP, signed V6 receipts, public Solana corpus, and Dune dashboard. Availability for this grant: [hours/week — fill before submission]. Representative shipped work: `twzrd-x402-gate` 0.7.x–0.8.18 on npm, Agent Intelligence 0.5.x hosted at intel.twzrd.xyz, and the public Dune corpus. Infrastructure is currently single-operator; the continuity risk and its mitigation are listed under Risks. The grant begins from working software and dated evidence rather than a concept-stage implementation.
 
 The execution advantage is continuity across all three layers:
 
@@ -206,14 +206,16 @@ The execution advantage is continuity across all three layers:
 |---|---|
 | x402 client lifecycle changes | Pin tested versions, publish a compatibility matrix, and run CI against the supported lifecycle hooks. |
 | Corpus or upstream data delay | Display the coverage watermark and a dated pause; never label stale data current. |
-| False refusal | Include a clean-control path, keep policy configurable, and require shadow evidence before settle-gate enforcement. |
+| False refusal | Include a clean-control path, version the decision policy, publish an evaluation set with observed false-positive behavior, provide a documented review route for sellers who believe they are misclassified, and require shadow evidence before settle-gate enforcement. |
 | Vanity adoption | Keep discovery metrics separate from payment-path seats and apply the published internal/demo scrub. |
-| External integration is not fully controllable | Make Milestone 3 contingent on independently operated evidence rather than substituting internal activity. |
+| External integration is not fully controllable | Milestone 3 is unpaid if its independently operated outcome does not exist; its scope changes only by written agreement with the Foundation, and internal activity is never substituted. |
 | A signed receipt is mistaken for a live guarantee | Document V6 as a signed snapshot at issue time, not proof of delivery or perpetual trust. |
+| Methodology gaming after publication | Version the methodology, monitor for adversarial patterns against published thresholds, and document known failure modes with each refresh. |
+| Single-operator continuity | Publish the corpus-refresh and proof-CI runbooks as grant outputs so any maintainer can reproduce them; all funded artifacts live in public repositories. |
 
 ## Sustainability
 
-After the grant, free preflight remains the public entry point. Optional paid V6 receipts and integration support provide a maintenance path without converting the funded gate or methodology into a closed product. Corpus refresh procedures and dashboard watermarks make ongoing maintenance visible and auditable.
+After the grant, free preflight remains the public entry point, committed for at least 12 months post-grant with a published deprecation and migration policy if it must ever change. Grant funds pay only for public artifacts; the private hosted implementation is not itself a funded deliverable. Paid V6 receipt revenue does not restrict the free gate, and the public reference implementations remain usable without purchasing receipts. Corpus refresh procedures and dashboard watermarks make ongoing maintenance visible and auditable.
 
 ## Public links
 
@@ -223,4 +225,5 @@ After the grant, free preflight remains the public entry point. Optional paid V6
 - Public distribution mirror: https://github.com/twzrd-sol/twzrd-trust
 - Buyer gate: https://www.npmjs.com/package/twzrd-x402-gate
 - Dune dashboard: https://dune.com/twzrd_analyst/twzrd-x402-on-solana-official
-- Mechanism transcript (0.8.18, with clean control): https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proofs/20260819-refuse-0.8.18-transcript.md
+- Mechanism transcript (block + clean control, `0.8.18`): https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proofs/20260819-refuse-and-clean-control-0.8.18.md
+- Corpus note (definitions, reproduction query, dated re-run): https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proposals/corpus-note-2026-07-09.md

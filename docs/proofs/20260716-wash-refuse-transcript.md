@@ -1,12 +1,12 @@
-# TWZRD Internal Mechanism Proof - 2026-07-16 (superseded)
+# TWZRD Internal Mechanism Proof (superseded) - 2026-07-16
 
-> **Superseded by [`20260819-refuse-0.8.18-transcript.md`](./20260819-refuse-0.8.18-transcript.md).**
->
-> This artifact was previously titled "External Refuse Proof". That title was wrong:
-> the run is a TWZRD dogfood on an owned fixture, as its own setup section states, and it
-> is **not** external adoption evidence. It also predates the signer-spy harness, so it
-> records no `signer_invocation_count`, and it runs `0.7.1` rather than the currently
-> published gate. Retained for provenance; cite the 0.8.18 transcript instead.
+> **Relabeled 2026-08-19.** This is a TWZRD-operated dogfood run on `twzrd-x402-gate@0.7.1`,
+> not external adoption evidence — the original "External" title overstated it. It is
+> superseded by
+> [`20260819-refuse-and-clean-control-0.8.18.md`](./20260819-refuse-and-clean-control-0.8.18.md),
+> which runs the published 0.8.18 package, measures `signer_invocation_count=0` directly,
+> and adds a clean-control leg. (`transaction_broadcast_count=0` is derived there from zero
+> signer invocations rather than emitted by the block-leg CLI; see that file's note.)
 
 ## Repro Setup
 - Package: twzrd-x402-gate@0.7.1 (published, npm)
