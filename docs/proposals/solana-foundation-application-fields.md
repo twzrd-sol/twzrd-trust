@@ -61,7 +61,7 @@ Total $40,000. Contingent on the criteria above.
 
 Live: intel.twzrd.xyz (Agent Intelligence v0.5.8). Buyer gate twzrd-x402-gate@0.8.18. Hosted MCP + skill.md. Public source: github.com/twzrd-sol/twzrd-trust.
 
-Solana x402 corpus — public dashboard values from the dated refresh, complete through 2026-07-09 UTC (Dune 215276; definitions, reproduction query, and a dated re-run: https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proposals/corpus-note-2026-07-09.md): 1,649,588 payments, 103,243 payers (raw), 12,832 merchants, $433,213 settled USDC, median $0.03. Scrubbed demand base 102,801 payers: 39.1% one-and-done; 3.51% (3,613) trusted-recurring (≥5 payments, ≥2 merchants).
+Solana x402 corpus — public dashboard values from the dated refresh, complete through 2026-08-16 UTC (Dune 215276; freshness query 7913460 reports last_payment 2026-08-16 23:59:59+00; definitions, reproduction query, change table, and a disclosed known failure mode: https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proposals/corpus-note-2026-08-16.md): 2,665,308 payments, 106,200 payers (raw), 16,011 merchants, 17 labeled facilitators, $666,794 settled USDC, median $0.02. Scrubbed demand base 105,748 payers: 39% one-and-done; 4.6% (4,867) trusted-recurring (≥5 payments, ≥2 merchants). Payments grew 61.6% on 2.9% payer growth since the prior refresh; one-directional captive concentration is not wash-flagged and is disclosed in the corpus note.
 
 Those wallets are ecosystem observations, not TWZRD customers. Paid V6 receipts and Path A cash are Solana-settlement only. Catalog / free preflight hits are discovery health, not adoption.
 
