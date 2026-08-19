@@ -3,10 +3,11 @@
  *
  * Design: docs/strategy/install-autogate-design.md (#1586).
  *
- * One name across three adapters:
- *   1. Fetch / payWrap  — guard raw fetch, then hand to x402 payer
- *   2. x402 client      — onBeforePaymentCreation (official Path E)
- *   3. MPP              — onChallenge via createTwzrdMppOnChallenge
+ * One name across four adapters:
+ *   1. Fetch / payWrap     — guard raw fetch, then hand to x402 payer
+ *   2. x402 client         — onBeforePaymentCreation (@x402/core Path E)
+ *   3. x402-solana seat    — beforePayment on createX402Client (PayAI 2.1.0+)
+ *   4. MPP                 — onChallenge via createTwzrdMppOnChallenge
  *
  * Default ON. Kill switch (any):
  *   TWZRD_AUTO_GATE=0|false
@@ -14,7 +15,7 @@
  *   options.disabled: true
  */
 import { type TwzrdGuardOptions } from "./with-guard.js";
-import { type InstallX402ClientHookOptions, type X402ClientLike } from "./x402-client-hook.js";
+import { type BeforePaymentCreationResult, type InstallX402ClientHookOptions, type X402ClientLike, type X402SelectedRequirements, type X402SolanaBeforePaymentContext } from "./x402-client-hook.js";
 import { type MppOnChallengeHelpers, type MppOnChallengeOptions, type MppChallenge } from "./mpp-hook.js";
 /**
  * Takes a guarded (pre-pay-checked) fetch and returns the fetch your agent actually
@@ -64,6 +65,19 @@ export declare function installTwzrdAutoGate(client: X402ClientLike, options?: I
  *   onChallenge: installTwzrdAutoGate("mpp", { signer, policy: { maxAmountUsd: "1.00" } })
  */
 export declare function installTwzrdAutoGate(adapter: "mpp", options: InstallAutoGateMppOptions): (challenge: MppChallenge, helpers: MppOnChallengeHelpers) => Promise<string | undefined>;
+/**
+ * PayAI x402-solana stock-client seat (2.1.0+): returns a `beforePayment` hook
+ * for `createX402Client({ beforePayment })`. Runs after requirement selection,
+ * before signTransaction. Prefer this over the refuse-script-only happy path.
+ *
+ * @example
+ *   const client = createX402Client({
+ *     wallet,
+ *     network: "solana",
+ *     beforePayment: installTwzrdAutoGate("x402-solana", { refuseWashFlagged: true }),
+ *   });
+ */
+export declare function installTwzrdAutoGate(adapter: "x402-solana", options?: InstallAutoGateX402Options): (requirements: X402SelectedRequirements & Record<string, unknown>, context?: X402SolanaBeforePaymentContext) => Promise<BeforePaymentCreationResult>;
 /**
  * Disable a prior installTwzrdAutoGate on an x402 client (soft uninstall).
  * Fetch compositions cannot be uninstalled — rebuild with disabled:true instead.

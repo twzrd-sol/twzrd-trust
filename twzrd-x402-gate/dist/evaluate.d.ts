@@ -1,16 +1,28 @@
 import { type TwzrdTier } from "./quick.js";
+import { type RequireReceiptPolicy } from "./receipt-policy.js";
 import type { TwzrdDecision, TwzrdGateConfig, TwzrdReadinessCard, X402PaymentRequirements } from "./types.js";
+import type { BuyerEscalateOnWarn } from "./buyer-defaults.js";
 export type EvaluateX402Options = TwzrdGateConfig & {
     /**
      * When true, automatically fetches the paid TWZRD trust receipt (via x402)
      * after a warn/allow decision. Requires x402Fetch to be provided.
-     * Default: false.
+     * Default: false. Prefer `requireReceipt` when you want threshold/warn policy.
      */
     autoReceipt?: boolean;
     /**
+     * Host threshold policy for Path A ($0.05 V6). Opt-in.
+     * - Free preflight still decides allow|warn|block.
+     * - Path A auto-runs when resource price > minSpendUsdc (default 10) OR
+     *   decision === "warn" (onWarn default true).
+     * - Never on decision === "block" (free refuse stays free).
+     * - hard (default true): deny merchant spend if Path A fails.
+     * Requires x402Fetch.
+     */
+    requireReceipt?: boolean | RequireReceiptPolicy;
+    /**
      * x402-capable fetch that can settle USDC payments. Used by autoReceipt (the
-     * $0.05 receipt) and by escalateOnWarn (the $0.001 quick tier). The caller wires
-     * in a Solana wallet + x402 payer.
+     * $0.05 receipt), requireReceipt, and escalateOnWarn (the $0.001 quick tier).
+     * The caller wires in a Solana wallet + x402 payer.
      */
     x402Fetch?: typeof fetch;
     /**
@@ -30,12 +42,7 @@ export type EvaluateX402Options = TwzrdGateConfig & {
      * (warn -> maybe block); never loosens a block or allow. Short-circuits the
      * autoReceipt path for the warn case (no double settle).
      */
-    escalateOnWarn?: {
-        /** Skip escalation when the resource price is below this - don't pay $0.001 to vet a sub-cent buy. Default 0. */
-        minSpendUsdc?: number;
-        /** Deny when the paid quick score is below this. Default: preflightMinScore (40). */
-        blockBelowScore?: number;
-    };
+    escalateOnWarn?: BuyerEscalateOnWarn;
 };
 export type EvaluateX402Result = {
     decision: TwzrdDecision | "unknown";
@@ -53,6 +60,10 @@ export type EvaluateX402Result = {
     receiptTx?: string;
     /** true when a fee was captured on-chain */
     receiptFeeCaptured?: boolean;
+    /** true when Path A was attempted due to requireReceipt threshold/warn policy */
+    receiptRequired?: boolean;
+    /** true when hard requireReceipt denied spend because Path A failed */
+    receiptRequiredDenied?: boolean;
     /** true when a `warn` triggered an autonomous paid quick-tier re-decision (escalateOnWarn) */
     escalated?: boolean;
     /** the paid quick-tier score that drove the escalated decision; null when the quick tier could not answer */
@@ -68,10 +79,12 @@ export type EvaluateX402Result = {
  * Evaluate an x402 resource before the buyer pays:
  *   1. Run free TWZRD preflight on the seller (no auth, no cost).
  *   2. Return decision + trust score.
- *   3. If escalateOnWarn is set and decision=warn: autonomously settle the cheap
- *      $0.001 quick tier and re-decide on the paid score (the autonomous risk loop).
- *   4. Else if autoReceipt=true and decision !== block: auto-fetch the paid TWZRD
- *      trust receipt via x402Fetch (TWZRD earns the receipt fee on-chain).
+ *   3. If autoReceipt / requireReceipt triggers and decision !== block:
+ *      auto-fetch the paid TWZRD trust receipt via x402Fetch (Path A, $0.05 V6).
+ *      With requireReceipt.hard (default), deny spend if Path A fails.
+ *   4. Else if escalateOnWarn is set and decision=warn: settle the cheap
+ *      $0.001 quick tier and re-decide on the paid score (only when Path A
+ *      did not already fire).
  *
  * Defaults to gateOnCanSpend=false (decision-only) — the free-tier preflight
  * returns can_spend=false for most unknown sellers, which would block too eagerly

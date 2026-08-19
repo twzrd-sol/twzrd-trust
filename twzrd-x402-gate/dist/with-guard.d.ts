@@ -1,6 +1,6 @@
 import { type EvaluateX402Options } from "./evaluate.js";
 import type { TwzrdGateConfig } from "./types.js";
-export type TwzrdGuardOptions = TwzrdGateConfig & Pick<EvaluateX402Options, "autoReceipt" | "x402Fetch" | "onReceipt" | "escalateOnWarn">;
+export type TwzrdGuardOptions = TwzrdGateConfig & Pick<EvaluateX402Options, "autoReceipt" | "x402Fetch" | "onReceipt" | "escalateOnWarn" | "requireReceipt">;
 /**
  * Wraps a fetch implementation with TWZRD gate logic.
  *

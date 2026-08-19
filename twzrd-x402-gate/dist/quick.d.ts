@@ -2,8 +2,8 @@
  * twzrd quick tier — the $0.001 cheap paid qualify rung.
  *
  * The reputation ladder has three rungs:
- *   free   POST /v1/intel/preflight          -> allow/warn/block (the gate)
- *   $0.001 GET  /v1/intel/quick/{seller}      -> tier + score, NO receipt  <-- this file
+ *   free   POST /v1/intel/preflight          -> allow/warn/block only (no wash/fleet)
+ *   $0.001 GET  /v1/intel/quick/{seller}      -> seller wash risk + wallet reputation  <-- this file
  *   $0.05  GET  /v1/intel/trust/{seller}      -> full intel + signed V6 receipt (autoReceipt)
  *
  * Use `quickCheck` when the free preflight is inconclusive (warn / unknown seller)
@@ -34,7 +34,7 @@ export interface QuickCheckResult {
     available: boolean;
     reason: string;
 }
-export type QuickCheckOptions = Pick<TwzrdGateConfig, "intelBase" | "fetch"> & {
+export type QuickCheckOptions = Pick<TwzrdGateConfig, "intelBase" | "fetch" | "attribution"> & {
     /** x402-capable fetch that settles the $0.001 quick charge. Without it: available=false. */
     x402Fetch?: typeof fetch;
     /** ms before the quick call gives up. Default 5000. */

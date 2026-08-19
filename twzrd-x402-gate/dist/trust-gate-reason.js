@@ -9,6 +9,7 @@
 export const TWZRD_TRUST_GATE_BLOCK_WASH = "TWZRD_TRUST_GATE_BLOCK: wash_flagged";
 export const TWZRD_TRUST_GATE_BLOCK_CAN_SPEND = "TWZRD_TRUST_GATE_BLOCK: can_spend_false";
 export const TWZRD_TRUST_GATE_BLOCK_DECISION = "TWZRD_TRUST_GATE_BLOCK: decision_block";
+export const TWZRD_TRUST_GATE_BLOCK_BUDGET = "TWZRD_TRUST_GATE_BLOCK: budget_exceeded";
 /**
  * Map an internal `approval.reason` (or hook abort reason fragment) to a stable
  * public block code. Unknown reasons are namespaced, not dropped.
@@ -27,6 +28,14 @@ export function toTrustGateBlockReason(internalReason) {
     }
     if (core === "twzrd_decision_block" || core.startsWith("twzrd_decision_block")) {
         return TWZRD_TRUST_GATE_BLOCK_DECISION;
+    }
+    // Budget refuse: agent-facing code + technical POLICY_*/MANDATE_* ceilings.
+    if (core === "twzrd_budget_exceeded" ||
+        core.includes("twzrd_budget_exceeded") ||
+        core.includes("POLICY_MAX_AMOUNT") ||
+        core.includes("MANDATE_MONTHLY_CEILING") ||
+        core.includes("MANDATE_MAX_PER_TX")) {
+        return TWZRD_TRUST_GATE_BLOCK_BUDGET;
     }
     if (core.startsWith("TWZRD_TRUST_GATE_BLOCK:")) {
         return core;

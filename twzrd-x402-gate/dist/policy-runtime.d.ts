@@ -15,6 +15,8 @@
 import { type DecisionSigner, type PaymentDecision } from "./decision-token.js";
 import { type PaymentIntent } from "./intent.js";
 export declare const POLICY_VERSION = "twzrd-pc-v1";
+/** Agent-facing budget refuse code (maps POLICY_MAX_AMOUNT / monthly ceiling). */
+export declare const TWZRD_BUDGET_EXCEEDED = "twzrd_budget_exceeded";
 export type SpendPolicy = {
     /** Refuse wash-flagged counterparties (default true when intelligence runs). */
     refuseWashFlagged?: boolean;
@@ -78,6 +80,13 @@ export type EvaluateIntentOptions = {
     now?: number;
     /** Record allowed spend into the ledger (default true). */
     recordSpend?: boolean;
+    /**
+     * Prior Decision Outcome Attestation V1 leaves ("0x" + 64 hex) this
+     * decision cites as evidence. Verify them BEFORE passing (the token
+     * signature commits to the citation, not to the cited artifact's
+     * validity). Malformed leaves throw at issuance (fail closed).
+     */
+    citedOutcomes?: string[];
 };
 /**
  * Evaluate one PaymentIntent. Never throws on a policy outcome — a block is a

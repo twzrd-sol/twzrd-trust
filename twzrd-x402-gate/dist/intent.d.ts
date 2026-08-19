@@ -66,4 +66,9 @@ export declare function intentHash(intent: PaymentIntent): string;
  * Rejects floats-by-stealth: only `[digits].[<=6 digits]` accepted.
  */
 export declare function toMicroUsd(amount: string): bigint;
+/**
+ * Micro-units (6dp) → decimal string. Trims trailing fractional zeros so
+ * `1000000n` → `"1"` and `10000n` → `"0.01"` (stable for budget remaining).
+ */
+export declare function fromMicroUsd(micro: bigint): string;
 //# sourceMappingURL=intent.d.ts.map

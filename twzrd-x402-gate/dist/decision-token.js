@@ -13,6 +13,33 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync, hkdfSync, randomUUID, sign as edSign, verify as edVerify, } from "node:crypto";
 import { canonicalJson, intentHash } from "./intent.js";
 const DECISION_DOMAIN = "twzrd-decision-v1\n";
+/** Outcome-attestation leaves are keccak256 digests: "0x" + 64 lowercase hex. */
+const CITED_OUTCOME_LEAF_RE = /^0x[0-9a-f]{64}$/;
+/** Bound on cited leaves per token (keeps tokens small; cite the latest, not history). */
+export const MAX_CITED_OUTCOMES = 16;
+/**
+ * Validate + normalize cited outcome leaves at ISSUANCE time (fail closed:
+ * a malformed citation is a caller bug, not a policy outcome). Lowercases,
+ * requires the 0x prefix form, preserves order, rejects duplicates — the
+ * cited set must be exact because the signature commits to it byte-for-byte.
+ */
+export function normalizeCitedOutcomes(leaves) {
+    if (leaves.length > MAX_CITED_OUTCOMES) {
+        throw new Error(`[twzrd] citedOutcomes exceeds MAX_CITED_OUTCOMES=${MAX_CITED_OUTCOMES} (got ${leaves.length})`);
+    }
+    const seen = new Set();
+    return leaves.map((leaf) => {
+        const norm = leaf.trim().toLowerCase();
+        if (!CITED_OUTCOME_LEAF_RE.test(norm)) {
+            throw new Error(`[twzrd] cited outcome leaf must be "0x" + 64 hex chars (got ${JSON.stringify(leaf)})`);
+        }
+        if (seen.has(norm)) {
+            throw new Error(`[twzrd] duplicate cited outcome leaf: ${norm}`);
+        }
+        seen.add(norm);
+        return norm;
+    });
+}
 /** Everything signed — the token minus the signature itself. */
 export function decisionPreimage(token) {
     return Buffer.concat([

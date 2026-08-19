@@ -25,7 +25,22 @@ export type PaymentDecision = {
     decisionId: string;
     /** ISO-8601. Tokens are short-lived by design. */
     expiresAt: string;
+    /**
+     * Prior Decision Outcome Attestation V1 leaves this decision cites as
+     * evidence ("0x" + 64 hex, domain TWZRD:AO_DECISION_OUTCOME_V1 — see
+     * agent-intel DECISION_OUTCOME_ATTESTATION_V1_SPEC.md). Covered by the
+     * token signature via canonicalJson, so decision N+1 verifiably commits
+     * to the closed outcome of loop N. Absent on legacy tokens (canonicalJson
+     * drops undefined fields — existing signatures are unaffected).
+     */
+    citedOutcomes?: string[];
     constraints?: DecisionConstraints;
+    /**
+     * Decimal USDC still available under the budget that blocked this intent
+     * (POLICY_MAX_AMOUNT / MANDATE_MONTHLY_CEILING → reason `twzrd_budget_exceeded`).
+     * Absent when the block was not budget-related. Signed with the token.
+     */
+    budgetRemainingUsdc?: string;
     /** Signer key identifier (for rotation / audit). */
     keyId: string;
     /** base64 Ed25519 signature over the domain-separated canonical payload. */
@@ -37,6 +52,15 @@ export type DecisionSigner = {
     /** PEM (SPKI) for local verification; remote signers publish theirs. */
     publicKeyPem?: string;
 };
+/** Bound on cited leaves per token (keeps tokens small; cite the latest, not history). */
+export declare const MAX_CITED_OUTCOMES = 16;
+/**
+ * Validate + normalize cited outcome leaves at ISSUANCE time (fail closed:
+ * a malformed citation is a caller bug, not a policy outcome). Lowercases,
+ * requires the 0x prefix form, preserves order, rejects duplicates — the
+ * cited set must be exact because the signature commits to it byte-for-byte.
+ */
+export declare function normalizeCitedOutcomes(leaves: string[]): string[];
 /** Everything signed — the token minus the signature itself. */
 export declare function decisionPreimage(token: Omit<PaymentDecision, "signature">): Buffer;
 /**
