@@ -32,7 +32,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Transcript: gist above. Current paired gate release: `twzrd-x402-gate@0.8.6`.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Transcript: gist above. Current paired gate release: `twzrd-x402-gate@0.8.18`.
 
 This transcript demonstrates that the free gate blocked known wash sellers with
 stamped `preflight_id`s and zero spend on that date. It is **not** proof that
@@ -63,7 +63,7 @@ npm install @wzrd_sol/plugin-trustgate
 
 Compatibility: `@elizaos/core >=1.0.0`. The package has no direct dependency on
 `twzrd-x402-gate`; the reproducible fetch-gate example above is pinned to the
-current `twzrd-x402-gate@0.8.6` release.
+current `twzrd-x402-gate@0.8.18` release.
 
 ## Use (3 lines)
 
