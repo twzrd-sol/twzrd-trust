@@ -59,7 +59,7 @@ Total $40,000. Contingent on the criteria above.
 
 ## Relevant metrics (paste; dated, do not freeze as "today")
 
-Live: intel.twzrd.xyz (Agent Intelligence v0.5.8). Buyer gate twzrd-x402-gate@0.8.18 tested/hosted pin; registry latest 0.8.19 is a docs-only republish of the same compile. Hosted MCP + skill.md. Public distribution mirror (TypeScript source + tests published): github.com/twzrd-sol/twzrd-trust.
+Live: intel.twzrd.xyz (Agent Intelligence v0.5.8). Hosted install pin twzrd-x402-gate@0.8.19 (skill.md / llms.txt / agent.json). Mechanism proof transcripts are on published 0.8.18; registry latest 0.8.19 is a docs-only republish of the same compile. Hosted MCP + skill.md. Public distribution mirror (TypeScript source + tests published): github.com/twzrd-sol/twzrd-trust.
 
 Solana x402 corpus — public dashboard values from the dated refresh, complete through 2026-08-18 UTC (Dune 215276; freshness query 7913460 on 2026-08-19 reports kpi_vintage_day=2026-08-18, last_payment 2026-08-18 23:59:45+00, FRESH; https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proposals/corpus-note-2026-08-18.md): 2,707,821 payments, 106,220 payers (raw), 16,015 merchants, 17 labeled facilitators, $707,197 settled USDC, median $0.02. Scrubbed demand base 105,768 payers: 39% one-and-done; 4.61% (4,874) trusted-recurring (≥5 payments, ≥2 merchants). The 2026-07-09→2026-08-16 jump (payments +61.6% on payers +2.9%) is the concentration observation; one-directional captive concentration is not wash-flagged and is disclosed in the 2026-08-16 corpus note.
 

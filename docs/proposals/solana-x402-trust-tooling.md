@@ -37,14 +37,14 @@ The following is the dated baseline for this proposal, not a claim of external a
 | Surface | Baseline |
 |---|---|
 | Hosted service | `https://intel.twzrd.xyz` — Agent Intelligence v0.5.8 |
-| Buyer hook | `twzrd-x402-gate@0.8.18` |
+| Buyer hook | `twzrd-x402-gate@0.8.18` mechanism proof; hosted install pin `0.8.19` (same compiled artifact) |
 | Agent surfaces | Hosted MCP, `llms.txt`, and public `skill.md` |
 | Public source | `https://github.com/twzrd-sol/twzrd-trust` — MIT mirror carrying the published npm artifact (runnable JavaScript, type declarations, proof CLIs) plus the gate's TypeScript source, tests, and examples (published 2026-08-19, pre-application); deterministic fixtures and clean-checkout CI are Milestone 1 outputs |
 | Dashboard | `https://dune.com/twzrd_analyst/twzrd-x402-on-solana-official` |
 | Existing mechanism proof | TWZRD-operated block and clean-control runs on the published `twzrd-x402-gate@0.8.18` (2026-08-19 transcripts): the block leg reaches `approved=false` with `signer_invocation_count=0`, zero broadcast, zero spend; the `warn`/`can_spend=true` control leg is approved and reaches the signer |
 | External adoption baseline | Not claimed; an independently operated Path B refusal or qualifying seller integration remains a grant outcome |
 
-Package registry metadata is the release source of truth. The public mirror was brought byte-identical to the published artifact, and the gate's TypeScript source, tests, and examples were published, on 2026-08-19 — before this application; none of that synchronization is funded work. Registry `latest` is `0.8.19`, a documentation-only republish of the same compiled artifact (`dist/` and `bin/` byte-identical to `0.8.18`; only the manifest and install docs changed), so the hosted surfaces' `0.8.18` pin names the same code. Known manifest defect, disclosed rather than hidden: the published manifest's `live-autogate-matrix` script names an example file that was never committed; removing or implementing it is Milestone 1 work. Milestone 1 funds what remains: deterministic fixtures, the compatibility matrix, transcript-schema reconciliation, manifest cleanup, and CI that fails on drift.
+Package registry metadata is the release source of truth. The public mirror was brought byte-identical to the published artifact, and the gate's TypeScript source, tests, and examples were published, on 2026-08-19 — before this application; none of that synchronization is funded work. Registry `latest` is `0.8.19`, a documentation-only republish of the same compiled artifact (`dist/` and `bin/` byte-identical to `0.8.18`; only the manifest and install docs changed). Hosted `skill.md`, `llms.txt`, and `/.well-known/agent.json` now pin `0.8.19`; that pin names the same code as the `0.8.18` proof transcripts. Known manifest defect, disclosed rather than hidden: the published manifest's `live-autogate-matrix` script names an example file that was never committed; removing or implementing it is Milestone 1 work. Milestone 1 funds what remains: deterministic fixtures, the compatibility matrix, transcript-schema reconciliation, manifest cleanup, and CI that fails on drift.
 
 ### Dated Solana corpus baseline
 
