@@ -39,12 +39,12 @@ The following is the dated baseline for this proposal, not a claim of external a
 | Hosted service | `https://intel.twzrd.xyz` — Agent Intelligence v0.5.8 |
 | Buyer hook | `twzrd-x402-gate@0.8.18` |
 | Agent surfaces | Hosted MCP, `llms.txt`, and public `skill.md` |
-| Public source | `https://github.com/twzrd-sol/twzrd-trust` |
+| Public distribution mirror | `https://github.com/twzrd-sol/twzrd-trust` — MIT, byte-identical to the published npm artifact (runnable JavaScript, type declarations, proof CLIs). TypeScript source, tests, fixtures, and build config are **not** yet public; publishing them is a Milestone 1 output. |
 | Dashboard | `https://dune.com/twzrd_analyst/twzrd-x402-on-solana-official` |
-| Existing mechanism proof | A TWZRD-operated block path reaches `approved=false` with no USDC spent and no transaction broadcast |
+| Existing mechanism proof | On `0.8.18` from a clean checkout, a TWZRD-owned fixture reaches `twzrd_decision=block` with `signer_invocation_count=0` and `usdc_spent=0`, aborting at payload creation; a `warn`/`can_spend=true` control on a different counterparty shows the refusal is selective |
 | External adoption baseline | Not claimed; an independently operated Path B refusal or qualifying seller integration remains a grant outcome |
 
-Package registry metadata is the release source of truth. Synchronizing the public mirror, install pins, compatibility matrix, and proof path is part of Milestone 1.
+Package registry metadata is the release source of truth. The public mirror was brought byte-identical to the published `0.8.18` artifact on 2026-08-19, before this application; that synchronization is **not** part of the funded work. Milestone 1 funds what remains: publishing the TypeScript source, tests, and build configuration, and adding CI that fails on drift.
 
 ### Dated Solana corpus baseline
 
@@ -70,12 +70,13 @@ These are ecosystem observations. They are not customer counts, and the raw and 
 
 #### Deliverables
 
-- Synchronize and pin the public `twzrd-x402-gate` source, package metadata, documentation, and examples.
+- Publish the TypeScript source, test suite, deterministic fixtures, and build configuration for the current gate, so the documented `npm test` and build scripts run from a clean checkout.
+- Reconcile the emitted transcript schema with the acceptance fields below; `twzrd.gate_eval_refuse.v1` currently emits `signer_invocation_count` and `usdc_spent` under those names but not `decision`, `approved`, or `transaction_broadcast_count`.
 - Document the canonical buyer integration for the official x402 client lifecycle using `@x402/core`, `@x402/fetch`, and `@x402/svm`.
 - Document the compatible Solana seam for clients that expose a pre-payment hook, including `x402-solana` where applicable.
 - Publish a self-contained refuse-before-sign harness with both block and clean-control paths.
 - Publish a machine-readable transcript schema containing the selected payment requirement, TWZRD decision, reason, signer invocation count, broadcast count, and USDC spent.
-- Add public CI coverage for the deterministic proof path and version/pin consistency.
+- Add clean-checkout CI covering the deterministic proof path and failing on version drift across the package, the repository documentation, and the hosted `llms.txt` and `skill.md` pins.
 
 #### Acceptance criteria
 
@@ -152,7 +153,7 @@ The following do **not** satisfy this milestone:
 
 | Milestone | Use of funds | Amount |
 |---|---|---:|
-| 1. Refuse before sign | Package/source synchronization, client adapters, proof harness, CI, and reproducible documentation | USD 12,000 |
+| 1. Refuse before sign | Source/test/fixture publication, client adapters, transcript-schema reconciliation, proof harness, clean-checkout CI, and reproducible documentation | USD 12,000 |
 | 2. Settlement graph public good | Corpus pipeline, Dune refreshes, two-basis QA, public wash/score method, and refresh documentation | USD 14,000 |
 | 3. Foreign seats | Settle-gate shadow/evaluation work, external integration support, and independently verifiable closeout evidence | USD 14,000 |
 | **Total** |  | **USD 40,000** |
@@ -170,6 +171,10 @@ The following grant outputs will remain public:
 - the Dune dashboard and queries
 - the wash/score methodology needed to inspect and reproduce public decisions
 - milestone closeout reports
+
+### Boundary: public method, private hosted implementation
+
+TWZRD will continue to operate a private hosted scoring implementation, and the repository says so ("public wiring only (scoring engine stays private)"). That is compatible with this grant only under an explicit boundary, so here it is: the grant-funded **input definitions, event-level exclusion rules, the scoring formula used for public decisions, reference queries, and the versioned decision methodology** will be public and sufficient for an independent reviewer to reproduce a published decision from released inputs. The hosted service's implementation, infrastructure, and operational tuning are not funded deliverables and are not promised. If the published material turns out not to reproduce a published decision, that is a Milestone 2 failure, not a permitted gap.
 
 The hosted free preflight will remain available without signup during the grant period. Optional paid V6 receipts may support post-grant maintenance, but the public method and funded tooling will not be withdrawn behind the paid receipt.
 
@@ -215,7 +220,7 @@ After the grant, free preflight remains the public entry point. Optional paid V6
 - Agent contract: https://intel.twzrd.xyz/llms.txt
 - Hosted MCP and API: https://intel.twzrd.xyz
 - Public skill: https://intel.twzrd.xyz/skill.md
-- Public source: https://github.com/twzrd-sol/twzrd-trust
+- Public distribution mirror: https://github.com/twzrd-sol/twzrd-trust
 - Buyer gate: https://www.npmjs.com/package/twzrd-x402-gate
 - Dune dashboard: https://dune.com/twzrd_analyst/twzrd-x402-on-solana-official
-- Existing mechanism transcript: https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proofs/20260716-wash-refuse-transcript.md
+- Mechanism transcript (0.8.18, with clean control): https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proofs/20260819-refuse-0.8.18-transcript.md

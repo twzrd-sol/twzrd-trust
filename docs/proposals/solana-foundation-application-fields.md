@@ -34,16 +34,16 @@ https://dune.com/twzrd_analyst/twzrd-x402-on-solana-official
 
 Pre-spend trust gate for agents paying over x402 on Solana. Free allow|warn|block before the wallet signs. Optional signed V6 receipt after paid trust. Not a wallet, not KYC, not a payment gateway.
 
-Primary rail: Solana. Open packages: twzrd-x402-gate (buyer hook), hosted MCP at intel.twzrd.xyz, skill at intel.twzrd.xyz/skill.md. Settlement graph is observed payment behavior, not a service catalog.
+Primary rail: Solana. MIT-licensed public gate distribution: twzrd-x402-gate (buyer hook), hosted MCP at intel.twzrd.xyz, skill at intel.twzrd.xyz/skill.md. TypeScript source and tests are a Milestone 1 output, not a current-state claim. Settlement graph is observed payment behavior, not a service catalog.
 
 Why this grant: x402 volume without a public, inspectable counterparty check is wash-blind. We already ship the gate and the Solana corpus. This ask funds making that tooling the default public good other Solana x402 clients can install, not a private TWZRD product.
 
 ## Budget proposal (paste)
 
 Milestone 1 — $12,000 — Refuse-before-sign (6 weeks)
-- Pin and document twzrd-x402-gate as the Solana x402 pre-sign hook (@x402/core + x402-solana).
+- Publish the TypeScript source, tests, deterministic fixtures, and build config for the gate, and document it as the Solana x402 pre-sign hook (@x402/core + x402-solana). The mirror-version synchronization completed 2026-08-19 is not funded work.
 - Public refuse-before-sign proof path. A block must reach signer_invocation_count=0, transaction_broadcast_count=0, usdc_spent=0, plus a documented clean-control path proving selective refusal.
-- Open source on GitHub. Measure: published package + reproducible refuse transcript.
+- Clean-checkout CI failing on drift across package, repo docs, and the hosted llms.txt / skill.md pins. Measure: published source + tests + a reproducible refuse transcript carrying the named acceptance fields, with a clean control.
 
 Milestone 2 — $14,000 — Settlement graph public good (8 weeks)
 - Keep the Solana x402 two-basis corpus (raw vs scrubbed) and Dune dashboard current, with a visible coverage watermark.
