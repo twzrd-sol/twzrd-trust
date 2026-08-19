@@ -8,7 +8,14 @@ Current cited baseline. Prior dated refreshes:
 
 ## Definitions
 
-Same as the 2026-08-16 note. Coverage watermark: **2026-08-18 UTC** — complete through this complete UTC day.
+Same as the 2026-08-16 note, with the construction made explicit:
+
+| Term | Definition |
+|---|---|
+| Payment | One observed Solana USDC transfer (`EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`) whose fee payer (first signer) is a **known facilitator** on the published allow-list. There is no x402 program; this shape is the definition. Payer = source token-account owner; merchant = dest token-account owner. |
+| Coverage | Vintage of the **known-facilitator classic-USDC index**, not the entire Solana x402 universe. Self-facilitated, unknown-sponsor, never-seen-merchant, and non-USDC legs are out of this table. |
+
+Coverage watermark: **2026-08-18 UTC** — this index is complete through that UTC day. Completeness here means “no missing complete-day inside the allow-list,” not “every x402 settle on Solana.”
 
 ## Snapshot values (Dune refresh, 2026-08-18)
 
