@@ -218,4 +218,4 @@ After the grant, free preflight remains the public entry point. Optional paid V6
 - Public source: https://github.com/twzrd-sol/twzrd-trust
 - Buyer gate: https://www.npmjs.com/package/twzrd-x402-gate
 - Dune dashboard: https://dune.com/twzrd_analyst/twzrd-x402-on-solana-official
-- Existing mechanism transcript: https://gist.github.com/twzrd-sol/2882bddee912f89e99061f3bc1da8227
+- Existing mechanism transcript: https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proofs/20260716-wash-refuse-transcript.md
