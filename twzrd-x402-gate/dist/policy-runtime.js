@@ -12,9 +12,11 @@
  * Deliberately NOT a policy language. Five concrete policies, evaluated in a
  * fixed order with stable reason codes.
  */
-import { newDecisionId, signDecision, } from "./decision-token.js";
-import { intentHash, toMicroUsd } from "./intent.js";
+import { newDecisionId, normalizeCitedOutcomes, signDecision, } from "./decision-token.js";
+import { fromMicroUsd, intentHash, toMicroUsd } from "./intent.js";
 export const POLICY_VERSION = "twzrd-pc-v1";
+/** Agent-facing budget refuse code (maps POLICY_MAX_AMOUNT / monthly ceiling). */
+export const TWZRD_BUDGET_EXCEEDED = "twzrd_budget_exceeded";
 export function createMemorySpendLedger() {
     const entries = new Map();
     const first = new Map();
@@ -52,6 +54,8 @@ export async function evaluateIntent(intent, options) {
     const reasons = [];
     let blocked = false;
     let warned = false;
+    /** Set only when a budget ceiling blocks; last writer wins if both fire. */
+    let budgetRemainingUsdc;
     const block = (code) => {
         blocked = true;
         reasons.push(code);
@@ -59,6 +63,12 @@ export async function evaluateIntent(intent, options) {
     const warn = (code) => {
         warned = true;
         reasons.push(code);
+    };
+    const blockBudget = (technicalCode, remainingMicro) => {
+        block(technicalCode);
+        if (!reasons.includes(TWZRD_BUDGET_EXCEEDED))
+            block(TWZRD_BUDGET_EXCEEDED);
+        budgetRemainingUsdc = fromMicroUsd(remainingMicro < 0n ? 0n : remainingMicro);
     };
     /* 1. Mandate validation (local, deterministic) */
     if (mandate) {
@@ -79,12 +89,15 @@ export async function evaluateIntent(intent, options) {
         }
         if (mandate.maxPerTransactionUsd !== undefined &&
             amountMicro > toMicroUsd(mandate.maxPerTransactionUsd)) {
-            block("MANDATE_MAX_PER_TX");
+            // Per-tx mandate ceiling is also a budget refuse for agents.
+            blockBudget("MANDATE_MAX_PER_TX", toMicroUsd(mandate.maxPerTransactionUsd));
         }
         if (mandate.monthlyCeilingUsd !== undefined && options.ledger) {
             const spent = options.ledger.spentMicro(`mandate:${mandate.mandateId}`, MONTH_MS, now);
-            if (spent + amountMicro > toMicroUsd(mandate.monthlyCeilingUsd)) {
-                block("MANDATE_MONTHLY_CEILING");
+            const ceiling = toMicroUsd(mandate.monthlyCeilingUsd);
+            if (spent + amountMicro > ceiling) {
+                const remaining = ceiling > spent ? ceiling - spent : 0n;
+                blockBudget("MANDATE_MONTHLY_CEILING", remaining);
             }
         }
     }
@@ -102,7 +115,8 @@ export async function evaluateIntent(intent, options) {
             block("POLICY_ASSET");
         }
         if (policy.maxAmountUsd !== undefined && amountMicro > toMicroUsd(policy.maxAmountUsd)) {
-            block("POLICY_MAX_AMOUNT");
+            // Remaining headroom for a compliant retry is the per-tx cap itself.
+            blockBudget("POLICY_MAX_AMOUNT", toMicroUsd(policy.maxAmountUsd));
         }
         if (policy.recurringMaxPriceIncreasePct !== undefined &&
             intent.context?.recurring &&
@@ -157,6 +171,9 @@ export async function evaluateIntent(intent, options) {
             options.ledger.record(`mandate:${mandate.mandateId}`, amountMicro, now);
     }
     /* 5. Signed, expiring token bound to the exact intent */
+    const cited = options.citedOutcomes?.length
+        ? normalizeCitedOutcomes(options.citedOutcomes)
+        : undefined;
     return signDecision({
         decision: verdict,
         reasonCodes: reasons,
@@ -164,6 +181,10 @@ export async function evaluateIntent(intent, options) {
         policyVersion: POLICY_VERSION,
         decisionId: newDecisionId(),
         expiresAt: new Date(now + (options.ttlMs ?? 120_000)).toISOString(),
+        ...(cited ? { citedOutcomes: cited } : {}),
+        ...(budgetRemainingUsdc !== undefined
+            ? { budgetRemainingUsdc }
+            : {}),
     }, options.signer);
 }
 //# sourceMappingURL=policy-runtime.js.map

@@ -13,6 +13,7 @@ import type { TwzrdGateConfig } from "./types.js";
 import { type Mandate, type SpendLedger, type SpendPolicy } from "./policy-runtime.js";
 import { type DecisionSigner, type PaymentDecision } from "./decision-token.js";
 import type { PaymentIntent } from "./intent.js";
+import { type RequireReceiptPolicy } from "./receipt-policy.js";
 /** Minimal shape of x402 payment requirements used by the hook. */
 export type X402SelectedRequirements = {
     payTo?: string;
@@ -102,6 +103,30 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
     /** Clock for decision issue time, Unix ms. Injectable for tests. Default Date.now. */
     now?: () => number;
     /**
+     * Host threshold policy for Path A V6 (same semantics as evaluate_x402_resource).
+     * Requires `x402Fetch` when hard require is active.
+     */
+    requireReceipt?: boolean | RequireReceiptPolicy;
+    /**
+     * x402-capable fetch used to buy Path A when requireReceipt triggers.
+     * Not used for free refuse-only installs. When present and flags are
+     * unset, buyer Path A defaults turn on (warn+material → $0.05;
+     * sub-material warn → $0.001). Facilitator settle hooks stay free.
+     */
+    x402Fetch?: typeof fetch;
+    /**
+     * Autonomous $0.001 re-decide on a proceeding warn. Default on when
+     * `x402Fetch` is wired and this flag is unset. Set false to opt out.
+     */
+    escalateOnWarn?: false | {
+        minSpendUsdc?: number;
+        blockBelowScore?: number;
+    };
+    /**
+     * Called after a successful Path A purchase from the beforePayment seat.
+     */
+    onReceipt?: (receipt: unknown, tx: string | undefined) => void;
+    /**
      * Optional callback after each policy decision (telemetry / logging).
      * Never throws into the payment path.
      */
@@ -118,6 +143,15 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
         intent?: PaymentIntent;
         /** Signed, intent-bound decision (present when paymentControl is set). */
         decision?: PaymentDecision;
+        /**
+         * Refuse-transcript field: decimal USDC still available under the budget
+         * that blocked (POLICY_MAX_AMOUNT / monthly ceiling). Null/absent when
+         * the refuse was not budget-related.
+         */
+        budget_remaining_usdc?: string | null;
+        /** true when Path A was required by threshold/warn policy */
+        receiptRequired?: boolean;
+        receiptFeeCaptured?: boolean;
     }) => void;
 };
 /**
@@ -163,5 +197,55 @@ export declare function installTwzrdX402ClientHook(client: X402ClientLike, optio
  * only provides the selected requirements object.
  */
 export declare function twzrdBeforePaymentCreation(selectedRequirements: X402SelectedRequirements, options?: InstallX402ClientHookOptions): Promise<BeforePaymentCreationResult>;
+/**
+ * Context shape from PayAI `x402-solana` `beforePayment` (config seat on
+ * `createX402Client`). 2.1.0 passed `declaredResource` as a string; 3.0.0
+ * passes the v2 resource object `{ url, description?, mimeType? }`. We flatten
+ * `.url` so the same hook copy-paste runs on both. No hard dependency.
+ */
+export type X402DeclaredResource = string | {
+    url?: string;
+};
+export type X402SolanaBeforePaymentContext = {
+    requestUrl?: string;
+    responseUrl?: string;
+    declaredResource?: X402DeclaredResource;
+    protocolVersion?: 1 | 2;
+    signal?: AbortSignal;
+};
+/** Flatten 3.0.0 resource object or 2.1.0 string to a URL. */
+export declare function flattenDeclaredResource(declared?: X402DeclaredResource): string | undefined;
+/**
+ * Map PayAI stock-client requirements (+ optional context) into the shared
+ * evaluator input. Prefer requirement fields; fall back to challenge-declared
+ * resource then the caller's request URL.
+ */
+export declare function mapX402SolanaRequirements(requirements: X402SelectedRequirements & Record<string, unknown>, context?: X402SolanaBeforePaymentContext): X402SelectedRequirements;
+/**
+ * Stock PayAI client seat: `createX402Client({ beforePayment })`.
+ *
+ * Returns a hook with the x402-solana@2.1.0 / @3.0.0 `beforePayment`
+ * signature: `(requirements, context) => Promise<{ abort: true, reason } | void>`.
+ * Runs AFTER requirement selection and BEFORE `signTransaction`.
+ * 3.0.0 `declaredResource` objects are flattened to `.url`.
+ *
+ * Same security semantic as `installTwzrdX402ClientHook` /
+ * `evaluateBeforePaymentCreation` — shared evaluator, refuse/wash/can_spend.
+ *
+ * @example
+ * ```ts
+ * import { createX402Client } from "x402-solana/client";
+ * import { createTwzrdBeforePaymentHook } from "twzrd-x402-gate";
+ *
+ * const client = createX402Client({
+ *   wallet,
+ *   network: "solana",
+ *   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }),
+ * });
+ * ```
+ *
+ * Alias via AutoGate: `installTwzrdAutoGate("x402-solana", opts)`.
+ */
+export declare function createTwzrdBeforePaymentHook(options?: InstallX402ClientHookOptions): (requirements: X402SelectedRequirements & Record<string, unknown>, context?: X402SolanaBeforePaymentContext) => Promise<BeforePaymentCreationResult>;
 export {};
 //# sourceMappingURL=x402-client-hook.d.ts.map

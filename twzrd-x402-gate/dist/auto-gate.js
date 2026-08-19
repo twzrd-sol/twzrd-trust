@@ -3,10 +3,11 @@
  *
  * Design: docs/strategy/install-autogate-design.md (#1586).
  *
- * One name across three adapters:
- *   1. Fetch / payWrap  — guard raw fetch, then hand to x402 payer
- *   2. x402 client      — onBeforePaymentCreation (official Path E)
- *   3. MPP              — onChallenge via createTwzrdMppOnChallenge
+ * One name across four adapters:
+ *   1. Fetch / payWrap     — guard raw fetch, then hand to x402 payer
+ *   2. x402 client         — onBeforePaymentCreation (@x402/core Path E)
+ *   3. x402-solana seat    — beforePayment on createX402Client (PayAI 2.1.0+)
+ *   4. MPP                 — onChallenge via createTwzrdMppOnChallenge
  *
  * Default ON. Kill switch (any):
  *   TWZRD_AUTO_GATE=0|false
@@ -14,7 +15,7 @@
  *   options.disabled: true
  */
 import { withTwzrdGuard } from "./with-guard.js";
-import { installTwzrdX402ClientHook, } from "./x402-client-hook.js";
+import { createTwzrdBeforePaymentHook, installTwzrdX402ClientHook, } from "./x402-client-hook.js";
 import { createTwzrdMppOnChallenge, } from "./mpp-hook.js";
 const clientInstalls = new WeakMap();
 /** True when env or options ask to skip the gate entirely. */
@@ -46,6 +47,14 @@ export function installTwzrdAutoGate(target, options) {
         }
         return createTwzrdMppOnChallenge(mppOpts);
     }
+    // ── PayAI x402-solana beforePayment ────────────────────────────────
+    if (target === "x402-solana") {
+        const solOpts = options;
+        if (isTwzrdAutoGateDisabled(solOpts)) {
+            return async () => undefined;
+        }
+        return createTwzrdBeforePaymentHook(solOpts);
+    }
     // ── x402 client ──────────────────────────────────────────────────────
     if (isX402ClientLike(target)) {
         const x402Opts = options;
@@ -75,9 +84,13 @@ export function installTwzrdAutoGate(target, options) {
         if (isTwzrdAutoGateDisabled(fetchOpts)) {
             return target(raw);
         }
-        return target(withTwzrdGuard(raw, fetchOpts));
+        // The payWrap they already supply is a paying fetch. Use it as Path A
+        // x402Fetch so the canonical install fires warn+material without a
+        // second argument. payWrap(raw) is unguarded — no recursion into the gate.
+        const x402Fetch = fetchOpts?.x402Fetch ?? target(raw);
+        return target(withTwzrdGuard(raw, { ...fetchOpts, x402Fetch }));
     }
-    throw new TypeError('[twzrd-x402-gate] installTwzrdAutoGate: expected a PayWrap function, an x402 client with onBeforePaymentCreation, or the string "mpp"');
+    throw new TypeError('[twzrd-x402-gate] installTwzrdAutoGate: expected a PayWrap function, an x402 client with onBeforePaymentCreation, or the string "mpp" / "x402-solana"');
 }
 /**
  * Disable a prior installTwzrdAutoGate on an x402 client (soft uninstall).

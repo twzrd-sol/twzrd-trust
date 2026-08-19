@@ -79,4 +79,19 @@ export function toMicroUsd(amount) {
     const frac = BigInt((m[2] ?? "").padEnd(6, "0") || "0");
     return whole * 1000000n + frac;
 }
+/**
+ * Micro-units (6dp) → decimal string. Trims trailing fractional zeros so
+ * `1000000n` → `"1"` and `10000n` → `"0.01"` (stable for budget remaining).
+ */
+export function fromMicroUsd(micro) {
+    if (micro < 0n) {
+        throw new Error(`[twzrd] fromMicroUsd: negative micro ${micro}`);
+    }
+    const whole = micro / 1000000n;
+    const frac = micro % 1000000n;
+    if (frac === 0n)
+        return whole.toString();
+    const fracStr = frac.toString().padStart(6, "0").replace(/0+$/, "");
+    return `${whole}.${fracStr}`;
+}
 //# sourceMappingURL=intent.js.map

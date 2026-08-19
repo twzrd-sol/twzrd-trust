@@ -9,6 +9,7 @@
 export declare const TWZRD_TRUST_GATE_BLOCK_WASH = "TWZRD_TRUST_GATE_BLOCK: wash_flagged";
 export declare const TWZRD_TRUST_GATE_BLOCK_CAN_SPEND = "TWZRD_TRUST_GATE_BLOCK: can_spend_false";
 export declare const TWZRD_TRUST_GATE_BLOCK_DECISION = "TWZRD_TRUST_GATE_BLOCK: decision_block";
+export declare const TWZRD_TRUST_GATE_BLOCK_BUDGET = "TWZRD_TRUST_GATE_BLOCK: budget_exceeded";
 /**
  * Map an internal `approval.reason` (or hook abort reason fragment) to a stable
  * public block code. Unknown reasons are namespaced, not dropped.

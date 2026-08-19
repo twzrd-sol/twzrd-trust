@@ -1,3 +1,4 @@
+import { resolveBuyerPathADefaults } from "./buyer-defaults.js";
 import { resolveConfig } from "./config.js";
 import { evaluate_x402_resource } from "./evaluate.js";
 import { payToFromRequirements, pickRequirements } from "./payto.js";
@@ -27,6 +28,11 @@ function requestUrl(input) {
  *   // caller attaches payment and retries (or uses an x402 wrapper around safeFetch)
  */
 export function withTwzrdGuard(innerFetch, opts) {
+    const paid = resolveBuyerPathADefaults({
+        x402Fetch: opts?.x402Fetch,
+        requireReceipt: opts?.requireReceipt,
+        escalateOnWarn: opts?.escalateOnWarn,
+    });
     // Resolve once at construction time so config errors surface early.
     const config = resolveConfig({
         intelBase: opts?.intelBase,
@@ -66,9 +72,10 @@ export function withTwzrdGuard(innerFetch, opts) {
             fetch: config.fetch,
             attribution: config.attribution,
             autoReceipt: opts?.autoReceipt,
-            x402Fetch: opts?.x402Fetch,
+            x402Fetch: paid.x402Fetch,
             onReceipt: opts?.onReceipt,
-            escalateOnWarn: opts?.escalateOnWarn,
+            escalateOnWarn: paid.escalateOnWarn === false ? undefined : paid.escalateOnWarn,
+            requireReceipt: paid.requireReceipt,
         });
         if (!result.approved) {
             const { payTo } = payToFromRequirements(first);

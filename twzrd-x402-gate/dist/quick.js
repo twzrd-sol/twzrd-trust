@@ -1,3 +1,4 @@
+import { CLIENT_VERSION } from "./version.js";
 const DEFAULT_BASE = "https://intel.twzrd.xyz";
 /** Server price for the quick tier (AMOUNT_TEASER = "1000" micro = $0.001). */
 export const QUICK_PRICE_USDC = 0.001;
@@ -21,7 +22,19 @@ export async function quickCheck(sellerWallet, opts = {}) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-        const resp = await x402(`${base}/v1/intel/quick/${encodeURIComponent(sellerWallet)}`, { method: "GET", headers: { accept: "application/json" }, signal: ctrl.signal });
+        // Seat identity (fork-1 caller_id metric — same pair twzrdPreflight always
+        // stamps). This quick-tier call previously sent {accept} only, so every
+        // $0.001 challenge event landed with caller_id=NULL.
+        const clientTag = `twzrd-x402-gate/${CLIENT_VERSION}`;
+        const resp = await x402(`${base}/v1/intel/quick/${encodeURIComponent(sellerWallet)}`, {
+            method: "GET",
+            headers: {
+                accept: "application/json",
+                "X-TWZRD-Client": clientTag,
+                "X-Twzrd-Caller": opts.attribution ? `${opts.attribution.integration}@${CLIENT_VERSION}` : clientTag,
+            },
+            signal: ctrl.signal,
+        });
         if (!resp.ok)
             return unavailable(sellerWallet, `quick HTTP ${resp.status}`);
         const body = (await resp.json());

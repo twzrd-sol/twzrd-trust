@@ -52,7 +52,10 @@ export function buildPreflightInput(context) {
 export async function twzrdPreflight(input, config) {
     const cfg = config ?? resolveConfig();
     // Seat identity is ALWAYS stamped on preflight (fork-1 metric: gate installs
-    // that hit intel). Paid /trust and resource fetch never get these headers.
+    // that hit intel) — and, since the caller_id gap fix, on the paid /trust and
+    // /quick receipt fetches too (x402-client-hook.ts, evaluate.ts, quick.ts).
+    // The generic resource/merchant fetch never gets these headers — only
+    // TWZRD's own intel.twzrd.xyz endpoints are stamped.
     // Opt-in attribution (integration+runId) adds correlatable run IDs on top.
     const clientTag = `twzrd-x402-gate/${CLIENT_VERSION}`;
     const headers = {

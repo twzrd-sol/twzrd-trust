@@ -1,12 +1,14 @@
 {
   "name": "twzrd-x402-gate",
   "version": "0.8.18",
-  "description": "Core: buyer-side x402 trust gate. Free TWZRD preflight (ReadinessCard) before signing USDC to any merchant, with optional $0.001 paid trust escalate on warn \u2014 blocking spend on bad intel, no human in the loop. Optional: createTwzrdSettleGuard for resource servers to apply merchant policy on the payer before settle+serve. installTwzrdAutoGate is the canonical default-on entry across fetch payWrap, x402 client (onBeforePaymentCreation), and MPP onChallenge. Fail-closed by default \u2014 set TWZRD_FAIL_OPEN=true for outage allow; kill switch TWZRD_GATE_ENABLED=false or TWZRD_AUTO_GATE=0. Always stamps X-Twzrd-Caller for seat metrics.",
+  "description": "Core: buyer-side x402 trust gate. Free TWZRD preflight (ReadinessCard) before signing USDC to any merchant, with optional $0.001 paid trust escalate on warn — blocking spend on bad intel, no human in the loop. Optional: createTwzrdSettleGuard for resource servers to apply merchant policy on the payer before settle+serve. installTwzrdAutoGate is the canonical default-on entry across fetch payWrap, x402 client (onBeforePaymentCreation), PayAI x402-solana beforePayment (2.1.0+), and MPP onChallenge. Fail-closed by default — set TWZRD_FAIL_OPEN=true for outage allow; kill switch TWZRD_GATE_ENABLED=false or TWZRD_AUTO_GATE=0. Always stamps X-Twzrd-Caller for seat metrics.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "twzrd-safe-fetch": "./bin/twzrd-safe-fetch.js"
+    "twzrd-safe-fetch": "./bin/twzrd-safe-fetch.js",
+    "twzrd-gate-eval-refuse": "./bin/twzrd-gate-eval-refuse.js",
+    "twzrd-gate-doctor": "./bin/twzrd-gate-doctor.js"
   },
   "exports": {
     ".": {
@@ -22,13 +24,14 @@
   "files": [
     "dist",
     "bin",
-    "README.md"
+    "README.md",
+    "QUICKSTART.md"
   ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "tsc",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
-    "test": "tsx test/version-identity.test.ts && tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts && tsx test/wash-refuse.test.ts && tsx test/auto-gate.test.ts && tsx test/autogate-intercept.test.ts && tsx test/network.test.ts && tsx test/safe-fetch.test.ts && tsx test/payto-prefer.test.ts && tsx test/challenge-swap.test.ts && tsx test/x402-client-hook.test.ts && tsx test/hook-single-eval.test.ts && tsx test/run-attribution.test.ts && tsx test/payment-control.test.ts && tsx test/intent-binding.test.ts && tsx test/mpp-hook.test.ts && tsx test/mpp-safety.test.ts && tsx test/payment-control-followup.test.ts && tsx test/payment-control-hardening.test.ts && tsx test/x402-official-compat.test.ts && tsx test/seller-hook.test.ts && tsx test/adoption-proof.test.ts && tsx test/delivery-capture.test.ts",
+    "test": "tsx test/version-identity.test.ts && tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/receipt-policy.test.ts && tsx test/buyer-defaults.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts && tsx test/wash-refuse.test.ts && tsx test/auto-gate.test.ts && tsx test/autogate-intercept.test.ts && tsx test/x402-solana-before-payment.test.ts && tsx test/network.test.ts && tsx test/safe-fetch.test.ts && tsx test/payto-prefer.test.ts && tsx test/challenge-swap.test.ts && tsx test/x402-client-hook.test.ts && tsx test/hook-single-eval.test.ts && tsx test/run-attribution.test.ts && tsx test/payment-control.test.ts && tsx test/budget-refuse-codes.test.ts && tsx test/cited-outcomes.test.ts && tsx test/outcome-attestation.test.ts && tsx test/intent-binding.test.ts && tsx test/mpp-hook.test.ts && tsx test/mpp-safety.test.ts && tsx test/payment-control-followup.test.ts && tsx test/payment-control-hardening.test.ts && tsx test/x402-official-compat.test.ts && tsx test/seller-hook.test.ts && tsx test/adoption-proof.test.ts && tsx test/delivery-capture.test.ts && tsx test/doctor.test.ts",
     "pack-smoke": "node scripts/pack-smoke.mjs",
     "safe-fetch": "tsx src/safe-fetch.ts",
     "guard-demo": "tsx examples/agentic-market-gate.ts",
@@ -36,9 +39,14 @@
     "sponsored-demo": "tsx examples/sponsored-payer.ts --dry-run",
     "wash-dogfood": "tsx examples/wash-refuse-dogfood.ts",
     "autogate-block-proof": "tsx examples/autogate-block-proof.ts",
+    "x402-solana-before-payment-proof": "tsx examples/x402-solana-before-payment-proof.ts",
+    "x402-solana-before-payment-falsify": "tsx examples/x402-solana-before-payment-falsify.ts",
     "official-dogfood": "tsx examples/official-x402-dogfood.ts",
     "adoption-proof": "tsx src/adoption-proof.ts",
-    "demo:buyer-no-spend": "tsx src/adoption-proof.ts -- --integration ops-demo-buyer-no-spend"
+    "demo:buyer-no-spend": "tsx src/adoption-proof.ts -- --integration ops-demo-buyer-no-spend",
+    "live-autogate-matrix": "tsx examples/live-autogate-matrix.ts",
+    "gate-eval-refuse": "node bin/twzrd-gate-eval-refuse.js",
+    "gate-doctor": "tsx src/doctor.ts"
   },
   "keywords": [
     "x402",
@@ -71,7 +79,9 @@
     "@solana/kit": ">=5.1.0",
     "@x402/core": ">=2.0.0",
     "@x402/fetch": ">=2.0.0",
-    "@x402/svm": ">=2.0.0"
+    "@x402/svm": ">=2.0.0",
+    "js-sha3": ">=0.8.0",
+    "x402-solana": ">=2.1.0"
   },
   "peerDependenciesMeta": {
     "@scure/base": {
@@ -88,16 +98,23 @@
     },
     "@x402/svm": {
       "optional": true
+    },
+    "js-sha3": {
+      "optional": true
+    },
+    "x402-solana": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@scure/base": "^1.2.0",
     "@solana/kit": "^5.1.0",
     "@types/node": "^20.11.0",
-    "@x402/core": "^2.19.0",
-    "@x402/fetch": "^2.19.0",
-    "@x402/svm": "^2.19.0",
-    "tsx": "^4.23.1",
+    "@x402/core": "^2.22.0",
+    "@x402/fetch": "^2.22.0",
+    "@x402/svm": "^2.22.0",
+    "js-sha3": "^0.13.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.4.0"
   }
 }

@@ -53,8 +53,9 @@ export function resolveConfig(overrides) {
         throw new Error("[twzrd-x402-gate] fetch is not available; pass config.fetch");
     }
     // Run attribution (integration + runId). When set, also narrows X-Twzrd-Caller.
-    // Seat identity (X-Twzrd-Caller / X-TWZRD-Client) is always stamped in
-    // twzrdPreflight even without this pair — see policy.ts fork-1 seat metric.
+    // Seat identity (X-Twzrd-Caller / X-TWZRD-Client) is always stamped on
+    // twzrdPreflight AND the paid trust/quick receipt fetches, even without this
+    // pair — see policy.ts fork-1 seat metric.
     let attribution;
     const attrIntegration = overrides?.attribution?.integration ?? process.env.TWZRD_ATTRIBUTION_INTEGRATION;
     const attrRunId = overrides?.attribution?.runId ?? process.env.TWZRD_ATTRIBUTION_RUN_ID;

@@ -80,12 +80,15 @@ export type TwzrdGateConfig = {
      */
     onWarnUpsell?: (ctx: TwzrdUpsellContext) => void | Promise<void>;
     /**
-     * Optional run attribution (integration + runId). Preflight ALWAYS stamps
-     * seat identity (fork-1 metric):
+     * Optional run attribution (integration + runId). Seat identity (fork-1
+     * metric) is ALWAYS stamped on preflight AND on the paid /v1/intel/trust and
+     * /v1/intel/quick receipt fetches:
      *   X-TWZRD-Client: twzrd-x402-gate/<version>
      *   X-Twzrd-Caller: twzrd-x402-gate/<version>
-     * When this pair is set, also:
+     * When this pair is set, preflight ALSO gets:
      *   X-TWZRD-Integration / X-TWZRD-Run-Id
+     * (paid receipt fetches do not — that pair stays preflight-only) and every
+     * stamped call narrows X-Twzrd-Caller to:
      *   X-Twzrd-Caller: <integration>@<version>
      * runId is caller-supplied and spoofable — pair with server-side observation.
      */
