@@ -48,18 +48,21 @@ Package registry metadata is the release source of truth. The public mirror was 
 
 ### Dated Solana corpus baseline
 
-Public dashboard values from the dated refresh, complete through **2026-07-09 UTC** (Dune dashboard 215276). Definitions, the reproduction query, exclusion arithmetic, and a dated post-hoc re-run are in the [corpus note](./corpus-note-2026-07-09.md):
+Public dashboard values from the dated refresh, complete through **2026-08-16 UTC** (Dune dashboard 215276; freshness query 7913460 reports `last_payment 2026-08-16 23:59:59+00`). Definitions, the reproduction query, exclusion arithmetic, the change since the prior refresh, and a disclosed known failure mode are in the [corpus note](./corpus-note-2026-08-16.md). The prior refresh is retained at [`corpus-note-2026-07-09.md`](./corpus-note-2026-07-09.md):
 
-- 1,649,588 observed payments
-- 103,243 raw payers
-- 12,832 merchants
-- USD 433,213 settled USDC
-- USD 0.03 median payment
-- 102,801 payers in the scrubbed demand base
-- 39.1% one-and-done payers in the scrubbed base
-- 3.51%, or 3,613 payers, classified as trusted-recurring using the published threshold of at least five payments across at least two merchants
+- 2,665,308 observed payments
+- 106,200 raw payers
+- 16,011 merchants
+- 17 labeled facilitators
+- USD 666,794 settled USDC
+- USD 0.02 median payment
+- 105,748 payers in the scrubbed demand base
+- 39% one-and-done payers in the scrubbed base
+- 4.6%, or 4,867 payers, classified as trusted-recurring using the published threshold of at least five payments across at least two merchants
 
 These are ecosystem observations. They are not customer counts, and the raw and scrubbed bases must not be interchanged.
+
+Stated plainly because a reviewer will compute it: between the 2026-07-09 and 2026-08-16 refreshes, payments grew 61.6% while the raw payer base grew 2.9%, so payments per payer rose from 16.0 to 25.1. Most new volume is existing wallets transacting more. The wash overlay does not flag one-directional captive concentration — circular-flow detection looks for self, reciprocal, and ring edges — and building that detector is Milestone 2 work under the known-failure-modes commitment. Merchants (+24.8%) and trusted-recurring payers (+34.7%) both grew faster than the payer base, which is the opposite of what pure wash inflation produces. The corpus note carries the full breakdown.
 
 ## Proposed work
 
@@ -230,4 +233,5 @@ After the grant, free preflight remains the public entry point, committed for at
 - Buyer gate: https://www.npmjs.com/package/twzrd-x402-gate
 - Dune dashboard: https://dune.com/twzrd_analyst/twzrd-x402-on-solana-official
 - Mechanism transcript (block + clean control, `0.8.18`): https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proofs/20260819-refuse-and-clean-control-0.8.18.md
-- Corpus note (definitions, reproduction query, dated re-run): https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proposals/corpus-note-2026-07-09.md
+- Corpus note, current refresh (definitions, reproduction query, change table, known failure mode): https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proposals/corpus-note-2026-08-16.md
+- Corpus note, prior refresh 2026-07-09: https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proposals/corpus-note-2026-07-09.md
