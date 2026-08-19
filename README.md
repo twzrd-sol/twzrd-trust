@@ -3,7 +3,7 @@
 **Canonical skill** • [`https://intel.twzrd.xyz/skill.md`](https://intel.twzrd.xyz/skill.md) (twzrd-trust **1.13.8**) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
 **Buyer gate (npm)** • [`twzrd-x402-gate@0.8.18`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@2.1.0`](https://www.npmjs.com/package/x402-solana)  
 **Live MCP** • [`https://intel.twzrd.xyz/mcp`](https://intel.twzrd.xyz/mcp) (streamable HTTP; tool count drifts — use live `tools/list`, do not hard-code)  
-**Self-host mirror** • public wiring only (scoring engine stays private)
+**Self-host mirror** • gate TypeScript source, tests, examples, and published package are public here; TWZRD also operates a private hosted implementation, but the input definitions, scoring formula used for public decisions, and versioned methodology are public deliverables (see [`docs/proposals/`](./docs/proposals/))
 
 TWZRD is the **pre-spend trust gate** for agents paying over x402 on Solana. Vet the
 **seller / service** before USDC leaves the wallet. Free CHECK needs no signup; pay
