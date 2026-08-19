@@ -51,7 +51,7 @@ Milestone 2 — $14,000 — Settlement graph public good (8 weeks)
 - Measure: dated refresh notes + public dashboard + method write-up. If an upstream source blocks a refresh, publish a dated pause rather than presenting stale data as current.
 
 Milestone 3 — $14,000 — Adoption (8 weeks, parallel with M2)
-- Product development: durable settle-gate decision logging on the settling path, a named sample/error threshold, and a written go/no-go — enforce only after that threshold, pause in writing otherwise.
+- Product development: durable settle-gate decision logging shipped 2026-08-19 pre-application, and the gate has been enforcing since 2026-08-19 — activated while the settle rail had no independent counterparty, sequencing disclosed in a dated activation note. Funded work: the named sample/error threshold published before the first independent traffic, the evaluation of gate decisions over that traffic, and a written revert-to-shadow pause if the threshold is not met.
 - Adoption: one foreign Path B refuse seat, or one live Solana 402 operated outside TWZRD that names feePayer 4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE AND returns a TWZRD trust artifact (e.g. merchant_attach) in the closeout — the fee payer alone proves routing, not gate use.
 - Not a win: catalog size, free_card_hits, npm downloads, our own refuse fixture, a TWZRD-owned wallet or seller, or a self-declared run without matching operator and server-side evidence. If no independent outcome exists at close, M3 is unpaid; scope changes only by written agreement.
 

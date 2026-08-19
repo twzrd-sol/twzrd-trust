@@ -130,9 +130,9 @@ The success metric is inspectability and reproducibility, not a larger catalog o
 
 #### Deliverables
 
-- Complete settle-gate shadow coverage on the hosted settlement path. The hosted service already runs `enabled=true, shadow=true, enforcing=false`; the funded work is what does not exist yet: durable decision logging on the path that actually settles, the published sample-size/error threshold, and the evaluation over real shadow traffic.
-- Before any enforce activation, publish the named sample-size/error threshold, the observed shadow result, and a dated go/no-go note.
-- If the threshold is not met, remain in shadow mode and publish a written pause. Safety takes precedence over claiming enforcement.
+- Complete settle-gate evidence coverage on the hosted settlement path. Two items moved into the baseline ahead of this application: durable decision logging on the path that actually settles shipped 2026-08-19 (pre-application), and the hosted service has run `enabled=true, shadow=false, enforcing=true` since 2026-08-19. That activation preceded the evidence protocol this milestone commits to — deliberately, because the settle rail had no independently operated counterparty a wrong block could harm (the same zero-adoption fact this milestone exists to change) — and the sequencing is disclosed rather than restated as satisfied in the dated [activation note](./settle-gate-enforce-activation-2026-08-19.md). The funded work is what still does not exist: the published sample-size/error threshold and the evaluation over real (non-TWZRD) traffic.
+- Publish the named sample-size/error threshold before the first independently operated integration sends settle traffic, and publish the evaluation of gate decisions over that traffic during the milestone.
+- If the observed error exceeds the threshold, return the gate to shadow mode and publish a written pause. Safety takes precedence over claiming enforcement.
 - Support and document an integration on infrastructure not operated by TWZRD.
 - Publish a scrub-clean closeout artifact for at least one qualifying adoption path.
 
@@ -162,7 +162,7 @@ If neither independently operated outcome exists by milestone close, Milestone 3
 |---|---|---:|
 | 1. Refuse before sign | Deterministic fixtures and proof harness incl. transcript-schema reconciliation (~40%), client adapters and compatibility matrix (~25%), clean-checkout CI and drift gates (~20%), reproducible documentation and examples (~15%) | USD 12,000 |
 | 2. Settlement graph public good | Corpus/query engineering and refresh automation (~40%), public wash/score method documentation (~25%), two-basis QA and reconciliation (~20%), infrastructure costs for Dune/RPC/hosting (~15%) | USD 14,000 |
-| 3. Foreign seats | External integration support (~40%), settle-gate shadow coverage and evaluation (~35%), independently verifiable closeout evidence and QA (~25%) | USD 14,000 |
+| 3. Foreign seats | External integration support (~40%), settle-gate threshold publication and decision evaluation over real traffic (~35%), independently verifiable closeout evidence and QA (~25%) | USD 14,000 |
 | **Total** |  | **USD 40,000** |
 
 Percentages are planning allocations tied to the deliverables above, not a market average. Funding is milestone-based and contingent on the acceptance criteria above. Catalog size, free preflight traffic, and the team's own fixtures are not substitutes for delivery.
@@ -215,7 +215,7 @@ The execution advantage is continuity across all three layers:
 |---|---|
 | x402 client lifecycle changes | Pin tested versions, publish a compatibility matrix, and run CI against the supported lifecycle hooks. |
 | Corpus or upstream data delay | Display the coverage watermark and a dated pause; never label stale data current. |
-| False refusal | Include a clean-control path, version the decision policy, publish an evaluation set with observed false-positive behavior, provide a documented review route for sellers who believe they are misclassified, and require shadow evidence before settle-gate enforcement. |
+| False refusal | Include a clean-control path, version the decision policy, publish an evaluation set with observed false-positive behavior, provide a documented review route for sellers who believe they are misclassified, and evaluate enforce decisions against the published threshold as real traffic arrives — reverting to shadow with a written pause if it is not met. Enforce was activated 2026-08-19 before independent traffic existed; the dated activation note discloses the sequencing. |
 | Vanity adoption | Keep discovery metrics separate from payment-path seats and apply the published internal/demo scrub. |
 | External integration is not fully controllable | Milestone 3 is unpaid if its independently operated outcome does not exist; its scope changes only by written agreement with the Foundation, and internal activity is never substituted. |
 | A signed receipt is mistaken for a live guarantee | Document V6 as a signed snapshot at issue time, not proof of delivery or perpetual trust. |
