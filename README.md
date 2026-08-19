@@ -1,7 +1,7 @@
 # TWZRD
 
 **Canonical skill** • [`https://intel.twzrd.xyz/skill.md`](https://intel.twzrd.xyz/skill.md) (twzrd-trust **1.13.8**) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
-**Buyer gate (npm)** • [`twzrd-x402-gate@0.8.16`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@2.1.0`](https://www.npmjs.com/package/x402-solana)  
+**Buyer gate (npm)** • [`twzrd-x402-gate@0.8.18`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@2.1.0`](https://www.npmjs.com/package/x402-solana)  
 **Live MCP** • [`https://intel.twzrd.xyz/mcp`](https://intel.twzrd.xyz/mcp) (streamable HTTP; tool count drifts — use live `tools/list`, do not hard-code)  
 **Self-host mirror** • public wiring only (scoring engine stays private)
 
@@ -40,10 +40,10 @@ Live counts: [`/health`](https://intel.twzrd.xyz/health) — do not freeze corpu
 5. **Pay the resource** — only after 1–3 (and optional 4)
 6. **Optional settle rail** — pin feePayer from `GET /supported` for `twzrd_receipt` + `merchant_attach` on settle
 
-**RESET (pre-sign):** seat `twzrd-x402-gate@0.8.16` on the client that signs. Free CHECK alone does **not** enforce.
+**RESET (pre-sign):** seat `twzrd-x402-gate@0.8.18` on the client that signs. Free CHECK alone does **not** enforce.
 
 ```bash
-npm i twzrd-x402-gate@0.8.16 x402-solana@2.1.0
+npm i twzrd-x402-gate@0.8.18 x402-solana@2.1.0
 ```
 
 ---
@@ -72,7 +72,7 @@ curl -s https://intel.twzrd.xyz/v1/intel/merchant_card/BJGdsDXJFy63eCAnX3UmGfShp
 
 | Surface | Pin / path | Role |
 |---------|------------|------|
-| npm `twzrd-x402-gate` | **@0.8.16** | Buyer RESET: `createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`, hooks |
+| npm `twzrd-x402-gate` | **@0.8.18** | Buyer RESET: `createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`, hooks |
 | npm `x402-solana` | **@2.1.0** | Stock PayAI seat (`beforePayment`) |
 | npm `twzrd-receipt-verifier` | **@^1.3.0** (npm latest 1.3.1) | Offline V6 verify — prefer npm; PyPI may lag |
 | npm `twzrd-mcp-server` | local signer MCP | Spend-capped local client; prefer hosted intel MCP |
