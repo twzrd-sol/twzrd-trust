@@ -5,7 +5,7 @@ Supporting note for the corpus values cited in
 Supersedes [`corpus-note-2026-07-09.md`](./corpus-note-2026-07-09.md), which is retained
 as the prior dated refresh.
 
-> **Scope (applies to every figure below).** This is the **known-facilitator classic-USDC index**, not the entire Solana x402 universe. A row is a classic-USDC SPL transfer whose fee payer is on the published known-facilitator allow-list. Self-facilitated legs (payer or merchant pays own gas), unknown third-party sponsors, merchants who never used a known facilitator, and non-USDC mints are **out of scope**. "Complete" below means no missing complete-day *inside the allow-list* — not every x402 settlement on Solana. Retained as a dated historical refresh; the current definition lives in [`corpus-note-2026-08-18.md`](./corpus-note-2026-08-18.md).
+> **Scope (applies to every figure below).** This is the **known-facilitator classic-USDC index**, watermarked — not the entire Solana x402 universe. A row is a classic-USDC SPL transfer whose fee payer is on the published known-facilitator allow-list. Self-facilitated legs (payer or merchant pays own gas), unknown third-party sponsors, merchants who never used a known facilitator, and non-USDC mints are **out of scope**. "Complete" below means no missing complete-day *inside the allow-list* — not every x402 settlement on Solana. Retained as a dated historical refresh; the current definition lives in [`corpus-note-2026-08-18.md`](./corpus-note-2026-08-18.md).
 
 ## Definitions
 
@@ -16,7 +16,7 @@ as the prior dated refresh.
 | Merchant | Distinct receiving `payTo` wallet across payments in scope. |
 | Raw basis | All **in-scope** payments, no demand exclusions applied. In-scope is defined by the banner above; this is not a census. |
 | Scrubbed basis | Raw minus event-level exclusions for disclosed TWZRD-internal wallets, demo-exposed fixtures, and test-shaped activity. The full exclusion method (definitions, thresholds, SQL) is a Milestone 2 deliverable. |
-| Coverage watermark | 2026-08-16 UTC — this index is complete through that complete UTC day *inside the allow-list*. Not a claim about x402 settlement outside the known-facilitator set. |
+| Coverage watermark | 2026-08-16 UTC — known-facilitator classic USDC, watermarked. This index is complete through that complete UTC day *inside the allow-list*. Not a claim about x402 settlement outside the known-facilitator set. |
 
 ## Snapshot values (Dune refresh, 2026-08-16)
 
