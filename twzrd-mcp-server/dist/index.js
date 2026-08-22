@@ -8,6 +8,7 @@ import { createKeyPairSignerFromBytes } from "@solana/kit";
 import { createRequire } from "node:module";
 import bs58 from "bs58";
 import { parseCap, selectSolanaExact as pickSolanaExact } from "./select-solana-exact.js";
+import { refuseWashBeforePay } from "./wash-before-pay.js";
 const VERSION = createRequire(import.meta.url)("../package.json").version;
 function printHelp() {
     console.log(`twzrd-mcp-server v${VERSION}
@@ -110,6 +111,13 @@ else if (SECRET && PAYMENTS_ENABLED) {
             catch {
             }
             const paymentRequired = httpClient.getPaymentRequiredResponse((name) => first.headers.get(name), challengeBody);
+            const pr = paymentRequired;
+            const { req: selected } = pickSolanaExact(pr.x402Version ?? 2, pr.accepts || [], {
+                maxPerCall: MAX_PER_CALL,
+                maxTotal: MAX_TOTAL,
+                spentUsdc,
+            });
+            await refuseWashBeforePay(selected);
             const payload = await client.createPaymentPayload(paymentRequired);
             const headers = httpClient.encodePaymentSignatureHeader(payload);
             const retry = new Request(input, init);

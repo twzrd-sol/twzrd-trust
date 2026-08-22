@@ -66,6 +66,11 @@ Paid tools are **opt-in on both runtimes**: they sign only when you set
 both — the server runs read-only and never signs. Spend is bounded by per-call and
 session caps.
 
+Before any Solana signature the Node server runs `twzrd-x402-gate@0.9.0` wash
+default (Python `twzrd-mcp` 0.2.1 does the same `merchant_card` check on the 402
+`payTo`): abort iff `wash_flagged===true` → fail-open if intel is down. That is
+the paying-client brake, not a Path A shop.
+
 ### Python — `pip install twzrd-mcp`
 
 ```json
@@ -107,9 +112,9 @@ session caps.
 ## Safety
 
 - **Opt-in payments** — paid tools sign only with `TWZRD_MCP_PAYMENTS_ENABLED=1`; a wallet key alone never arms spending.
-- **Spend caps** — per-call and session caps enforced in the payment selector *before* any signature. Caps are evaluated on the charge's **true** on-chain decimals, not the merchant-declared `decimals` — a challenge that declares mismatched decimals for a known stablecoin is refused, not scaled. A malformed cap env var (e.g. `"$0.05"`) falls back to the safe default and warns; it never disables the cap.
-- **Known-asset only** — a charge is paid only when its `asset` is a recognized USD-pegged stablecoin (USDC/USDT) with known decimals; any other mint is refused, since a USD cap cannot bound an unpriced asset.
-- **Identifiable recipient** — a challenge with no `payTo` is refused; the signer is never handed an unidentifiable recipient.
+- **Spend caps** — per-call and session caps enforced in the payment selector *before* any signature. Caps use the mint's **true** decimals, never merchant-declared `extra.decimals`. A mismatched declaration is refused. A malformed cap env (e.g. `"$0.05"`) falls back to the default; it never becomes NaN and disables the cap.
+- **Known-asset only** — pay only known USD-pegged stables (USDC/USDT); unknown SPL mints are refused.
+- **Identifiable recipient** — a challenge with no `payTo` is refused.
 - **Solana-only** — a non-`exact` / non-`solana:` challenge is refused, never mis-signed.
 - **Single-shot retry** — at most one signed retry per tool call; a second 402 is surfaced, not silently re-paid.
 - **Free tools never enter the payment path.**
