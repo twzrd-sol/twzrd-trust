@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { createKeyPairSignerFromPrivateKeyBytes } from "@solana/kit";
 import { base58 } from "@scure/base";
 import { wrapFetchWithPayment, x402HTTPClient } from "@x402/fetch";
+import { wrapFetchRememberInvoice } from "../src/resource-bind.js";
 import { x402Client } from "@x402/core/client";
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 
@@ -133,7 +134,7 @@ async function main() {
     });
   });
 
-  const fetchWithPayment = wrapFetchWithPayment(fetch, client);
+  const fetchWithPayment = wrapFetchWithPayment(wrapFetchRememberInvoice(fetch), client);
   const httpClient = new x402HTTPClient(client);
 
   log("request_start", { url: DEFAULT_URL });

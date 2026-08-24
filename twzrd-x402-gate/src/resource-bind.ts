@@ -26,6 +26,36 @@ export const RESOURCE_BIND_MEMO_PREFIX = "rb1:";
 /** Memo program CU ≈ 1320 + 358*bytes. 48 B ≈ 18.5k < ExactSvm 20k budget. */
 export const RESOURCE_BIND_MEMO_MAX = 48;
 export const ZERO_BODY_HASH = "0".repeat(64);
+
+/** v1 402 JSON body keyed by request URL and accepts[].resource. Header is CAIP. */
+export const rawInvoiceByResource = new Map<string, unknown>();
+
+export function rememberRawInvoice(body: unknown, requestUrl?: string): void {
+  if (!body || typeof body !== "object") return;
+  const b = body as { x402Version?: number; accepts?: unknown[] };
+  if (b.x402Version !== 1 || !Array.isArray(b.accepts)) return;
+  if (requestUrl) rawInvoiceByResource.set(requestUrl, body);
+  for (const a of b.accepts) {
+    if (a && typeof a === "object" && typeof (a as { resource?: string }).resource === "string") {
+      rawInvoiceByResource.set((a as { resource: string }).resource, body);
+    }
+  }
+  while (rawInvoiceByResource.size > 256) {
+    rawInvoiceByResource.delete(rawInvoiceByResource.keys().next().value!);
+  }
+}
+
+export function wrapFetchRememberInvoice(inner: typeof fetch): typeof fetch {
+  return async (input, init) => {
+    const res = await inner(input, init);
+    if (res.status !== 402) return res;
+    try {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      rememberRawInvoice(await res.clone().json(), url);
+    } catch { /* not JSON */ }
+    return res;
+  };
+}
 export type BindStrength = "hard" | "soft" | "refuse";
 export type ResourceBindReq = {
   payTo?: string; pay_to?: string; network?: string; amount?: string;
@@ -134,7 +164,9 @@ export function memoContainsResourceBind(memo: string, leaf_hash: string): boole
 export function stampResourceBind(
   req: ResourceBindReq, paymentRequired?: unknown,
 ): ResourceBindDecision {
-  const hashSrc = rawReqFromPaymentRequired(paymentRequired, req) ?? req;
+  const cached = (req.resource && rawInvoiceByResource.get(req.resource))
+    || rawInvoiceByResource.get(String(req.resource || ""));
+  const hashSrc = rawReqFromPaymentRequired(cached ?? paymentRequired, req) ?? req;
   if (!hashSrc.resource && req.resource) hashSrc.resource = req.resource;
   if (!(hashSrc.payTo ?? hashSrc.pay_to) || !(hashSrc.amount ?? hashSrc.maxAmountRequired) || !hashSrc.resource) {
     return refuse("missing payTo/amount/resource");

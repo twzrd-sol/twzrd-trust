@@ -117,6 +117,8 @@ export {
   resourceBindLeafHash,
   networksEquivalent,
   rawReqFromPaymentRequired,
+  rememberRawInvoice,
+  wrapFetchRememberInvoice,
   resourceBindMemo,
   memoContainsResourceBind,
   stampResourceBind,

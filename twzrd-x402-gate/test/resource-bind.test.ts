@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import {
   canonicalResourceUrl, evaluateResourceBind, memoContainsResourceBind,
   RESOURCE_BIND_MEMO_PREFIX, resourceBindLeafHash, resourceBindMemo,
-  stampResourceBind, ZERO_BODY_HASH, type ResourceBindReq,
+  rememberRawInvoice, rawInvoiceByResource, stampResourceBind, ZERO_BODY_HASH,
+  type ResourceBindReq,
 } from "../src/resource-bind.js";
 
 const base = {
@@ -53,4 +54,11 @@ const normalized: ResourceBindReq = {
 const stampedRaw = stampResourceBind({ ...normalized }, reader402);
 assert.equal(stampedRaw.leaf_hash, rawLeaf);
 assert.notEqual(stampedRaw.leaf_hash, resourceBindLeafHash(normalized));
+
+// Official client passes PAYMENT-REQUIRED header (CAIP) as paymentRequired.
+rawInvoiceByResource.clear();
+rememberRawInvoice(reader402);
+const headerV2 = { x402Version: 2, accepts: [{ ...normalized, network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" }] };
+const fromHeader = stampResourceBind({ ...normalized }, headerV2);
+assert.equal(fromHeader.leaf_hash, rawLeaf);
 console.log("resource-bind.test.ts: ALL PASSED");
