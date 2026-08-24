@@ -79,6 +79,14 @@ async function run() {
   // 2. Allow: void / no abort — same selectedRequirements proceed to sign
   {
     const { client, fire } = mockClient();
+    const req = {
+      payTo: SELLER,
+      network: SOL,
+      amount: "1000",
+      asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      resource: "https://merchant.example/paid?b=2&a=1#x",
+    };
+    let bind: { strength?: string; extra_stamped?: boolean } | undefined;
     installTwzrdX402ClientHook(client, {
       gateOnCanSpend: false,
       refuseWashFlagged: false,
@@ -95,16 +103,15 @@ async function run() {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         )) as typeof fetch,
-    });
-
-    const result = await fire({
-      selectedRequirements: {
-        payTo: SELLER,
-        network: SOL,
-        amount: "1000",
+      onDecision: (d) => {
+        bind = d.resourceBind;
       },
     });
+    const result = await fire({ selectedRequirements: req });
     assert.ok(result === undefined || result === null || !("abort" in result && result.abort));
+    assert.equal(bind?.strength, "soft");
+    assert.equal(bind?.extra_stamped, true);
+    assert.equal(typeof (req as { extra?: { twzrd_resource_bind?: string } }).extra?.twzrd_resource_bind, "string");
   }
 
   // 3. Base unscored strict — abort without Solana preflight score

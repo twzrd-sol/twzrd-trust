@@ -31,6 +31,10 @@ import {
   shouldRequirePathAReceipt,
   type RequireReceiptPolicy,
 } from "./receipt-policy.js";
+import {
+  stampResourceBind,
+  type ResourceBindDecision,
+} from "./resource-bind.js";
 
 /** Minimal shape of x402 payment requirements used by the hook. */
 export type X402SelectedRequirements = {
@@ -42,6 +46,7 @@ export type X402SelectedRequirements = {
   asset?: string;
   resource?: string;
   scheme?: string;
+  extra?: Record<string, unknown>;
 };
 
 /**
@@ -181,6 +186,7 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
     /** true when Path A was required by threshold/warn policy */
     receiptRequired?: boolean;
     receiptFeeCaptured?: boolean;
+    resourceBind?: ResourceBindDecision;
   }) => void;
 };
 
@@ -486,6 +492,7 @@ export async function evaluateBeforePaymentCreation(
     }
   }
 
+  const resourceBind = stampResourceBind(selectedRequirements);
   try {
     options?.onDecision?.({
       approved: true,
@@ -500,6 +507,7 @@ export async function evaluateBeforePaymentCreation(
       decision,
       receiptRequired: receiptRequired || undefined,
       receiptFeeCaptured: receiptFeeCaptured || undefined,
+      resourceBind,
     });
   } catch {
     // never break payment path on telemetry

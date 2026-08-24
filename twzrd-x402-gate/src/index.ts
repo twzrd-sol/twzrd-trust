@@ -107,6 +107,18 @@ export {
   type X402SolanaBeforePaymentContext,
 } from "./x402-client-hook.js";
 export {
+  RESOURCE_BIND_DOMAIN,
+  RESOURCE_BIND_EXTRA_KEY,
+  ZERO_BODY_HASH,
+  canonicalResourceUrl,
+  resourceBindLeafHash,
+  stampResourceBind,
+  evaluateResourceBind,
+  type BindStrength,
+  type ResourceBindReq,
+  type ResourceBindDecision,
+} from "./resource-bind.js";
+export {
   runGateAdoptionProof,
   main as adoptionProofMain,
   ADOPTION_TRANSCRIPT_SCHEMA,
