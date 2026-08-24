@@ -284,6 +284,13 @@ async function run() {
     }) as unknown as typeof fetch;
 
     let signerInvocations = 0;
+    const liveReq: Record<string, unknown> = {
+      payTo: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+      network: "solana",
+      amount: "1000",
+      asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      resource: "https://merchant.example/clean",
+    };
     const beforePayment = createTwzrdBeforePaymentHook({
       refuseWashFlagged: true,
       gateOnCanSpend: false,
@@ -293,11 +300,7 @@ async function run() {
     });
     const outcome = await stockClientPay({
       beforePayment,
-      requirements: {
-        payTo: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
-        network: "solana",
-        amount: "1000",
-      },
+      requirements: liveReq,
       requestUrl: "https://merchant.example/clean",
       signTransaction: async () => {
         signerInvocations += 1;
@@ -305,6 +308,9 @@ async function run() {
     });
     assert.equal(outcome.signed, true);
     assert.equal(signerInvocations, 1);
+    const extra = liveReq.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
+    assert.ok(String(extra?.memo ?? "").startsWith("rb1:"), "live object must carry bind memo");
+    assert.equal(typeof extra?.twzrd_resource_bind, "string");
   }
 
   // --- 3.0.0 declaredResource { url }: wash abort, resource flattened, signer=0 ---
