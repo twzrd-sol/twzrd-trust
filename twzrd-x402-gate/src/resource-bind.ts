@@ -12,7 +12,8 @@
  * never overwrite a seller memo (that would fail verify). Hard bind:
  * evaluateResourceBind({ tx_memo }) — tx_memo is UTF-8 decoded from the
  * settled tx Memo IX, never the client's extra.memo stamp — or
- * { tx_contains_hash: true }.
+ * { tx_contains_hash: true }. Hard is memo inclusion only; transfer legs
+ * are NOT verified at this seat.
  */
 import { createHash } from "node:crypto";
 import { canonicalJson } from "./intent.js";
@@ -112,6 +113,8 @@ export function evaluateResourceBind(obs: {
     evidence_level: hard ? "tx_included" : "client_stamped",
     fact_type: "resource_bound", leaf_hash: obs.leaf_hash,
     extra_stamped: !!obs.extra_stamped,
-    reason: hard ? "tx/memo contains leaf hash" : "client stamped; tx not verified",
+    reason: hard
+      ? "memo inclusion only; transfer legs NOT verified at this seat"
+      : "client stamped; tx not verified",
   };
 }

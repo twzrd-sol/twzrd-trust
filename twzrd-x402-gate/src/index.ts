@@ -122,6 +122,11 @@ export {
   type ResourceBindDecision,
 } from "./resource-bind.js";
 export {
+  extractSvmMemoFromTransaction,
+  evaluateResourceBindFromSvmTx,
+  MEMO_PROGRAM_ADDRESS as RESOURCE_BIND_MEMO_PROGRAM,
+} from "./resource-bind-tx.js";
+export {
   runGateAdoptionProof,
   main as adoptionProofMain,
   ADOPTION_TRANSCRIPT_SCHEMA,
