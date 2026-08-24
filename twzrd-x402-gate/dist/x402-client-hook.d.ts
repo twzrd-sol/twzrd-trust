@@ -14,6 +14,7 @@ import { type Mandate, type SpendLedger, type SpendPolicy } from "./policy-runti
 import { type DecisionSigner, type PaymentDecision } from "./decision-token.js";
 import type { PaymentIntent } from "./intent.js";
 import { type RequireReceiptPolicy } from "./receipt-policy.js";
+import { type ResourceBindDecision } from "./resource-bind.js";
 /** Minimal shape of x402 payment requirements used by the hook. */
 export type X402SelectedRequirements = {
     payTo?: string;
@@ -24,6 +25,7 @@ export type X402SelectedRequirements = {
     asset?: string;
     resource?: string;
     scheme?: string;
+    extra?: Record<string, unknown>;
 };
 /**
  * Context passed to onBeforePaymentCreation (official x402Client).
@@ -31,7 +33,7 @@ export type X402SelectedRequirements = {
  */
 export type BeforePaymentCreationContext = {
     selectedRequirements: X402SelectedRequirements;
-    /** Full 402 response body; present on the official client, unused by the gate. */
+    /** Full 402 body (v2: resource.url lives here, not on accepts[]). */
     paymentRequired?: unknown;
     /** Some client versions may nest under requirements */
     requirements?: X402SelectedRequirements;
@@ -152,8 +154,11 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
         /** true when Path A was required by threshold/warn policy */
         receiptRequired?: boolean;
         receiptFeeCaptured?: boolean;
+        resourceBind?: ResourceBindDecision;
     }) => void;
 };
+/** v2 402: resource URL is on the envelope, not on the selected accepts[] entry. */
+export declare function resourceUrlFromPaymentRequired(paymentRequired: unknown): string | undefined;
 /**
  * Resolve Payment Control signer once at install / first evaluate.
  * EXACTLY one of signer/secret — never silently prefer one when both are set.
@@ -167,7 +172,7 @@ export declare function resolvePaymentControlSigner(paymentControl: X402PaymentC
  * @param pcSigner Pre-resolved signer (install-time) or leave undefined to
  *   resolve from options.paymentControl on each call.
  */
-export declare function evaluateBeforePaymentCreation(selectedRequirements: X402SelectedRequirements, options?: InstallX402ClientHookOptions, pcSigner?: DecisionSigner): Promise<BeforePaymentCreationResult>;
+export declare function evaluateBeforePaymentCreation(selectedRequirements: X402SelectedRequirements, options?: InstallX402ClientHookOptions, pcSigner?: DecisionSigner, paymentRequired?: unknown): Promise<BeforePaymentCreationResult>;
 /**
  * Install TWZRD as the default onBeforePaymentCreation policy engine.
  *

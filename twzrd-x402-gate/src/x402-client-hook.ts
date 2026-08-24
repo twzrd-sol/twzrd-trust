@@ -685,7 +685,8 @@ export function createTwzrdBeforePaymentHook(
         reason: "[twzrd] aborted_before_payment: signal already aborted",
       };
     }
-    const selected = mapX402SolanaRequirements(requirements, context);
-    return evaluateBeforePaymentCreation(selected, options, pcSigner);
+    const mapped = mapX402SolanaRequirements(requirements, context);
+    if (mapped.resource) requirements.resource = mapped.resource;
+    return evaluateBeforePaymentCreation(requirements, options, pcSigner);
   };
 }

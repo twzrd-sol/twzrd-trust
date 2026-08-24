@@ -137,6 +137,13 @@ export {
   type SvmTransferLegs,
 } from "./resource-bind-tx.js";
 export {
+  twzrd,
+  spendControlSafeFetch,
+  type SpendControlOptions,
+  type SpendControlResult,
+} from "./spend-control.js";
+export { createFileSpendLedger } from "./spend-ledger-file.js";
+export {
   runGateAdoptionProof,
   main as adoptionProofMain,
   ADOPTION_TRANSCRIPT_SCHEMA,

@@ -20,8 +20,24 @@ import { evaluateIntent } from "./policy-runtime.js";
 import { createSeededDecisionSigner, } from "./decision-token.js";
 import { counterpartyKnownFromApproval } from "./intelligence.js";
 import { resolveRequireReceiptPolicy, shouldRequirePathAReceipt, } from "./receipt-policy.js";
+import { stampResourceBind, } from "./resource-bind.js";
+/** v2 402: resource URL is on the envelope, not on the selected accepts[] entry. */
+export function resourceUrlFromPaymentRequired(paymentRequired) {
+    if (!paymentRequired || typeof paymentRequired !== "object")
+        return undefined;
+    const r = paymentRequired.resource;
+    if (typeof r === "string" && r.length > 0)
+        return r;
+    return flattenDeclaredResource(r);
+}
 function pickReq(ctx) {
-    return ctx.selectedRequirements ?? ctx.requirements ?? {};
+    const req = ctx.selectedRequirements ?? ctx.requirements ?? {};
+    if (!req.resource) {
+        const url = resourceUrlFromPaymentRequired(ctx.paymentRequired);
+        if (url)
+            req.resource = url;
+    }
+    return req;
 }
 /**
  * Resolve Payment Control signer once at install / first evaluate.
@@ -51,7 +67,7 @@ export function resolvePaymentControlSigner(paymentControl) {
  * @param pcSigner Pre-resolved signer (install-time) or leave undefined to
  *   resolve from options.paymentControl on each call.
  */
-export async function evaluateBeforePaymentCreation(selectedRequirements, options, pcSigner) {
+export async function evaluateBeforePaymentCreation(selectedRequirements, options, pcSigner, paymentRequired) {
     options = resolveBuyerPathADefaults(options ?? {});
     const cfg = resolveConfig(options);
     const payTo = selectedRequirements.payTo ?? selectedRequirements.pay_to;
@@ -291,6 +307,7 @@ export async function evaluateBeforePaymentCreation(selectedRequirements, option
             return { abort: true, reason };
         }
     }
+    const resourceBind = stampResourceBind(selectedRequirements, paymentRequired);
     try {
         options?.onDecision?.({
             approved: true,
@@ -305,6 +322,7 @@ export async function evaluateBeforePaymentCreation(selectedRequirements, option
             decision,
             receiptRequired: receiptRequired || undefined,
             receiptFeeCaptured: receiptFeeCaptured || undefined,
+            resourceBind,
         });
     }
     catch {
@@ -335,7 +353,7 @@ export function installTwzrdX402ClientHook(client, options) {
     // Resolve Payment Control signer once at install (fail fast). Body is ONLY
     // the shared evaluator — never inline a second preflight/PC path here.
     const pcSigner = resolvePaymentControlSigner(options?.paymentControl);
-    client.onBeforePaymentCreation((context) => evaluateBeforePaymentCreation(pickReq(context), options, pcSigner));
+    client.onBeforePaymentCreation((context) => evaluateBeforePaymentCreation(pickReq(context), options, pcSigner, context.paymentRequired));
     return client;
 }
 /**
@@ -423,8 +441,10 @@ export function createTwzrdBeforePaymentHook(options) {
                 reason: "[twzrd] aborted_before_payment: signal already aborted",
             };
         }
-        const selected = mapX402SolanaRequirements(requirements, context);
-        return evaluateBeforePaymentCreation(selected, options, pcSigner);
+        const mapped = mapX402SolanaRequirements(requirements, context);
+        if (mapped.resource)
+            requirements.resource = mapped.resource;
+        return evaluateBeforePaymentCreation(requirements, options, pcSigner);
     };
 }
 //# sourceMappingURL=x402-client-hook.js.map
