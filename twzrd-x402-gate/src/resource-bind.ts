@@ -5,14 +5,21 @@
  * resource/scheme — not the verbatim accepts[] blob; mimeType/timeout/extra-only
  * diffs collide). Omitted on purpose: payer (unknown here), tx_signature/slot
  * (a leaf cannot contain its own tx), salt (v1 has none; adding one is v2).
- * This seat stamps extra.twzrd_resource_bind in memory. It does not write a
- * Solana memo. Hard bind is evaluateResourceBind({ tx_contains_hash: true }).
+ * This seat stamps extra.twzrd_resource_bind. If seller extra.memo is unset,
+ * it also sets extra.memo to twzrd-rb-v1:<leaf_hash>. ExactSvmScheme always
+ * appends a Memo program IX; that string becomes the on-chain memo (≤256B).
+ * Facilitator only checks extra.memo when the seller published one — so we
+ * never overwrite a seller memo (that would fail verify). Hard bind:
+ * evaluateResourceBind({ tx_memo }) — tx_memo is UTF-8 decoded from the
+ * settled tx Memo IX, never the client's extra.memo stamp — or
+ * { tx_contains_hash: true }.
  */
 import { createHash } from "node:crypto";
 import { canonicalJson } from "./intent.js";
 
 export const RESOURCE_BIND_DOMAIN = "twzrd:x402-resource-binding:v1";
 export const RESOURCE_BIND_EXTRA_KEY = "twzrd_resource_bind";
+export const RESOURCE_BIND_MEMO_PREFIX = "twzrd-rb-v1:";
 export const ZERO_BODY_HASH = "0".repeat(64);
 export type BindStrength = "hard" | "soft" | "refuse";
 export type ResourceBindReq = {
@@ -60,6 +67,14 @@ export function resourceBindLeafHash(req: ResourceBindReq): string {
   return sha256(`${RESOURCE_BIND_DOMAIN}\n${canonicalJson(leaf)}`);
 }
 
+export function resourceBindMemo(leaf_hash: string): string {
+  return `${RESOURCE_BIND_MEMO_PREFIX}${leaf_hash}`;
+}
+
+export function memoContainsResourceBind(memo: string, leaf_hash: string): boolean {
+  return memo === resourceBindMemo(leaf_hash);
+}
+
 export function stampResourceBind(req: ResourceBindReq): ResourceBindDecision {
   if (!(req.payTo ?? req.pay_to) || !(req.amount ?? req.maxAmountRequired) || !req.resource) {
     return refuse("missing payTo/amount/resource");
@@ -67,26 +82,36 @@ export function stampResourceBind(req: ResourceBindReq): ResourceBindDecision {
   let leaf_hash: string;
   try { leaf_hash = resourceBindLeafHash(req); }
   catch { return refuse("uncanonical resource URL"); }
-  req.extra = { ...(req.extra ?? {}), [RESOURCE_BIND_EXTRA_KEY]: leaf_hash };
+  const extra: Record<string, unknown> = { ...(req.extra ?? {}), [RESOURCE_BIND_EXTRA_KEY]: leaf_hash };
+  const sellerMemo = extra.memo;
+  const memoFree = sellerMemo == null || sellerMemo === "";
+  if (memoFree) extra.memo = resourceBindMemo(leaf_hash);
+  req.extra = extra;
   return {
     strength: "soft", evidence_level: "client_stamped", fact_type: "resource_bound",
     leaf_hash, extra_stamped: true,
-    reason: "hash stamped on extra; tx inclusion not observed at this seat",
+    reason: memoFree
+      ? "hash on extra.memo for ExactSvmScheme memo IX (seller did not publish extra.memo)"
+      : "seller extra.memo kept; bind hash only on extra.twzrd_resource_bind",
   };
 }
 
 export function evaluateResourceBind(obs: {
-  leaf_hash: string; tx_contains_hash?: boolean; body_hash?: string; extra_stamped?: boolean;
+  leaf_hash: string; tx_contains_hash?: boolean; body_hash?: string;
+  extra_stamped?: boolean;
+  /** UTF-8 payload of the settled tx Memo IX. Not extra.memo. */
+  tx_memo?: string;
 }): ResourceBindDecision {
   if (obs.body_hash && obs.body_hash !== ZERO_BODY_HASH) {
     return refuse("v1 forbids nonzero body_hash", obs.leaf_hash);
   }
-  const hard = !!obs.tx_contains_hash;
+  const hard = !!obs.tx_contains_hash ||
+    (!!obs.tx_memo && memoContainsResourceBind(obs.tx_memo, obs.leaf_hash));
   return {
     strength: hard ? "hard" : "soft",
     evidence_level: hard ? "tx_included" : "client_stamped",
     fact_type: "resource_bound", leaf_hash: obs.leaf_hash,
     extra_stamped: !!obs.extra_stamped,
-    reason: hard ? "tx contains leaf hash" : "client stamped; tx not verified",
+    reason: hard ? "tx/memo contains leaf hash" : "client stamped; tx not verified",
   };
 }

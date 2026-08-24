@@ -109,9 +109,12 @@ export {
 export {
   RESOURCE_BIND_DOMAIN,
   RESOURCE_BIND_EXTRA_KEY,
+  RESOURCE_BIND_MEMO_PREFIX,
   ZERO_BODY_HASH,
   canonicalResourceUrl,
   resourceBindLeafHash,
+  resourceBindMemo,
+  memoContainsResourceBind,
   stampResourceBind,
   evaluateResourceBind,
   type BindStrength,
