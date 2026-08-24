@@ -24,7 +24,9 @@ const leaf = stamped.leaf_hash as string;
 const tx_memo = resourceBindMemo(leaf); // modeled as UTF-8 of settled Memo IX, not extra.memo
 assert.ok(memoContainsResourceBind(tx_memo, leaf));
 assert.equal(evaluateResourceBind({ leaf_hash: leaf, tx_memo }).strength, "hard");
-assert.equal(tx_memo.length, RESOURCE_BIND_MEMO_PREFIX.length + 64);
+assert.ok(tx_memo.startsWith(RESOURCE_BIND_MEMO_PREFIX));
+assert.ok(tx_memo.length <= 48);
+// Memo CU ≈ 1320 + 358*bytes; 48 B ≈ 18.5k < ExactSvm 20_000 budget.
 const kept: ResourceBindReq = { ...base, extra: { feePayer: "FP", memo: "seller-memo" } };
 stampResourceBind(kept);
 assert.equal(kept.extra?.memo, "seller-memo");

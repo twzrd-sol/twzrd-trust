@@ -155,7 +155,7 @@ async function run() {
     assert.equal(bind?.extra_stamped, true);
     assert.equal(typeof req.extra, "object");
     assert.equal(typeof (req.extra as { twzrd_resource_bind?: string })?.twzrd_resource_bind, "string");
-    assert.ok(String((req.extra as { memo?: string }).memo ?? "").startsWith("twzrd-rb-v1:"));
+    assert.ok(String((req.extra as { memo?: string }).memo ?? "").startsWith("rb1:"));
   }
 
   // 3. Base unscored strict — abort without Solana preflight score

@@ -111,6 +111,7 @@ export {
   RESOURCE_BIND_DOMAIN,
   RESOURCE_BIND_EXTRA_KEY,
   RESOURCE_BIND_MEMO_PREFIX,
+  RESOURCE_BIND_MEMO_MAX,
   ZERO_BODY_HASH,
   canonicalResourceUrl,
   resourceBindLeafHash,

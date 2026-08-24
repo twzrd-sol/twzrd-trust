@@ -6,10 +6,12 @@
  * diffs collide). Omitted on purpose: payer (unknown here), tx_signature/slot
  * (a leaf cannot contain its own tx), salt (v1 has none; adding one is v2).
  * This seat stamps extra.twzrd_resource_bind. If seller extra.memo is unset,
- * it also sets extra.memo to twzrd-rb-v1:<leaf_hash>. ExactSvmScheme always
- * appends a Memo program IX; that string becomes the on-chain memo (≤256B).
- * Facilitator only checks extra.memo when the seller published one — so we
- * never overwrite a seller memo (that would fail verify). Hard bind:
+ * it also sets extra.memo to rb1:<base64url(32-byte leaf)> (≤48 chars).
+ * ExactSvmScheme hardcodes 20k CU; Memo costs ~1320+358/byte, so a 76-char
+ * twzrd-rb-v1:<hex> memo (~28.5k CU) can never settle — that form never
+ * landed and is not honored. Stamp omits extra.memo if encoded length
+ * exceeds RESOURCE_BIND_MEMO_MAX. Facilitator only checks extra.memo when
+ * the seller published one — never overwrite a seller memo. Hard bind:
  * evaluateResourceBind({ tx_memo }) — tx_memo is UTF-8 decoded from the
  * settled tx Memo IX, never the client's extra.memo stamp — or
  * { tx_contains_hash: true }. Hard is memo inclusion only; transfer legs
@@ -20,7 +22,9 @@ import { canonicalJson } from "./intent.js";
 
 export const RESOURCE_BIND_DOMAIN = "twzrd:x402-resource-binding:v1";
 export const RESOURCE_BIND_EXTRA_KEY = "twzrd_resource_bind";
-export const RESOURCE_BIND_MEMO_PREFIX = "twzrd-rb-v1:";
+export const RESOURCE_BIND_MEMO_PREFIX = "rb1:";
+/** Memo program CU ≈ 1320 + 358*bytes. 48 B ≈ 18.5k < ExactSvm 20k budget. */
+export const RESOURCE_BIND_MEMO_MAX = 48;
 export const ZERO_BODY_HASH = "0".repeat(64);
 export type BindStrength = "hard" | "soft" | "refuse";
 export type ResourceBindReq = {
@@ -69,7 +73,9 @@ export function resourceBindLeafHash(req: ResourceBindReq): string {
 }
 
 export function resourceBindMemo(leaf_hash: string): string {
-  return `${RESOURCE_BIND_MEMO_PREFIX}${leaf_hash}`;
+  const bytes = Buffer.from(leaf_hash, "hex");
+  if (bytes.length !== 32) throw new Error("leaf_hash must be 32-byte hex");
+  return `${RESOURCE_BIND_MEMO_PREFIX}${bytes.toString("base64url")}`;
 }
 
 export function memoContainsResourceBind(memo: string, leaf_hash: string): boolean {
@@ -86,14 +92,20 @@ export function stampResourceBind(req: ResourceBindReq): ResourceBindDecision {
   const extra: Record<string, unknown> = { ...(req.extra ?? {}), [RESOURCE_BIND_EXTRA_KEY]: leaf_hash };
   const sellerMemo = extra.memo;
   const memoFree = sellerMemo == null || sellerMemo === "";
-  if (memoFree) extra.memo = resourceBindMemo(leaf_hash);
+  let memo: string | undefined;
+  if (memoFree) {
+    memo = resourceBindMemo(leaf_hash);
+    if (memo.length <= RESOURCE_BIND_MEMO_MAX) extra.memo = memo;
+  }
   req.extra = extra;
   return {
     strength: "soft", evidence_level: "client_stamped", fact_type: "resource_bound",
     leaf_hash, extra_stamped: true,
-    reason: memoFree
-      ? "hash on extra.memo for ExactSvmScheme memo IX (seller did not publish extra.memo)"
-      : "seller extra.memo kept; bind hash only on extra.twzrd_resource_bind",
+    reason: !memoFree
+      ? "seller extra.memo kept; bind hash only on extra.twzrd_resource_bind"
+      : extra.memo
+        ? "hash on extra.memo for ExactSvmScheme memo IX (seller did not publish extra.memo)"
+        : "bind hash stamped; memo omitted (over compute-safe cap)",
   };
 }
 
