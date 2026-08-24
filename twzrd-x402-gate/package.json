@@ -77,6 +77,7 @@
   "peerDependencies": {
     "@scure/base": ">=1.0.0",
     "@solana/kit": ">=5.1.0",
+    "@solana-program/token": ">=0.9.0",
     "@x402/core": ">=2.0.0",
     "@x402/fetch": ">=2.0.0",
     "@x402/svm": ">=2.0.0",
@@ -88,6 +89,9 @@
       "optional": true
     },
     "@solana/kit": {
+      "optional": true
+    },
+    "@solana-program/token": {
       "optional": true
     },
     "@x402/core": {
@@ -109,6 +113,7 @@
   "devDependencies": {
     "@scure/base": "^1.2.0",
     "@solana/kit": "^5.1.0",
+    "@solana-program/token": "^0.9.0",
     "@types/node": "^20.11.0",
     "@x402/core": "^2.22.0",
     "@x402/fetch": "^2.22.0",

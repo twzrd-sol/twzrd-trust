@@ -123,8 +123,12 @@ export {
 } from "./resource-bind.js";
 export {
   extractSvmMemoFromTransaction,
+  extractSvmTransferLegs,
   evaluateResourceBindFromSvmTx,
+  evaluateResourceBindLegsFromSvmTx,
   MEMO_PROGRAM_ADDRESS as RESOURCE_BIND_MEMO_PROGRAM,
+  type ResourceBindLeafFields,
+  type SvmTransferLegs,
 } from "./resource-bind-tx.js";
 export {
   runGateAdoptionProof,
