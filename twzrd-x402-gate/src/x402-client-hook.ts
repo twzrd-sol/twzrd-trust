@@ -55,7 +55,7 @@ export type X402SelectedRequirements = {
  */
 export type BeforePaymentCreationContext = {
   selectedRequirements: X402SelectedRequirements;
-  /** Full 402 response body; present on the official client, unused by the gate. */
+  /** Full 402 body (v2: resource.url lives here, not on accepts[]). */
   paymentRequired?: unknown;
   /** Some client versions may nest under requirements */
   requirements?: X402SelectedRequirements;
@@ -190,8 +190,21 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
   }) => void;
 };
 
+/** v2 402: resource URL is on the envelope, not on the selected accepts[] entry. */
+export function resourceUrlFromPaymentRequired(paymentRequired: unknown): string | undefined {
+  if (!paymentRequired || typeof paymentRequired !== "object") return undefined;
+  const r = (paymentRequired as { resource?: unknown }).resource;
+  if (typeof r === "string" && r.length > 0) return r;
+  return flattenDeclaredResource(r as X402DeclaredResource | undefined);
+}
+
 function pickReq(ctx: BeforePaymentCreationContext): X402SelectedRequirements {
-  return ctx.selectedRequirements ?? ctx.requirements ?? {};
+  const req = ctx.selectedRequirements ?? ctx.requirements ?? {};
+  if (!req.resource) {
+    const url = resourceUrlFromPaymentRequired(ctx.paymentRequired);
+    if (url) req.resource = url;
+  }
+  return req;
 }
 
 /**

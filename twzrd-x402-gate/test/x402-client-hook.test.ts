@@ -114,6 +114,50 @@ async function run() {
     assert.equal(typeof (req as { extra?: { twzrd_resource_bind?: string } }).extra?.twzrd_resource_bind, "string");
   }
 
+  // 2b. x402 v2: no resource on accepts[], URL on envelope resource.url
+  {
+    const { client, fire } = mockClient();
+    const req: Record<string, unknown> = {
+      payTo: SELLER,
+      network: SOL,
+      amount: "1000",
+      asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    };
+    const url = "https://intel.twzrd.xyz/v1/intel/quick/35ramn32ufUApgbcgopVe5muHqNftHN1L3BfBNsDzGsx";
+    let bind: { strength?: string; extra_stamped?: boolean; leaf_hash?: string | null } | undefined;
+    installTwzrdX402ClientHook(client, {
+      gateOnCanSpend: false,
+      refuseWashFlagged: false,
+      preflightMinScore: 40,
+      fetch: (async () =>
+        new Response(
+          JSON.stringify({
+            readiness_card: {
+              decision: "allow",
+              can_spend: true,
+              trust_score: 90,
+              seller_wallet: SELLER,
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        )) as typeof fetch,
+      onDecision: (d) => {
+        bind = d.resourceBind;
+      },
+    });
+    const result = await fire({
+      selectedRequirements: req,
+      paymentRequired: { x402Version: 2, resource: { url }, accepts: [req] },
+    });
+    assert.ok(result === undefined || result === null || !("abort" in result && result.abort));
+    assert.equal(req.resource, url);
+    assert.equal(bind?.strength, "soft");
+    assert.equal(bind?.extra_stamped, true);
+    assert.equal(typeof req.extra, "object");
+    assert.equal(typeof (req.extra as { twzrd_resource_bind?: string })?.twzrd_resource_bind, "string");
+    assert.ok(String((req.extra as { memo?: string }).memo ?? "").startsWith("twzrd-rb-v1:"));
+  }
+
   // 3. Base unscored strict — abort without Solana preflight score
   {
     const result = await twzrdBeforePaymentCreation(

@@ -97,6 +97,7 @@ export {
   createTwzrdBeforePaymentHook,
   mapX402SolanaRequirements,
   flattenDeclaredResource,
+  resourceUrlFromPaymentRequired,
   type X402ClientLike,
   type X402SelectedRequirements,
   type X402DeclaredResource,
