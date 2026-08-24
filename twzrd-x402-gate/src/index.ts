@@ -115,6 +115,8 @@ export {
   ZERO_BODY_HASH,
   canonicalResourceUrl,
   resourceBindLeafHash,
+  networksEquivalent,
+  rawReqFromPaymentRequired,
   resourceBindMemo,
   memoContainsResourceBind,
   stampResourceBind,

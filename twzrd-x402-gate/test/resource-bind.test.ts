@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   canonicalResourceUrl, evaluateResourceBind, memoContainsResourceBind,
   RESOURCE_BIND_MEMO_PREFIX, resourceBindLeafHash, resourceBindMemo,
@@ -35,4 +38,19 @@ assert.equal(stampResourceBind({ payTo: base.payTo }).strength, "refuse");
 assert.equal(evaluateResourceBind({ leaf_hash: "ab", tx_contains_hash: true }).strength, "hard");
 assert.equal(evaluateResourceBind({ leaf_hash: "ab", body_hash: "ff".repeat(32) }).strength, "refuse");
 assert.equal(ZERO_BODY_HASH.length, 64);
+
+const reader402 = JSON.parse(readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "fixtures", "reader-outbid-402.json"), "utf8",
+));
+const rawSol = (reader402.accepts as ResourceBindReq[]).find((a) => String(a.network).includes("solana"))!;
+const rawLeaf = resourceBindLeafHash({ ...rawSol, resource: rawSol.resource, amount: rawSol.maxAmountRequired ?? rawSol.amount });
+const normalized: ResourceBindReq = {
+  ...rawSol,
+  amount: rawSol.maxAmountRequired ?? rawSol.amount,
+  network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+  resource: rawSol.resource,
+};
+const stampedRaw = stampResourceBind({ ...normalized }, reader402);
+assert.equal(stampedRaw.leaf_hash, rawLeaf);
+assert.notEqual(stampedRaw.leaf_hash, resourceBindLeafHash(normalized));
 console.log("resource-bind.test.ts: ALL PASSED");

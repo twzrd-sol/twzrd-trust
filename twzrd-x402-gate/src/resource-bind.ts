@@ -56,6 +56,55 @@ export function canonicalResourceUrl(url: string): string {
   return u.toString();
 }
 
+const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+
+/** Match only. Hash still uses the raw 402 string. */
+export function networksEquivalent(a?: string, b?: string): boolean {
+  const n = (s?: string) => {
+    const x = (s ?? "").toLowerCase();
+    if (x === "solana" || x === SOLANA_MAINNET.toLowerCase()) return "solana-mainnet";
+    if (x === "solana-devnet" || x === "solana:etwtrabzayq6imfeykouru166vu2xqa1") return "solana-devnet";
+    if (x === "base" || x === "eip155:8453") return "base";
+    return x;
+  };
+  const A = n(a), B = n(b);
+  return A !== "" && A === B;
+}
+
+function envelopeResource(pr: Record<string, unknown>): string | undefined {
+  const r = pr.resource;
+  if (typeof r === "string" && r.length > 0) return r;
+  if (r && typeof r === "object" && typeof (r as { url?: string }).url === "string") {
+    return (r as { url: string }).url;
+  }
+  return undefined;
+}
+
+/** Raw accepts[] entry matching selected (payTo/amount/asset, tolerant network). */
+export function rawReqFromPaymentRequired(
+  paymentRequired: unknown, selected: ResourceBindReq,
+): ResourceBindReq | null {
+  if (!paymentRequired || typeof paymentRequired !== "object") return null;
+  const pr = paymentRequired as Record<string, unknown>;
+  const accepts = Array.isArray(pr.accepts) ? pr.accepts : [];
+  const selPay = selected.payTo ?? selected.pay_to;
+  const selAmt = selected.amount ?? selected.maxAmountRequired;
+  const selAsset = selected.asset;
+  for (const a of accepts) {
+    if (!a || typeof a !== "object") continue;
+    const acc = a as ResourceBindReq;
+    const pay = acc.payTo ?? acc.pay_to;
+    const amt = acc.amount ?? acc.maxAmountRequired;
+    if (pay !== selPay) continue;
+    if (selAmt != null && amt != null && String(amt) !== String(selAmt)) continue;
+    if (selAsset && acc.asset && acc.asset !== selAsset) continue;
+    if (selected.network && acc.network && !networksEquivalent(acc.network, selected.network)) continue;
+    const resource = acc.resource || envelopeResource(pr) || selected.resource;
+    return { ...acc, resource };
+  }
+  return null;
+}
+
 export function resourceBindLeafHash(req: ResourceBindReq): string {
   const amount = req.amount ?? req.maxAmountRequired ?? "";
   const payTo = req.payTo ?? req.pay_to ?? "";
@@ -82,12 +131,16 @@ export function memoContainsResourceBind(memo: string, leaf_hash: string): boole
   return memo === resourceBindMemo(leaf_hash);
 }
 
-export function stampResourceBind(req: ResourceBindReq): ResourceBindDecision {
-  if (!(req.payTo ?? req.pay_to) || !(req.amount ?? req.maxAmountRequired) || !req.resource) {
+export function stampResourceBind(
+  req: ResourceBindReq, paymentRequired?: unknown,
+): ResourceBindDecision {
+  const hashSrc = rawReqFromPaymentRequired(paymentRequired, req) ?? req;
+  if (!hashSrc.resource && req.resource) hashSrc.resource = req.resource;
+  if (!(hashSrc.payTo ?? hashSrc.pay_to) || !(hashSrc.amount ?? hashSrc.maxAmountRequired) || !hashSrc.resource) {
     return refuse("missing payTo/amount/resource");
   }
   let leaf_hash: string;
-  try { leaf_hash = resourceBindLeafHash(req); }
+  try { leaf_hash = resourceBindLeafHash(hashSrc); }
   catch { return refuse("uncanonical resource URL"); }
   const extra: Record<string, unknown> = { ...(req.extra ?? {}), [RESOURCE_BIND_EXTRA_KEY]: leaf_hash };
   const sellerMemo = extra.memo;

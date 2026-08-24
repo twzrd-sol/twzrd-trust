@@ -248,6 +248,7 @@ export async function evaluateBeforePaymentCreation(
   selectedRequirements: X402SelectedRequirements,
   options?: InstallX402ClientHookOptions,
   pcSigner?: DecisionSigner,
+  paymentRequired?: unknown,
 ): Promise<BeforePaymentCreationResult> {
   options = resolveBuyerPathADefaults(options ?? {});
   const cfg: ResolvedTwzrdGateConfig = resolveConfig(options);
@@ -505,7 +506,7 @@ export async function evaluateBeforePaymentCreation(
     }
   }
 
-  const resourceBind = stampResourceBind(selectedRequirements);
+  const resourceBind = stampResourceBind(selectedRequirements, paymentRequired);
   try {
     options?.onDecision?.({
       approved: true,
@@ -557,7 +558,7 @@ export function installTwzrdX402ClientHook(
   const pcSigner = resolvePaymentControlSigner(options?.paymentControl);
 
   client.onBeforePaymentCreation((context) =>
-    evaluateBeforePaymentCreation(pickReq(context), options, pcSigner),
+    evaluateBeforePaymentCreation(pickReq(context), options, pcSigner, context.paymentRequired),
   );
 
   return client;
