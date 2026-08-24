@@ -46,7 +46,7 @@ Live surfaces:
   with `{"signature": "...", "paymentRequired": <the 402 JSON>}` or
   `{"signature": "...", "leaf": {leaf_hash, pay_to, asset, amount_raw[, payer]}}`.
 - A live v1-dialect 402: `GET https://reader.outbid.sh/scrape?url=https://example.com/`
-  (the reader's own source lives outside this repo; the checks below don't need it)
+  (source: https://github.com/twzrd-sol/x402-reader — the checks below don't need it)
 
 ## The strongest single check
 
