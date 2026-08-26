@@ -1,6 +1,25 @@
 # twzrd-x402-gate
 
-**TWZRD is the default `onBeforePaymentCreation` policy engine for official x402 clients.**
+**TWZRD is the spend-control SDK for agents paying over x402** — and the default
+`onBeforePaymentCreation` policy engine for official x402 clients.
+
+### One call (named export `twzrd`)
+
+```js
+import { twzrd } from "twzrd-x402-gate";
+
+const result = await twzrd.safeFetch(url, {
+  maxSpend: "0.10",              // per-call cap AND cumulative budget
+  allowNetworks: ["solana", "base"],
+  requireOfferBinding: true,     // demand a chain-verifiable bind-v1 receipt
+  pay,                           // your wallet signs — this SDK never holds keys
+});
+// result.verdict: "allow" | "warn" | "block" — blocks have signerInvocations === 0
+// result.receipt: { strength: "hard"|"soft"|"refuse", leaf_hash, fact_type: "resource_bound" }
+```
+
+Full walkthrough: [QUICKSTART.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/QUICKSTART.md) ·
+verify receipts yourself: [REVIEW.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/REVIEW.md)
 
 **Core product (buyer gate):** after the client selects the exact payment requirement and
 **before** payment payload creation / wallet signing — free preflight + merchant_card wash
@@ -10,7 +29,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.8.18 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
