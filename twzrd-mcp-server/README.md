@@ -122,12 +122,14 @@ the paying-client brake, not a Path A shop.
 ## Verify receipts offline (trust no one)
 
 `full_trust` returns a portable Ed25519-signed V6 receipt. Verify it without
-trusting any TWZRD server — the issuer key is `twzrd-receipt-ed25519-v1`
-(`9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf`), pinned at
+trusting any TWZRD server — new receipts use issuer key
+`twzrd-receipt-ed25519-v2`; legacy v1 keys remain verify-only during the
+bounded compatibility rollout.
+(`Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`), pinned at
 <https://intel.twzrd.xyz/.well-known/twzrd-receipt-pubkey>:
 
 ```bash
-npx twzrd-receipt-verifier <receipt.json> --pubkey 9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf
+npx twzrd-receipt-verifier <receipt.json> --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
 ```
 
 ## Development
