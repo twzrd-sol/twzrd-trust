@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createMemorySpendLedger } from "../src/policy-runtime.js";
 import { createFileSpendLedger } from "../src/spend-ledger-file.js";
 import { twzrd } from "../src/spend-control.js";
+import { resourceBindLeafHash, resourceBindMemo } from "../src/resource-bind.js";
 import { EXACT_SVM_TRANSFER_CHECKED_FIXTURE as FIX } from "./fixtures/exact-svm-transfer-checked.js";
 
 const SOL = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
@@ -113,14 +114,14 @@ async function run() {
   await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(v2body), requireOfferBinding: true,
     pay: async ({ selected }) => {
-      const extra = selected.extra as { memo?: string } | undefined;
+      const extra = selected.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
       v2Memo = extra?.memo;
       assert.equal(selected.resource, "https://merchant.example/paid");
+      assert.equal(extra?.twzrd_resource_bind, undefined);
       return { response: new Response("x") };
     },
   });
-  assert.equal(typeof v2Memo, "string");
-  assert.ok(String(v2Memo).startsWith("rb1:"));
+  assert.equal(v2Memo, undefined);
 
   try {
     await import("@x402/svm");
@@ -145,10 +146,10 @@ async function run() {
     fetch: fetch402(body402({ payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint })),
     requireOfferBinding: true,
     pay: async ({ selected }) => {
-      const extra = selected.extra as { memo?: string } | undefined;
-      seenMemo = extra?.memo;
-      assert.equal(typeof seenMemo, "string");
-      assert.ok(String(seenMemo).startsWith("rb1:"));
+      const extra = selected.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
+      assert.equal(extra?.memo, undefined);
+      assert.equal(extra?.twzrd_resource_bind, undefined);
+      seenMemo = resourceBindMemo(resourceBindLeafHash(selected));
       const both = kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
         kit.createTransactionMessage({ version: 0 }),
         (m) => kit.setTransactionMessageFeePayer(owner, m),
@@ -161,7 +162,6 @@ async function run() {
       return { transactionBase64: both, response: new Response("ok", { status: 200 }) };
     },
   });
-  assert.equal(typeof seenMemo, "string");
   assert.ok(String(seenMemo).startsWith("rb1:"));
   assert.equal(bound.verdict, "allow");
   assert.equal(bound.receipt?.strength, "hard");

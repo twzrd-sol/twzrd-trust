@@ -110,8 +110,8 @@ async function run() {
     const result = await fire({ selectedRequirements: req });
     assert.ok(result === undefined || result === null || !("abort" in result && result.abort));
     assert.equal(bind?.strength, "soft");
-    assert.equal(bind?.extra_stamped, true);
-    assert.equal(typeof (req as { extra?: { twzrd_resource_bind?: string } }).extra?.twzrd_resource_bind, "string");
+    assert.equal(bind?.extra_stamped, false);
+    assert.equal((req as { extra?: { twzrd_resource_bind?: string } }).extra?.twzrd_resource_bind, undefined);
   }
 
   // 2b. x402 v2: no resource on accepts[], URL on envelope resource.url
@@ -150,12 +150,11 @@ async function run() {
       paymentRequired: { x402Version: 2, resource: { url }, accepts: [req] },
     });
     assert.ok(result === undefined || result === null || !("abort" in result && result.abort));
-    assert.equal(req.resource, url);
+    assert.equal(req.resource, undefined);
     assert.equal(bind?.strength, "soft");
-    assert.equal(bind?.extra_stamped, true);
-    assert.equal(typeof req.extra, "object");
-    assert.equal(typeof (req.extra as { twzrd_resource_bind?: string })?.twzrd_resource_bind, "string");
-    assert.ok(String((req.extra as { memo?: string }).memo ?? "").startsWith("rb1:"));
+    assert.equal(bind?.extra_stamped, false);
+    assert.equal((req.extra as { twzrd_resource_bind?: string } | undefined)?.twzrd_resource_bind, undefined);
+    assert.equal((req.extra as { memo?: string } | undefined)?.memo, undefined);
   }
 
   // 3. Base unscored strict — abort without Solana preflight score

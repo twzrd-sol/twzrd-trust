@@ -1,6 +1,6 @@
 {
   "name": "twzrd-x402-gate",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Core: buyer-side x402 trust gate. Free TWZRD preflight (ReadinessCard) before signing USDC to any merchant, with optional $0.001 paid trust escalate on warn — blocking spend on bad intel, no human in the loop. Optional: createTwzrdSettleGuard for resource servers to apply merchant policy on the payer before settle+serve. installTwzrdAutoGate is the canonical default-on entry across fetch payWrap, x402 client (onBeforePaymentCreation), PayAI x402-solana beforePayment (2.1.0+), and MPP onChallenge. Fail-closed by default — set TWZRD_FAIL_OPEN=true for outage allow; kill switch TWZRD_GATE_ENABLED=false or TWZRD_AUTO_GATE=0. Always stamps X-Twzrd-Caller for seat metrics.",
   "type": "module",
   "main": "./dist/index.js",

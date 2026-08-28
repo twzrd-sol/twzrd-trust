@@ -309,8 +309,8 @@ async function run() {
     assert.equal(outcome.signed, true);
     assert.equal(signerInvocations, 1);
     const extra = liveReq.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
-    assert.ok(String(extra?.memo ?? "").startsWith("rb1:"), "live object must carry bind memo");
-    assert.equal(typeof extra?.twzrd_resource_bind, "string");
+    assert.equal(extra?.memo, undefined, "must not inject extra.memo (ExactSvm interop)");
+    assert.equal(extra?.twzrd_resource_bind, undefined);
   }
 
   // --- 3.0.0 declaredResource { url }: wash abort, resource flattened, signer=0 ---

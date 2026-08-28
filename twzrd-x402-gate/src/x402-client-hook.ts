@@ -199,7 +199,7 @@ export function resourceUrlFromPaymentRequired(paymentRequired: unknown): string
 }
 
 function pickReq(ctx: BeforePaymentCreationContext): X402SelectedRequirements {
-  const req = ctx.selectedRequirements ?? ctx.requirements ?? {};
+  const req = { ...(ctx.selectedRequirements ?? ctx.requirements ?? {}) };
   if (!req.resource) {
     const url = resourceUrlFromPaymentRequired(ctx.paymentRequired);
     if (url) req.resource = url;

@@ -21,8 +21,9 @@ assert.notEqual(resourceBindLeafHash(base), resourceBindLeafHash({ ...base, reso
 const req: ResourceBindReq = { ...base };
 const stamped = stampResourceBind(req);
 assert.equal(stamped.strength, "soft");
-assert.equal(req.extra?.twzrd_resource_bind, stamped.leaf_hash);
-assert.equal(req.extra?.memo, resourceBindMemo(stamped.leaf_hash as string));
+assert.equal(stamped.extra_stamped, false);
+assert.equal(req.extra?.twzrd_resource_bind, undefined);
+assert.equal(req.extra?.memo, undefined);
 assert.equal(stamped.strength, "soft");
 const leaf = stamped.leaf_hash as string;
 const tx_memo = resourceBindMemo(leaf); // modeled as UTF-8 of settled Memo IX, not extra.memo

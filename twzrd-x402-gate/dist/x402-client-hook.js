@@ -31,7 +31,7 @@ export function resourceUrlFromPaymentRequired(paymentRequired) {
     return flattenDeclaredResource(r);
 }
 function pickReq(ctx) {
-    const req = ctx.selectedRequirements ?? ctx.requirements ?? {};
+    const req = { ...(ctx.selectedRequirements ?? ctx.requirements ?? {}) };
     if (!req.resource) {
         const url = resourceUrlFromPaymentRequired(ctx.paymentRequired);
         if (url)
