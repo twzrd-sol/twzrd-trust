@@ -62,7 +62,7 @@ const ALLOW_PUBLIC_RPC = process.env.TWZRD_ALLOW_PUBLIC_RPC === "1";
 const PUBLIC_RPC = "https://api.mainnet-beta.solana.com";
 const RPC_URL = process.env.TWZRD_RPC_URL || (ALLOW_PUBLIC_RPC ? PUBLIC_RPC : "");
 const SECRET = process.env.TWZRD_WALLET_SECRET_KEY || "";
-const RECEIPT_PUBKEY = process.env.TWZRD_RECEIPT_PUBKEY || "9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf";
+const RECEIPT_PUBKEY = process.env.TWZRD_RECEIPT_PUBKEY || "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS";
 let spentUsdc = 0;
 function selectSolanaExact(_x402Version, accepts) {
     const { req, amountUsdc } = pickSolanaExact(_x402Version, accepts || [], {
