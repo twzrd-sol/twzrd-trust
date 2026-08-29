@@ -27,10 +27,13 @@ export type PolicyEvaluateInput = {
   gateOnCanSpend?: boolean;
 };
 
+/** Pure card evaluation has no request lifecycle, therefore no decision ID. */
+export type TwzrdCardEvaluation = Omit<TwzrdApprovalResult, "decisionId">;
+
 /**
  * Pure policy — no network. Mirrors scripts/twzrd_gate_agentcash_fetch.sh semantics.
  */
-export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdApprovalResult {
+export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEvaluation {
   const { card, preflightMinScore, blockDecisions, gateOnCanSpend } = input;
   const decision = card.decision ?? "warn";
   const score = card.trust_score ?? 0;

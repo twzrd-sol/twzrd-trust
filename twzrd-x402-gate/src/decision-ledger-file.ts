@@ -1,13 +1,12 @@
 /**
  * Append-only decision ledger for support, evaluation, and settlement joins.
- * Rows deliberately carry a schema version: readers must reject formats they
+ * Single-process writer only: do not share one file between processes. Rows deliberately carry a schema version: readers must reject formats they
  * do not understand rather than silently misinterpret an audit record.
  */
 import { mkdirSync } from "node:fs";
 import { appendFile, open, rename, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createHash } from "node:crypto";
 
 export const DECISION_LEDGER_SCHEMA_VERSION = 1;
 
@@ -19,10 +18,12 @@ export type DecisionLedgerRow = {
   reason_codes: string[];
   policy_version: string;
   input: {
-    pay_to_hash?: string;
+    /** Public chain address, retained for settlement and counterparty joins. */
+    pay_to?: string;
     resource_origin?: string;
     network?: string;
-    amount_bucket?: "zero" | "under_1_usdc" | "1_to_10_usdc" | "over_10_usdc" | "unknown";
+    /** Exact value retained for mandate/cap reconciliation. */
+    amount_micro?: string;
   };
   signer_invocations: number;
   latency_ms?: number;
@@ -39,14 +40,11 @@ export type RecordDecisionInput = Omit<DecisionLedgerRow, "schema_version" | "de
 function redactInput(input: RecordDecisionInput["input"]): DecisionLedgerRow["input"] {
   let resource_origin: string | undefined;
   try { resource_origin = input.resource ? new URL(input.resource).origin : undefined; } catch { resource_origin = undefined; }
-  let micro: bigint | null = null;
-  try { micro = input.amount_micro == null ? null : BigInt(input.amount_micro); } catch { micro = null; }
-  const amount_bucket = micro === null ? "unknown" : micro === 0n ? "zero" : micro < 1_000_000n ? "under_1_usdc" : micro <= 10_000_000n ? "1_to_10_usdc" : "over_10_usdc";
   return {
-    pay_to_hash: input.pay_to ? createHash("sha256").update(input.pay_to).digest("hex") : undefined,
+    pay_to: input.pay_to,
     resource_origin,
     network: input.network,
-    amount_bucket,
+    amount_micro: input.amount_micro,
   };
 }
 
@@ -79,6 +77,14 @@ export function createFileDecisionLedger(filePath: string, options: FileDecision
     scheduled = true;
     queueMicrotask(() => { void flush(); });
   };
+  // Flush on ordinary Node shutdown. Signal handlers re-raise the signal after
+  // fsync so supervisors retain normal termination semantics.
+  const flushOnSignal = (signal: NodeJS.Signals) => {
+    process.once(signal, () => { void flush().finally(() => process.kill(process.pid, signal)); });
+  };
+  process.once("beforeExit", () => { void flush(); });
+  flushOnSignal("SIGINT");
+  flushOnSignal("SIGTERM");
   return {
     record(input: RecordDecisionInput): DecisionLedgerRow {
       const row: DecisionLedgerRow = {

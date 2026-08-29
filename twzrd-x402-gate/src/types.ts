@@ -127,7 +127,7 @@ export type TwzrdUpsellContext = {
 
 export type TwzrdApprovalResult = {
   /** Stable support/audit join key, present for decisions and failures. */
-  decisionId?: string;
+  decisionId: string;
   approved: boolean;
   /**
    * Card decision when reputation-scored: allow | warn | block.

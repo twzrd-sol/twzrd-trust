@@ -23,7 +23,8 @@ async function run() {
   assert.equal(row.schema_version, DECISION_LEDGER_SCHEMA_VERSION);
   assert.equal(row.outcome, "error", "gate errors are decision records too");
   assert.equal(row.input.resource_origin, "https://merchant.example");
-  assert.equal(row.input.amount_bucket, "under_1_usdc");
+  assert.equal(row.input.pay_to, "seller");
+  assert.equal(row.input.amount_micro, "1000");
   assert.equal(JSON.stringify(row).includes("secret"), false, "raw query data is never logged");
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), JSON.parse(JSON.stringify(row)));
   console.log("decision-ledger-file: all assertions passed");
