@@ -10,7 +10,7 @@ Buyer-side **x402 trust gate** for elizaOS agents. Before your agent signs a pay
 Current compatible fetch-gate release:
 
 ```bash
-npm install twzrd-x402-gate@0.8.18
+npm install twzrd-x402-gate@0.9.2
 ```
 
 The results below were captured on 2026-07-16, before `0.8.2` was published.
@@ -63,7 +63,7 @@ npm install @wzrd_sol/plugin-trustgate
 
 Compatibility: `@elizaos/core >=1.0.0`. The package has no direct dependency on
 `twzrd-x402-gate`; the reproducible fetch-gate example above is pinned to the
-current `twzrd-x402-gate@0.8.18` release.
+current `twzrd-x402-gate@0.9.2` release.
 
 ## Use (3 lines)
 

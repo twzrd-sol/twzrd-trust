@@ -1,0 +1,16 @@
+{
+  "name": "twzrd-trust",
+  "version": "0.9.2",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "workspaces": ["twzrd-x402-gate", "twzrd-mcp-server", "eliza-plugin", "plugin-trustgate"],
+  "scripts": {
+    "build": "npm run build --workspace=twzrd-x402-gate",
+    "typecheck": "npm run typecheck --workspace=twzrd-x402-gate",
+    "test": "npm test --workspace=twzrd-x402-gate && npm run test:artifacts",
+    "test:artifacts": "node scripts/check-artifact-workspaces.mjs",
+    "test:quickstart": "node scripts/test-readme-quickstart.mjs",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "ci": "npm run build && npm run typecheck && npm test && npm run audit:prod && npm run test:quickstart"
+  }
+}

@@ -68,7 +68,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.8.18
+npm install twzrd-x402-gate@0.9.2
 ```
 
 ```typescript
@@ -112,7 +112,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.8.18
+npm install twzrd-x402-gate@0.9.2
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -257,7 +257,7 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.8.18
+npm install twzrd-x402-gate@0.9.2
 ```
 
 Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
