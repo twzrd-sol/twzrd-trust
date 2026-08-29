@@ -48,7 +48,12 @@ function redactInput(input: RecordDecisionInput["input"]): DecisionLedgerRow["in
   };
 }
 
-export type FileDecisionLedgerOptions = { maxBufferedRows?: number; rotateBytes?: number };
+export type FileDecisionLedgerOptions = {
+  maxBufferedRows?: number;
+  rotateBytes?: number;
+  /** Opt in only when this library owns the host process lifecycle. Default: false. */
+  flushOnSignals?: boolean;
+};
 
 /** `record` never blocks the payment path. `flush` fsyncs an async batch. */
 export function createFileDecisionLedger(filePath: string, options: FileDecisionLedgerOptions = {}) {
@@ -77,14 +82,16 @@ export function createFileDecisionLedger(filePath: string, options: FileDecision
     scheduled = true;
     queueMicrotask(() => { void flush(); });
   };
-  // Flush on ordinary Node shutdown. Signal handlers re-raise the signal after
-  // fsync so supervisors retain normal termination semantics.
+  // beforeExit is non-invasive. Hosts own SIGINT/SIGTERM unless they explicitly
+  // opt in; libraries must not interleave themselves with an app's shutdown.
   const flushOnSignal = (signal: NodeJS.Signals) => {
     process.once(signal, () => { void flush().finally(() => process.kill(process.pid, signal)); });
   };
   process.once("beforeExit", () => { void flush(); });
-  flushOnSignal("SIGINT");
-  flushOnSignal("SIGTERM");
+  if (options.flushOnSignals === true) {
+    flushOnSignal("SIGINT");
+    flushOnSignal("SIGTERM");
+  }
   return {
     record(input: RecordDecisionInput): DecisionLedgerRow {
       const row: DecisionLedgerRow = {

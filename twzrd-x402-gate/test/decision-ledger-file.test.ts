@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { createFileDecisionLedger, DECISION_LEDGER_SCHEMA_VERSION } from "../src/decision-ledger-file.js";
 
 const path = join(mkdtempSync(join(tmpdir(), "twzrd-decision-ledger-")), "decisions.jsonl");
+const signalListenersBefore = process.listenerCount("SIGTERM");
 const ledger = createFileDecisionLedger(path);
+assert.equal(process.listenerCount("SIGTERM"), signalListenersBefore, "signal hooks are opt-in");
 const row = ledger.record({
   decision_id: "decision-test-1",
   at_unix_ms: 1,
