@@ -2,14 +2,15 @@
 
 **Category:** Trust & Reputation / Solana x402
 **Transport:** MCP (streamable HTTP)
-**Endpoint:** `https://intel.twzrd.xyz/mcp`
-**Pricing:** Free (all MCP tools) + x402 paid trust receipts at $0.05 USDC
+**Endpoint:** `https://intel.twzrd.xyz/mcp` (24 tools, streamable HTTP)
+**Pricing:** Free (all MCP tools, no API key, no wallet) + x402 paid trust receipts at $0.05 USDC
 
 ## What it does
 
 Provides agentic intelligence for the Solana x402 economy. Before an agent pays
 a seller over x402, it calls the free preflight to get a ReadinessCard with
 trust score, risk factors, and a spend decision (allow/warn/block).
+Blocks happen with zero signer invocations (`signerInvocations: 0`).
 
 After payment, the agent can verify the signed receipt offline.
 

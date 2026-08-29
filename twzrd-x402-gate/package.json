@@ -31,7 +31,7 @@
     "build": "tsc",
     "prepublishOnly": "tsc",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
-    "test": "tsx test/resource-bind.test.ts && tsx test/resource-bind-tx.test.ts && tsx test/version-identity.test.ts && tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/receipt-policy.test.ts && tsx test/buyer-defaults.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts && tsx test/wash-refuse.test.ts && tsx test/auto-gate.test.ts && tsx test/autogate-intercept.test.ts && tsx test/x402-solana-before-payment.test.ts && tsx test/network.test.ts && tsx test/safe-fetch.test.ts && tsx test/payto-prefer.test.ts && tsx test/challenge-swap.test.ts && tsx test/x402-client-hook.test.ts && tsx test/hook-single-eval.test.ts && tsx test/run-attribution.test.ts && tsx test/payment-control.test.ts && tsx test/budget-refuse-codes.test.ts && tsx test/cited-outcomes.test.ts && tsx test/outcome-attestation.test.ts && tsx test/intent-binding.test.ts && tsx test/mpp-hook.test.ts && tsx test/mpp-safety.test.ts && tsx test/payment-control-followup.test.ts && tsx test/payment-control-hardening.test.ts && tsx test/x402-official-compat.test.ts && tsx test/seller-hook.test.ts && tsx test/adoption-proof.test.ts && tsx test/delivery-capture.test.ts && tsx test/doctor.test.ts && tsx test/spend-control.test.ts && tsx test/consumer-spend-control.ts && tsx test/spend-ledger-file.test.ts",
+    "test": "tsx test/resource-bind.test.ts && tsx test/resource-bind-tx.test.ts && tsx test/version-identity.test.ts && tsx test/policy.test.ts && tsx test/wrap-fetch.test.ts && tsx test/mcp-hook.test.ts && tsx test/attribution.test.ts && tsx test/auto-receipt.test.ts && tsx test/receipt-policy.test.ts && tsx test/buyer-defaults.test.ts && tsx test/quick.test.ts && tsx test/sponsored.test.ts && tsx test/escalation.test.ts && tsx test/wash-refuse.test.ts && tsx test/auto-gate.test.ts && tsx test/autogate-intercept.test.ts && tsx test/x402-solana-before-payment.test.ts && tsx test/network.test.ts && tsx test/safe-fetch.test.ts && tsx test/payto-prefer.test.ts && tsx test/challenge-swap.test.ts && tsx test/x402-client-hook.test.ts && tsx test/hook-single-eval.test.ts && tsx test/run-attribution.test.ts && tsx test/payment-control.test.ts && tsx test/budget-refuse-codes.test.ts && tsx test/cited-outcomes.test.ts && tsx test/outcome-attestation.test.ts && tsx test/intent-binding.test.ts && tsx test/mpp-hook.test.ts && tsx test/mpp-safety.test.ts && tsx test/payment-control-followup.test.ts && tsx test/payment-control-hardening.test.ts && tsx test/x402-official-compat.test.ts && tsx test/seller-hook.test.ts && tsx test/adoption-proof.test.ts && tsx test/delivery-capture.test.ts && tsx test/doctor.test.ts && tsx test/spend-control.test.ts && tsx test/consumer-spend-control.ts && tsx test/spend-ledger-file.test.ts && tsx test/receipt-freshness-tamper.test.ts",
     "pack-smoke": "node scripts/pack-smoke.mjs",
     "safe-fetch": "tsx src/safe-fetch.ts",
     "guard-demo": "tsx examples/agentic-market-gate.ts",
@@ -82,7 +82,7 @@
     "@x402/fetch": ">=2.0.0",
     "@x402/svm": ">=2.0.0",
     "js-sha3": ">=0.8.0",
-    "x402-solana": ">=2.1.0"
+    "x402-solana": ">=3.0.0"
   },
   "peerDependenciesMeta": {
     "@scure/base": {
