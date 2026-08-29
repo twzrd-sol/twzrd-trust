@@ -105,6 +105,12 @@ The following fields are JSON-only advisory metadata:
 
 **Trust Boundary Rule:** Relying parties MUST compute receipt age directly from the signed `timestamp_unix` field using an explicit maximum age policy (e.g. `--max-age 604800` for 7 days), rather than relying solely on unauthenticated advisory freshness fields.
 
+## V6 to V7 Migration Policy
+
+V6 receipts remain cryptographically verifiable for their leaf-bound provenance fields, but their freshness advisory fields are **not authenticated**. Verifiers MUST label a V6 result `freshness: derived_from_timestamp` and MUST NOT treat `recheck_after_unix`, `staleness_days`, or `score_decay_model` as signed claims.
+
+V7 will bind every action-driving freshness field into the signed leaf. During migration, verifiers should accept V6 only with this explicit downgraded freshness status; policies that require signed freshness MUST reject V6. The V7 issuer and verifier change is coordinated in the external receipt-verifier release.
+
 ---
 
 ## Verifier Reference

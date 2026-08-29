@@ -21,6 +21,7 @@ export { RESOURCE_BIND_DOMAIN, RESOURCE_BIND_EXTRA_KEY, RESOURCE_BIND_MEMO_PREFI
 export { extractSvmMemoFromTransaction, extractSvmTransferLegs, evaluateResourceBindFromSvmTx, evaluateResourceBindLegsFromSvmTx, MEMO_PROGRAM_ADDRESS as RESOURCE_BIND_MEMO_PROGRAM, type ResourceBindLeafFields, type SvmTransferLegs, } from "./resource-bind-tx.js";
 export { twzrd, spendControlSafeFetch, type SpendControlOptions, type SpendControlResult, } from "./spend-control.js";
 export { createFileSpendLedger } from "./spend-ledger-file.js";
+export { createFileDecisionLedger, DECISION_LEDGER_SCHEMA_VERSION, type DecisionLedgerRow, type RecordDecisionInput, } from "./decision-ledger-file.js";
 export { runGateAdoptionProof, main as adoptionProofMain, ADOPTION_TRANSCRIPT_SCHEMA, ADOPTION_PROOF_SELLER, ADOPTION_PROOF_NETWORK, ADOPTION_PROOF_RESOURCE, type GateAdoptionTranscript, type GateAdoptionStep, type GateAdoptionAssertions, type GateAdoptionLineage, type RunGateAdoptionProofOptions, } from "./adoption-proof.js";
 export { quickCheck, QUICK_PRICE_USDC, type QuickCheckResult, type QuickCheckOptions, type TwzrdTier, } from "./quick.js";
 export { createSponsoredX402Fetch, type SponsorSettle, type SponsoredX402Options, } from "./sponsored.js";

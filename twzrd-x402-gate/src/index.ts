@@ -144,6 +144,12 @@ export {
 } from "./spend-control.js";
 export { createFileSpendLedger } from "./spend-ledger-file.js";
 export {
+  createFileDecisionLedger,
+  DECISION_LEDGER_SCHEMA_VERSION,
+  type DecisionLedgerRow,
+  type RecordDecisionInput,
+} from "./decision-ledger-file.js";
+export {
   runGateAdoptionProof,
   main as adoptionProofMain,
   ADOPTION_TRANSCRIPT_SCHEMA,
