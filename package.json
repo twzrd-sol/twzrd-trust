@@ -1,6 +1,6 @@
 {
   "name": "twzrd-trust-monorepo",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "private": true,
   "description": "TWZRD trust monorepo — buyer-side x402 spend control and trust tooling on Solana",
   "type": "module",

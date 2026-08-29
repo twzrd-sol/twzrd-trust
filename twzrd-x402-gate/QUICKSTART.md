@@ -5,13 +5,13 @@ API key, no signup, no config — every `TWZRD_*` env var is an optional overrid
 is unreachable the gate never *invents* a wash flag (the wash check fails open); a failed
 preflight blocks the payment by default (`TWZRD_FAIL_OPEN=true` to allow).
 
-**Pin:** `twzrd-x402-gate@0.9.2` + stock PayAI client `x402-solana@3.0.0` (official
+**Pin:** `twzrd-x402-gate@0.9.3` + stock PayAI client `x402-solana@3.0.0` (official
 `beforePayment` seat). `@x402/core` Path E remains supported; refuse script is fallback.
 
 ## 1. Stock PayAI client (default seat — copy-paste)
 
 ```bash
-npm install twzrd-x402-gate@0.9.2 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.3 x402-solana@3.0.0
 ```
 
 > **ESM-only.** The package ships `import` conditions only — a CommonJS
@@ -36,7 +36,7 @@ Then: `await client.fetch("https://merchant.example/paid");`
 ## 1b. Official `@x402/core` client (Path E)
 
 ```bash
-npm install twzrd-x402-gate@0.9.2 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.9.3 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
