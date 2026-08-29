@@ -1,1 +1,0 @@
-{"version":3,"file":"mcp-hook.d.ts","sourceRoot":"","sources":["../src/mcp-hook.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,uBAAuB,EAAE,MAAM,aAAa,CAAC;AAG3D,OAAO,KAAK,EACV,qBAAqB,EACrB,8BAA8B,EAE/B,MAAM,YAAY,CAAC;AAEpB;;;;;;;;;;;;;;;;;;;;;;GAsBG;AACH,wBAAsB,uBAAuB,CAC3C,GAAG,EAAE,qBAAqB,GAAG,8BAA8B,EAC3D,MAAM,CAAC,EAAE,uBAAuB,GAC/B,OAAO,CAAC,OAAO,CAAC,CAyClB"}

@@ -148,6 +148,7 @@ export {
   DECISION_LEDGER_SCHEMA_VERSION,
   type DecisionLedgerRow,
   type RecordDecisionInput,
+  type FileDecisionLedgerOptions,
 } from "./decision-ledger-file.js";
 export {
   runGateAdoptionProof,

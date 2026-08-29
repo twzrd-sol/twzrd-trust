@@ -12,13 +12,20 @@ const row = ledger.record({
   outcome: "error",
   reason_codes: ["twzrd_fail_closed"],
   policy_version: "test-policy",
-  input: { pay_to: "seller", amount_micro: "1000" },
+  input: { pay_to: "seller", resource: "https://merchant.example/private?token=secret", amount_micro: "1000" },
   signer_invocations: 0,
   latency_ms: 12,
   error: { code: "ECONNRESET" },
   settlement: { status: "failed" },
 });
-assert.equal(row.schema_version, DECISION_LEDGER_SCHEMA_VERSION);
-assert.equal(row.outcome, "error", "gate errors are decision records too");
-assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), row);
-console.log("decision-ledger-file: all assertions passed");
+async function run() {
+  await ledger.flush();
+  assert.equal(row.schema_version, DECISION_LEDGER_SCHEMA_VERSION);
+  assert.equal(row.outcome, "error", "gate errors are decision records too");
+  assert.equal(row.input.resource_origin, "https://merchant.example");
+  assert.equal(row.input.amount_bucket, "under_1_usdc");
+  assert.equal(JSON.stringify(row).includes("secret"), false, "raw query data is never logged");
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), JSON.parse(JSON.stringify(row)));
+  console.log("decision-ledger-file: all assertions passed");
+}
+void run();
