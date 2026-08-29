@@ -1,7 +1,7 @@
 # TWZRD Agent Intel — Agent Orientation
 
 ## Live Server
-- **MCP endpoint:** `https://intel.twzrd.xyz/mcp` (streamable HTTP, 23 tools)
+- **MCP endpoint:** `https://intel.twzrd.xyz/mcp` (streamable HTTP, 24 tools)
 - **HTTP API:** `https://intel.twzrd.xyz/v1/intel/...`
 - **Agent Card:** `https://intel.twzrd.xyz/.well-known/agent-card.json`
 - **OpenAPI:** `https://intel.twzrd.xyz/openapi.json`

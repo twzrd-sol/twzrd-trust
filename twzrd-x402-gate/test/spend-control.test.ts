@@ -1,0 +1,171 @@
+/** Product twzrd.safeFetch — not AgentCash ./safe-fetch. Run: npx tsx test/spend-control.test.ts */
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createMemorySpendLedger } from "../src/policy-runtime.js";
+import { createFileSpendLedger } from "../src/spend-ledger-file.js";
+import { twzrd } from "../src/spend-control.js";
+import { resourceBindLeafHash, resourceBindMemo } from "../src/resource-bind.js";
+import { EXACT_SVM_TRANSFER_CHECKED_FIXTURE as FIX } from "./fixtures/exact-svm-transfer-checked.js";
+
+const SOL = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
+const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const body402 = (over: Record<string, unknown> = {}) => ({
+  x402Version: 1,
+  accepts: [{
+    scheme: "exact", network: "solana", payTo: SOL, amount: "10000", asset: USDC,
+    resource: "https://merchant.example/paid", ...over,
+  }],
+});
+const fetch402 = (b: unknown = body402()): typeof fetch =>
+  (async () => new Response(JSON.stringify(b), { status: 402, headers: { "content-type": "application/json" } })) as typeof fetch;
+
+async function run() {
+  let signs = 0;
+  const pay = async () => {
+    signs += 1;
+    return { response: new Response("paid", { status: 200 }) };
+  };
+
+  const allow = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), maxSpend: "0.10", allowNetworks: ["solana"], pay, preflight: async () => ({ decision: "allow" }),
+  });
+  assert.equal(allow.verdict, "allow");
+  assert.equal(allow.signerInvocations, 1);
+
+  const warn = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), pay, preflight: async () => ({ decision: "warn" }),
+  });
+  assert.equal(warn.verdict, "warn");
+
+  signs = 0;
+  const blocked = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), pay, preflight: async () => ({ decision: "block" }),
+  });
+  assert.equal(blocked.verdict, "block");
+  assert.equal(blocked.signerInvocations, 0);
+  assert.equal(signs, 0);
+
+  signs = 0;
+  const over = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), maxSpend: "0.001", allowNetworks: ["solana"], pay,
+  });
+  assert.equal(over.verdict, "block");
+  assert.equal(over.reason, "over_max_spend");
+  assert.equal(over.signerInvocations, 0);
+
+  signs = 0;
+  const net = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), allowNetworks: ["base"], pay,
+  });
+  assert.equal(net.verdict, "block");
+  assert.equal(net.reason, "network_not_allowed");
+  assert.equal(net.signerInvocations, 0);
+
+  const led = createMemorySpendLedger();
+  const opts = { fetch: fetch402(), maxSpend: "0.025", ledger: led, agentId: "a1", mandateId: "m1", pay };
+  assert.equal((await twzrd.safeFetch("https://merchant.example/paid", opts)).verdict, "allow");
+  assert.equal((await twzrd.safeFetch("https://merchant.example/paid", opts)).verdict, "allow");
+  const third = await twzrd.safeFetch("https://merchant.example/paid", opts);
+  assert.equal(third.verdict, "block");
+  assert.equal(third.reason, "over_cumulative_spend");
+  assert.equal(third.signerInvocations, 0);
+
+  const merch = createMemorySpendLedger();
+  const merchOpts = { fetch: fetch402(), maxSpend: "0.015", ledger: merch, pay };
+  assert.equal((await twzrd.safeFetch("https://merchant.example/paid", { ...merchOpts, agentId: "a1" })).verdict, "allow");
+  const merchBlock = await twzrd.safeFetch("https://merchant.example/paid", { ...merchOpts, agentId: "a2" });
+  assert.equal(merchBlock.verdict, "block");
+  assert.equal(merchBlock.reason, "over_cumulative_spend");
+  assert.equal(merchBlock.signerInvocations, 0);
+
+  const ledgerPath = join(mkdtempSync(join(tmpdir(), "twzrd-sf-")), "ledger.jsonl");
+  const fileOpts = {
+    fetch: fetch402(), maxSpend: "0.025", ledgerFile: ledgerPath, agentId: "a1", mandateId: "m1", pay,
+  };
+  assert.equal((await twzrd.safeFetch("https://merchant.example/paid", fileOpts)).verdict, "allow");
+  assert.equal((await twzrd.safeFetch("https://merchant.example/paid", fileOpts)).verdict, "allow");
+  const reopened = createFileSpendLedger(ledgerPath);
+  const fileThird = await twzrd.safeFetch("https://merchant.example/paid", { ...fileOpts, ledger: reopened });
+  assert.equal(fileThird.verdict, "block");
+  assert.equal(fileThird.reason, "over_cumulative_spend");
+  assert.equal(fileThird.signerInvocations, 0);
+
+  const noTx = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), requireOfferBinding: true, pay,
+  });
+  assert.equal(noTx.verdict, "block");
+  assert.equal(noTx.reason, "bind_required_no_settlement");
+
+  const mismatch = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), requireOfferBinding: true,
+    pay: async () => ({ transactionBase64: Buffer.from("not-a-tx").toString("base64"), response: new Response("x") }),
+  });
+  assert.equal(mismatch.verdict, "block");
+  assert.equal(mismatch.reason, "bind_mismatch");
+
+  let v2Memo: string | undefined;
+  const v2body = {
+    x402Version: 2,
+    resource: { url: "https://merchant.example/paid" },
+    accepts: [{ scheme: "exact", network: "solana", payTo: SOL, amount: "10000", asset: USDC }],
+  };
+  await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(v2body), requireOfferBinding: true,
+    pay: async ({ selected }) => {
+      const extra = selected.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
+      v2Memo = extra?.memo;
+      assert.equal(selected.resource, "https://merchant.example/paid");
+      assert.equal(extra?.twzrd_resource_bind, undefined);
+      return { response: new Response("x") };
+    },
+  });
+  assert.equal(v2Memo, undefined);
+
+  try {
+    await import("@x402/svm");
+    await import("@solana/kit");
+    await import("@solana-program/token");
+  } catch {
+    console.log("spend-control.test.ts: ALL PASSED (bind-hard skipped, no svm peer)");
+    return;
+  }
+  const kit = await import("@solana/kit");
+  const token = await import("@solana-program/token");
+  const owner = kit.address(FIX.expectedTokenPayer);
+  const mint = kit.address(FIX.mint);
+  const [ata] = await token.findAssociatedTokenPda({ owner, mint, tokenProgram: token.TOKEN_PROGRAM_ADDRESS });
+  const xfer = token.getTransferCheckedInstruction({
+    source: ata, mint, destination: ata, authority: owner, amount: 50000n, decimals: 6,
+  });
+  const resource = "https://merchant.example/paid";
+  const lifetime = { blockhash: kit.blockhash("11111111111111111111111111111111"), lastValidBlockHeight: 0n };
+  let seenMemo: string | undefined;
+  const bound = await twzrd.safeFetch(resource, {
+    fetch: fetch402(body402({ payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint })),
+    requireOfferBinding: true,
+    pay: async ({ selected }) => {
+      const extra = selected.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
+      assert.equal(extra?.memo, undefined);
+      assert.equal(extra?.twzrd_resource_bind, undefined);
+      seenMemo = resourceBindMemo(resourceBindLeafHash(selected));
+      const both = kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
+        kit.createTransactionMessage({ version: 0 }),
+        (m) => kit.setTransactionMessageFeePayer(owner, m),
+        (m) => kit.setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
+        (m) => kit.appendTransactionMessageInstructions([xfer, {
+          programAddress: kit.address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+          accounts: [], data: new TextEncoder().encode(String(seenMemo)),
+        }], m),
+      )));
+      return { transactionBase64: both, response: new Response("ok", { status: 200 }) };
+    },
+  });
+  assert.ok(String(seenMemo).startsWith("rb1:"));
+  assert.equal(bound.verdict, "allow");
+  assert.equal(bound.receipt?.strength, "hard");
+  assert.equal(bound.receipt?.fact_type, "resource_bound");
+  console.log("spend-control.test.ts: ALL PASSED");
+}
+await run();

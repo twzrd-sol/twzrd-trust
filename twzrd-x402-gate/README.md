@@ -1,6 +1,25 @@
 # twzrd-x402-gate
 
-**TWZRD is the default `onBeforePaymentCreation` policy engine for official x402 clients.**
+**TWZRD is the spend-control SDK for agents paying over x402** — and the default
+`onBeforePaymentCreation` policy engine for official x402 clients.
+
+### One call (named export `twzrd`)
+
+```js
+import { twzrd } from "twzrd-x402-gate";
+
+const result = await twzrd.safeFetch(url, {
+  maxSpend: "0.10",              // per-call cap AND cumulative budget
+  allowNetworks: ["solana", "base"],
+  requireOfferBinding: true,     // demand a chain-verifiable bind-v1 receipt
+  pay,                           // your wallet signs — this SDK never holds keys
+});
+// result.verdict: "allow" | "warn" | "block" — blocks have signerInvocations === 0
+// result.receipt: { strength: "hard"|"soft"|"refuse", leaf_hash, fact_type: "resource_bound" }
+```
+
+Full walkthrough: [QUICKSTART.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/QUICKSTART.md) ·
+verify receipts yourself: [REVIEW.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/REVIEW.md)
 
 **Core product (buyer gate):** after the client selects the exact payment requirement and
 **before** payment payload creation / wallet signing — free preflight + merchant_card wash
@@ -10,7 +29,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.8.6 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -49,7 +68,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.8.6
+npm install twzrd-x402-gate@0.9.3
 ```
 
 ```typescript
@@ -93,7 +112,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.8.6
+npm install twzrd-x402-gate@0.9.3
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -195,7 +214,7 @@ Wire `twzrdOnPaymentRequested` / prefer `onPaymentRequired` + `onBeforePayment` 
 
 ```typescript
 import { installTwzrdAutoGate } from "twzrd-x402-gate";
-import { wrapFetchWithPayment } from "@x402/fetch"; // or @x402/svm helper
+import { wrapFetchWithPayment } from "@x402/fetch";
 
 // Guard RAW fetch, then hand to a client that still surfaces 402 to the guard layer
 // — OR installTwzrdAutoGate(x402Client) (canonical) / installTwzrdX402ClientHook alias.
@@ -238,11 +257,11 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.8.6
+npm install twzrd-x402-gate@0.9.3
 ```
 
-Current npm truth: `0.8.5` (buyer gate + optional seller settle guard + payer-extract hardening).
-Check `npm view twzrd-x402-gate version` if in doubt (do not pin stale **0.5.4** / **0.7.1**).
+Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
+**0.8.6**) has gone stale. Check `npm view twzrd-x402-gate version` if in doubt.
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
 (`onBeforeSettle`) — optional 0.8.1** above. Do not confuse with facilitator
@@ -441,7 +460,7 @@ ever gets a chance to sign.
 
 ```typescript
 import { installTwzrdAutoGate } from "twzrd-x402-gate";
-import { wrapFetchWithPayment } from "@x402/svm";
+import { wrapFetchWithPayment } from "@x402/fetch";
 
 const payingFetch = installTwzrdAutoGate((guarded) => wrapFetchWithPayment(guarded, buyerWallet));
 
@@ -492,7 +511,7 @@ manage the raw/paying composition yourself:
 
 ```typescript
 import { withTwzrdGuard } from "twzrd-x402-gate";
-import { wrapFetchWithPayment } from "@x402/svm";
+import { wrapFetchWithPayment } from "@x402/fetch";
 
 const raw = globalThis.fetch;               // MUST still surface HTTP 402
 const guarded = withTwzrdGuard(raw);        // guard sits upstream
@@ -535,7 +554,7 @@ for the counterparty before you pay the resource.
 `@x402/svm` sponsored-feePayer client — the same one `twzrd-mcp-server` uses:
 
 ```typescript
-import { wrapFetchWithPayment } from "@x402/svm";
+import { wrapFetchWithPayment } from "@x402/fetch";
 const x402Fetch = wrapFetchWithPayment(fetch, buyerWallet); // settles 402 challenges
 ```
 

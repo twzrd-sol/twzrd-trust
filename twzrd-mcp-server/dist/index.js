@@ -7,6 +7,8 @@ import { ExactSvmScheme, SOLANA_MAINNET_CAIP2 } from "@x402/svm";
 import { createKeyPairSignerFromBytes } from "@solana/kit";
 import { createRequire } from "node:module";
 import bs58 from "bs58";
+import { parseCap, selectSolanaExact as pickSolanaExact } from "./select-solana-exact.js";
+import { refuseWashBeforePay } from "./wash-before-pay.js";
 const VERSION = createRequire(import.meta.url)("../package.json").version;
 function printHelp() {
     console.log(`twzrd-mcp-server v${VERSION}
@@ -53,28 +55,21 @@ if (process.argv.includes("--version") || process.argv.includes("-v")) {
     process.exit(0);
 }
 const API_BASE = process.env.TWZRD_API_URL || "https://intel.twzrd.xyz";
-const MAX_PER_CALL = Number(process.env.TWZRD_MAX_USDC_PER_CALL || "0.05");
-const MAX_TOTAL = Number(process.env.TWZRD_MAX_USDC_TOTAL || "1.00");
+const MAX_PER_CALL = parseCap(process.env.TWZRD_MAX_USDC_PER_CALL, 0.05, "TWZRD_MAX_USDC_PER_CALL");
+const MAX_TOTAL = parseCap(process.env.TWZRD_MAX_USDC_TOTAL, 1.00, "TWZRD_MAX_USDC_TOTAL");
 const PAYMENTS_ENABLED = process.env.TWZRD_MCP_PAYMENTS_ENABLED === "1";
 const ALLOW_PUBLIC_RPC = process.env.TWZRD_ALLOW_PUBLIC_RPC === "1";
 const PUBLIC_RPC = "https://api.mainnet-beta.solana.com";
 const RPC_URL = process.env.TWZRD_RPC_URL || (ALLOW_PUBLIC_RPC ? PUBLIC_RPC : "");
 const SECRET = process.env.TWZRD_WALLET_SECRET_KEY || "";
-const RECEIPT_PUBKEY = process.env.TWZRD_RECEIPT_PUBKEY || "9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf";
+const RECEIPT_PUBKEY = process.env.TWZRD_RECEIPT_PUBKEY || "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS";
 let spentUsdc = 0;
 function selectSolanaExact(_x402Version, accepts) {
-    const req = (accepts || []).find((a) => a?.scheme === "exact" && String(a?.network || "").startsWith("solana:"));
-    if (!req) {
-        throw new Error(`Refusing to pay: no Solana "exact" payment option in challenge (${JSON.stringify((accepts || []).map((a) => ({ scheme: a?.scheme, network: a?.network })))})`);
-    }
-    const decimals = Number(req.extra?.decimals ?? 6);
-    const amountUsdc = Number(BigInt(req.amount)) / 10 ** decimals;
-    if (amountUsdc > MAX_PER_CALL) {
-        throw new Error(`Refusing: call price $${amountUsdc} exceeds per-call cap $${MAX_PER_CALL}`);
-    }
-    if (spentUsdc + amountUsdc > MAX_TOTAL) {
-        throw new Error(`Refusing: would exceed session cap $${MAX_TOTAL} (spent $${spentUsdc})`);
-    }
+    const { req, amountUsdc } = pickSolanaExact(_x402Version, accepts || [], {
+        maxPerCall: MAX_PER_CALL,
+        maxTotal: MAX_TOTAL,
+        spentUsdc,
+    });
     spentUsdc += amountUsdc;
     return req;
 }
@@ -116,6 +111,13 @@ else if (SECRET && PAYMENTS_ENABLED) {
             catch {
             }
             const paymentRequired = httpClient.getPaymentRequiredResponse((name) => first.headers.get(name), challengeBody);
+            const pr = paymentRequired;
+            const { req: selected } = pickSolanaExact(pr.x402Version ?? 2, pr.accepts || [], {
+                maxPerCall: MAX_PER_CALL,
+                maxTotal: MAX_TOTAL,
+                spentUsdc,
+            });
+            await refuseWashBeforePay(selected);
             const payload = await client.createPaymentPayload(paymentRequired);
             const headers = httpClient.encodePaymentSignatureHeader(payload);
             const retry = new Request(input, init);

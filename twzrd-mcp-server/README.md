@@ -31,7 +31,7 @@ pip install twzrd-mcp          # Python
 | Surface | Tools | Wallet | Use when |
 |---------|-------|--------|----------|
 | `https://intel.twzrd.xyz/mcp` (hosted) | 24 | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, and observed-market research. |
-| `twzrd-mcp-server` / `twzrd-mcp` (this package) | 5 | Only for paid | You want `quick_trust` / `full_trust` auto-paid locally with caps. |
+| `twzrd-mcp-server` / `twzrd-mcp` (this local package) | 6 | Only for paid | You want `quick_trust` / `full_trust` auto-paid locally with caps. |
 
 Start with hosted `twzrd_demo_gate` for a zero-setup, zero-spend proof of the
 block path. The hosted MCP is also [listed on Smithery](https://smithery.ai/servers/wzrd/twzrd-agent-intel).
@@ -65,6 +65,11 @@ Paid tools are **opt-in on both runtimes**: they sign only when you set
 `TWZRD_MCP_PAYMENTS_ENABLED=1` **and** provide a wallet key. For free tools, omit
 both — the server runs read-only and never signs. Spend is bounded by per-call and
 session caps.
+
+Before any Solana signature the Node server runs `twzrd-x402-gate@0.9.3` wash
+default (Python `twzrd-mcp` 0.2.1 does the same `merchant_card` check on the 402
+`payTo`): abort iff `wash_flagged===true` → fail-open if intel is down. That is
+the paying-client brake, not a Path A shop.
 
 ### Python — `pip install twzrd-mcp`
 
@@ -107,7 +112,9 @@ session caps.
 ## Safety
 
 - **Opt-in payments** — paid tools sign only with `TWZRD_MCP_PAYMENTS_ENABLED=1`; a wallet key alone never arms spending.
-- **Spend caps** — per-call and session caps enforced in the payment selector *before* any signature.
+- **Spend caps** — per-call and session caps enforced in the payment selector *before* any signature. Caps use the mint's **true** decimals, never merchant-declared `extra.decimals`. A mismatched declaration is refused. A malformed cap env (e.g. `"$0.05"`) falls back to the default; it never becomes NaN and disables the cap.
+- **Known-asset only** — pay only known USD-pegged stables (USDC/USDT); unknown SPL mints are refused.
+- **Identifiable recipient** — a challenge with no `payTo` is refused.
 - **Solana-only** — a non-`exact` / non-`solana:` challenge is refused, never mis-signed.
 - **Single-shot retry** — at most one signed retry per tool call; a second 402 is surfaced, not silently re-paid.
 - **Free tools never enter the payment path.**
@@ -115,12 +122,14 @@ session caps.
 ## Verify receipts offline (trust no one)
 
 `full_trust` returns a portable Ed25519-signed V6 receipt. Verify it without
-trusting any TWZRD server — the issuer key is `twzrd-receipt-ed25519-v1`
-(`9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf`), pinned at
+trusting any TWZRD server — new receipts use issuer key
+`twzrd-receipt-ed25519-v2`; legacy v1 keys remain verify-only during the
+bounded compatibility rollout.
+(`Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`), pinned at
 <https://intel.twzrd.xyz/.well-known/twzrd-receipt-pubkey>:
 
 ```bash
-npx twzrd-receipt-verifier <receipt.json> --pubkey 9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf
+npx twzrd-receipt-verifier <receipt.json> --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
 ```
 
 ## Development
