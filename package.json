@@ -1,16 +1,28 @@
 {
-  "name": "twzrd-trust",
+  "name": "twzrd-trust-monorepo",
   "version": "0.9.2",
   "private": true,
-  "engines": { "node": ">=20" },
-  "workspaces": ["twzrd-x402-gate", "twzrd-mcp-server", "eliza-plugin", "plugin-trustgate"],
+  "description": "TWZRD trust monorepo — buyer-side x402 spend control and trust tooling on Solana",
+  "type": "module",
+  "workspaces": [
+    "twzrd-x402-gate",
+    "twzrd-mcp-server",
+    "plugin-trustgate",
+    "eliza-plugin"
+  ],
   "scripts": {
     "build": "npm run build --workspace=twzrd-x402-gate",
+    "test": "npm run test --workspace=twzrd-x402-gate && npm run test:artifacts",
+    "test:all": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspace=twzrd-x402-gate",
-    "test": "npm test --workspace=twzrd-x402-gate && npm run test:artifacts",
+    "quickstart:demo": "node --input-type=module -e 'import(\"./twzrd-x402-gate/dist/index.js\").then(({ twzrd }) => twzrd.safeFetch(\"https://intel.twzrd.xyz/v1/intel/quick/35ramn32ufUApgbcgopVe5muHqNftHN1L3BfBNsDzGsx\", { maxSpend: \"0.0001\", allowNetworks: [\"solana\"] })).then(r => { if (r.verdict !== \"block\" || r.signerInvocations !== 0) { console.error(\"Demo failed:\", r); process.exit(1); } console.log(JSON.stringify({ verdict: r.verdict, reason: r.reason, signerInvocations: r.signerInvocations }, null, 2)); })'",
     "test:artifacts": "node scripts/check-artifact-workspaces.mjs",
     "test:quickstart": "node scripts/test-readme-quickstart.mjs",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "ci": "npm run build && npm run typecheck && npm test && npm run audit:prod && npm run test:quickstart"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^5.4.0"
   }
 }
