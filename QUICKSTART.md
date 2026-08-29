@@ -47,21 +47,39 @@ after the policy gate allows, and `signerInvocations` counts exactly how many
 times your signer was reached:
 
 ```js
-const result = await twzrd.safeFetch(url, {
-  maxSpend: "0.10",              // per-call cap AND cumulative budget (same number)
-  allowNetworks: ["solana", "base"],
-  requireOfferBinding: true,     // demand a bind-v1 receipt or block
-  agentId: "my-agent",           // ledger key
-  ledgerFile: "./spend-ledger.jsonl", // durable hash-chained spend record (optional)
-  pay: async ({ url, paymentRequired, selected }) => {
-    // Your existing x402 client signs here — e.g. @x402/fetch + your signer.
-    // Return { transactionBase64, response } from the settled payment.
-    return await myWallet.payX402(url, paymentRequired, selected);
-  },
+import { twzrd } from "twzrd-x402-gate";
+
+// ── 1. Target & Payment Handler ──────────────────────────────────────
+// Target x402 resource (supply the endpoint you are calling):
+const targetUrl = "https://intel.twzrd.xyz/v1/intel/quick/35ramn32ufUApgbcgopVe5muHqNftHN1L3BfBNsDzGsx";
+
+// Wire your x402 signing client here (e.g. @x402/fetch or x402-solana).
+// The pay callback receives the 402 payment requirements and selected offer:
+const payHandler = async ({ url, paymentRequired, selected }) => {
+  // [SUPPLY YOUR WALLET/SIGNER HERE]:
+  // Perform the payment with your keypair and return { transactionBase64, response }
+  // Example with a custom client:
+  // return await myWallet.payX402(url, paymentRequired, selected);
+
+  const response = await fetch(url);
+  return {
+    transactionBase64: undefined, // base64 wire transaction if settle proof is required
+    response,
+  };
+};
+
+// ── 2. Execute safeFetch with spend controls ────────────────────────
+const result = await twzrd.safeFetch(targetUrl, {
+  maxSpend: "0.10",                  // per-call cap AND cumulative budget (same number)
+  allowNetworks: ["solana", "base"], // allowed payment networks
+  requireOfferBinding: false,        // set true to require a chain-verifiable bind-v1 receipt
+  agentId: "my-agent",               // ledger key
+  ledgerFile: "./spend-ledger.jsonl",// durable hash-chained spend record (optional)
+  pay: payHandler,
 });
-// result.verdict   — "allow" | "warn" | "block"
-// result.receipt   — { strength: "hard"|"soft"|"refuse", leaf_hash, fact_type: "resource_bound" }
-// result.response  — the paid content
+
+console.log("Verdict:", result.verdict);                     // "allow" | "warn" | "block"
+console.log("Signer invocations:", result.signerInvocations); // 0 on block, 1 on allowed pay
 ```
 
 With `requireOfferBinding: true`, the settled transaction is decoded and the

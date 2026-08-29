@@ -10,6 +10,7 @@ import {
   decideUnsupportedNetwork,
   logUnsupportedNetwork,
 } from "./network.js";
+import { randomUUID } from "node:crypto";
 import type {
   TwzrdApprovalResult,
   TwzrdApproveContext,
@@ -26,10 +27,13 @@ export type PolicyEvaluateInput = {
   gateOnCanSpend?: boolean;
 };
 
+/** Pure card evaluation has no request lifecycle, therefore no decision ID. */
+export type TwzrdCardEvaluation = Omit<TwzrdApprovalResult, "decisionId">;
+
 /**
  * Pure policy — no network. Mirrors scripts/twzrd_gate_agentcash_fetch.sh semantics.
  */
-export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdApprovalResult {
+export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEvaluation {
   const { card, preflightMinScore, blockDecisions, gateOnCanSpend } = input;
   const decision = card.decision ?? "warn";
   const score = card.trust_score ?? 0;
@@ -126,6 +130,7 @@ export async function twzrdApprovePayment(
   config?: ResolvedTwzrdGateConfig,
 ): Promise<TwzrdApprovalResult> {
   const cfg = config ?? resolveConfig();
+  const decisionId = randomUUID();
 
   // Fail closed on an unidentifiable recipient — a 402 whose payment requirements
   // don't yield a seller wallet is not "an unknown seller" (which the free-tier
@@ -135,6 +140,7 @@ export async function twzrdApprovePayment(
   // who they're paying.
   if (!(context.sellerWallet ?? context.payTo)) {
     return {
+      decisionId,
       approved: false,
       verdict: "block",
       score: null,
@@ -161,6 +167,7 @@ export async function twzrdApprovePayment(
       adapter: context.agentIntent,
     });
     return {
+      decisionId,
       approved: undecided.approved,
       verdict: "unknown",
       score: null,
@@ -230,6 +237,7 @@ export async function twzrdApprovePayment(
 
     return {
       ...result,
+      decisionId,
       approved,
       reason,
       verdict,
@@ -246,6 +254,7 @@ export async function twzrdApprovePayment(
       const msg = String((err as Error)?.message ?? err).slice(0, 120);
       console.warn(`[twzrd-x402-gate] payment BLOCKED: gate unreachable (fail-closed) — ${msg}. Set TWZRD_FAIL_OPEN=true to allow payments when the gate is down.`);
       return {
+        decisionId,
         approved: false,
         verdict: "block",
         score: null,
@@ -260,6 +269,7 @@ export async function twzrdApprovePayment(
     }
     // fail-open: preflight unreachable must not hard-block the agent's payment
     return {
+      decisionId,
       approved: true,
       verdict: "warn",
       score: null,

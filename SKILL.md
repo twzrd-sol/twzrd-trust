@@ -21,10 +21,10 @@ description: |
   resource join, discover x402, facilitator settle, merchant attach, track record
 homepage: https://intel.twzrd.xyz
 metadata:
-  version: "1.13.8"
+  version: "1.13.16"
   canonical_url: https://intel.twzrd.xyz/skill.md
-  gate_npm: twzrd-x402-gate@0.8.18
-  x402_solana_npm: x402-solana@2.1.0
+  gate_npm: twzrd-x402-gate@0.9.2
+  x402_solana_npm: x402-solana@3.0.0
   # Floor, not an exact pin: a receipt verifier should track the newest
   # signature-checking code, and an exact pin goes stale on every publish.
   # Floor must stay >= 1.3 - that release added the strict domain allowlist,
@@ -102,17 +102,17 @@ curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
   -H 'content-type: application/json' \
   -d '{"seller_wallet":"46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe","price_usdc":0.002,"agent_intent":"preflight"}'
 
-# 2) PRIMARY seat — stock PayAI client beforePayment (x402-solana@2.1.0).
+# 2) PRIMARY seat — stock PayAI client beforePayment (x402-solana@3.0.0).
 #    Gate runs AFTER requirement selection, BEFORE signTransaction. Do not only
 #    summarize RUN_THIS_NOW — seat the gate on a signer path.
-npm install twzrd-x402-gate@0.8.18 x402-solana@2.1.0
+npm install twzrd-x402-gate@0.9.2 x402-solana@3.0.0
 # createX402Client({ wallet, network: "solana",
 #   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })
 # Prove refuse-before-sign (signer=0): npm run x402-solana-before-payment-proof
 # (from the gate package) — or copy-paste createTwzrdBeforePaymentHook as above.
 
 # 2b) FALLBACK CLI smoke (not the primary install story) — owned refuse dogfood
-# npm install twzrd-x402-gate@0.8.18 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+# npm install twzrd-x402-gate@0.9.2 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 
 # 3) OPTIONAL Path A (paid intel) — portable V6 receipt (0.05 USDC). Does not enforce.
@@ -162,10 +162,10 @@ exist. Correct install is `clawhub install` or `npx clawhub install` above.
 
 ### Buyer gate (Node — before any x402 sign)
 
-**Primary (stock PayAI `x402-solana@2.1.0`):**
+**Primary (stock PayAI `x402-solana@3.0.0`):**
 
 ```bash
-npm install twzrd-x402-gate@0.8.18 x402-solana@2.1.0
+npm install twzrd-x402-gate@0.9.2 x402-solana@3.0.0
 ```
 
 ```ts
@@ -188,7 +188,7 @@ const client = createX402Client({
 **Fallback CLI only** (agents that only run a script and stop do not clear W1):
 
 ```bash
-npm install twzrd-x402-gate@0.8.18 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+npm install twzrd-x402-gate@0.9.2 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 

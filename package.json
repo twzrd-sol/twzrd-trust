@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace=twzrd-x402-gate",
-    "test": "npm run test --workspace=twzrd-x402-gate && npm run test:artifacts",
+    "test": "npm run build && npm run test --workspace=twzrd-x402-gate && npm run test:artifacts",
     "test:all": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspace=twzrd-x402-gate",
     "quickstart:demo": "node --input-type=module -e 'import(\"./twzrd-x402-gate/dist/index.js\").then(({ twzrd }) => twzrd.safeFetch(\"https://intel.twzrd.xyz/v1/intel/quick/35ramn32ufUApgbcgopVe5muHqNftHN1L3BfBNsDzGsx\", { maxSpend: \"0.0001\", allowNetworks: [\"solana\"] })).then(r => { if (r.verdict !== \"block\" || r.signerInvocations !== 0) { console.error(\"Demo failed:\", r); process.exit(1); } console.log(JSON.stringify({ verdict: r.verdict, reason: r.reason, signerInvocations: r.signerInvocations }, null, 2)); })'",

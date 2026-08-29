@@ -1,4 +1,5 @@
 node_modules/
+twzrd-x402-gate/dist/
 .npm/
 *.log
 *.tgz
