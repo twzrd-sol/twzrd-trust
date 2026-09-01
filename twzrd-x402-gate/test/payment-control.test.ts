@@ -236,6 +236,51 @@ async function run() {
     assert.equal(scoped.decision, "block");
     assert.ok(scoped.reasonCodes.includes("MANDATE_RESOURCE_SCOPE"));
 
+    // Resource allowlists are URL authority/path scopes, not raw string
+    // prefixes. These attacker-controlled challenge URLs must not inherit the
+    // /weather mandate simply because their strings start the same way.
+    const weatherMandate = {
+      mandateId: "m-resource-scope",
+      resourceAllow: ["https://api.example/weather"],
+    };
+    for (const url of [
+      "https://api.example/weather.evil/charge",
+      "https://api.example/weather-archive",
+      "https://api.example.evil/weather",
+      "not a URL",
+    ]) {
+      const rejected = await evaluateIntent(
+        baseIntent({ resource: { url } }),
+        { signer, mandate: weatherMandate },
+      );
+      assert.equal(rejected.decision, "block", `must reject out-of-scope resource ${url}`);
+      assert.ok(rejected.reasonCodes.includes("MANDATE_RESOURCE_SCOPE"));
+    }
+    for (const url of [
+      "https://api.example/weather",
+      "https://api.example/weather/forecast?city=SF",
+    ]) {
+      const permitted = await evaluateIntent(
+        baseIntent({ resource: { url } }),
+        { signer, mandate: weatherMandate },
+      );
+      assert.equal(permitted.decision, "allow", `must allow scoped resource ${url}`);
+    }
+
+    // A configured query is part of the authorization scope rather than a
+    // prefix: a different query must be denied.
+    const queryScoped = await evaluateIntent(
+      baseIntent({ resource: { url: "https://api.example/weather?plan=pro" } }),
+      { signer, mandate: { mandateId: "m-query", resourceAllow: ["https://api.example/weather?plan=pro"] } },
+    );
+    assert.equal(queryScoped.decision, "allow");
+    const queryEscalation = await evaluateIntent(
+      baseIntent({ resource: { url: "https://api.example/weather?plan=enterprise" } }),
+      { signer, mandate: { mandateId: "m-query", resourceAllow: ["https://api.example/weather?plan=pro"] } },
+    );
+    assert.equal(queryEscalation.decision, "block");
+    assert.ok(queryEscalation.reasonCodes.includes("MANDATE_RESOURCE_SCOPE"));
+
     // mandate monthly ceiling
     const ledger2 = createMemorySpendLedger();
     const m = { mandateId: "m3", monthlyCeilingUsd: "500" };
