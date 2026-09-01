@@ -11,12 +11,17 @@ import { twzrd } from "twzrd-x402-gate";
 const result = await twzrd.safeFetch(url, {
   maxSpend: "0.10",              // per-call cap AND cumulative budget
   allowNetworks: ["solana", "base"],
-  requireOfferBinding: true,     // demand a chain-verifiable bind-v1 receipt
-  pay,                           // your wallet signs — this SDK never holds keys
+  requireOfferBinding: true,     // requires the prepare/submit split below
 });
 // result.verdict: "allow" | "warn" | "block" — blocks have signerInvocations === 0
 // result.receipt: { strength: "hard"|"soft"|"refuse", leaf_hash, fact_type: "resource_bound" }
 ```
+
+`requireOfferBinding` is deliberately fail-closed: an opaque `pay()` callback
+can sign before this library can inspect the transaction, so it is rejected for
+bound payments. Use `prepareBoundPayment` to build an unsigned transaction with
+the supplied `memo`, then `submitBoundPayment` to sign and submit the exact
+validated `transactionBase64`. This SDK never holds keys.
 
 Full walkthrough: [QUICKSTART.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/QUICKSTART.md) ·
 verify receipts yourself: [REVIEW.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/REVIEW.md)

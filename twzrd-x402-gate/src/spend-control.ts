@@ -21,6 +21,7 @@ import {
 import { createFileSpendLedger } from "./spend-ledger-file.js";
 import {
   rememberRawInvoice,
+  resourceBindMemo,
   stampResourceBind,
   type ResourceBindReq,
 } from "./resource-bind.js";
@@ -38,6 +39,28 @@ export type SpendControlOptions = {
     paymentRequired: unknown;
     selected: Record<string, unknown>;
   }) => Promise<{ transactionBase64?: string; response?: Response }>;
+  /**
+   * Build, but do not sign or submit, the bound SVM transaction. Required
+   * with `requireOfferBinding`; the gate verifies these exact bytes before it
+   * calls `submitBoundPayment`.
+   */
+  prepareBoundPayment?: (args: {
+    url: string;
+    paymentRequired: unknown;
+    selected: Record<string, unknown>;
+    leafHash: string;
+    memo: string;
+  }) => Promise<{ transactionBase64: string }>;
+  /**
+   * The signing/submission boundary for a prepared bound payment. It receives
+   * only the transaction that passed local bind-v1 validation.
+   */
+  submitBoundPayment?: (args: {
+    transactionBase64: string;
+    url: string;
+    paymentRequired: unknown;
+    selected: Record<string, unknown>;
+  }) => Promise<{ response?: Response }>;
   preflight?: (payTo: string, priceUsdc: number) => Promise<{ decision?: string }>;
   ledger?: SpendLedger;
   /** Path for #2183 file ledger when `ledger` is omitted. */
@@ -130,6 +153,34 @@ export async function spendControlSafeFetch(
   let response = res;
   let txb64: string | undefined;
   let signerInvocations = 0;
+  if (opts.requireOfferBinding) {
+    const leaf_hash = stamped?.leaf_hash ?? null;
+    if (!leaf_hash || !opts.prepareBoundPayment || !opts.submitBoundPayment) {
+      return {
+        verdict: "block", reason: "bind_requires_prepared_payment", signerInvocations: 0,
+        receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" },
+      };
+    }
+    const prepared = await opts.prepareBoundPayment({
+      url, paymentRequired: body, selected, leafHash: leaf_hash,
+      memo: resourceBindMemo(leaf_hash),
+    });
+    txb64 = prepared.transactionBase64;
+    const d = await evaluateResourceBindLegsFromSvmTx(txb64, {
+      leaf_hash, pay_to: payTo, asset: String(selected.asset ?? ""), amount_raw: String(amountMicro),
+    });
+    const receipt: SpendControlResult["receipt"] = { strength: d.strength, leaf_hash: d.leaf_hash, fact_type: "resource_bound" };
+    if (d.strength !== "hard") {
+      return { verdict: "block", reason: "bind_mismatch", receipt, signerInvocations: 0 };
+    }
+    signerInvocations = 1;
+    const paid = await opts.submitBoundPayment({ transactionBase64: txb64, url, paymentRequired: body, selected });
+    if (paid.response) response = paid.response;
+    ledger.record(agentKey, spendMicro, now);
+    ledger.record(merchantKey, spendMicro, now);
+    ledger.record(mandateKey, spendMicro, now);
+    return { verdict, response, receipt, signerInvocations };
+  }
   if (opts.pay) {
     signerInvocations = 1;
     const paid = await opts.pay({ url, paymentRequired: body, selected });
@@ -137,29 +188,6 @@ export async function spendControlSafeFetch(
     txb64 = paid.transactionBase64;
   }
   let receipt: SpendControlResult["receipt"];
-  if (opts.requireOfferBinding) {
-    const leaf_hash = stamped?.leaf_hash ?? null;
-    if (!txb64) {
-      if (signerInvocations > 0) {
-        ledger.record(agentKey, spendMicro, now);
-        ledger.record(merchantKey, spendMicro, now);
-        ledger.record(mandateKey, spendMicro, now);
-      }
-      return { verdict: "block", reason: "bind_required_no_settlement", signerInvocations, receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" } };
-    }
-    const d = await evaluateResourceBindLegsFromSvmTx(txb64, {
-      leaf_hash: leaf_hash ?? "", pay_to: payTo, asset: String(selected.asset ?? ""), amount_raw: String(amountMicro),
-    });
-    receipt = { strength: d.strength, leaf_hash: d.leaf_hash, fact_type: "resource_bound" };
-    if (d.strength !== "hard") {
-      if (signerInvocations > 0) {
-        ledger.record(agentKey, spendMicro, now);
-        ledger.record(merchantKey, spendMicro, now);
-        ledger.record(mandateKey, spendMicro, now);
-      }
-      return { verdict: "block", reason: "bind_mismatch", receipt, signerInvocations, response };
-    }
-  }
   if (signerInvocations > 0 || !opts.pay) {
     ledger.record(agentKey, spendMicro, now);
     ledger.record(merchantKey, spendMicro, now);
