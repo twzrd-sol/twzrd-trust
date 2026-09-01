@@ -415,7 +415,7 @@ async function main() {
     verified: proof.verified,
     proof_path: outPath,
     copy_paste: {
-      install: "npm i twzrd-x402-gate@0.9.3 x402-solana@3.0.0",
+      install: "npm i twzrd-x402-gate@0.9.2 x402-solana@3.0.0",
       wire: `createX402Client({ wallet, network: "solana", beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })`,
       strict: "X402_SOLANA_PROOF=require npm run x402-solana-before-payment-proof",
       falsify: "npm run x402-solana-before-payment-falsify",

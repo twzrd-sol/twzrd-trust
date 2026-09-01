@@ -1,6 +1,6 @@
 # TWZRD Security & Trust Assurance
 
-**Applies to:** `twzrd-x402-gate@0.9.3`, TWZRD Agent Intelligence, and V6 trust receipts  
+**Applies to:** `twzrd-x402-gate@0.9.2`, TWZRD Agent Intelligence, and V6 trust receipts
 **Last verified:** 2026-08-29  
 **Disclosure Policy:** [SECURITY.md](../SECURITY.md)
 

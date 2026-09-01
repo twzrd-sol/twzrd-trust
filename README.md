@@ -4,7 +4,7 @@
 Vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Free preflight → optional paid V6 receipt. Not a wallet. Not a payment network.
 
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (twzrd-trust **1.13.16**) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
-**Spend-control SDK (npm)** • [`twzrd-x402-gate@0.9.3`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.0`](https://www.npmjs.com/package/x402-solana)  
+**Spend-control SDK (npm)** • [`twzrd-x402-gate@0.9.2`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.0`](https://www.npmjs.com/package/x402-solana)
 **Live MCP** • https://intel.twzrd.xyz/mcp (streamable HTTP — 24 tools)  
 **Agent contract** • https://intel.twzrd.xyz/llms.txt · https://intel.twzrd.xyz/.well-known/agent.json
 
@@ -40,7 +40,7 @@ Expected output:
 ### 1. Install
 
 ```bash
-npm install twzrd-x402-gate@0.9.3 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.2 x402-solana@3.0.0
 ```
 
 ### 2. Wrap paid fetches with spend controls
@@ -97,7 +97,7 @@ curl -s -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 
 | Package | Pin | Description |
 |---|---|---|
-| `twzrd-x402-gate` | **@0.9.3** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
+| `twzrd-x402-gate` | **@0.9.2** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.3.0** | Standalone offline verifier for Ed25519 V6 receipts |
 | `twzrd-mcp-server` | **@0.5.2** | Local spend-capped auto-pay client (6 tools) |
