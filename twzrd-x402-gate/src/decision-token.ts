@@ -290,6 +290,7 @@ export type BindingErrorCode =
   | "DECISION_EXPIRED"
   | "DECISION_NOT_ALLOW"
   | "DECISION_REPLAYED"
+  | "MISSING_VERIFICATION_KEY"
   | "BAD_SIGNATURE";
 
 export class TwzrdIntentBindingError extends Error {
@@ -324,8 +325,8 @@ export type AssertIntentApprovedOptions = {
   now?: number;
   /** Enforce consume-once semantics (recommended for anything non-idempotent). */
   registry?: DecisionRegistry;
-  /** Verify the token signature against this key before trusting it. */
-  publicKeyPem?: string;
+  /** Required trust anchor: verify the token signature against this key. */
+  publicKeyPem: string;
 };
 
 /**
@@ -340,7 +341,15 @@ export function assertIntentApproved(
 ): void {
   const now = options?.now ?? Date.now();
 
-  if (options?.publicKeyPem && !verifyDecisionSignature(token, options.publicKeyPem)) {
+  if (!options?.publicKeyPem) {
+    throw new TwzrdIntentBindingError(
+      "MISSING_VERIFICATION_KEY",
+      token.decisionId,
+      "a pinned decision verification key is required before signing",
+    );
+  }
+
+  if (!verifyDecisionSignature(token, options.publicKeyPem)) {
     throw new TwzrdIntentBindingError(
       "BAD_SIGNATURE",
       token.decisionId,

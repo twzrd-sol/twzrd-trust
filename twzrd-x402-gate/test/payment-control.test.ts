@@ -144,9 +144,13 @@ async function run() {
     const intent = baseIntent();
     const token = await evaluateIntent(intent, { signer });
 
-    assertIntentApproved(intent, token, { registry });
     assert.throws(
-      () => assertIntentApproved(intent, token, { registry }),
+      () => assertIntentApproved(intent, token),
+      (e: TwzrdIntentBindingError) => e.code === "MISSING_VERIFICATION_KEY",
+    );
+    assertIntentApproved(intent, token, { registry, publicKeyPem: signer.publicKeyPem });
+    assert.throws(
+      () => assertIntentApproved(intent, token, { registry, publicKeyPem: signer.publicKeyPem }),
       (e: TwzrdIntentBindingError) => e.code === "DECISION_REPLAYED",
     );
 
@@ -154,6 +158,7 @@ async function run() {
       () =>
         assertIntentApproved(intent, token, {
           now: Date.parse(token.expiresAt) + 1,
+          publicKeyPem: signer.publicKeyPem,
         }),
       (e: TwzrdIntentBindingError) => e.code === "DECISION_EXPIRED",
     );
@@ -177,7 +182,7 @@ async function run() {
     assert.equal(washed.decision, "block");
     assert.ok(washed.reasonCodes.includes("WASH_FLAGGED"));
     assert.throws(
-      () => assertIntentApproved(baseIntent(), washed),
+      () => assertIntentApproved(baseIntent(), washed, { publicKeyPem: signer.publicKeyPem }),
       (e: TwzrdIntentBindingError) => e.code === "DECISION_NOT_ALLOW",
     );
 
