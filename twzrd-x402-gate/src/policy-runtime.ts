@@ -61,8 +61,10 @@ export type Mandate = {
   maxPerTransactionUsd?: string;
   monthlyCeilingUsd?: string;
   /**
-   * Resource binding: URL prefixes this mandate may pay for.
-   * Approval for /weather cannot pay /admin/export.
+   * Resource binding: absolute URL scopes this mandate may pay for. A scope
+   * matches its exact URL path or a child path on the same origin; it is never
+   * a raw string prefix. Approval for /weather cannot pay weather.evil,
+   * /weather-archive, or another origin.
    */
   resourceAllow?: string[];
   /** Explicitly forbidden payees (e.g. personal wallets). */
@@ -143,6 +145,36 @@ export type EvaluateIntentOptions = {
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
+ * Authorization-safe URL scope match for mandate.resourceAllow.
+ *
+ * URL string prefixes are not authority boundaries: for example,
+ * `https://api.example/weather` must not authorize
+ * `https://api.example/weather.evil` or `https://api.example/weather-archive`.
+ * A scoped query, when present, is exact; an unqualified query permits the
+ * same origin/path scope with any query parameters.
+ */
+function resourceScopeAllows(scopeRaw: string, resourceRaw: string): boolean {
+  try {
+    const scope = new URL(scopeRaw);
+    const resource = new URL(resourceRaw);
+    if (scope.origin !== resource.origin) return false;
+    // Userinfo is not a meaningful HTTP resource authority and makes human
+    // inspection of an allowlist misleading. Fail closed for either side.
+    if (scope.username || scope.password || resource.username || resource.password) return false;
+
+    const exactPath = resource.pathname === scope.pathname;
+    const childPrefix = scope.pathname.endsWith("/")
+      ? scope.pathname
+      : `${scope.pathname}/`;
+    if (!exactPath && !resource.pathname.startsWith(childPrefix)) return false;
+    return !scope.search || resource.search === scope.search;
+  } catch {
+    // A malformed configured scope or challenge resource grants nothing.
+    return false;
+  }
+}
+
+/**
  * Evaluate one PaymentIntent. Never throws on a policy outcome — a block is a
  * signed block decision (auditable), not an exception. Throws only on
  * malformed input (bad amounts) or signer failure.
@@ -183,7 +215,7 @@ export async function evaluateIntent(
     }
     if (mandate.resourceAllow) {
       const url = intent.resource?.url ?? "";
-      if (!mandate.resourceAllow.some((prefix) => url.startsWith(prefix))) {
+      if (!mandate.resourceAllow.some((scope) => resourceScopeAllows(scope, url))) {
         block("MANDATE_RESOURCE_SCOPE");
       }
     }
