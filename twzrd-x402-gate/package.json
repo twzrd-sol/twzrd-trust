@@ -8,7 +8,8 @@
   "bin": {
     "twzrd-safe-fetch": "./bin/twzrd-safe-fetch.js",
     "twzrd-gate-eval-refuse": "./bin/twzrd-gate-eval-refuse.js",
-    "twzrd-gate-doctor": "./bin/twzrd-gate-doctor.js"
+    "twzrd-gate-doctor": "./bin/twzrd-gate-doctor.js",
+    "twzrd-evidence-bundle": "./bin/twzrd-evidence-bundle.js"
   },
   "exports": {
     ".": {
@@ -44,6 +45,8 @@
     "x402-solana-before-payment-falsify": "tsx examples/x402-solana-before-payment-falsify.ts",
     "official-dogfood": "tsx examples/official-x402-dogfood.ts",
     "adoption-proof": "tsx src/adoption-proof.ts",
+    "evidence-bundle": "tsx src/evidence-bundle.ts",
+    "commerce-kit": "tsx examples/commerce-kit.ts",
     "demo:buyer-no-spend": "tsx src/adoption-proof.ts -- --integration ops-demo-buyer-no-spend",
     "live-autogate-matrix": "tsx examples/live-autogate-matrix.ts",
     "gate-eval-refuse": "node bin/twzrd-gate-eval-refuse.js",

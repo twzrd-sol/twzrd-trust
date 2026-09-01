@@ -185,13 +185,14 @@ function baseRequirements(amount: string): X402SelectedRequirements {
   };
 }
 
-function isInternalIntegration(integration: string): boolean {
+export function isInternalIntegration(integration: string): boolean {
   const i = integration.toLowerCase();
   return (
     i.startsWith("twzrd-") ||
     i.startsWith("twzrd/") ||
     i.startsWith("ops-") ||
     i.startsWith("test-") ||
+    i.startsWith("demo-") ||
     i === "dogfood" ||
     i.includes("dogfood") ||
     i.includes("internal") ||

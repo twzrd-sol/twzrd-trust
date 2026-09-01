@@ -1,7 +1,7 @@
 ---
 name: twzrd-trust
 description: |
-  Discover x402 callables then check the seller BEFORE paying. Free resource join
+  Don't let your agent sign blind. Discover x402 callables then check the seller BEFORE paying. Free resource join
   (GET /v1/intel/resources) lists listed|live_402 claims; free preflight returns a
   ReadinessCard (allow / warn / block) from the observed Solana x402 corpus. Composes
   with any x402 payer skill: discover → merchant_card wash refuse → preflight →
@@ -44,13 +44,13 @@ metadata:
           Gate default is refuse on wash_flagged. Set 0 only to opt out.
 ---
 
-# TWZRD Trust — discover callables, then evaluate the seller
+# TWZRD Trust — don't let your agent sign blind
 
 > **Never send path templates.** Do not paste `:pubkey`, `{pubkey}`, `{seller_wallet}`, `SELLER_WALLET` or `PAY_TO_WALLET` as a value. Substitute a real base58 payTo from `accepts[].payTo`; the preflight rejects templates with `TEMPLATE_PLACEHOLDER_NOT_REPLACED`.
 
 ## One rule
 
-**Every external payment SHOULD be evaluated before signing.**
+**Don't let your agent sign blind.** Every external payment SHOULD be evaluated before signing.
 
 Agents that skip this step pay counterparties they have no behavioral
 evidence about. Agents that follow it refuse wash, avoid known-bad

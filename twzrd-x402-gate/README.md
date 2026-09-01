@@ -1,7 +1,12 @@
 # twzrd-x402-gate
 
-**TWZRD is the spend-control SDK for agents paying over x402** — and the default
+**Don't let your agent sign blind.** TWZRD is the spend-control SDK for agents paying over x402 — and the default
 `onBeforePaymentCreation` policy engine for official x402 clients.
+
+Commerce loop (directory → preflight → AutoGate → verify → evidence bundle):
+repo [docs/COMMERCE-KIT.md](../docs/COMMERCE-KIT.md). `exportEvidenceBundle` /
+`npx twzrd-evidence-bundle` writes `twzrd.evidence_bundle.v1`. This package is
+not Catena's Agent Commerce Kit.
 
 ### One call (named export `twzrd`)
 
