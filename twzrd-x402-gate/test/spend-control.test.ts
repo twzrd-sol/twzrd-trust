@@ -96,16 +96,26 @@ async function run() {
     fetch: fetch402(), requireOfferBinding: true, pay,
   });
   assert.equal(noTx.verdict, "block");
-  assert.equal(noTx.reason, "bind_required_no_settlement");
+  assert.equal(noTx.reason, "bind_requires_prepared_payment");
+  assert.equal(noTx.signerInvocations, 0);
+
+  let legacyPayCalls = 0;
+  const legacyBound = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), requireOfferBinding: true,
+    pay: async () => { legacyPayCalls += 1; return { response: new Response("paid") }; },
+  });
+  assert.equal(legacyBound.reason, "bind_requires_prepared_payment");
+  assert.equal(legacyPayCalls, 0);
 
   const mismatch = await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(), requireOfferBinding: true,
-    pay: async () => ({ transactionBase64: Buffer.from("not-a-tx").toString("base64"), response: new Response("x") }),
+    prepareBoundPayment: async () => ({ transactionBase64: Buffer.from("not-a-tx").toString("base64") }),
+    submitBoundPayment: async () => { throw new Error("must not submit an unbound payment"); },
   });
   assert.equal(mismatch.verdict, "block");
   assert.equal(mismatch.reason, "bind_mismatch");
 
-  let v2Memo: string | undefined;
+  let v2Prepared = false;
   const v2body = {
     x402Version: 2,
     resource: { url: "https://merchant.example/paid" },
@@ -113,15 +123,16 @@ async function run() {
   };
   await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(v2body), requireOfferBinding: true,
-    pay: async ({ selected }) => {
+    prepareBoundPayment: async ({ selected }) => {
+      v2Prepared = true;
       const extra = selected.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
-      v2Memo = extra?.memo;
       assert.equal(selected.resource, "https://merchant.example/paid");
       assert.equal(extra?.twzrd_resource_bind, undefined);
-      return { response: new Response("x") };
+      return { transactionBase64: Buffer.from("not-a-tx").toString("base64") };
     },
+    submitBoundPayment: async () => ({ response: new Response("x") }),
   });
-  assert.equal(v2Memo, undefined);
+  assert.equal(v2Prepared, true);
 
   try {
     await import("@x402/svm");
@@ -142,14 +153,17 @@ async function run() {
   const resource = "https://merchant.example/paid";
   const lifetime = { blockhash: kit.blockhash("11111111111111111111111111111111"), lastValidBlockHeight: 0n };
   let seenMemo: string | undefined;
+  let preparedTx: string | undefined;
+  let submittedTx: string | undefined;
   const bound = await twzrd.safeFetch(resource, {
     fetch: fetch402(body402({ payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint })),
     requireOfferBinding: true,
-    pay: async ({ selected }) => {
+    prepareBoundPayment: async ({ selected, memo }) => {
       const extra = selected.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
       assert.equal(extra?.memo, undefined);
       assert.equal(extra?.twzrd_resource_bind, undefined);
-      seenMemo = resourceBindMemo(resourceBindLeafHash(selected));
+      seenMemo = memo;
+      assert.equal(memo, resourceBindMemo(resourceBindLeafHash(selected)));
       const both = kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
         kit.createTransactionMessage({ version: 0 }),
         (m) => kit.setTransactionMessageFeePayer(owner, m),
@@ -159,13 +173,19 @@ async function run() {
           accounts: [], data: new TextEncoder().encode(String(seenMemo)),
         }], m),
       )));
-      return { transactionBase64: both, response: new Response("ok", { status: 200 }) };
+      preparedTx = both;
+      return { transactionBase64: both };
+    },
+    submitBoundPayment: async ({ transactionBase64 }) => {
+      submittedTx = transactionBase64;
+      return { response: new Response("ok", { status: 200 }) };
     },
   });
   assert.ok(String(seenMemo).startsWith("rb1:"));
   assert.equal(bound.verdict, "allow");
   assert.equal(bound.receipt?.strength, "hard");
   assert.equal(bound.receipt?.fact_type, "resource_bound");
+  assert.equal(submittedTx, preparedTx);
   console.log("spend-control.test.ts: ALL PASSED");
 }
 await run();
