@@ -290,7 +290,7 @@ export type BindingErrorCode =
   | "DECISION_EXPIRED"
   | "DECISION_NOT_ALLOW"
   | "DECISION_REPLAYED"
-  | "MISSING_VERIFICATION_KEY"
+  | "MISSING_VERIFIER_KEY"
   | "BAD_SIGNATURE";
 
 export class TwzrdIntentBindingError extends Error {
@@ -329,33 +329,17 @@ export type AssertIntentApprovedOptions = {
   publicKeyPem: string;
 };
 
-/**
- * The wallet-side check. Call with the EXACT intent about to be signed.
- * Throws TwzrdIntentBindingError on any violation; returns void when the
- * signature may proceed. A caught error means: do not invoke the signer.
- */
-export function assertIntentApproved(
+export type UnsafeAssertIntentApprovedOptions = {
+  now?: number;
+  registry?: DecisionRegistry;
+};
+
+function assertIntentConstraints(
   intent: PaymentIntent,
   token: PaymentDecision,
-  options?: AssertIntentApprovedOptions,
+  options?: UnsafeAssertIntentApprovedOptions,
 ): void {
   const now = options?.now ?? Date.now();
-
-  if (!options?.publicKeyPem) {
-    throw new TwzrdIntentBindingError(
-      "MISSING_VERIFICATION_KEY",
-      token.decisionId,
-      "a pinned decision verification key is required before signing",
-    );
-  }
-
-  if (!verifyDecisionSignature(token, options.publicKeyPem)) {
-    throw new TwzrdIntentBindingError(
-      "BAD_SIGNATURE",
-      token.decisionId,
-      "decision token signature did not verify",
-    );
-  }
 
   if (token.decision !== "allow" && token.decision !== "warn") {
     throw new TwzrdIntentBindingError(
@@ -389,6 +373,48 @@ export function assertIntentApproved(
       "decision token already consumed",
     );
   }
+}
+
+/**
+ * The wallet-side check. Call with the EXACT intent about to be signed.
+ * Throws TwzrdIntentBindingError on any violation; returns void when the
+ * signature may proceed. A caught error means: do not invoke the signer.
+ * `publicKeyPem` is required — forged tokens must not be accepted.
+ */
+export function assertIntentApproved(
+  intent: PaymentIntent,
+  token: PaymentDecision,
+  options?: AssertIntentApprovedOptions,
+): void {
+  if (!options?.publicKeyPem) {
+    throw new TwzrdIntentBindingError(
+      "MISSING_VERIFIER_KEY",
+      token.decisionId,
+      "a pinned decision verification key is required before signing",
+    );
+  }
+
+  if (!verifyDecisionSignature(token, options.publicKeyPem)) {
+    throw new TwzrdIntentBindingError(
+      "BAD_SIGNATURE",
+      token.decisionId,
+      "decision token signature did not verify",
+    );
+  }
+
+  assertIntentConstraints(intent, token, options);
+}
+
+/**
+ * In-process intent matching without signature verification. Forged tokens
+ * pass if the remaining fields match. Prefer `assertIntentApproved`.
+ */
+export function unsafeAssertIntentApprovedWithoutSignature(
+  intent: PaymentIntent,
+  token: PaymentDecision,
+  options?: UnsafeAssertIntentApprovedOptions,
+): void {
+  assertIntentConstraints(intent, token, options);
 }
 
 export function newDecisionId(): string {

@@ -139,6 +139,8 @@ export {
 export {
   twzrd,
   spendControlSafeFetch,
+  verifyOfferBindingAfterPay,
+  type OfferBindingCheck,
   type SpendControlOptions,
   type SpendControlResult,
 } from "./spend-control.js";
@@ -201,6 +203,7 @@ export {
 } from "./intent.js";
 export {
   assertIntentApproved,
+  unsafeAssertIntentApprovedWithoutSignature,
   createDecisionRegistry,
   createLocalDecisionSigner,
   createSeededDecisionSigner,
@@ -212,6 +215,7 @@ export {
   verifyDecisionSignature,
   TwzrdIntentBindingError,
   type AssertIntentApprovedOptions,
+  type UnsafeAssertIntentApprovedOptions,
   type BindingErrorCode,
   type DecisionConstraints,
   type DecisionRegistry,

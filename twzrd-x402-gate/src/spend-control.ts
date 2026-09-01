@@ -39,29 +39,21 @@ export type SpendControlOptions = {
     url: string;
     paymentRequired: unknown;
     selected: Record<string, unknown>;
+    /** Present after a hard bind-v1 verify on the compose path. */
+    transactionBase64?: string;
   }) => Promise<{ transactionBase64?: string; response?: Response }>;
   /**
    * Build, but do not sign or submit, the bound SVM transaction. Required
    * with `requireOfferBinding`; the gate verifies these exact bytes before it
-   * calls `submitBoundPayment`.
+   * calls `pay()`.
    */
-  prepareBoundPayment?: (args: {
+  composeBoundTransaction?: (args: {
     url: string;
     paymentRequired: unknown;
     selected: Record<string, unknown>;
     leafHash: string;
     memo: string;
-  }) => Promise<{ transactionBase64: string }>;
-  /**
-   * The signing/submission boundary for a prepared bound payment. It receives
-   * only the transaction that passed local bind-v1 validation.
-   */
-  submitBoundPayment?: (args: {
-    transactionBase64: string;
-    url: string;
-    paymentRequired: unknown;
-    selected: Record<string, unknown>;
-  }) => Promise<{ response?: Response }>;
+  }) => Promise<{ transactionBase64?: string }>;
   preflight?: (payTo: string, priceUsdc: number) => Promise<{ decision?: string }>;
   ledger?: SpendLedger;
   /** Path for #2183 file ledger when `ledger` is omitted. */
@@ -77,6 +69,48 @@ export type SpendControlResult = {
   receipt?: { strength: string; leaf_hash: string | null; fact_type: "resource_bound" };
   signerInvocations: number;
 };
+
+export type OfferBindingCheck = {
+  verdict: "allow" | "block";
+  reason?: string;
+  receipt: { strength: string; leaf_hash: string | null; fact_type: "resource_bound" };
+};
+
+/**
+ * Post-pay bind-v1 check from the 0.9.2 path. `spendControlSafeFetch` no longer
+ * calls this before `pay()` — compose first, then verify, then pay.
+ */
+export async function verifyOfferBindingAfterPay(args: {
+  transactionBase64?: string;
+  leafHash: string | null;
+  payTo: string;
+  asset: string;
+  amountRaw: string;
+}): Promise<OfferBindingCheck> {
+  const leaf_hash = args.leafHash ?? null;
+  if (!args.transactionBase64) {
+    return {
+      verdict: "block",
+      reason: "bind_required_no_settlement",
+      receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" },
+    };
+  }
+  const d = await evaluateResourceBindLegsFromSvmTx(args.transactionBase64, {
+    leaf_hash: leaf_hash ?? "",
+    pay_to: args.payTo,
+    asset: args.asset,
+    amount_raw: args.amountRaw,
+  });
+  const receipt: OfferBindingCheck["receipt"] = {
+    strength: d.strength,
+    leaf_hash: d.leaf_hash,
+    fact_type: "resource_bound",
+  };
+  if (d.strength !== "hard") {
+    return { verdict: "block", reason: "bind_mismatch", receipt };
+  }
+  return { verdict: "allow", receipt };
+}
 
 /**
  * Default cumulative enforcement must outlive an individual safeFetch call.
@@ -163,30 +197,44 @@ export async function spendControlSafeFetch(
   let signerInvocations = 0;
   if (opts.requireOfferBinding) {
     const leaf_hash = stamped?.leaf_hash ?? null;
-    if (!leaf_hash || !opts.prepareBoundPayment || !opts.submitBoundPayment) {
-      return {
-        verdict: "block", reason: "bind_requires_prepared_payment", signerInvocations: 0,
-        receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" },
-      };
+    const refuseNoCompose = (): SpendControlResult => ({
+      verdict: "block",
+      reason: "bind_required_no_compose",
+      signerInvocations: 0,
+      receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" },
+    });
+    if (!leaf_hash || !opts.composeBoundTransaction) {
+      return refuseNoCompose();
     }
-    const prepared = await opts.prepareBoundPayment({
+    const composed = await opts.composeBoundTransaction({
       url, paymentRequired: body, selected, leafHash: leaf_hash,
       memo: resourceBindMemo(leaf_hash),
     });
-    txb64 = prepared.transactionBase64;
-    const d = await evaluateResourceBindLegsFromSvmTx(txb64, {
-      leaf_hash, pay_to: payTo, asset: String(selected.asset ?? ""), amount_raw: String(amountMicro),
-    });
-    const receipt: SpendControlResult["receipt"] = { strength: d.strength, leaf_hash: d.leaf_hash, fact_type: "resource_bound" };
-    if (d.strength !== "hard") {
-      return { verdict: "block", reason: "bind_mismatch", receipt, signerInvocations: 0 };
+    txb64 = composed.transactionBase64;
+    if (!txb64) {
+      return refuseNoCompose();
     }
-    signerInvocations = 1;
-    const paid = await opts.submitBoundPayment({ transactionBase64: txb64, url, paymentRequired: body, selected });
-    if (paid.response) response = paid.response;
-    ledger.record(agentKey, spendMicro, now);
-    ledger.record(merchantKey, spendMicro, now);
-    ledger.record(mandateKey, spendMicro, now);
+    const checked = await verifyOfferBindingAfterPay({
+      transactionBase64: txb64,
+      leafHash: leaf_hash,
+      payTo,
+      asset: String(selected.asset ?? ""),
+      amountRaw: String(amountMicro),
+    });
+    const receipt = checked.receipt;
+    if (checked.verdict === "block") {
+      return { verdict: "block", reason: checked.reason ?? "bind_mismatch", receipt, signerInvocations: 0 };
+    }
+    if (opts.pay) {
+      signerInvocations = 1;
+      const paid = await opts.pay({ url, paymentRequired: body, selected, transactionBase64: txb64 });
+      if (paid.response) response = paid.response;
+    }
+    if (signerInvocations > 0 || !opts.pay) {
+      ledger.record(agentKey, spendMicro, now);
+      ledger.record(merchantKey, spendMicro, now);
+      ledger.record(mandateKey, spendMicro, now);
+    }
     return { verdict, response, receipt, signerInvocations };
   }
   if (opts.pay) {

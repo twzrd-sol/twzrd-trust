@@ -18,6 +18,7 @@ import {
   createDecisionRegistry,
   createLocalDecisionSigner,
   TwzrdIntentBindingError,
+  unsafeAssertIntentApprovedWithoutSignature,
   verifyDecisionSignature,
 } from "../src/decision-token.js";
 import {
@@ -146,7 +147,22 @@ async function run() {
 
     assert.throws(
       () => assertIntentApproved(intent, token),
-      (e: TwzrdIntentBindingError) => e.code === "MISSING_VERIFICATION_KEY",
+      (e: TwzrdIntentBindingError) => e.code === "MISSING_VERIFIER_KEY",
+    );
+    const forged: typeof token = { ...token, signature: "Zm9yZ2Vk" };
+    assert.throws(
+      () => assertIntentApproved(intent, forged),
+      (e: TwzrdIntentBindingError) => e.code === "MISSING_VERIFIER_KEY",
+    );
+    assert.throws(
+      () => assertIntentApproved(intent, forged, { publicKeyPem: signer.publicKeyPem }),
+      (e: TwzrdIntentBindingError) => e.code === "BAD_SIGNATURE",
+    );
+    // In-process matching only — does not prove the token was signed.
+    unsafeAssertIntentApprovedWithoutSignature(intent, forged);
+    assert.throws(
+      () => unsafeAssertIntentApprovedWithoutSignature({ ...intent, amount: "12.01" }, forged),
+      (e: TwzrdIntentBindingError) => e.code === "INTENT_HASH_MISMATCH",
     );
     assertIntentApproved(intent, token, { registry, publicKeyPem: signer.publicKeyPem });
     assert.throws(
