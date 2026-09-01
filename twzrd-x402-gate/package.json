@@ -29,10 +29,11 @@
   ],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "tsc",
+    "prepublishOnly": "npm run verify-release",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "test": "tsx --test test/*.test.ts test/consumer-spend-control.ts",
     "pack-smoke": "node scripts/pack-smoke.mjs",
+    "verify-release": "npm run typecheck && npm test && npm run pack-smoke",
     "safe-fetch": "tsx src/safe-fetch.ts",
     "guard-demo": "tsx examples/agentic-market-gate.ts",
     "autoreceipt-demo": "tsx examples/auto-receipt.ts --dry-run",
