@@ -92,6 +92,18 @@ async function run() {
   assert.equal(fileThird.reason, "over_cumulative_spend");
   assert.equal(fileThird.signerInvocations, 0);
 
+  // Omitting `ledger` still enforces a cumulative cap within this process.
+  const defaultLedgerOpts = {
+    fetch: fetch402(body402({ payTo: "DEFAULT_LEDGER_SELLER", amount: "10000" })),
+    maxSpend: "0.025", agentId: "default-ledger-test", mandateId: "default-ledger-test", pay,
+  };
+  assert.equal((await twzrd.safeFetch("https://merchant.example/default-ledger", defaultLedgerOpts)).verdict, "allow");
+  assert.equal((await twzrd.safeFetch("https://merchant.example/default-ledger", defaultLedgerOpts)).verdict, "allow");
+  const defaultLedgerThird = await twzrd.safeFetch("https://merchant.example/default-ledger", defaultLedgerOpts);
+  assert.equal(defaultLedgerThird.verdict, "block");
+  assert.equal(defaultLedgerThird.reason, "over_cumulative_spend");
+  assert.equal(defaultLedgerThird.signerInvocations, 0);
+
   const noTx = await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(), requireOfferBinding: true, pay,
   });
