@@ -5,7 +5,8 @@
  * against agent, merchant, and mandate keys (same number).
  * Durable spend uses wzrd-final #2183 `createFileSpendLedger` (hash-chained
  * JSONL) via `ledger`, `ledgerFile`, or TWZRD_SPEND_LEDGER_FILE — not a
- * second ledger type. Default remains in-memory so tests stay hermetic.
+ * second ledger type. The default is one process-scoped in-memory ledger;
+ * use `ledgerFile` for restart-safe cumulative enforcement.
  */
 import { toMicroUsd } from "./intent.js";
 import { classifyNetwork } from "./network.js";
@@ -77,6 +78,13 @@ export type SpendControlResult = {
   signerInvocations: number;
 };
 
+/**
+ * Default cumulative enforcement must outlive an individual safeFetch call.
+ * It is process-scoped only; callers that need restart or multi-process safety
+ * must provide `ledger` or `ledgerFile`.
+ */
+const defaultMemoryLedger = createMemorySpendLedger();
+
 function netOk(network: string | undefined, payTo: string | undefined, allow?: string[]): boolean {
   if (!allow?.length) return true;
   const c = classifyNetwork(network, payTo);
@@ -95,7 +103,7 @@ export async function spendControlSafeFetch(
 ): Promise<SpendControlResult> {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const file = opts.ledgerFile ?? process.env.TWZRD_SPEND_LEDGER_FILE;
-  const ledger = opts.ledger ?? (file ? createFileSpendLedger(file) : createMemorySpendLedger());
+  const ledger = opts.ledger ?? (file ? createFileSpendLedger(file) : defaultMemoryLedger);
   const res = await fetchImpl(url);
   if (res.status !== 402) return { verdict: "allow", response: res, signerInvocations: 0 };
   let body: X402PaymentRequiredBody;
