@@ -1,4 +1,4 @@
-import { fetchMerchantCard, applyWashFlaggedPolicy, priceUsdcFromAmountMicro } from "twzrd-x402-gate";
+import { evaluateWashOnlyBeforePayment } from "twzrd-x402-gate";
 export async function refuseWashBeforePay(req) {
     const payTo = typeof req.payTo === "string"
         ? req.payTo
@@ -12,10 +12,12 @@ export async function refuseWashBeforePay(req) {
             : undefined;
     const network = typeof req.network === "string" ? req.network : undefined;
     const resource = typeof req.resource === "string" ? req.resource : undefined;
-    if (!payTo || !network)
-        return;
-    const card = await fetchMerchantCard(payTo, { network, resource });
-    const decision = applyWashFlaggedPolicy({ card, amountUsdc: amount ? priceUsdcFromAmountMicro(amount) : undefined });
+    const decision = await evaluateWashOnlyBeforePayment({
+        payTo,
+        amount,
+        network,
+        resource,
+    });
     if (decision && decision.abort === true) {
         throw new Error(decision.reason);
     }
