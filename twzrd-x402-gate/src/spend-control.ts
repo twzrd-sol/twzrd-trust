@@ -77,8 +77,9 @@ export type OfferBindingCheck = {
 };
 
 /**
- * Post-pay bind-v1 check from the 0.9.2 path. `spendControlSafeFetch` no longer
- * calls this before `pay()` — compose first, then verify, then pay.
+ * Bind-v1 check on the composed, not-yet-submitted transaction. Despite the
+ * name (kept for compat with the 0.9.2 call site), `spendControlSafeFetch`
+ * calls this BEFORE `pay()`: compose, then verify these exact bytes, then pay.
  */
 export async function verifyOfferBindingAfterPay(args: {
   transactionBase64?: string;
@@ -230,7 +231,7 @@ export async function spendControlSafeFetch(
       const paid = await opts.pay({ url, paymentRequired: body, selected, transactionBase64: txb64 });
       if (paid.response) response = paid.response;
     }
-    if (signerInvocations > 0 || !opts.pay) {
+    if (signerInvocations > 0) {
       ledger.record(agentKey, spendMicro, now);
       ledger.record(merchantKey, spendMicro, now);
       ledger.record(mandateKey, spendMicro, now);
@@ -244,7 +245,7 @@ export async function spendControlSafeFetch(
     txb64 = paid.transactionBase64;
   }
   let receipt: SpendControlResult["receipt"];
-  if (signerInvocations > 0 || !opts.pay) {
+  if (signerInvocations > 0) {
     ledger.record(agentKey, spendMicro, now);
     ledger.record(merchantKey, spendMicro, now);
     ledger.record(mandateKey, spendMicro, now);

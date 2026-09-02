@@ -164,6 +164,16 @@ async function run() {
       () => unsafeAssertIntentApprovedWithoutSignature({ ...intent, amount: "12.01" }, forged),
       (e: TwzrdIntentBindingError) => e.code === "INTENT_HASH_MISMATCH",
     );
+    // An unverified call must not poison (or be blocked by) the signed
+    // path's consume-once state, even sharing one registry instance: before
+    // namespacing, a forged token with the REAL decisionId would mark it
+    // consumed here, and the legitimate signed call below would then fail
+    // with DECISION_REPLAYED — a replay-lock DoS reachable without a
+    // signature.
+    const sharedRegistry = createDecisionRegistry();
+    unsafeAssertIntentApprovedWithoutSignature(intent, forged, { registry: sharedRegistry });
+    assertIntentApproved(intent, token, { registry: sharedRegistry, publicKeyPem: signer.publicKeyPem });
+
     assertIntentApproved(intent, token, { registry, publicKeyPem: signer.publicKeyPem });
     assert.throws(
       () => assertIntentApproved(intent, token, { registry, publicKeyPem: signer.publicKeyPem }),
@@ -176,6 +186,14 @@ async function run() {
           now: Date.parse(token.expiresAt) + 1,
           publicKeyPem: signer.publicKeyPem,
         }),
+      (e: TwzrdIntentBindingError) => e.code === "DECISION_EXPIRED",
+    );
+
+    // An unparseable expiresAt (Date.parse -> NaN) must fail closed, not
+    // "never expires" (every comparison against NaN is false).
+    const garbageExpiry: typeof token = { ...token, expiresAt: "not-a-real-date" };
+    assert.throws(
+      () => unsafeAssertIntentApprovedWithoutSignature(intent, garbageExpiry),
       (e: TwzrdIntentBindingError) => e.code === "DECISION_EXPIRED",
     );
 

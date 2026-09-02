@@ -104,6 +104,17 @@ async function run() {
   assert.equal(defaultLedgerThird.reason, "over_cumulative_spend");
   assert.equal(defaultLedgerThird.signerInvocations, 0);
 
+  // Omitting `pay` entirely must not record a spend: no signer ran, the
+  // caller gets the raw 402 back, and nothing was actually paid.
+  const noPayLedger = createMemorySpendLedger();
+  const noPay = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), maxSpend: "0.10", allowNetworks: ["solana"],
+    ledger: noPayLedger, agentId: "no-pay-test", mandateId: "no-pay-test",
+  });
+  assert.equal(noPay.verdict, "allow");
+  assert.equal(noPay.signerInvocations, 0);
+  assert.equal(noPayLedger.spentMicro("agent:no-pay-test", 365 * 24 * 3600 * 1000, Date.now()), 0n);
+
   let bindPayCalls = 0;
   const noCompose = await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(), requireOfferBinding: true,

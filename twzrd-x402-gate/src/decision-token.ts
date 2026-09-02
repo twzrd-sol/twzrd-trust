@@ -337,7 +337,11 @@ export type UnsafeAssertIntentApprovedOptions = {
 function assertIntentConstraints(
   intent: PaymentIntent,
   token: PaymentDecision,
-  options?: UnsafeAssertIntentApprovedOptions,
+  options: UnsafeAssertIntentApprovedOptions | undefined,
+  // Namespaces registry consumption so an unverified (unsafe) call can never
+  // consume — or collide with — the consume-once slot a signature-verified
+  // call relies on, even if the same DecisionRegistry instance is shared.
+  registryKeyPrefix: string,
 ): void {
   const now = options?.now ?? Date.now();
 
@@ -349,7 +353,10 @@ function assertIntentConstraints(
     );
   }
 
-  if (now >= Date.parse(token.expiresAt)) {
+  const expiresAtMs = Date.parse(token.expiresAt);
+  // An unparseable expiresAt must fail closed (Date.parse -> NaN, and every
+  // comparison against NaN is false) rather than silently never expiring.
+  if (!(now < expiresAtMs)) {
     throw new TwzrdIntentBindingError(
       "DECISION_EXPIRED",
       token.decisionId,
@@ -366,7 +373,7 @@ function assertIntentConstraints(
     );
   }
 
-  if (options?.registry && !options.registry.consume(token.decisionId)) {
+  if (options?.registry && !options.registry.consume(registryKeyPrefix + token.decisionId)) {
     throw new TwzrdIntentBindingError(
       "DECISION_REPLAYED",
       token.decisionId,
@@ -402,19 +409,24 @@ export function assertIntentApproved(
     );
   }
 
-  assertIntentConstraints(intent, token, options);
+  assertIntentConstraints(intent, token, options, "");
 }
 
 /**
  * In-process intent matching without signature verification. Forged tokens
  * pass if the remaining fields match. Prefer `assertIntentApproved`.
+ *
+ * UNSAFE: never share a `registry` instance between this and
+ * `assertIntentApproved` expecting them to interact — consumption here is
+ * namespaced separately so an unverified call can neither consume nor be
+ * blocked by the signed path's consume-once state.
  */
 export function unsafeAssertIntentApprovedWithoutSignature(
   intent: PaymentIntent,
   token: PaymentDecision,
   options?: UnsafeAssertIntentApprovedOptions,
 ): void {
-  assertIntentConstraints(intent, token, options);
+  assertIntentConstraints(intent, token, options, "unsafe:");
 }
 
 export function newDecisionId(): string {
