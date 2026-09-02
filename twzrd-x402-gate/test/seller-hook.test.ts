@@ -115,6 +115,17 @@ async function run() {
       "real SVM fixture: transaction path beats spoofed payload.payer",
     );
     assert.notEqual(extracted, "CLEAN_ALIAS_SHOULD_NOT_WIN");
+
+    // W-2026-0902 #3: with the peer present, an undecodable tx is a
+    // per-payment edge (`twzrd_payer_unresolved`), not a peer-missing gap.
+    let seen: string | undefined;
+    await createTwzrdSettleGuard({
+      screen: () => ({ washFlagged: true }),
+      onDecision: (d) => {
+        seen = d.reason;
+      },
+    })(ctxWith({ transaction: "not-a-real-tx" }));
+    assert.equal(seen, "twzrd_payer_unresolved");
   } else {
     // Fail-soft: environments without the optional peer still green the suite.
     const skipped = await extractSvmPayerFromTransaction(SVM_FIXTURE.transactionBase64);
@@ -134,6 +145,16 @@ async function run() {
       null,
       "peer missing: SVM shape still ignores spoofed alias",
     );
+    // W-2026-0902 #3: peer missing is named distinctly and still fails open.
+    let seen: string | undefined;
+    const peerMissingRes = await createTwzrdSettleGuard({
+      screen: () => ({ washFlagged: true }),
+      onDecision: (d) => {
+        seen = d.reason;
+      },
+    })(ctxWith({ transaction: SVM_FIXTURE.transactionBase64 }));
+    assert.equal(peerMissingRes, undefined, "peer missing: fail-open continues");
+    assert.equal(seen, "twzrd_svm_peer_missing");
     console.log("svm_peer_missing=true (fixture path skipped, suite continues)");
   }
 
