@@ -13,6 +13,19 @@
  *   TWZRD_AUTO_GATE=0|false
  *   TWZRD_GATE_ENABLED=0|false
  *   options.disabled: true
+ *
+ * Kill-switch timing, which differs by kind and is deliberate:
+ *   - The ENV switches are re-read PER CALL on the MPP, x402-solana and
+ *     x402-client adapters, so flipping one takes effect on already-installed
+ *     hooks. It is a running switch, not only a deploy-time one.
+ *   - `options.disabled: true` is an install-time opt-out and is permanent for
+ *     that install: nothing is constructed and no later env change revives it.
+ *   - EXCEPTION, adapter 1: the fetch / payWrap adapter still resolves the
+ *     switch once, at install, because it composes fetch wrappers rather than
+ *     dispatching per call. This is permanent in BOTH directions: setting
+ *     TWZRD_AUTO_GATE=0 afterwards does not un-gate an already-composed fetch,
+ *     and — the direction that matters — a fetch composed WHILE the switch was
+ *     off stays ungated after it is cleared. Rebuild it either way.
  */
 
 import { withTwzrdGuard, type TwzrdGuardOptions } from "./with-guard.js";
@@ -66,7 +79,10 @@ export type InstallAutoGateMppOptions = MppOnChallengeOptions &
 
 type ClientInstallState = { disabled: boolean };
 
-const clientInstalls = new WeakMap<object, ClientInstallState>();
+/** All installs on a client, oldest first. A second install used to REPLACE the
+ *  entry, so uninstall only reached the newest and the older install's hook kept
+ *  gating with its own `disabled: false`. */
+const clientInstalls = new WeakMap<object, ClientInstallState[]>();
 
 /** True when env or options ask to skip the gate entirely. */
 export function isTwzrdAutoGateDisabled(options?: { disabled?: boolean }): boolean {
@@ -157,28 +173,52 @@ export function installTwzrdAutoGate(
   // ── MPP ──────────────────────────────────────────────────────────────
   if (target === "mpp") {
     const mppOpts = options as InstallAutoGateMppOptions;
-    if (isTwzrdAutoGateDisabled(mppOpts)) {
+    // `options.disabled` is an install-time decision and stays permanent.
+    if (mppOpts?.disabled === true) {
       return async (
         _challenge: MppChallenge,
         helpers: MppOnChallengeHelpers,
       ): Promise<string | undefined> => helpers.createCredential();
     }
-    return createTwzrdMppOnChallenge(mppOpts);
+    // AUDIT FIX: the env kill switch used to be read ONCE here, so a hook built
+    // before TWZRD_AUTO_GATE=0 kept gating forever while the x402-client adapter
+    // honoured the same variable per call. Re-read it per call so one documented
+    // switch means the same thing on every adapter.
+    const gated = createTwzrdMppOnChallenge(mppOpts);
+    return async (
+      challenge: MppChallenge,
+      helpers: MppOnChallengeHelpers,
+    ): Promise<string | undefined> =>
+      isTwzrdAutoGateDisabled(mppOpts) ? helpers.createCredential() : gated(challenge, helpers);
   }
 
   // ── PayAI x402-solana beforePayment ────────────────────────────────
   if (target === "x402-solana") {
     const solOpts = options as InstallAutoGateX402Options | undefined;
-    if (isTwzrdAutoGateDisabled(solOpts)) {
+    if (solOpts?.disabled === true) {
       return async () => undefined;
     }
-    return createTwzrdBeforePaymentHook(solOpts);
+    // AUDIT FIX: same as the MPP seat — the env kill switch is re-read per call.
+    const gated = createTwzrdBeforePaymentHook(solOpts);
+    return async (
+      requirements: X402SelectedRequirements & Record<string, unknown>,
+      context?: X402SolanaBeforePaymentContext,
+    ): Promise<BeforePaymentCreationResult> =>
+      isTwzrdAutoGateDisabled(solOpts) ? undefined : gated(requirements, context);
   }
 
   // ── x402 client ──────────────────────────────────────────────────────
   if (isX402ClientLike(target)) {
     const x402Opts = options as InstallAutoGateX402Options | undefined;
-    if (isTwzrdAutoGateDisabled(x402Opts)) {
+    // AUDIT FIX: this used to short-circuit on the FULL check, env included, so
+    // a client installed while TWZRD_AUTO_GATE=0 registered nothing and could
+    // never be re-armed by clearing the variable — a permanent fail-open in the
+    // exact window an operator uses the switch. Only the install-time opt-out
+    // short-circuits now; the wrapped registrar below re-reads the env per call,
+    // so an env-off install is inert while the switch is set and gates once it
+    // clears. Trade-off: a paymentControl misconfig now throws at install even
+    // under the kill switch, i.e. fails fast instead of silently passing through.
+    if (x402Opts?.disabled === true) {
       return target;
     }
 
@@ -188,19 +228,46 @@ export function installTwzrdAutoGate(
       );
     }
     const state: ClientInstallState = { disabled: false };
-    clientInstalls.set(target as object, state);
+    const states = clientInstalls.get(target as object);
+    if (states) states.push(state);
+    else clientInstalls.set(target as object, [state]);
 
-    // Wrap the registrar so every installed before-payment hook honors uninstall + env kill.
-    const originalRegister = target.onBeforePaymentCreation.bind(target);
-    target.onBeforePaymentCreation = ((hook) =>
+    // Wrap the registrar ONLY for TWZRD's own registration below, then restore
+    // it. AUDIT FIX: leaving the patch in place gated every hook the host
+    // registered later behind TWZRD's kill switch / uninstall — "gate off"
+    // silently became "all host policy off".
+    const ownProp = Object.prototype.hasOwnProperty.call(target, "onBeforePaymentCreation");
+    const originalProp = target.onBeforePaymentCreation;
+    const originalRegister = originalProp.bind(target);
+    const patched = ((hook) =>
       originalRegister(async (context) => {
         if (state.disabled || isTwzrdAutoGateDisabled()) {
           return undefined; // proceed unguarded
         }
         return hook(context);
       })) as X402ClientLike["onBeforePaymentCreation"];
+    target.onBeforePaymentCreation = patched;
 
-    installTwzrdX402ClientHook(target, x402Opts);
+    try {
+      installTwzrdX402ClientHook(target, x402Opts);
+    } finally {
+      if (ownProp) target.onBeforePaymentCreation = originalProp;
+      else delete (target as Partial<X402ClientLike>).onBeforePaymentCreation;
+      // If the registrar is an accessor pair on the prototype, the patch above
+      // went through its SETTER, so no own property was ever created and the
+      // `delete` was a no-op — the patched registrar would survive. Assigning
+      // back drives the setter to the original.
+      //
+      // The test is `=== patched`, NOT `!== originalProp`. The looser form fired
+      // on any shape whose reads do not round-trip — a Proxy with a dynamic get
+      // trap can never satisfy it, so the assignment materialised an own
+      // property that permanently shadowed the trap. It also masked the
+      // `if (ownProp)` arm above by re-assigning whatever that arm failed to
+      // restore, which made the arm untestable. Only ever undo OUR patch.
+      if (target.onBeforePaymentCreation === patched) {
+        target.onBeforePaymentCreation = originalProp;
+      }
+    }
     return target;
   }
 
@@ -229,9 +296,11 @@ export function installTwzrdAutoGate(
  * Process-wide kill: TWZRD_GATE_ENABLED=false or TWZRD_AUTO_GATE=0.
  */
 export function uninstallTwzrdAutoGate(client: X402ClientLike): void {
-  const state = clientInstalls.get(client as object);
-  if (state) {
-    state.disabled = true;
+  const states = clientInstalls.get(client as object);
+  if (states?.length) {
+    // Every install, not just the newest: each wrapped hook closes over its own
+    // state, so missing one leaves that install still gating after uninstall.
+    for (const state of states) state.disabled = true;
     return;
   }
   console.warn(
