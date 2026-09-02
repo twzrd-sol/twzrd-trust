@@ -852,8 +852,13 @@ If you're composing `withTwzrdGuard` manually instead, pass the raw (non-paying)
 `POST /v1/intel/preflight` is the **free** `ReadinessCard` for the pre-spend decision.
 The gate path only ever calls free endpoints — the preflight plus, by default
 (`refuseWashFlagged: true`), the free merchant_card wash check. Paid intel
-(`quickCheck`, `autoReceipt`) is opt-in and never runs implicitly; you decide
-whether to proceed before any USDC leaves your wallet.
+(`quickCheck`, `autoReceipt`) is otherwise opt-in, with one documented
+exception (QUICKSTART 3b): on the fetch / payWrap seat, wiring a paying fetch
+auto-enables buyer Path A, so a proceeding `warn` settles the $0.001 quick
+tier ($0.05 at material size) through your wallet with no further flag —
+opt out with `escalateOnWarn: false`, `requireReceipt: false`, or by leaving
+`x402Fetch` unwired. The merchant-facing payment still waits on the free
+preflight's verdict.
 
 ## License
 

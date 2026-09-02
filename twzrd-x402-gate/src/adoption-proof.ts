@@ -202,6 +202,21 @@ export function isInternalIntegration(integration: string): boolean {
 }
 
 /**
+ * AUDIT FIX (finding B): lineage may only TIGHTEN. isInternalIntegration()
+ * was a default that any explicit `lineage` overrode, so a twzrd-/ci- id could
+ * emit external_candidate with ok:true. An internal id is dogfood regardless
+ * of what the caller (or a hand-edited transcript) says; only a non-internal
+ * id may carry external_candidate, and it may still self-declare dogfood.
+ */
+export function resolveLineage(
+  integration: string,
+  requested?: GateAdoptionLineage,
+): GateAdoptionLineage {
+  if (isInternalIntegration(integration)) return "dogfood";
+  return requested === "dogfood" ? "dogfood" : "external_candidate";
+}
+
+/**
  * Run the deterministic no-spend adoption proof.
  * Never contacts a wallet; never spends USDC. Preflight is mocked.
  */
@@ -214,9 +229,7 @@ export async function runGateAdoptionProof(
     (typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `run-${Date.now()}`);
-  const lineage: GateAdoptionLineage =
-    opts.lineage ??
-    (isInternalIntegration(integration) ? "dogfood" : "external_candidate");
+  const lineage: GateAdoptionLineage = resolveLineage(integration, opts.lineage);
 
   const clientHeader = `twzrd-x402-gate/${CLIENT_VERSION}`;
   const steps: GateAdoptionStep[] = [];
