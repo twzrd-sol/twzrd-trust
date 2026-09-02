@@ -45,6 +45,10 @@ assert.equal(typeof gate.twzrd.safeFetch, "function");
 assert.equal(typeof gate.spendControlSafeFetch, "function");
 assert.equal(typeof gate.assertIntentApproved, "function");
 assert.equal(gate.CLIENT_VERSION, pkg.version);
+// Unsafe-grade API lives only behind the /unsafe subpath, never the root.
+assert.equal(gate.unsafeAssertIntentApprovedWithoutSignature, undefined);
+const unsafe = await import("twzrd-x402-gate/unsafe");
+assert.equal(typeof unsafe.unsafeAssertIntentApprovedWithoutSignature, "function");
 let seen = null;
 await gate.twzrdPreflight({ resource_name: "pack-smoke", seller_wallet: "SELLER" }, gate.resolveConfig({
   attribution: { integration: "pack-smoke", runId: "1" },

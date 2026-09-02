@@ -313,7 +313,9 @@ assertIntentApproved(intentBeingSigned, token, {
 // throws MISSING_VERIFIER_KEY | BAD_SIGNATURE | INTENT_HASH_MISMATCH |
 //        DECISION_EXPIRED | DECISION_NOT_ALLOW | DECISION_REPLAYED
 //        -> the signer is never invoked
-// In-process matching without a key is unsafeAssertIntentApprovedWithoutSignature.
+// In-process matching without a key is unsafeAssertIntentApprovedWithoutSignature,
+// exported only from the "twzrd-x402-gate/unsafe" subpath — never the root:
+//   import { unsafeAssertIntentApprovedWithoutSignature } from "twzrd-x402-gate/unsafe";
 ```
 
 - `PaymentIntent` v1 (frozen): protocol `x402 | ap2 | ucp | mpp | direct` +

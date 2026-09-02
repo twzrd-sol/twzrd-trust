@@ -18,9 +18,9 @@ import {
   createDecisionRegistry,
   createLocalDecisionSigner,
   TwzrdIntentBindingError,
-  unsafeAssertIntentApprovedWithoutSignature,
   verifyDecisionSignature,
 } from "../src/decision-token.js";
+import { unsafeAssertIntentApprovedWithoutSignature } from "../src/unsafe.js";
 import {
   createMemorySpendLedger,
   evaluateIntent,
