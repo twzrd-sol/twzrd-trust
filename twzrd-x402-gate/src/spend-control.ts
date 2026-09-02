@@ -76,6 +76,11 @@ export type OfferBindingCheck = {
   receipt: { strength: string; leaf_hash: string | null; fact_type: "resource_bound" };
 };
 
+/** Shared shape for a bind-v1 check that never reached verification. */
+function refuseBindReceipt(leaf_hash: string | null): OfferBindingCheck["receipt"] {
+  return { strength: "refuse", leaf_hash, fact_type: "resource_bound" };
+}
+
 /**
  * Bind-v1 check on the composed, not-yet-submitted transaction. Despite the
  * name (kept for compat with the 0.9.2 call site), `spendControlSafeFetch`
@@ -93,11 +98,21 @@ export async function verifyOfferBindingAfterPay(args: {
     return {
       verdict: "block",
       reason: "bind_required_no_settlement",
-      receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" },
+      receipt: refuseBindReceipt(leaf_hash),
+    };
+  }
+  if (!leaf_hash) {
+    // Distinct from "no settlement": a caller invoking this exported check
+    // directly with no expected leaf hash cannot get a "hard" result — make
+    // that an explicit refusal instead of silently verifying against "".
+    return {
+      verdict: "block",
+      reason: "bind_required_no_leaf_hash",
+      receipt: refuseBindReceipt(leaf_hash),
     };
   }
   const d = await evaluateResourceBindLegsFromSvmTx(args.transactionBase64, {
-    leaf_hash: leaf_hash ?? "",
+    leaf_hash,
     pay_to: args.payTo,
     asset: args.asset,
     amount_raw: args.amountRaw,
@@ -175,6 +190,11 @@ export async function spendControlSafeFetch(
   const agentKey = `agent:${opts.agentId ?? "default"}`;
   const merchantKey = `merchant:${payTo}`;
   const mandateKey = `mandate:${opts.mandateId ?? "default"}`;
+  const recordSpend = () => {
+    ledger.record(agentKey, spendMicro, now);
+    ledger.record(merchantKey, spendMicro, now);
+    ledger.record(mandateKey, spendMicro, now);
+  };
   if (maxMicro != null) {
     for (const key of [agentKey, merchantKey, mandateKey]) {
       if (ledger.spentMicro(key, WIN, now) + spendMicro > maxMicro) {
@@ -202,7 +222,7 @@ export async function spendControlSafeFetch(
       verdict: "block",
       reason: "bind_required_no_compose",
       signerInvocations: 0,
-      receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" },
+      receipt: refuseBindReceipt(leaf_hash),
     });
     if (!leaf_hash || !opts.composeBoundTransaction) {
       return refuseNoCompose();
@@ -231,25 +251,16 @@ export async function spendControlSafeFetch(
       const paid = await opts.pay({ url, paymentRequired: body, selected, transactionBase64: txb64 });
       if (paid.response) response = paid.response;
     }
-    if (signerInvocations > 0) {
-      ledger.record(agentKey, spendMicro, now);
-      ledger.record(merchantKey, spendMicro, now);
-      ledger.record(mandateKey, spendMicro, now);
-    }
+    if (signerInvocations > 0) recordSpend();
     return { verdict, response, receipt, signerInvocations };
   }
   if (opts.pay) {
     signerInvocations = 1;
     const paid = await opts.pay({ url, paymentRequired: body, selected });
     if (paid.response) response = paid.response;
-    txb64 = paid.transactionBase64;
   }
   let receipt: SpendControlResult["receipt"];
-  if (signerInvocations > 0) {
-    ledger.record(agentKey, spendMicro, now);
-    ledger.record(merchantKey, spendMicro, now);
-    ledger.record(mandateKey, spendMicro, now);
-  }
+  if (signerInvocations > 0) recordSpend();
   return { verdict, response, receipt, signerInvocations };
 }
 

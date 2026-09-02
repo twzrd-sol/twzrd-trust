@@ -136,6 +136,19 @@ async function run() {
   assert.equal(afterPay.reason, "bind_required_no_settlement");
   assert.equal(afterPay.receipt.strength, "refuse");
 
+  // A null leafHash must refuse explicitly, not silently verify against "".
+  const noLeafHash = await verifyOfferBindingAfterPay({
+    transactionBase64: Buffer.from("not-a-tx").toString("base64"),
+    leafHash: null,
+    payTo: SOL,
+    asset: USDC,
+    amountRaw: "10000",
+  });
+  assert.equal(noLeafHash.verdict, "block");
+  assert.equal(noLeafHash.reason, "bind_required_no_leaf_hash");
+  assert.equal(noLeafHash.receipt.strength, "refuse");
+  assert.equal(noLeafHash.receipt.leaf_hash, null);
+
   bindPayCalls = 0;
   const mismatch = await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(), requireOfferBinding: true,
