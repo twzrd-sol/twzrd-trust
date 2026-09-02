@@ -214,6 +214,8 @@ export {
   signDecision,
   verifyDecisionSignature,
   TwzrdIntentBindingError,
+  MISSING_VERIFIER_KEY,
+  MISSING_VERIFICATION_KEY,
   type AssertIntentApprovedOptions,
   type UnsafeAssertIntentApprovedOptions,
   type BindingErrorCode,

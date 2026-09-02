@@ -293,6 +293,15 @@ export type BindingErrorCode =
   | "MISSING_VERIFIER_KEY"
   | "BAD_SIGNATURE";
 
+/** Canonical code thrown when `assertIntentApproved` has no pinned key. */
+export const MISSING_VERIFIER_KEY = "MISSING_VERIFIER_KEY";
+
+/**
+ * @deprecated Use {@link MISSING_VERIFIER_KEY}. Kept so 0.9.x consumers that
+ * matched the pre-rename code keep compiling and matching — same thrown value.
+ */
+export const MISSING_VERIFICATION_KEY = MISSING_VERIFIER_KEY;
+
 export class TwzrdIntentBindingError extends Error {
   readonly code: BindingErrorCode;
   readonly decisionId: string;
@@ -395,7 +404,7 @@ export function assertIntentApproved(
 ): void {
   if (!options?.publicKeyPem) {
     throw new TwzrdIntentBindingError(
-      "MISSING_VERIFIER_KEY",
+      MISSING_VERIFIER_KEY,
       token.decisionId,
       "a pinned decision verification key is required before signing",
     );
