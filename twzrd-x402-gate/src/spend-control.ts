@@ -3,24 +3,24 @@
  * Not the AgentCash CLI adapter (`./safe-fetch`, advisory_precheck).
  * maxSpend is both the per-call cap and the cumulative budget checked
  * against agent, merchant, and mandate keys (same number).
- * Durable spend uses wzrd-final #2183 `createFileSpendLedger` (hash-chained
+ * Durable spend uses wzrd-final #2183 `sharedFileSpendLedger` (hash-chained
  * JSONL) via `ledger`, `ledgerFile`, or TWZRD_SPEND_LEDGER_FILE — not a
  * second ledger type. The default is one process-scoped in-memory ledger;
  * use `ledgerFile` for restart-safe cumulative enforcement.
  */
-import { resolve as resolvePath } from "node:path";
 import { toMicroUsd } from "./intent.js";
 import { classifyNetwork } from "./network.js";
 import {
   payToFromRequirements,
   pickRequirements,
   priceUsdcFromAmountMicro,
+  paymentRequiredFromResponse,
 } from "./payto.js";
 import {
   createMemorySpendLedger,
   type SpendLedger,
 } from "./policy-runtime.js";
-import { createFileSpendLedger } from "./spend-ledger-file.js";
+import { sharedFileSpendLedger } from "./spend-ledger-file.js";
 import {
   rememberRawInvoice,
   resourceBindMemo,
@@ -137,23 +137,21 @@ export async function verifyOfferBindingAfterPay(args: {
  * multi-process safe — serialize across processes externally.
  */
 const defaultMemoryLedger = createMemorySpendLedger();
-const fileLedgers = new Map<string, SpendLedger>();
-
-function fileLedgerFor(file: string): SpendLedger {
-  const path = resolvePath(file);
-  let ledger = fileLedgers.get(path);
-  if (!ledger) {
-    ledger = createFileSpendLedger(path);
-    fileLedgers.set(path, ledger);
-  }
-  return ledger;
-}
 
 /**
  * In-flight reservations per ledger, so concurrent calls in this process see
  * each other inside the check → pay → record window. Without this the
  * cumulative cap is a TOCTOU: two parallel calls both read spent=0, both
  * pass, both pay (W-2026-0902 #1).
+ *
+ * A reservation is taken SYNCHRONOUSLY in the same tick as the check (so no
+ * other call can interleave between them) and released in `finally`. It is
+ * keyed on the ledger INSTANCE, which is why `sharedFileSpendLedger` matters:
+ * a per-call ledger object would give every call its own empty reservation map
+ * and this would silently do nothing.
+ *
+ * Process-local by construction. Two processes sharing one ledger file still
+ * race — see sharedFileSpendLedger's note.
  */
 const pendingByLedger = new WeakMap<SpendLedger, Map<string, bigint>>();
 
@@ -196,13 +194,23 @@ export async function spendControlSafeFetch(
 ): Promise<SpendControlResult> {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const file = opts.ledgerFile ?? process.env.TWZRD_SPEND_LEDGER_FILE;
-  const ledger = opts.ledger ?? (file ? fileLedgerFor(file) : defaultMemoryLedger);
+  // One shared instance per path: a per-call ledger corrupts the hash chain
+  // under concurrency and gives the reservation below no stable identity.
+  const ledger = opts.ledger ?? (file ? sharedFileSpendLedger(file) : defaultMemoryLedger);
   const res = await fetchImpl(url);
   if (res.status !== 402) return { verdict: "allow", response: res, signerInvocations: 0 };
-  let body: X402PaymentRequiredBody;
+  // AUDIT FIX: read PAYMENT-REQUIRED (base64 JSON, x402 v2) BEFORE the body —
+  // the same precedence @x402/core's client uses to decide what to pay. Reading
+  // only the body let a header-carried challenge reach the payer unscored.
+  // The parser throws on an undecodable header (fail closed); safeFetch has
+  // always answered with a verdict rather than an exception, so keep that.
+  let body: X402PaymentRequiredBody | null;
   try {
-    body = (await res.clone().json()) as X402PaymentRequiredBody;
+    body = await paymentRequiredFromResponse(res);
   } catch {
+    return { verdict: "block", reason: "unparseable_402", signerInvocations: 0 };
+  }
+  if (body === null) {
     return { verdict: "block", reason: "unparseable_402", signerInvocations: 0 };
   }
   rememberRawInvoice(body, url);
@@ -223,7 +231,11 @@ export async function spendControlSafeFetch(
   if (!payTo || amountMicro == null) {
     return { verdict: "block", reason: "no_payable_requirement", signerInvocations: 0 };
   }
-  const spendMicro = BigInt(String(amountMicro).split(".")[0] || "0");
+  // AUDIT FIX: "-100" / "0.5" / "1e6" previously slid under the cap or threw.
+  if (!/^\d+$/.test(String(amountMicro))) {
+    return { verdict: "block", reason: "malformed_amount", signerInvocations: 0 };
+  }
+  const spendMicro = BigInt(String(amountMicro));
   const maxMicro = opts.maxSpend != null ? toMicroUsd(opts.maxSpend) : undefined;
   if (maxMicro != null && spendMicro > maxMicro) {
     return { verdict: "block", reason: "over_max_spend", signerInvocations: 0 };

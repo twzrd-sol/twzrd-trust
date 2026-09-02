@@ -12,7 +12,7 @@
  * "nothing spent".
  */
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
 
 import { createMemorySpendLedger, type SpendLedger } from "./policy-runtime.js";
@@ -63,4 +63,39 @@ export function createFileSpendLedger(filePath: string): SpendLedger {
       inner.record(scopeKey, amountMicro, at);
     },
   };
+}
+
+/**
+ * One ledger instance per file path, for the lifetime of the process.
+ *
+ * `createFileSpendLedger` reads the file once and then carries `lastHash` in a
+ * closure. Constructing it per request — which `spendControlSafeFetch` used to
+ * do on every call — gives each concurrent call its OWN `lastHash` read from
+ * the same pre-state. Both append a row with the same `prev`, and the next
+ * replay throws "spend ledger chain broken" forever after: the durable ledger
+ * is permanently unreadable, which fails closed but bricks the agent's budget.
+ *
+ * Sharing one instance makes `record()` — which is fully synchronous — atomic
+ * with respect to other calls in this process, so the chain stays linear.
+ *
+ * Trade-off, deliberate: a cached ledger does not observe writes made to the
+ * file by ANOTHER process. Cross-process sharing of one ledger file was never
+ * safe (same interleaving, no lock) and is still not; this makes the
+ * single-process case correct rather than pretending to fix both.
+ */
+const fileLedgers = new Map<string, SpendLedger>();
+
+export function sharedFileSpendLedger(filePath: string): SpendLedger {
+  const key = resolve(filePath);
+  let ledger = fileLedgers.get(key);
+  if (!ledger) {
+    ledger = createFileSpendLedger(key);
+    fileLedgers.set(key, ledger);
+  }
+  return ledger;
+}
+
+/** Test-only: drop cached instances so a suite can start from a fresh file. */
+export function __resetSharedFileSpendLedgers(): void {
+  fileLedgers.clear();
 }
