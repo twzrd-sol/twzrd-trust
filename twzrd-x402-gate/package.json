@@ -24,7 +24,11 @@
       "types": "./dist/unsafe.d.ts",
       "import": "./dist/unsafe.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./evidence-verify": {
+      "types": "./dist/evidence-verify.d.ts",
+      "import": "./dist/evidence-verify.js"
+    }
   },
   "files": [
     "dist",
@@ -48,13 +52,15 @@
     "x402-solana-before-payment-proof": "tsx examples/x402-solana-before-payment-proof.ts",
     "x402-solana-before-payment-falsify": "tsx examples/x402-solana-before-payment-falsify.ts",
     "official-dogfood": "tsx examples/official-x402-dogfood.ts",
+    "foreign-client-proof": "tsx examples/foreign-client-proof.ts",
     "adoption-proof": "tsx src/adoption-proof.ts",
     "evidence-bundle": "tsx src/evidence-bundle.ts",
     "commerce-kit": "tsx examples/commerce-kit.ts",
     "demo:buyer-no-spend": "tsx src/adoption-proof.ts -- --integration ops-demo-buyer-no-spend",
     "live-autogate-matrix": "tsx examples/live-autogate-matrix.ts",
     "gate-eval-refuse": "node bin/twzrd-gate-eval-refuse.js",
-    "gate-doctor": "tsx src/doctor.ts"
+    "gate-doctor": "tsx src/doctor.ts",
+    "evidence-verify": "tsx src/evidence-verify.ts --verify"
   },
   "keywords": [
     "x402",
