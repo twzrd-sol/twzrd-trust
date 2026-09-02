@@ -11,17 +11,19 @@ import { twzrd } from "twzrd-x402-gate";
 const result = await twzrd.safeFetch(url, {
   maxSpend: "0.10",              // per-call cap AND cumulative budget
   allowNetworks: ["solana", "base"],
-  requireOfferBinding: true,     // requires the prepare/submit split below
+  requireOfferBinding: true,     // compose → verify hard bind → only then pay()
+  composeBoundTransaction,       // build unsigned bound bytes (no keys)
+  pay,                           // sign/submit only after bind-v1 hard verify
 });
 // result.verdict: "allow" | "warn" | "block" — blocks have signerInvocations === 0
 // result.receipt: { strength: "hard"|"soft"|"refuse", leaf_hash, fact_type: "resource_bound" }
 ```
 
-`requireOfferBinding` is deliberately fail-closed: an opaque `pay()` callback
-can sign before this library can inspect the transaction, so it is rejected for
-bound payments. Use `prepareBoundPayment` to build an unsigned transaction with
-the supplied `memo`, then `submitBoundPayment` to sign and submit the exact
-validated `transactionBase64`. This SDK never holds keys.
+`requireOfferBinding` is fail-closed: missing `composeBoundTransaction` returns
+`bind_required_no_compose` with `signerInvocations === 0` (pay is never called).
+The gate verifies the composed bytes, then calls `pay()` with that
+`transactionBase64`. The old post-pay check remains as
+`verifyOfferBindingAfterPay` only. This SDK never holds keys.
 
 Full walkthrough: [QUICKSTART.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/QUICKSTART.md) ·
 verify receipts yourself: [REVIEW.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/REVIEW.md)
@@ -308,8 +310,12 @@ assertIntentApproved(intentBeingSigned, token, {
   registry,                       // replay / consume-once
   publicKeyPem: signer.publicKeyPem, // signature verification
 });
-// throws INTENT_HASH_MISMATCH | DECISION_EXPIRED | DECISION_NOT_ALLOW |
-//        DECISION_REPLAYED | BAD_SIGNATURE -> the signer is never invoked
+// throws MISSING_VERIFIER_KEY | BAD_SIGNATURE | INTENT_HASH_MISMATCH |
+//        DECISION_EXPIRED | DECISION_NOT_ALLOW | DECISION_REPLAYED
+//        -> the signer is never invoked
+// In-process matching without a key is unsafeAssertIntentApprovedWithoutSignature,
+// exported only from the "twzrd-x402-gate/unsafe" subpath — never the root:
+//   import { unsafeAssertIntentApprovedWithoutSignature } from "twzrd-x402-gate/unsafe";
 ```
 
 - `PaymentIntent` v1 (frozen): protocol `x402 | ap2 | ucp | mpp | direct` +

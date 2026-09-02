@@ -82,8 +82,9 @@ console.log("Verdict:", result.verdict);                     // "allow" | "warn"
 console.log("Signer invocations:", result.signerInvocations); // 0 on block, 1 on allowed pay
 ```
 
-With `requireOfferBinding: true`, the settled transaction is decoded and the
-payment's memo + transfer legs are checked against the offer that was scored.
+With `requireOfferBinding: true`, `composeBoundTransaction` builds the bound
+bytes first. The gate verifies bind-v1 hard, then calls `pay()`. Missing
+compose is `bind_required_no_compose` with `signerInvocations === 0`.
 `strength: "hard"` means the binding is provable from chain data alone.
 
 ## 4. What the policy enforces

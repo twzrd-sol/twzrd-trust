@@ -139,6 +139,8 @@ export {
 export {
   twzrd,
   spendControlSafeFetch,
+  verifyOfferBindingAfterPay,
+  type OfferBindingCheck,
   type SpendControlOptions,
   type SpendControlResult,
 } from "./spend-control.js";
@@ -199,6 +201,8 @@ export {
   type PaymentIntent,
   type PaymentProtocol,
 } from "./intent.js";
+// unsafeAssertIntentApprovedWithoutSignature is intentionally absent here:
+// it is exported only from the `twzrd-x402-gate/unsafe` subpath (./unsafe.js).
 export {
   assertIntentApproved,
   createDecisionRegistry,
@@ -211,6 +215,8 @@ export {
   signDecision,
   verifyDecisionSignature,
   TwzrdIntentBindingError,
+  MISSING_VERIFIER_KEY,
+  MISSING_VERIFICATION_KEY,
   type AssertIntentApprovedOptions,
   type BindingErrorCode,
   type DecisionConstraints,

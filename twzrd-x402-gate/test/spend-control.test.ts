@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemorySpendLedger } from "../src/policy-runtime.js";
 import { createFileSpendLedger } from "../src/spend-ledger-file.js";
-import { twzrd } from "../src/spend-control.js";
+import { twzrd, verifyOfferBindingAfterPay } from "../src/spend-control.js";
 import { resourceBindLeafHash, resourceBindMemo } from "../src/resource-bind.js";
 import { EXACT_SVM_TRANSFER_CHECKED_FIXTURE as FIX } from "./fixtures/exact-svm-transfer-checked.js";
 
@@ -104,30 +104,63 @@ async function run() {
   assert.equal(defaultLedgerThird.reason, "over_cumulative_spend");
   assert.equal(defaultLedgerThird.signerInvocations, 0);
 
-  const noTx = await twzrd.safeFetch("https://merchant.example/paid", {
-    fetch: fetch402(), requireOfferBinding: true, pay,
+  // Omitting `pay` entirely must not record a spend: no signer ran, the
+  // caller gets the raw 402 back, and nothing was actually paid.
+  const noPayLedger = createMemorySpendLedger();
+  const noPay = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), maxSpend: "0.10", allowNetworks: ["solana"],
+    ledger: noPayLedger, agentId: "no-pay-test", mandateId: "no-pay-test",
   });
-  assert.equal(noTx.verdict, "block");
-  assert.equal(noTx.reason, "bind_requires_prepared_payment");
-  assert.equal(noTx.signerInvocations, 0);
+  assert.equal(noPay.verdict, "allow");
+  assert.equal(noPay.signerInvocations, 0);
+  assert.equal(noPayLedger.spentMicro("agent:no-pay-test", 365 * 24 * 3600 * 1000, Date.now()), 0n);
 
-  let legacyPayCalls = 0;
-  const legacyBound = await twzrd.safeFetch("https://merchant.example/paid", {
+  let bindPayCalls = 0;
+  const noCompose = await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(), requireOfferBinding: true,
-    pay: async () => { legacyPayCalls += 1; return { response: new Response("paid") }; },
+    pay: async () => { bindPayCalls += 1; return { response: new Response("paid") }; },
   });
-  assert.equal(legacyBound.reason, "bind_requires_prepared_payment");
-  assert.equal(legacyPayCalls, 0);
+  assert.equal(noCompose.verdict, "block");
+  assert.equal(noCompose.reason, "bind_required_no_compose");
+  assert.equal(noCompose.signerInvocations, 0);
+  assert.equal(bindPayCalls, 0);
 
+  const afterPay = await verifyOfferBindingAfterPay({
+    transactionBase64: undefined,
+    leafHash: "leaf",
+    payTo: SOL,
+    asset: USDC,
+    amountRaw: "10000",
+  });
+  assert.equal(afterPay.verdict, "block");
+  assert.equal(afterPay.reason, "bind_required_no_settlement");
+  assert.equal(afterPay.receipt.strength, "refuse");
+
+  // A null leafHash must refuse explicitly, not silently verify against "".
+  const noLeafHash = await verifyOfferBindingAfterPay({
+    transactionBase64: Buffer.from("not-a-tx").toString("base64"),
+    leafHash: null,
+    payTo: SOL,
+    asset: USDC,
+    amountRaw: "10000",
+  });
+  assert.equal(noLeafHash.verdict, "block");
+  assert.equal(noLeafHash.reason, "bind_required_no_leaf_hash");
+  assert.equal(noLeafHash.receipt.strength, "refuse");
+  assert.equal(noLeafHash.receipt.leaf_hash, null);
+
+  bindPayCalls = 0;
   const mismatch = await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(), requireOfferBinding: true,
-    prepareBoundPayment: async () => ({ transactionBase64: Buffer.from("not-a-tx").toString("base64") }),
-    submitBoundPayment: async () => { throw new Error("must not submit an unbound payment"); },
+    composeBoundTransaction: async () => ({ transactionBase64: Buffer.from("not-a-tx").toString("base64") }),
+    pay: async () => { bindPayCalls += 1; throw new Error("must not pay an unbound transaction"); },
   });
   assert.equal(mismatch.verdict, "block");
   assert.equal(mismatch.reason, "bind_mismatch");
+  assert.equal(mismatch.signerInvocations, 0);
+  assert.equal(bindPayCalls, 0);
 
-  let v2Prepared = false;
+  let v2Composed = false;
   const v2body = {
     x402Version: 2,
     resource: { url: "https://merchant.example/paid" },
@@ -135,16 +168,16 @@ async function run() {
   };
   await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(v2body), requireOfferBinding: true,
-    prepareBoundPayment: async ({ selected }) => {
-      v2Prepared = true;
+    composeBoundTransaction: async ({ selected }) => {
+      v2Composed = true;
       const extra = selected.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
       assert.equal(selected.resource, "https://merchant.example/paid");
       assert.equal(extra?.twzrd_resource_bind, undefined);
       return { transactionBase64: Buffer.from("not-a-tx").toString("base64") };
     },
-    submitBoundPayment: async () => ({ response: new Response("x") }),
+    pay: async () => ({ response: new Response("x") }),
   });
-  assert.equal(v2Prepared, true);
+  assert.equal(v2Composed, true);
 
   try {
     await import("@x402/svm");
@@ -170,7 +203,7 @@ async function run() {
   const bound = await twzrd.safeFetch(resource, {
     fetch: fetch402(body402({ payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint })),
     requireOfferBinding: true,
-    prepareBoundPayment: async ({ selected, memo }) => {
+    composeBoundTransaction: async ({ selected, memo }) => {
       const extra = selected.extra as { memo?: string; twzrd_resource_bind?: string } | undefined;
       assert.equal(extra?.memo, undefined);
       assert.equal(extra?.twzrd_resource_bind, undefined);
@@ -188,7 +221,7 @@ async function run() {
       preparedTx = both;
       return { transactionBase64: both };
     },
-    submitBoundPayment: async ({ transactionBase64 }) => {
+    pay: async ({ transactionBase64 }) => {
       submittedTx = transactionBase64;
       return { response: new Response("ok", { status: 200 }) };
     },
