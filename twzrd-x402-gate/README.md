@@ -102,6 +102,7 @@ server.onBeforeSettle(
 | Default screen | free `GET /v1/intel/merchant_card/{payer}` via `twzrdPayerScreen()` |
 | Screen/extract timeout | `timeoutMs: 3000` — on timeout, **continue** (fail-open) |
 | Unresolved payer / null screen / screen error | **continue** unless `failOpen: false` |
+| exact-SVM payload, no `@x402/svm` peer installed | reports `twzrd_svm_peer_missing` (warns once) and **continues** — without the peer, SVM payers are never screened; install it or set `failOpen: false` |
 | Paid `/v1/intel/trust` | **not** default — inject a custom `screen` if you want it |
 
 Payer identity prefers signed/encoded scheme fields (EIP-3009 `authorization.from`, Permit2
@@ -516,6 +517,10 @@ The gate **recognizes** multi-chain 402s but only **reputation-scores Solana mai
 This is intentional: Base listing abundance ≠ Solana behavioral history. Unsupported is never
 represented as a TWZRD trust `allow`. Set `TWZRD_UNSUPPORTED_NETWORK_MODE=strict` (or
 `{ unsupportedNetworkMode: "strict" }`) to hard-block unscored networks.
+
+`requireReceipt` (Path A) follows the same line: `hard` receipts apply to **scored networks
+only** — on an unscored network there is no receipt to buy, so the decision carries
+`receiptSkipped: "unscored_network"` and continues. Use `strict` mode to fail closed there.
 
 Dual-chain accepts still prefer the Solana entry for scoring (same as payment clients that
 prefer Solana when available).
