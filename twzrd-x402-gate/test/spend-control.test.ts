@@ -115,6 +115,46 @@ async function run() {
   assert.equal(noPay.signerInvocations, 0);
   assert.equal(noPayLedger.spentMicro("agent:no-pay-test", 365 * 24 * 3600 * 1000, Date.now()), 0n);
 
+  // W-2026-0902 #1: two concurrent calls must not both clear the cumulative
+  // cap. The check → pay → record window is bridged by an in-process reservation.
+  const WIN = 365 * 24 * 3600 * 1000;
+  const slowPay = async () => {
+    await new Promise((r) => setTimeout(r, 5));
+    return { response: new Response("paid") };
+  };
+  const raceLedger = createMemorySpendLedger();
+  const raceOpts = {
+    fetch: fetch402(), maxSpend: "0.015", ledger: raceLedger, agentId: "race", mandateId: "race", pay: slowPay,
+  };
+  const [r1, r2] = await Promise.all([
+    twzrd.safeFetch("https://merchant.example/paid", raceOpts),
+    twzrd.safeFetch("https://merchant.example/paid", raceOpts),
+  ]);
+  assert.deepEqual([r1.verdict, r2.verdict].sort(), ["allow", "block"]);
+  assert.equal([r1, r2].find((r) => r.verdict === "block")?.reason, "over_cumulative_spend");
+  assert.equal(raceLedger.spentMicro("agent:race", WIN, Date.now()), 10000n);
+
+  // A reservation is released when the call exits without recording (pay
+  // throws here), so a failed attempt cannot pin budget after the fact.
+  const leakLedger = createMemorySpendLedger();
+  const leakOpts = { fetch: fetch402(), maxSpend: "0.015", ledger: leakLedger, agentId: "leak", mandateId: "leak" };
+  await assert.rejects(
+    twzrd.safeFetch("https://merchant.example/paid", { ...leakOpts, pay: async () => { throw new Error("signer down"); } }),
+  );
+  assert.equal((await twzrd.safeFetch("https://merchant.example/paid", { ...leakOpts, pay })).verdict, "allow");
+
+  // File ledger: one shared instance per path, so two concurrent successful
+  // calls append to a single hash chain (a fresh replay must not throw) and
+  // the merchant key sums both.
+  const racePath = join(mkdtempSync(join(tmpdir(), "twzrd-sf-race-")), "ledger.jsonl");
+  const fileRace = { fetch: fetch402(), maxSpend: "0.10", ledgerFile: racePath, pay: slowPay };
+  const [f1, f2] = await Promise.all([
+    twzrd.safeFetch("https://merchant.example/paid", { ...fileRace, agentId: "fa", mandateId: "ma" }),
+    twzrd.safeFetch("https://merchant.example/paid", { ...fileRace, agentId: "fb", mandateId: "mb" }),
+  ]);
+  assert.deepEqual([f1.verdict, f2.verdict], ["allow", "allow"]);
+  assert.equal(createFileSpendLedger(racePath).spentMicro(`merchant:${SOL}`, WIN, Date.now()), 20000n);
+
   let bindPayCalls = 0;
   const noCompose = await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(), requireOfferBinding: true,
