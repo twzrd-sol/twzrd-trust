@@ -186,6 +186,14 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
     /** true when Path A was required by threshold/warn policy */
     receiptRequired?: boolean;
     receiptFeeCaptured?: boolean;
+    /**
+     * Path A was required but could not be attempted: `"unscored_network"`
+     * when TWZRD does not score this network (Base, Polygon, devnet, …), so
+     * there is no receipt to buy. `requireReceipt.hard` is honoured as
+     * "scored networks only"; to fail closed on unscored networks instead,
+     * set `unsupportedNetworkMode: "strict"`.
+     */
+    receiptSkipped?: "unscored_network";
     resourceBind?: ResourceBindDecision;
   }) => void;
 };
@@ -356,6 +364,7 @@ export async function evaluateBeforePaymentCreation(
   });
 
   let receiptFeeCaptured = false;
+  let receiptSkipped: "unscored_network" | undefined;
   if (receiptRequired) {
     if (typeof options?.x402Fetch !== "function") {
       const reason =
@@ -464,6 +473,13 @@ export async function evaluateBeforePaymentCreation(
           return { abort: true, reason };
         }
       }
+    } else {
+      // Path A receipts come from TWZRD's Solana scoring; an unscored network
+      // has none to buy. (The payTo-less leg never reaches here — it blocks
+      // earlier as twzrd_unidentifiable_payment_recipient.) Say so on the
+      // decision instead of silently continuing: `hard` means "scored
+      // networks only" (W-2026-0902 #2).
+      receiptSkipped = "unscored_network";
     }
   }
 
@@ -521,6 +537,7 @@ export async function evaluateBeforePaymentCreation(
       decision,
       receiptRequired: receiptRequired || undefined,
       receiptFeeCaptured: receiptFeeCaptured || undefined,
+      receiptSkipped,
       resourceBind,
     });
   } catch {

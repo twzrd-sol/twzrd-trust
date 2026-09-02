@@ -158,6 +158,32 @@ export async function extractSvmPayerFromTransaction(
   }
 }
 
+let svmPeer: Promise<boolean> | undefined;
+/** Whether the optional `@x402/svm` peer resolves (memoized per process). */
+function svmPeerAvailable(): Promise<boolean> {
+  return (svmPeer ??= import("@x402/svm").then(() => true, () => false));
+}
+
+let warnedSvmPeerMissing = false;
+/**
+ * An exact-SVM payload whose payer is unresolved because the optional peer is
+ * not installed is a configuration gap, not a per-payment edge: under
+ * fail-open it silently disables screening for ALL SVM traffic. Name it
+ * distinctly and warn once (W-2026-0902 #3).
+ */
+async function svmShapeWithoutPeer(ctx: SettleGuardContext): Promise<boolean> {
+  const pl = recordOf(recordOf(ctx?.paymentPayload)?.payload);
+  if (typeof pl?.transaction !== "string" || !pl.transaction.trim()) return false;
+  if (await svmPeerAvailable()) return false;
+  if (!warnedSvmPeerMissing) {
+    warnedSvmPeerMissing = true;
+    console.warn(
+      "[twzrd-x402-gate] svm_peer_missing: install optional peer @x402/svm to screen exact-SVM payers; the settle guard cannot screen them until then",
+    );
+  }
+  return true;
+}
+
 async function withTimeout<T>(
   work: Promise<T>,
   timeoutMs: number,
@@ -302,15 +328,19 @@ export function createTwzrdSettleGuard(
     const run = async (): Promise<SettleGuardResult> => {
       payer = (await getPayer(ctx)) ?? null;
       if (!payer) {
+        const peerMissing = await svmShapeWithoutPeer(ctx);
+        const reason = peerMissing ? "twzrd_svm_peer_missing" : "twzrd_payer_unresolved";
         if (!failOpen) {
-          emit(null, true, "twzrd_payer_unresolved_failclosed");
+          emit(null, true, `${reason}_failclosed`);
           return {
             abort: true,
-            reason: "twzrd_payer_unresolved",
-            message: "could not resolve payer wallet for screening",
+            reason,
+            message: peerMissing
+              ? "exact-SVM payer needs optional peer @x402/svm to be screened"
+              : "could not resolve payer wallet for screening",
           };
         }
-        emit(null, false, "twzrd_payer_unresolved");
+        emit(null, false, reason);
         return; // fail-open: cannot screen an unknown payer
       }
 

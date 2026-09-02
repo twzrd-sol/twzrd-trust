@@ -302,6 +302,44 @@ async function run() {
     );
   }
 
+  // 6. W-2026-0902 #2: requireReceipt.hard on an unscored network (Base) must
+  //    not silently continue — no receipt fetch, no abort (observe mode), and
+  //    the decision says why. Fail closed instead with unsupportedNetworkMode.
+  {
+    const { client, fire } = mockClient();
+    let receiptFetches = 0;
+    let last: { approved?: boolean; receiptRequired?: boolean; receiptSkipped?: string } | undefined;
+    installTwzrdX402ClientHook(client, {
+      gateOnCanSpend: false,
+      refuseWashFlagged: false,
+      requireReceipt: true, // minSpendUsdc 10, hard
+      fetch: (async () => {
+        throw new Error("preflight must not run on an unscored network");
+      }) as typeof fetch,
+      x402Fetch: (async () => {
+        receiptFetches += 1;
+        return new Response("{}");
+      }) as typeof fetch,
+      onDecision: (d) => {
+        last = d;
+      },
+    });
+    const result = await fire({
+      selectedRequirements: {
+        payTo: "0x3803A19280DeeFe533D177C4A169412BD341101b",
+        network: "eip155:8453",
+        amount: "11000000", // 11 USDC > minSpendUsdc -> receipt required
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        resource: "https://merchant.example/paid",
+      },
+    });
+    assert.ok(result === undefined || result === null || !("abort" in result && result.abort));
+    assert.equal(receiptFetches, 0, "no Path A fetch on an unscored network");
+    assert.equal(last?.approved, true);
+    assert.equal(last?.receiptRequired, true);
+    assert.equal(last?.receiptSkipped, "unscored_network");
+  }
+
   console.log("x402-client-hook.test.ts: ALL PASSED");
 }
 
