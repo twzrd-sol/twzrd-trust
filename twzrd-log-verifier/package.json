@@ -1,0 +1,55 @@
+{
+  "name": "twzrd-log-verifier",
+  "version": "0.1.0",
+  "description": "Offline verifier for the TWZRD Receipt Transparency log: Merkle inclusion/consistency proofs, Signed Tree Heads, Solana anchors, equivocation detection",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "bin": {
+    "twzrd-log-verifier": "./dist/src/cli.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "prepublishOnly": "npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
+    "directory": "twzrd-log-verifier"
+  },
+  "keywords": [
+    "twzrd",
+    "transparency-log",
+    "merkle",
+    "rfc6962",
+    "x402",
+    "solana",
+    "receipts"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bs58": "^6.0.0",
+    "js-sha3": "^0.9.3",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

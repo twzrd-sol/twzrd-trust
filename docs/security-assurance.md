@@ -69,6 +69,7 @@ A valid receipt proves authorship and cryptographic integrity of the signed fiel
 - An unindexed seller is safe.
 - An off-chain resource delivered the promised data after settlement.
 - Unauthenticated advisory metadata (`recheck_after_unix`, `staleness_days`, `score_decay_model`) is current without comparing the signed `timestamp_unix` against relying-party max age policies.
+- The issuer did not equivocate. Non-equivocation requires the Receipt Transparency log; that log is specified but not yet served by the live API.
 
 ---
 
@@ -76,3 +77,4 @@ A valid receipt proves authorship and cryptographic integrity of the signed fiel
 
 - No completed independent third-party SOC2 or smart contract audit is claimed (TWZRD runs zero smart contracts; all transfers use standard SPL Token).
 - Scoring coverage is focused on observed Solana x402 transactions. Unseen sellers receive conservative default treatment.
+- Receipt transparency (append-only log, signed tree heads, Solana anchoring) is specified with a public reference verifier ([spec](./transparency-log.md), [`twzrd-log-verifier`](../twzrd-log-verifier/)) but is **not yet served by the live API**; until the log endpoints ship, receipts prove authorship and integrity, not non-equivocation.
