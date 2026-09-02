@@ -113,7 +113,8 @@ The bundle joins transcript + decision + optional bind/receipt + ledger
 verdicts + refuse attestation. Secrets are stripped. A self-authored run is
 **not** `EXTERNAL_RUN`. That still requires a foreign operator, a matching
 server-side `X-TWZRD-Integration` / `X-TWZRD-Run-Id`, and the scrub in
-`enrollment_funnel.md`.
+`enrollment_funnel.md`. The full contract, including the limits of the local
+harness, is [`strategy/gate-adoption-operator-proof.md`](strategy/gate-adoption-operator-proof.md).
 
 ## Pricing (document only)
 
