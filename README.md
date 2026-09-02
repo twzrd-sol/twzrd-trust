@@ -1,7 +1,8 @@
 # TWZRD
 
-**Spend control and counterparty trust for agents paying over x402 on Solana (and Base).**  
-Vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Free preflight → optional paid V6 receipt. Not a wallet. Not a payment network.
+**Don't let your agent sign blind.**  
+Spend control and counterparty trust for agents paying over x402 on Solana (and Base).
+Vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Free preflight → optional paid V6 receipt. Not a wallet. Not a payment network. Not Catena's Agent Commerce Kit — the walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (twzrd-trust **1.13.16**) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
 **Spend-control SDK (npm)** • [`twzrd-x402-gate@0.9.3`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.0`](https://www.npmjs.com/package/x402-solana)  
@@ -76,6 +77,20 @@ const client = createX402Client({
 
 ---
 
+## Commerce loop
+
+One path. Install `twzrd-x402-gate@0.9.3`. Free preflight does not enforce; AutoGate on the pay path does.
+
+1. **Install the gate** — `npm i twzrd-x402-gate@0.9.3` then `installTwzrdAutoGate`
+2. **Directory** — `GET /v1/intel/resources` (or `listDirectoryCallables`) — bazaars list; TWZRD sits beside
+3. **Preflight** — free ReadinessCard + merchant_card wash refuse
+4. **Pay only when policy allows** — blocks have `signerInvocations === 0`
+5. **Verify** — bind-v1 / V6 (optional ACK-Pay VC). No second passport format
+6. **Evidence bundle** — `exportEvidenceBundle` / `npx twzrd-evidence-bundle`
+
+Refuse-first demo (0 USDC): `npx tsx twzrd-x402-gate/examples/commerce-kit.ts`  
+Walkthrough: [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
+
 ## Default Protection Sequence
 
 1. **Discover** — `GET /v1/intel/resources` (resource catalog)
@@ -102,6 +117,7 @@ curl -s -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 | `twzrd-receipt-verifier` | **@^1.3.0** | Standalone offline verifier for Ed25519 V6 receipts |
 | `twzrd-mcp-server` | **@0.5.2** | Local spend-capped auto-pay client (6 tools) |
 
+- **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 - **Step-by-step Guide:** [QUICKSTART.md](./QUICKSTART.md)
 - **Concepts & Architecture:** [docs/taxonomy.md](./docs/taxonomy.md)
 - **V6 Receipt Specification:** [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md)

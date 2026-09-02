@@ -164,7 +164,33 @@ export {
   type GateAdoptionAssertions,
   type GateAdoptionLineage,
   type RunGateAdoptionProofOptions,
+  isInternalIntegration,
 } from "./adoption-proof.js";
+export {
+  listResources,
+  listX402Directory,
+  listDirectoryCallables,
+  pickCallable,
+  normalizeDirectoryRow,
+  type DirectoryListing,
+  type DirectorySource,
+  type ListDirectoryOptions,
+} from "./directory.js";
+export {
+  exportEvidenceBundle,
+  exportEvidenceBundleFromAdoptionProof,
+  writeEvidenceBundle,
+  fingerprint,
+  EVIDENCE_BUNDLE_SCHEMA,
+  main as evidenceBundleMain,
+  type EvidenceBundle,
+  type EvidenceDecision,
+  type EvidenceBind,
+  type EvidenceReceipt,
+  type EvidenceLedgerSlice,
+  type EvidenceOutcomeAttestation,
+  type ExportEvidenceBundleOptions,
+} from "./evidence-bundle.js";
 export {
   quickCheck,
   QUICK_PRICE_USDC,

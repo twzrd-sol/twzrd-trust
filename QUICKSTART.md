@@ -1,4 +1,4 @@
-# Quickstart — spend control for an x402 agent in 10 minutes
+# Quickstart — don't let your agent sign blind
 
 TWZRD is the spend-control layer for agents that pay over [x402](https://x402.org)
 on Solana (and Base). One call wraps any paid fetch: it intercepts the 402,
@@ -6,6 +6,10 @@ decides **allow / warn / block** against your policy *before anything is
 signed*, lets **your** wallet sign (TWZRD never holds keys), and binds the
 settled payment to the exact offer it paid for — a receipt any third party can
 verify from public chain data.
+
+The six-step walkthrough (directory → preflight → gated pay → verify → evidence
+bundle) is [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md). Free preflight does
+not enforce; AutoGate on the pay path does.
 
 Every code sample below was executed against the published package and live
 endpoints before this document was committed.

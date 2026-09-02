@@ -44,6 +44,9 @@ const pkg = require("twzrd-x402-gate/package.json");
 assert.equal(typeof gate.twzrd.safeFetch, "function");
 assert.equal(typeof gate.spendControlSafeFetch, "function");
 assert.equal(typeof gate.assertIntentApproved, "function");
+assert.equal(typeof gate.exportEvidenceBundle, "function");
+assert.equal(typeof gate.listDirectoryCallables, "function");
+assert.equal(gate.EVIDENCE_BUNDLE_SCHEMA, "twzrd.evidence_bundle.v1");
 assert.equal(gate.CLIENT_VERSION, pkg.version);
 // Unsafe-grade API lives only behind the /unsafe subpath, never the root.
 assert.equal(gate.unsafeAssertIntentApprovedWithoutSignature, undefined);
