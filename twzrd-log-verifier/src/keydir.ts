@@ -16,8 +16,7 @@
  * equivocation.ts. Two contradictory heads convict the log whether or not the
  * same key signed both.
  */
-import { b58decode } from "./util.js";
-import { PUBKEY_LEN } from "./sth.js";
+import { b58decode, PUBKEY_LEN } from "./util.js";
 
 export const KEY_MODE_SIGN = "sign";
 export const KEY_MODE_VERIFY_ONLY = "verify-only";
