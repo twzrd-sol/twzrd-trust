@@ -186,6 +186,34 @@ test("no key flags falls back to the built-in pin, not to TOFU and not to a conf
   assert.equal(res.code, 1);
 });
 
+test("a pin flag with its value omitted is an argument error, not a silent fallback", async () => {
+  // `--pubkey` with no value still counts as an explicit pin (so it suppresses
+  // --trust-descriptor) while resolving to the built-in key, which would make a
+  // typo read as a successful pin selection.
+  for (const flag of ["--pubkey", "--keys"]) {
+    const res = await runCli(["monitor", "--base-url", baseUrl, "--state", freshState(), flag]);
+    assert.equal(res.code, 1, `${flag} without a value must fail: ${res.out}`);
+    assert.match(res.out, new RegExp(`\\${flag} requires a value`));
+    assert.doesNotMatch(res.out, /status\s+: pinned/, `${flag} must not report a successful pin`);
+  }
+});
+
+test("a pin flag followed by another flag does not swallow it as the value", async () => {
+  const res = await runCli([
+    "monitor",
+    "--base-url",
+    baseUrl,
+    "--state",
+    freshState(),
+    "--pubkey",
+    "--trust-descriptor",
+  ]);
+  assert.equal(res.code, 1, res.out);
+  assert.match(res.out, /--pubkey requires a value/);
+  // It must not quietly become a TOFU run either.
+  assert.doesNotMatch(res.out, /TOFU/);
+});
+
 test("the pin advances across runs using the persisted state file", async () => {
   const state = freshState();
   const first = await runCli(["monitor", "--base-url", baseUrl, "--state", state, "--pubkey", PUBKEY]);

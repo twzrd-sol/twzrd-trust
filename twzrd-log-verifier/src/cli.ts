@@ -79,9 +79,23 @@ function readJson(path: string): unknown {
   return JSON.parse(raw);
 }
 
+/**
+ * Read `--name VALUE`.
+ *
+ * A flag that is present but has no value — end of argv, or immediately
+ * followed by another flag — is an argument error, never a silent fallback.
+ * `--pubkey` with its value omitted would otherwise still count as an explicit
+ * pin (suppressing --trust-descriptor) while quietly resolving to the built-in
+ * key, so a typo would read as a successful pin selection.
+ */
 function getOpt(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
+  if (i < 0) return undefined;
+  const value = args[i + 1];
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`);
+  }
+  return value;
 }
 
 /** Caller-pinned keys: a directory when --keys is given, otherwise a single key. */
@@ -325,6 +339,16 @@ async function cmdMonitor(args: string[]): Promise<number> {
   // source when the caller pinned nothing.
   const useDescriptorKeys = args.includes("--trust-descriptor") && !explicitPin;
 
+  // Resolve the caller's pin before any network work, so a malformed flag fails
+  // as the argument error it is rather than surfacing later as a fetch error.
+  let pinned: string | LogKeyDirectory | undefined;
+  try {
+    pinned = useDescriptorKeys ? undefined : resolveTrusted(args);
+  } catch (e) {
+    console.error((e as Error).message);
+    return 1;
+  }
+
   // Fetched even when we pin our own keys: the descriptor also carries the log's
   // endpoint paths, which need not be the defaults. Its KEYS stay ignored unless
   // useDescriptorKeys — reading a log's routing is not trusting its identity.
@@ -344,7 +368,7 @@ async function cmdMonitor(args: string[]): Promise<number> {
   let tofu = false;
   try {
     const resolution = resolveTrust({
-      trusted: useDescriptorKeys ? undefined : resolveTrusted(args),
+      trusted: pinned,
       descriptor,
       trustDescriptorKeys: useDescriptorKeys,
     });
