@@ -271,11 +271,20 @@ async function run() {
     assert.equal(result, undefined);
   }
 
+  // 10b. pay-kit adapter — returns official-context hook (disabled → proceed)
+  {
+    const hook = installTwzrdAutoGate("pay-kit", { disabled: true });
+    const result = await hook({
+      selectedRequirements: { payTo: SELLER, amount: "1000", network: "solana" },
+    });
+    assert.equal(result, undefined);
+  }
+
   // 11. bad target type
   {
     assert.throws(
       () => installTwzrdAutoGate({} as never),
-      /PayWrap|x402 client|mpp|x402-solana/,
+      /PayWrap|x402 client|mpp|x402-solana|pay-kit/,
     );
   }
 

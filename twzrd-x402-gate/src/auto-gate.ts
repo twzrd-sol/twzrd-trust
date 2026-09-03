@@ -3,11 +3,13 @@
  *
  * Design: docs/strategy/install-autogate-design.md (#1586).
  *
- * One name across four adapters:
+ * One name across five adapters:
  *   1. Fetch / payWrap     — guard raw fetch, then hand to x402 payer
  *   2. x402 client         — onBeforePaymentCreation (@x402/core Path E)
  *   3. x402-solana seat    — beforePayment on createX402Client (PayAI 2.1.0+)
  *   4. MPP                 — onChallenge via createTwzrdMppOnChallenge
+ *   5. PayKit seat         — onBeforeX402PaymentCreation on createPayKitClient
+ *                           (Foundation pay-kit #303; optional / duck-typed)
  *
  * Default ON. Kill switch (any):
  *   TWZRD_AUTO_GATE=0|false
@@ -15,9 +17,9 @@
  *   options.disabled: true
  *
  * Kill-switch timing, which differs by kind and is deliberate:
- *   - The ENV switches are re-read PER CALL on the MPP, x402-solana and
- *     x402-client adapters, so flipping one takes effect on already-installed
- *     hooks. It is a running switch, not only a deploy-time one.
+ *   - The ENV switches are re-read PER CALL on the MPP, x402-solana,
+ *     pay-kit and x402-client adapters, so flipping one takes effect on
+ *     already-installed hooks. It is a running switch, not only a deploy-time one.
  *   - `options.disabled: true` is an install-time opt-out and is permanent for
  *     that install: nothing is constructed and no later env change revives it.
  *   - EXCEPTION, adapter 1: the fetch / payWrap adapter still resolves the
@@ -31,7 +33,9 @@
 import { withTwzrdGuard, type TwzrdGuardOptions } from "./with-guard.js";
 import {
   createTwzrdBeforePaymentHook,
+  createTwzrdPayKitBeforePaymentHook,
   installTwzrdX402ClientHook,
+  type BeforePaymentCreationContext,
   type BeforePaymentCreationResult,
   type InstallX402ClientHookOptions,
   type X402ClientLike,
@@ -159,8 +163,30 @@ export function installTwzrdAutoGate(
   context?: X402SolanaBeforePaymentContext,
 ) => Promise<BeforePaymentCreationResult>;
 
+/**
+ * PayKit seat (Foundation pay-kit #303): returns the official `@x402/core`
+ * `BeforePaymentCreationHook` for `createPayKitClient({
+ *   onBeforeX402PaymentCreation,
+ * })`. Same evaluator as `createTwzrdPayKitBeforePaymentHook`. No hard
+ * dependency on `@solana/pay-kit`.
+ *
+ * @example
+ *   const client = await createPayKitClient({
+ *     accept: ["x402"],
+ *     onBeforeX402PaymentCreation: installTwzrdAutoGate("pay-kit", {
+ *       refuseWashFlagged: true,
+ *     }),
+ *     rpcUrl,
+ *     signer,
+ *   });
+ */
 export function installTwzrdAutoGate(
-  target: PayWrap | X402ClientLike | "mpp" | "x402-solana",
+  adapter: "pay-kit",
+  options?: InstallAutoGateX402Options,
+): (context: BeforePaymentCreationContext) => Promise<BeforePaymentCreationResult>;
+
+export function installTwzrdAutoGate(
+  target: PayWrap | X402ClientLike | "mpp" | "x402-solana" | "pay-kit",
   options?: InstallAutoGateFetchOptions | InstallAutoGateX402Options | InstallAutoGateMppOptions,
 ):
   | typeof fetch
@@ -169,7 +195,8 @@ export function installTwzrdAutoGate(
   | ((
       requirements: X402SelectedRequirements & Record<string, unknown>,
       context?: X402SolanaBeforePaymentContext,
-    ) => Promise<BeforePaymentCreationResult>) {
+    ) => Promise<BeforePaymentCreationResult>)
+  | ((context: BeforePaymentCreationContext) => Promise<BeforePaymentCreationResult>) {
   // ── MPP ──────────────────────────────────────────────────────────────
   if (target === "mpp") {
     const mppOpts = options as InstallAutoGateMppOptions;
@@ -205,6 +232,19 @@ export function installTwzrdAutoGate(
       context?: X402SolanaBeforePaymentContext,
     ): Promise<BeforePaymentCreationResult> =>
       isTwzrdAutoGateDisabled(solOpts) ? undefined : gated(requirements, context);
+  }
+
+  // ── PayKit onBeforeX402PaymentCreation (official @x402/core context) ─
+  if (target === "pay-kit") {
+    const payKitOpts = options as InstallAutoGateX402Options | undefined;
+    if (payKitOpts?.disabled === true) {
+      return async () => undefined;
+    }
+    const gated = createTwzrdPayKitBeforePaymentHook(payKitOpts);
+    return async (
+      context: BeforePaymentCreationContext,
+    ): Promise<BeforePaymentCreationResult> =>
+      isTwzrdAutoGateDisabled(payKitOpts) ? undefined : gated(context);
   }
 
   // ── x402 client ──────────────────────────────────────────────────────
@@ -286,7 +326,7 @@ export function installTwzrdAutoGate(
   }
 
   throw new TypeError(
-    '[twzrd-x402-gate] installTwzrdAutoGate: expected a PayWrap function, an x402 client with onBeforePaymentCreation, or the string "mpp" / "x402-solana"',
+    '[twzrd-x402-gate] installTwzrdAutoGate: expected a PayWrap function, an x402 client with onBeforePaymentCreation, or the string "mpp" / "x402-solana" / "pay-kit"',
   );
 }
 
