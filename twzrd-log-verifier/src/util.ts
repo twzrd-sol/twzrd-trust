@@ -1,5 +1,18 @@
 import bs58 from "bs58";
 
+export const PUBKEY_LEN = 32;
+export const SIGNATURE_LEN = 64;
+
+/** Minimal fetch shape used by the network-touching helpers (client, anchor). */
+export type FetchLike = (
+  input: string,
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+  },
+) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+
 export function hexToBytes(hex: string): Uint8Array {
   const clean = hex.toLowerCase().replace(/^0x/, "");
   if (!/^[0-9a-f]*$/.test(clean) || clean.length % 2 !== 0) {

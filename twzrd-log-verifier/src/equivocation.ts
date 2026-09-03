@@ -2,11 +2,18 @@
  * Equivocation detection: two correctly signed Signed Tree Heads for the same
  * log_id that cannot both describe one append-only log. The two STH JSON
  * envelopes ARE the misbehavior proof — portable, offline-checkable by anyone
- * with the pinned log key.
+ * with the pinned log key or key directory.
+ *
+ * Rotation is not an escape hatch. Two contradictory heads convict the log even
+ * when different key_ids signed them: every key in the pinned directory speaks
+ * for the same log_id, so "a different key of ours signed that one" is an
+ * admission, not a defence. The proof bundle records both key_ids for exactly
+ * this reason.
  */
 import { verifySth, type SignedTreeHead } from "./sth.js";
 import { verifyConsistency } from "./merkle.js";
 import { hexToBytes } from "./util.js";
+import type { LogKeyDirectory } from "./keydir.js";
 
 export interface EquivocationResult {
   /** true when the two STHs are cryptographic proof of log misbehavior */
@@ -14,8 +21,24 @@ export interface EquivocationResult {
   /** why (or why not) */
   reason: string;
   errors: string[];
+  /** whether the two heads were signed by different key_ids (rotation spanned) */
+  cross_key: boolean;
+  /**
+   * Outcome of the supplied consistency proof, as a value callers can branch on
+   * rather than reading `reason`: true = the proof verified, false = it failed
+   * (which is the equivocation), undefined = no proof was supplied or it could
+   * not be decoded. Distinguishing "disproven" from "never evaluated" matters —
+   * a pin must not advance on either, but only one of them convicts the log.
+   */
+  consistency_verified?: boolean;
   /** portable proof bundle when equivocation === true */
-  proof?: { sth_a: SignedTreeHead; sth_b: SignedTreeHead; consistency_path?: string[] };
+  proof?: {
+    sth_a: SignedTreeHead;
+    sth_b: SignedTreeHead;
+    consistency_path?: string[];
+    key_id_a?: string;
+    key_id_b?: string;
+  };
 }
 
 /**
@@ -29,19 +52,26 @@ export interface EquivocationResult {
 export function checkEquivocation(
   sthA: SignedTreeHead,
   sthB: SignedTreeHead,
-  trustedPubkey: string,
+  trusted: string | LogKeyDirectory,
   consistencyPath?: string[],
 ): EquivocationResult {
-  const out: EquivocationResult = { equivocation: false, reason: "", errors: [] };
+  const out: EquivocationResult = {
+    equivocation: false,
+    reason: "",
+    errors: [],
+    cross_key: false,
+  };
 
-  const resA = verifySth(sthA, trustedPubkey);
-  const resB = verifySth(sthB, trustedPubkey);
+  const resA = verifySth(sthA, trusted);
+  const resB = verifySth(sthB, trusted);
   if (!resA.valid) out.errors.push(...resA.errors.map((e) => `sth_a: ${e}`));
   if (!resB.valid) out.errors.push(...resB.errors.map((e) => `sth_b: ${e}`));
   if (!resA.valid || !resB.valid) {
-    out.reason = "one or both STH signatures are invalid — not attributable to the log key";
+    out.reason = "one or both STH signatures are invalid — not attributable to the log";
     return out;
   }
+
+  out.cross_key = Boolean(resA.key_id && resB.key_id && resA.key_id !== resB.key_id);
 
   if (String(sthA.log_id) !== String(sthB.log_id)) {
     out.reason = "different log_id values — heads belong to different logs";
@@ -50,6 +80,13 @@ export function checkEquivocation(
 
   const rootA = String(sthA.root).toLowerCase().replace(/^0x/, "");
   const rootB = String(sthB.root).toLowerCase().replace(/^0x/, "");
+  const bundle = (path?: string[]) => ({
+    sth_a: sthA,
+    sth_b: sthB,
+    ...(path ? { consistency_path: path } : {}),
+    ...(resA.key_id ? { key_id_a: resA.key_id } : {}),
+    ...(resB.key_id ? { key_id_b: resB.key_id } : {}),
+  });
 
   if (Number(sthA.tree_size) === Number(sthB.tree_size)) {
     if (rootA === rootB) {
@@ -57,8 +94,13 @@ export function checkEquivocation(
       return out;
     }
     out.equivocation = true;
-    out.reason = `two valid STHs for log_id ${JSON.stringify(String(sthA.log_id))} at tree_size ${sthA.tree_size} with different roots`;
-    out.proof = { sth_a: sthA, sth_b: sthB };
+    out.reason =
+      `two valid STHs for log_id ${JSON.stringify(String(sthA.log_id))} at tree_size ` +
+      `${sthA.tree_size} with different roots` +
+      (out.cross_key
+        ? ` (signed by different keys, ${resA.key_id} and ${resB.key_id} — both speak for this log, so rotation does not excuse it)`
+        : "");
+    out.proof = bundle();
     return out;
   }
 
@@ -71,19 +113,30 @@ export function checkEquivocation(
       `/v1/log/proof/consistency?old_size=${older.tree_size}&new_size=${newer.tree_size} and re-run`;
     return out;
   }
-  const ok = verifyConsistency(
-    Number(older.tree_size),
-    hexToBytes(older.root),
-    Number(newer.tree_size),
-    hexToBytes(newer.root),
-    consistencyPath.map(hexToBytes),
-  );
+  let ok = false;
+  try {
+    ok = verifyConsistency(
+      Number(older.tree_size),
+      hexToBytes(older.root),
+      Number(newer.tree_size),
+      hexToBytes(newer.root),
+      consistencyPath.map(hexToBytes),
+    );
+  } catch (e) {
+    out.errors.push(`malformed consistency path: ${(e as Error).message}`);
+    out.reason = "consistency path could not be decoded";
+    return out;
+  }
   if (ok) {
+    out.consistency_verified = true;
     out.reason = "consistency proof verifies — the newer head extends the older one";
     return out;
   }
+  out.consistency_verified = false;
   out.equivocation = true;
-  out.reason = `consistency proof between tree_size ${older.tree_size} and ${newer.tree_size} FAILS — the log rewrote history`;
-  out.proof = { sth_a: older, sth_b: newer, consistency_path: consistencyPath };
+  out.reason =
+    `consistency proof between tree_size ${older.tree_size} and ${newer.tree_size} FAILS — ` +
+    "the log rewrote history";
+  out.proof = bundle(consistencyPath);
   return out;
 }

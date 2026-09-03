@@ -8,8 +8,9 @@
  * a malicious RPC can hide an anchor but cannot forge one.
  */
 import { verifySth, type SignedTreeHead } from "./sth.js";
-import { hexToBytes, bytesToHex } from "./util.js";
+import { hexToBytes, bytesToHex, type FetchLike } from "./util.js";
 import { HASH_LEN } from "./merkle.js";
+import type { LogKeyDirectory } from "./keydir.js";
 
 export const ANCHOR_MEMO_PREFIX = "twzrd-log-anchor:v1:";
 export const MEMO_PROGRAM_IDS = new Set([
@@ -74,12 +75,6 @@ export interface FetchedAnchorTx {
   slot: number | null;
   blockTime: number | null;
 }
-
-type FetchLike = (input: string, init?: {
-  method?: string;
-  headers?: Record<string, string>;
-  body?: string;
-}) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 /** Fetch a transaction over plain JSON-RPC and extract memo payloads + signers. */
 export async function fetchAnchorTransaction(
@@ -156,7 +151,8 @@ export interface AnchorVerifyResult {
 export async function verifyAnchor(opts: {
   sth: SignedTreeHead;
   txSignature: string;
-  sthPubkey: string;
+  /** Pinned key, or a pinned key directory when heads carry `key_id`. */
+  sthPubkey: string | LogKeyDirectory;
   anchorAuthority: string;
   rpcUrl?: string;
   fetchImpl?: FetchLike;
