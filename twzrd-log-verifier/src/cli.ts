@@ -324,10 +324,10 @@ async function cmdMonitor(args: string[]): Promise<number> {
   const trustDescriptor = args.includes("--trust-descriptor");
 
   let descriptor: LogDescriptor | undefined;
-  try {
-    descriptor = await fetchLogDescriptor(baseUrl);
-  } catch (e) {
-    if (!explicitPin) {
+  if (trustDescriptor) {
+    try {
+      descriptor = await fetchLogDescriptor(baseUrl);
+    } catch (e) {
       console.error(`could not fetch log descriptor: ${(e as Error).message}`);
       return 1;
     }
@@ -337,7 +337,7 @@ async function cmdMonitor(args: string[]): Promise<number> {
   let tofu = false;
   try {
     const resolution = resolveTrust({
-      trusted: explicitPin ? resolveTrusted(args) : undefined,
+      trusted: trustDescriptor && !explicitPin ? undefined : resolveTrusted(args),
       descriptor,
       trustDescriptorKeys: trustDescriptor,
     });
