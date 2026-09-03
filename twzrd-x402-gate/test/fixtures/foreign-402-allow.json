@@ -1,0 +1,20 @@
+{
+  "_comment": "Spec-shaped x402 v2 PaymentRequired served by the offline fixture origin. Shape derived from @x402/core PaymentRequired (dist/esm/client/index.mjs createPaymentPayload) and @x402/svm ExactSvmScheme (extra.feePayer required; extra.recentBlockhash short-circuits the RPC blockhash lookup). {{ORIGIN}} is replaced with the loopback origin at serve time. Addresses are deterministic 32-byte-fill stand-ins, not real wallets.",
+  "x402Version": 2,
+  "resource": { "url": "{{ORIGIN}}/paid/allow" },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+      "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amount": "1000",
+      "payTo": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+      "maxTimeoutSeconds": 60,
+      "extra": {
+        "feePayer": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+        "recentBlockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+        "lastValidBlockHeight": "100"
+      }
+    }
+  ]
+}

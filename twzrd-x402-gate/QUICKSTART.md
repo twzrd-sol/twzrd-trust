@@ -112,7 +112,7 @@ payWrap as `x402Fetch`.
 
 | Knob | Effect |
 |------|--------|
-| `TWZRD_AUTO_GATE=0` | Kill switch — gate fully off, payments proceed unguarded |
+| `TWZRD_AUTO_GATE=0` | Kill switch — gate fully off, payments proceed unguarded. Read per call on the x402-client / x402-solana / MPP seats; the fetch (payWrap) seat resolves it once when the fetch is composed, in both directions — rebuild the fetch to change it. |
 | `refuseWashFlagged: false` | Stop refusing wash-flagged merchants (default `true`) |
 | `gateOnCanSpend: true` | Opt-in hard cap: also block when `can_spend=false` (default `false`) |
 

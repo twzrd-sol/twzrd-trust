@@ -57,7 +57,7 @@ installTwzrdAutoGate(client, { refuseWashFlagged: true });
 **Intercept proof (0 USDC, wash seller never reaches signer):**
 
 ```bash
-cd packages/twzrd-x402-gate && npm run autogate-block-proof
+cd twzrd-x402-gate && npm run autogate-block-proof   # needs network: live intel preflight
 # writes block-proof-<run_id>.json  (schema twzrd.autogate_block_proof.v1)
 # public reason: TWZRD_TRUST_GATE_BLOCK: wash_flagged
 ```
@@ -468,6 +468,10 @@ Canonical entry point (design: `docs/strategy/install-autogate-design.md`). One 
 
 Aliases: `installTwzrdX402ClientHook`, `createTwzrdMppOnChallenge` remain; docs prefer AutoGate.
 Kill switch: `TWZRD_GATE_ENABLED=false` or `TWZRD_AUTO_GATE=0`. Uninstall x402 installs with `uninstallTwzrdAutoGate(client)`.
+The env switch is read **per call** on the x402-client, x402-solana and MPP seats, so flipping it moves an already-installed
+gate in both directions. The **fetch / payWrap** seat is the exception: it resolves the switch once, when the fetch is composed,
+so a fetch built while the switch was off stays ungated after you clear it — rebuild the fetch. `options.disabled: true` is a
+permanent install-time opt-out everywhere and no env change revives it.
 
 
 `installTwzrdAutoGate` is the one-liner form of "guard the raw fetch, then hand it to your
@@ -802,7 +806,9 @@ Deterministic install→transcript path for operators (no wallet, no USDC):
 npm run adoption-proof -- --integration demo-autogate-proof --run-id 00000000-0000-4000-8000-000000000001
 ```
 
-Emits `twzrd.gate_adoption_transcript.v1` JSON: block path aborts with `signerInvocations: 0`, allow path emits decision, attribution headers stamped on mocked preflight. Full acceptance criteria (what counts as `EXTERNAL_RUN` vs dogfood): monorepo `docs/strategy/gate-adoption-operator-proof.md`.
+Emits `twzrd.gate_adoption_transcript.v1` JSON: block path aborts with `signerInvocations: 0`, allow path emits decision, attribution headers stamped on mocked preflight. Full acceptance criteria (what counts as `EXTERNAL_RUN` vs dogfood), and the
+harness's own limits: [`docs/strategy/gate-adoption-operator-proof.md`](../docs/strategy/gate-adoption-operator-proof.md)
+in this repo — the same path the transcript's `acceptanceDoc` field cites.
 
 ## Run attribution (optional, for integration correlation)
 
@@ -846,8 +852,13 @@ If you're composing `withTwzrdGuard` manually instead, pass the raw (non-paying)
 `POST /v1/intel/preflight` is the **free** `ReadinessCard` for the pre-spend decision.
 The gate path only ever calls free endpoints — the preflight plus, by default
 (`refuseWashFlagged: true`), the free merchant_card wash check. Paid intel
-(`quickCheck`, `autoReceipt`) is opt-in and never runs implicitly; you decide
-whether to proceed before any USDC leaves your wallet.
+(`quickCheck`, `autoReceipt`) is otherwise opt-in, with one documented
+exception (QUICKSTART 3b): on the fetch / payWrap seat, wiring a paying fetch
+auto-enables buyer Path A, so a proceeding `warn` settles the $0.001 quick
+tier ($0.05 at material size) through your wallet with no further flag —
+opt out with `escalateOnWarn: false`, `requireReceipt: false`, or by leaving
+`x402Fetch` unwired. The merchant-facing payment still waits on the free
+preflight's verdict.
 
 ## License
 

@@ -1,4 +1,4 @@
-import type { X402PaymentRequirements } from "./types.js";
+import type { X402PaymentRequiredBody, X402PaymentRequirements } from "./types.js";
 
 /**
  * Pick the best payment requirements from an x402 accepts[] array.
@@ -81,4 +81,37 @@ export function priceUsdcFromAmountMicro(
   const n = Number(amountMicro);
   if (!Number.isFinite(n)) return undefined;
   return n / 1_000_000;
+}
+
+/**
+ * AUDIT FIX: read the 402 challenge the way @x402/core's client does —
+ * `PAYMENT-REQUIRED` header (base64 JSON, x402 v2) FIRST, then a JSON body.
+ * The fetch adapters used to read only the body, so a header-carried
+ * challenge (empty / decoy body) reached the payer unscored.
+ *   - header present but undecodable -> throws (fail closed: the payer may
+ *     still decode it; never hand it over unscored)
+ *   - no header, unparseable body    -> null (caller decides; @x402/fetch
+ *     itself throws "Invalid payment required response" on that shape)
+ */
+export async function paymentRequiredFromResponse(
+  resp: Response,
+): Promise<X402PaymentRequiredBody | null> {
+  const header = resp.headers.get("PAYMENT-REQUIRED");
+  if (header) {
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+    } catch {
+      throw new Error("[twzrd] payment blocked: undecodable PAYMENT-REQUIRED header");
+    }
+    if (!decoded || typeof decoded !== "object") {
+      throw new Error("[twzrd] payment blocked: PAYMENT-REQUIRED header is not an object");
+    }
+    return decoded as X402PaymentRequiredBody;
+  }
+  try {
+    return (await resp.clone().json()) as X402PaymentRequiredBody;
+  } catch {
+    return null;
+  }
 }

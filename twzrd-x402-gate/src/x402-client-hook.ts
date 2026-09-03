@@ -278,8 +278,43 @@ export async function evaluateBeforePaymentCreation(
   );
 
   // Opt-in Payment Control: build the canonical intent and run the policy
-  // runtime, feeding the preflight result in as remote intelligence. Skipped
-  // when payTo/amount are missing — the legacy gate already denies those.
+  // runtime, feeding the preflight result in as remote intelligence.
+  //
+  // KNOWN FAIL-OPEN — the previous note here ("the legacy gate already denies
+  // those") is FALSE for amount and was measured to be so. The legacy gate
+  // denies a missing payTo (policy.ts:148 twzrd_unidentifiable_payment_recipient)
+  // but has NO amount check, so when `amount`/`maxAmountRequired` is missing or
+  // "" the guard below skips and a preflight `allow` proceeds to sign with every
+  // Payment Control ceiling — allowlist, maxAmountUsd, mandate, cumulative and
+  // newCounterparty caps — never evaluated. Worse, the proceed path then emits
+  // onDecision({approved:true}) with `intent` and `decision` undefined, which is
+  // byte-identical to "paymentControl was never configured", so nothing
+  // downstream can tell the operator's caps were bypassed.
+  //
+  // AUDIT FIX: abort with `payment_control_unevaluable` here, matching the
+  // fail-closed precedent in payto.ts. Missing payTo is belt-and-suspenders
+  // (the legacy gate denies it too), but a configured Payment Control must
+  // never fall back to legacy-only handling: with every ceiling unevaluated,
+  // "proceed" is indistinguishable downstream from "never configured".
+  // Regression cases: test/audit-paymentcontrol-unevaluable.test.ts.
+  if (options?.paymentControl && !(payTo && amountMicro)) {
+    const reason = `[twzrd] payment_control_unevaluable: missing ${payTo ? "amount" : "payTo"} payTo=${payTo ?? "unknown"}`;
+    try {
+      options.onDecision?.({
+        approved: false,
+        reason,
+        verdict: String(approval.verdict),
+        payTo,
+        network: approval.network ?? network,
+        amountMicro,
+        reputationScored: approval.reputationScored,
+        policyAction: "block",
+      });
+    } catch {
+      /* telemetry */
+    }
+    return { abort: true, reason };
+  }
   let intent: PaymentIntent | undefined;
   let decision: PaymentDecision | undefined;
   if (options?.paymentControl && payTo && amountMicro) {

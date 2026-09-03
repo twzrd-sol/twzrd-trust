@@ -4,3 +4,10 @@ twzrd-x402-gate/dist/
 *.log
 *.tgz
 .DS_Store
+
+# Proof artifacts written into the operator's checkout by the documented
+# proof commands (autogate-block-proof, twzrd-evidence-bundle --out).
+# Keeping these untracked stops an operator's run metadata from landing in a PR.
+block-proof-*.json
+twzrd-evidence-bundle-*.json
+bundle.json

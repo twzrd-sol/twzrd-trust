@@ -21,8 +21,8 @@
  *
  * Run
  * ---
- *   tsx packages/twzrd-x402-gate/examples/shadow-sweep.ts
- *   tsx packages/twzrd-x402-gate/examples/shadow-sweep.ts <wallet> [<wallet> ...]
+ *   tsx examples/shadow-sweep.ts                        (from the package root)
+ *   tsx examples/shadow-sweep.ts <wallet> [<wallet> ...]
  *
  * Published-package equivalents (what an external integrator imports):
  *   import { twzrdApprovePayment }        from "twzrd-x402-gate";
