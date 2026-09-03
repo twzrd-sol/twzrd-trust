@@ -19,6 +19,11 @@ async function run() {
     "official x402 client detected",
   );
   assert.deepEqual(
+    detectHosts({ dependencies: { "@solana/pay-kit": "^0.9.0" } }).map((h) => h.id),
+    ["pay-kit"],
+    "PayKit detected",
+  );
+  assert.deepEqual(
     detectHosts({ dependencies: { "solana-agent-kit": "^2.0.0" } }).map((h) => h.id),
     ["solana-agent-kit"],
     "SAK detected",
@@ -43,11 +48,17 @@ async function run() {
   assert.equal(both[0], "solana-agent-kit", "SAK ranks before the raw client");
   assert.equal(both.length, 2, "both surfaces reported");
 
+  const payKitAndCore = detectHosts({
+    dependencies: { "@solana/pay-kit": "^0.9", "@x402/core": "^2" },
+  }).map((h) => h.id);
+  assert.equal(payKitAndCore[0], "pay-kit", "PayKit ranks before the raw client");
+
   // Every host entry must be actionable, not a stub.
   for (const h of detectHosts({
     dependencies: {
       "solana-agent-kit": "1",
       "@x402/core": "1",
+      "@solana/pay-kit": "1",
       "@elizaos/core": "1",
       "@goat-sdk/core": "1",
       "x402-fetch": "1",

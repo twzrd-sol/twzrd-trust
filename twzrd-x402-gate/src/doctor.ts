@@ -60,6 +60,29 @@ const agent = new SolanaAgentKit(wallet, rpcUrl, {
       "Until that lands, wrap the wallet yourself with wrapWallet() from that PR.",
   },
   {
+    id: "pay-kit",
+    label: "Solana PayKit (createPayKitClient)",
+    deps: ["@solana/pay-kit"],
+    install: "npm install twzrd-x402-gate @solana/pay-kit",
+    snippet: `import { createPayKitClient } from "@solana/pay-kit";
+import { createTwzrdPayKitBeforePaymentHook } from "twzrd-x402-gate";
+
+// Foundation pay-kit #303: onBeforeX402PaymentCreation is the official
+// @x402/core hook. TWZRD stays in the caller — no branding inside pay-kit.
+const client = await createPayKitClient({
+  accept: ["x402"],
+  onBeforeX402PaymentCreation: createTwzrdPayKitBeforePaymentHook({
+    refuseWashFlagged: true,
+  }),
+  rpcUrl,
+  signer,
+});`,
+    note:
+      "Requires createPayKitClient({ onBeforeX402PaymentCreation }) from " +
+      "solana-foundation/pay-kit#303 (or the twzrd-sol fork). Until that " +
+      "merges, pin the fork or pass the hook once the option ships.",
+  },
+  {
     id: "x402-client",
     label: "official x402 client (@x402/core)",
     deps: ["@x402/core", "@x402/fetch", "@x402/svm"],

@@ -95,6 +95,7 @@ export {
   twzrdBeforePaymentCreation,
   evaluateBeforePaymentCreation,
   createTwzrdBeforePaymentHook,
+  createTwzrdPayKitBeforePaymentHook,
   mapX402SolanaRequirements,
   flattenDeclaredResource,
   resourceUrlFromPaymentRequired,

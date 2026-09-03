@@ -218,6 +218,31 @@ official x402 client receives 402
 
 No AgentCash. No marketplace. No second probe. No TWZRD custody.
 
+### PayKit (`@solana/pay-kit`)
+
+Foundation [pay-kit#303](https://github.com/solana-foundation/pay-kit/pull/303)
+exposes `onBeforeX402PaymentCreation` on `createPayKitClient` and registers it
+on the internal x402Client. Pass TWZRD as that option — no TWZRD branding inside
+pay-kit itself. This package does not hard-depend on unpublished `@solana/pay-kit`.
+
+```typescript
+import { createPayKitClient } from "@solana/pay-kit";
+import { createTwzrdPayKitBeforePaymentHook } from "twzrd-x402-gate";
+
+const client = await createPayKitClient({
+  accept: ["x402"],
+  onBeforeX402PaymentCreation: createTwzrdPayKitBeforePaymentHook({
+    refuseWashFlagged: true,
+  }),
+  rpcUrl,
+  signer,
+});
+```
+
+Equivalent: `onBeforeX402PaymentCreation: installTwzrdAutoGate("pay-kit", { refuseWashFlagged: true })`.
+Same official `@x402/core` context hook as Path E. Abort returns
+`{ abort: true, reason }`; PayKit throws before `signTransactions`.
+
 ### MCP (`@x402/mcp`)
 
 Wire `twzrdOnPaymentRequested` / prefer `onPaymentRequired` + `onBeforePayment` per
@@ -458,17 +483,19 @@ Library: `import { safeFetch } from "twzrd-x402-gate/safe-fetch"`.
 
 ## Quickstart: `installTwzrdAutoGate` (default-on)
 
-Canonical entry point (design: `docs/strategy/install-autogate-design.md`). One name, three adapters:
+Canonical entry point (design: `docs/strategy/install-autogate-design.md`). One name, five adapters:
 
 | Call | Adapter |
 |------|---------|
 | `installTwzrdAutoGate(payWrap, opts?)` | Fetch: guard raw fetch → pay client |
 | `installTwzrdAutoGate(x402Client, opts?)` | Official x402 `onBeforePaymentCreation` |
+| `installTwzrdAutoGate("x402-solana", opts)` | PayAI `beforePayment` on `createX402Client` |
+| `installTwzrdAutoGate("pay-kit", opts)` | PayKit `onBeforeX402PaymentCreation` (Foundation #303) |
 | `installTwzrdAutoGate("mpp", opts)` | MPP `onChallenge` (returns handler) |
 
 Aliases: `installTwzrdX402ClientHook`, `createTwzrdMppOnChallenge` remain; docs prefer AutoGate.
 Kill switch: `TWZRD_GATE_ENABLED=false` or `TWZRD_AUTO_GATE=0`. Uninstall x402 installs with `uninstallTwzrdAutoGate(client)`.
-The env switch is read **per call** on the x402-client, x402-solana and MPP seats, so flipping it moves an already-installed
+The env switch is read **per call** on the x402-client, x402-solana, pay-kit and MPP seats, so flipping it moves an already-installed
 gate in both directions. The **fetch / payWrap** seat is the exception: it resolves the switch once, when the fetch is composed,
 so a fetch built while the switch was off stays ungated after you clear it — rebuild the fetch. `options.disabled: true` is a
 permanent install-time opt-out everywhere and no env change revives it.

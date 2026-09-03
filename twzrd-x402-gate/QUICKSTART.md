@@ -49,6 +49,30 @@ installTwzrdAutoGate(client, { refuseWashFlagged: true });
 // then register schemes + wrapFetchWithPayment as usual
 ```
 
+## 1c. PayKit (`createPayKitClient`) — Foundation #303
+
+PayKit callers pass TWZRD as `onBeforeX402PaymentCreation`. No TWZRD branding
+inside pay-kit itself. The option is on `solana-foundation/pay-kit#303` (and the
+`twzrd-sol` fork); until Foundation merges, use the fork or wait.
+
+```typescript
+import { createPayKitClient } from "@solana/pay-kit";
+import { createTwzrdPayKitBeforePaymentHook } from "twzrd-x402-gate";
+
+const client = await createPayKitClient({
+  accept: ["x402"],
+  onBeforeX402PaymentCreation: createTwzrdPayKitBeforePaymentHook({
+    refuseWashFlagged: true,
+  }),
+  rpcUrl,
+  signer,
+});
+```
+
+Equivalent: `onBeforeX402PaymentCreation: installTwzrdAutoGate("pay-kit", { refuseWashFlagged: true })`.
+The hook is the official `@x402/core` context shape (same evaluator as Path E).
+`@solana/pay-kit` is optional — this package does not hard-depend on it.
+
 ## 2. Prove it blocked something (spends nothing)
 
 ```bash
@@ -112,7 +136,7 @@ payWrap as `x402Fetch`.
 
 | Knob | Effect |
 |------|--------|
-| `TWZRD_AUTO_GATE=0` | Kill switch — gate fully off, payments proceed unguarded. Read per call on the x402-client / x402-solana / MPP seats; the fetch (payWrap) seat resolves it once when the fetch is composed, in both directions — rebuild the fetch to change it. |
+| `TWZRD_AUTO_GATE=0` | Kill switch — gate fully off, payments proceed unguarded. Read per call on the x402-client / x402-solana / pay-kit / MPP seats; the fetch (payWrap) seat resolves it once when the fetch is composed, in both directions — rebuild the fetch to change it. |
 | `refuseWashFlagged: false` | Stop refusing wash-flagged merchants (default `true`) |
 | `gateOnCanSpend: true` | Opt-in hard cap: also block when `can_spend=false` (default `false`) |
 

@@ -601,18 +601,50 @@ export async function evaluateBeforePaymentCreation(
  * await fetchWithPayment("https://merchant.example/paid");
  * ```
  */
+/**
+ * Official `@x402/core` `BeforePaymentCreationHook` for PayKit callers.
+ *
+ * Solana Foundation pay-kit PR #303 adds
+ * `createPayKitClient({ onBeforeX402PaymentCreation })` and registers that
+ * option on the internal x402Client via `onBeforePaymentCreation`. Pass this
+ * factory's return value — same shared evaluator as
+ * `twzrdBeforePaymentCreation` / `installTwzrdX402ClientHook`. No TWZRD
+ * branding belongs inside pay-kit itself.
+ *
+ * Duck-typed: no runtime dependency on `@solana/pay-kit`.
+ *
+ * @example
+ * ```ts
+ * import { createPayKitClient } from "@solana/pay-kit";
+ * import { createTwzrdPayKitBeforePaymentHook } from "twzrd-x402-gate";
+ *
+ * const client = await createPayKitClient({
+ *   accept: ["x402"],
+ *   onBeforeX402PaymentCreation: createTwzrdPayKitBeforePaymentHook({
+ *     refuseWashFlagged: true,
+ *   }),
+ *   rpcUrl,
+ *   signer,
+ * });
+ * ```
+ *
+ * Alias via AutoGate: `installTwzrdAutoGate("pay-kit", opts)`.
+ */
+export function createTwzrdPayKitBeforePaymentHook(
+  options?: InstallX402ClientHookOptions,
+): (context: BeforePaymentCreationContext) => Promise<BeforePaymentCreationResult> {
+  const pcSigner = resolvePaymentControlSigner(options?.paymentControl);
+  return (context) =>
+    evaluateBeforePaymentCreation(pickReq(context), options, pcSigner, context.paymentRequired);
+}
+
 export function installTwzrdX402ClientHook(
   client: X402ClientLike,
   options?: InstallX402ClientHookOptions,
 ): X402ClientLike {
   // Resolve Payment Control signer once at install (fail fast). Body is ONLY
   // the shared evaluator — never inline a second preflight/PC path here.
-  const pcSigner = resolvePaymentControlSigner(options?.paymentControl);
-
-  client.onBeforePaymentCreation((context) =>
-    evaluateBeforePaymentCreation(pickReq(context), options, pcSigner, context.paymentRequired),
-  );
-
+  client.onBeforePaymentCreation(createTwzrdPayKitBeforePaymentHook(options));
   return client;
 }
 
