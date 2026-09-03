@@ -321,13 +321,20 @@ async function cmdMonitor(args: string[]): Promise<number> {
     return 1;
   }
   const explicitPin = args.includes("--keys") || args.includes("--pubkey");
-  const trustDescriptor = args.includes("--trust-descriptor");
+  // An explicit pin always wins, so --trust-descriptor only selects the key
+  // source when the caller pinned nothing.
+  const useDescriptorKeys = args.includes("--trust-descriptor") && !explicitPin;
 
+  // Fetched even when we pin our own keys: the descriptor also carries the log's
+  // endpoint paths, which need not be the defaults. Its KEYS stay ignored unless
+  // useDescriptorKeys — reading a log's routing is not trusting its identity.
   let descriptor: LogDescriptor | undefined;
-  if (trustDescriptor) {
-    try {
-      descriptor = await fetchLogDescriptor(baseUrl);
-    } catch (e) {
+  try {
+    descriptor = await fetchLogDescriptor(baseUrl);
+  } catch (e) {
+    // Only fatal when the descriptor is the key source; otherwise the spec's
+    // default endpoint paths are enough to keep going.
+    if (useDescriptorKeys) {
       console.error(`could not fetch log descriptor: ${(e as Error).message}`);
       return 1;
     }
@@ -337,9 +344,9 @@ async function cmdMonitor(args: string[]): Promise<number> {
   let tofu = false;
   try {
     const resolution = resolveTrust({
-      trusted: trustDescriptor && !explicitPin ? undefined : resolveTrusted(args),
+      trusted: useDescriptorKeys ? undefined : resolveTrusted(args),
       descriptor,
-      trustDescriptorKeys: trustDescriptor,
+      trustDescriptorKeys: useDescriptorKeys,
     });
     trusted = resolution.trusted;
     tofu = resolution.tofu;
