@@ -57,6 +57,8 @@ export { hexToBytes, bytesToHex, b58decode, b58encode } from "./util.js";
  * the same paranoid out-of-band pinning model twzrd-receipt-verifier uses for
  * the cNFT genesis authority. Override with --pubkey / explicit argument.
  */
-export const DEFAULT_STH_PUBKEY = "9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf";
+// The current issuer key (key_id twzrd-receipt-ed25519-v2). The v1 key was
+// retired 2026-09-02 and is verify-only, so it can never sign an STH.
+export const DEFAULT_STH_PUBKEY = "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS";
 export const DEFAULT_LOG_DESCRIPTOR_URL =
   "https://intel.twzrd.xyz/.well-known/twzrd-log";

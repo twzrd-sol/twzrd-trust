@@ -50,7 +50,7 @@ check needs any Solana RPC endpoint — the RPC is a data source only and cannot
 forge a signer or a memo binding.
 
 The STH signing key defaults to the pinned built-in
-(`9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf`, the receipt issuer key, also
+(`Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`, the receipt issuer key, also
 published at `intel.twzrd.xyz/.well-known/twzrd-receipt-pubkey`). Override with
 `--pubkey` for out-of-band pinning.
 
