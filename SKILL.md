@@ -419,7 +419,7 @@ Save `twzrd_receipt` to `receipt.json`, then either:
 
 ```bash
 # A) published CLI (offline crypto) — floor pin so npm publish does not stale the skill
-npx 'twzrd-receipt-verifier@^1.3.0' receipt.json --pubkey 9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf
+npx 'twzrd-receipt-verifier@^1.3.0' receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
 
 # B) server verify endpoint (optional; recompute+sig check)
 curl -s -X POST https://intel.twzrd.xyz/v1/receipts/verify \
@@ -428,8 +428,13 @@ curl -s -X POST https://intel.twzrd.xyz/v1/receipts/verify \
 ```
 
 Signing key (also in `/.well-known/twzrd-receipt-pubkey`, JWKS, `/.well-known/x402`):
-`9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf`. A receipt that fails signature
-verification is not a TWZRD receipt.
+`Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS` (`key_id` `twzrd-receipt-ed25519-v2`). A receipt that
+fails signature verification against the **current** issuer key is not a TWZRD receipt.
+Receipts issued before the 2026-09-02 key rotation carry `key_id`
+`twzrd-receipt-ed25519-v1` and verify only against the retired key
+`9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf`, which is **verify-only and must never sign
+again**. Always read the live key from `/.well-known/twzrd-receipt-pubkey` rather than
+hardcoding one; `legacy_verification` there lists the retired keys.
 
 **Ordered one-liner for agents:** free `merchant_card` (refuse wash) -> pay
 `GET /v1/intel/merchant/{pay_to}` -> offline `verify_receipt` (CLI and/or
@@ -449,7 +454,7 @@ Same tools as step 3 above — works for merchant track-record receipts **and** 
 `/v1/intel/trust` receipts:
 
 ```bash
-npx 'twzrd-receipt-verifier@^1.3.0' receipt.json --pubkey 9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf
+npx 'twzrd-receipt-verifier@^1.3.0' receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
 # npm only. PyPI stops at 1.2.4, so `pip install 'twzrd-receipt-verifier>=1.3.0'`
 # cannot resolve, and plain `pip install twzrd-receipt-verifier` gives you 1.2.4 -
 # which predates the >=1.3 hardening this floor exists to guarantee.

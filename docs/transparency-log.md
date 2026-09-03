@@ -102,7 +102,7 @@ Rules:
   existing one.
 - `tree_size` is monotone non-decreasing across STHs for a `log_id`.
 - v0.1 signs with the existing receipt issuer key
-  (`9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf`, published at
+  (`Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`, published at
   `/.well-known/twzrd-receipt-pubkey`). Key-registry work (rotation, on-chain key
   publication, threshold signing) is tracked separately and changes only *where the
   key comes from*, not this format.
@@ -137,7 +137,7 @@ Served at `https://intel.twzrd.xyz/.well-known/twzrd-log`:
 {
   "version": 1,
   "log_id": "intel.twzrd.xyz/v6",
-  "sth_pubkey": "9V6Pn19kiUA5Rn6JpQfNduanvGt2aXGwsarosNfa2Ldf",
+  "sth_pubkey": "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS",
   "anchor_authority": "<base58 pubkey>",
   "anchor_memo_prefix": "twzrd-log-anchor:v1:",
   "anchor_cadence_seconds": 3600,
