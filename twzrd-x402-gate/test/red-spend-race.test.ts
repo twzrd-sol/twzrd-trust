@@ -162,10 +162,9 @@ async function run() {
       "DEFECT: the ledger under-reports actual signed spend by exactly one settle");
   }
 
-  /* ---------- 4d. DEFECT #12 (medium): budget is consumed with no payer wired ---------- */
-  // `if (signerInvocations > 0 || !opts.pay)` books the spend even when no `pay`
-  // callback exists, so a decision-only probe burns real budget headroom.
-  // SHOULD BE: nothing recorded when nothing was paid.
+  /* ---------- 4d. FIXED on main (#61): no payer wired → no budget consumed ---------- */
+  // Pre-#61: `if (signerInvocations > 0 || !opts.pay)` booked spend on a
+  // decision-only probe. #61 records only after an actual signer invocation.
   {
     const ledger = createMemorySpendLedger();
     const r = await twzrd.safeFetch(RES, {
@@ -173,8 +172,8 @@ async function run() {
     });
     assert.equal(r.verdict, "allow");
     assert.equal(r.signerInvocations, 0, "no payer wired, so nothing was signed");
-    assert.equal(ledger.spentMicro("agent:a1", YEAR, Date.now()), 1_000_000n,
-      "DEFECT: 1.00 USDC of budget consumed by a probe that paid nothing");
+    assert.equal(ledger.spentMicro("agent:a1", YEAR, Date.now()), 0n,
+      "a probe that paid nothing must not consume cumulative budget");
   }
 
   /* ---------- 4e. a blocked payment never books spend (correct, locked in) ---------- */
@@ -191,7 +190,7 @@ async function run() {
     assert.equal(ledger.spentMicro("agent:a1", YEAR, Date.now()), 0n, "refuse books no spend");
   }
 
-  console.log("red-spend-race.test.ts: ALL PASSED (4 DEFECTS encoded — see DEFECT: comments)");
+  console.log("red-spend-race.test.ts: ALL PASSED (1 remaining DEFECT encoded — thrown-settle un-book)");
 }
 
 run().catch((e) => {
