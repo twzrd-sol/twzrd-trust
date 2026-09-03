@@ -584,24 +584,6 @@ export async function evaluateBeforePaymentCreation(
 }
 
 /**
- * Install TWZRD as the default onBeforePaymentCreation policy engine.
- *
- * @example
- * ```ts
- * import { x402Client } from "@x402/core/client";
- * import { wrapFetchWithPayment } from "@x402/fetch";
- * import { ExactSvmScheme } from "@x402/svm/exact/client";
- * import { installTwzrdX402ClientHook } from "twzrd-x402-gate";
- *
- * const client = new x402Client();
- * client.register("solana:*", new ExactSvmScheme(svmSigner));
- * installTwzrdX402ClientHook(client, { gateOnCanSpend: true });
- *
- * const fetchWithPayment = wrapFetchWithPayment(fetch, client);
- * await fetchWithPayment("https://merchant.example/paid");
- * ```
- */
-/**
  * Official `@x402/core` `BeforePaymentCreationHook` for PayKit callers.
  *
  * Solana Foundation pay-kit PR #303 adds
@@ -638,6 +620,24 @@ export function createTwzrdPayKitBeforePaymentHook(
     evaluateBeforePaymentCreation(pickReq(context), options, pcSigner, context.paymentRequired);
 }
 
+/**
+ * Install TWZRD as the default onBeforePaymentCreation policy engine.
+ *
+ * @example
+ * ```ts
+ * import { x402Client } from "@x402/core/client";
+ * import { wrapFetchWithPayment } from "@x402/fetch";
+ * import { ExactSvmScheme } from "@x402/svm/exact/client";
+ * import { installTwzrdX402ClientHook } from "twzrd-x402-gate";
+ *
+ * const client = new x402Client();
+ * client.register("solana:*", new ExactSvmScheme(svmSigner));
+ * installTwzrdX402ClientHook(client, { gateOnCanSpend: true });
+ *
+ * const fetchWithPayment = wrapFetchWithPayment(fetch, client);
+ * await fetchWithPayment("https://merchant.example/paid");
+ * ```
+ */
 export function installTwzrdX402ClientHook(
   client: X402ClientLike,
   options?: InstallX402ClientHookOptions,

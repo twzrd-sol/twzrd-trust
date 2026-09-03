@@ -251,8 +251,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     line("Nothing to gate yet — this is not an error.");
     line();
     line("The gate is useful once something here signs a Solana USDC payment.");
-    line("Surfaces it recognises: @x402/core, solana-agent-kit, @elizaos/core,");
-    line("@goat-sdk/core, x402-fetch.");
+    line("Surfaces it recognises: @x402/core, @solana/pay-kit, solana-agent-kit,");
+    line("@elizaos/core, @goat-sdk/core, x402-fetch.");
     return 2;
   }
 

@@ -72,6 +72,9 @@ const client = await createPayKitClient({
 Equivalent: `onBeforeX402PaymentCreation: installTwzrdAutoGate("pay-kit", { refuseWashFlagged: true })`.
 The hook is the official `@x402/core` context shape (same evaluator as Path E).
 `@solana/pay-kit` is optional — this package does not hard-depend on it.
+The factory itself does not read `TWZRD_AUTO_GATE`; use the AutoGate seat if you
+want the env kill switch re-read per call. You cannot `installTwzrdAutoGate(client)`
+after `createPayKitClient` — PayKit only accepts the hook at construction.
 
 ## 2. Prove it blocked something (spends nothing)
 
@@ -84,6 +87,9 @@ npm run x402-solana-before-payment-proof
 
 # @x402/core Path E proof (onBeforePaymentCreation)
 npm run autogate-block-proof
+
+# PayKit seat (fake createPayKitClient — no unpublished @solana/pay-kit)
+npm run pay-kit-before-payment
 ```
 
 That JSON is your receipt: a bad merchant intercepted with 0 USDC at risk.
