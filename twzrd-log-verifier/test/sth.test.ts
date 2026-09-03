@@ -47,7 +47,7 @@ test("wrong pinned key and mismatched embedded key are rejected", () => {
   // embedded signing_pubkey must equal the pinned key exactly
   const res = verifySth({ ...sth, signing_pubkey: other }, pub);
   assert.ok(!res.valid);
-  assert.match(res.errors[0], /!= trusted pinned key/);
+  assert.match(res.errors[0], /!= trusted key/);
 });
 
 test("malformed fields error instead of verifying", () => {

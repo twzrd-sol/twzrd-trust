@@ -25,6 +25,10 @@ export {
 } from "./merkle.js";
 export {
   STH_DOMAIN,
+  STH_DOMAIN_V1,
+  STH_DOMAIN_V2,
+  CURRENT_STH_DOMAIN,
+  KNOWN_STH_DOMAINS,
   PUBKEY_LEN,
   SIGNATURE_LEN,
   MAX_LOG_ID_UTF8,
@@ -35,6 +39,46 @@ export {
   type SignedTreeHead,
   type SthVerifyResult,
 } from "./sth.js";
+export {
+  KEY_MODE_SIGN,
+  KEY_MODE_VERIFY_ONLY,
+  MAX_KEY_ID_UTF8,
+  validateLogKeyDirectory,
+  keyCoversTimestamp,
+  resolveLogKey,
+  currentSigningKey,
+  isLogKeyDirectory,
+  type LogKeyEntry,
+  type LogKeyDirectory,
+  type LogKeyMode,
+  type KeyResolution,
+} from "./keydir.js";
+export {
+  LOG_DESCRIPTOR_PATH,
+  DEFAULT_ENDPOINTS,
+  fetchLogDescriptor,
+  keyDirectoryFromDescriptor,
+  resolveTrust,
+  fetchSth,
+  fetchInclusionProof,
+  fetchConsistencyProof,
+  extractReceiptLeaf,
+  verifyReceiptInLog,
+  verifyHeadsConsistent,
+  type LogDescriptor,
+  type InclusionProofResponse,
+  type ReceiptInLogResult,
+  type TrustResolution,
+} from "./client.js";
+export {
+  createSthPinStore,
+  type SthPinStore,
+  type SthPinStoreOptions,
+  type PinnedHead,
+  type PinStatus,
+  type ObserveResult,
+  type ConsistencyFetcher,
+} from "./pinning.js";
 export {
   ANCHOR_MEMO_PREFIX,
   MEMO_PROGRAM_IDS,
@@ -49,7 +93,7 @@ export {
   type FetchedAnchorTx,
 } from "./anchor.js";
 export { checkEquivocation, type EquivocationResult } from "./equivocation.js";
-export { hexToBytes, bytesToHex, b58decode, b58encode } from "./util.js";
+export { hexToBytes, bytesToHex, b58decode, b58encode, type FetchLike } from "./util.js";
 
 /**
  * v0.1 pins: the STH signing key is the existing receipt issuer key (also at

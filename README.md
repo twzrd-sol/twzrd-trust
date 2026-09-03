@@ -116,7 +116,7 @@ curl -s -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 | `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.3.0** | Standalone offline verifier for Ed25519 V6 receipts |
 | `twzrd-mcp-server` | **@0.5.2** | Local spend-capped auto-pay client (6 tools) |
-| `twzrd-log-verifier` | local `0.1.0` | Offline Receipt Transparency log verifier ([spec](./docs/transparency-log.md)) |
+| `twzrd-log-verifier` | local `0.2.0` | Offline Receipt Transparency log verifier — inclusion/consistency proofs, key rotation, split-view pinning ([spec](./docs/transparency-log.md)) |
 
 - **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 - **Step-by-step Guide:** [QUICKSTART.md](./QUICKSTART.md)
