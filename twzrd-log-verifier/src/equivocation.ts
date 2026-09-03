@@ -23,6 +23,14 @@ export interface EquivocationResult {
   errors: string[];
   /** whether the two heads were signed by different key_ids (rotation spanned) */
   cross_key: boolean;
+  /**
+   * Outcome of the supplied consistency proof, as a value callers can branch on
+   * rather than reading `reason`: true = the proof verified, false = it failed
+   * (which is the equivocation), undefined = no proof was supplied or it could
+   * not be decoded. Distinguishing "disproven" from "never evaluated" matters —
+   * a pin must not advance on either, but only one of them convicts the log.
+   */
+  consistency_verified?: boolean;
   /** portable proof bundle when equivocation === true */
   proof?: {
     sth_a: SignedTreeHead;
@@ -120,9 +128,11 @@ export function checkEquivocation(
     return out;
   }
   if (ok) {
+    out.consistency_verified = true;
     out.reason = "consistency proof verifies — the newer head extends the older one";
     return out;
   }
+  out.consistency_verified = false;
   out.equivocation = true;
   out.reason =
     `consistency proof between tree_size ${older.tree_size} and ${newer.tree_size} FAILS — ` +

@@ -192,7 +192,7 @@ export function createSthPinStore(opts: SthPinStoreOptions): SthPinStore {
           consistency_path: path,
         };
       }
-      if (!equivocation.reason.includes("verifies")) {
+      if (equivocation.consistency_verified !== true) {
         // Proof neither verified nor convicted (malformed path, decode failure).
         return {
           status: "error",
