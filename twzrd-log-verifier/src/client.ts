@@ -45,6 +45,19 @@ export interface InclusionProofResponse {
   sth?: SignedTreeHead;
 }
 
+/**
+ * The `log_inclusion` block a paid response carries once its leaf is merged:
+ * the proof plus the signed head it targets, so a buyer verifies offline.
+ * Served alongside `twzrd_receipt`; `anchor` is null until the head is anchored.
+ */
+export interface LogInclusionBlock extends InclusionProofResponse {
+  log_id?: string;
+  leaf?: string;
+  sth: SignedTreeHead;
+  anchor?: { cluster?: string; tx_signature: string; slot?: number } | null;
+  verify?: string;
+}
+
 function joinUrl(baseUrl: string, path: string): string {
   return baseUrl.replace(/\/+$/, "") + (path.startsWith("/") ? path : `/${path}`);
 }
@@ -266,11 +279,73 @@ export async function verifyReceiptInLog(opts: {
       return out;
     }
   }
-  out.sth = sth;
-  out.leaf_index = Number(proof.leaf_index);
-  out.tree_size = Number(proof.tree_size ?? sth.tree_size);
+  // Same check a buyer runs on the block a paid response carries: one code path.
+  return { ...verifyLogInclusion({ ...proof, sth }, trust.trusted, { leaf }), tofu: trust.tofu };
+}
 
-  const sthRes = verifySth(sth, trust.trusted);
+function normLeaf(v: unknown): string {
+  return String(v ?? "").toLowerCase().replace(/^0x/, "");
+}
+
+/**
+ * Offline: verify the `log_inclusion` block a paid response already carries —
+ * no round-trip to the log, nothing to trust but the pinned key. `doc` may be
+ * the whole paid response (`{ twzrd_receipt, log_inclusion }`), a bare block,
+ * or a bare proof with `opts.leaf`. Every leaf named — the receipt's, the
+ * block's, the caller's — must agree: a proof for some other leaf, attached to
+ * your receipt, proves nothing about it. Same result shape as
+ * `verifyReceiptInLog`, minus the fetch.
+ */
+export function verifyLogInclusion(
+  doc: unknown,
+  trusted: string | LogKeyDirectory,
+  opts: { leaf?: string } = {},
+): ReceiptInLogResult {
+  const top = (doc && typeof doc === "object" ? doc : {}) as Record<string, unknown>;
+  const inner = top.log_inclusion;
+  const block = (inner && typeof inner === "object" ? inner : top) as Partial<LogInclusionBlock>;
+  const receipt = top.twzrd_receipt as Record<string, unknown> | undefined;
+  const named = [
+    opts.leaf !== undefined ? normLeaf(opts.leaf) : undefined,
+    receipt && typeof receipt === "object" && receipt.leaf ? normLeaf(receipt.leaf) : undefined,
+    block.leaf ? normLeaf(block.leaf) : undefined,
+  ].filter((l): l is string => l !== undefined);
+  const distinct = [...new Set(named)];
+  const out: ReceiptInLogResult = {
+    valid: false,
+    errors: [],
+    leaf: distinct[0] ?? "",
+    tofu: false,
+    sth_valid: false,
+    inclusion_valid: false,
+  };
+  if (distinct.length === 0) {
+    out.errors.push("no leaf: pass opts.leaf or a document that names one (twzrd_receipt.leaf / log_inclusion.leaf)");
+    return out;
+  }
+  if (distinct.length > 1) {
+    out.errors.push(`leaf mismatch: ${distinct.map((l) => `0x${l}`).join(" != ")} — this proof is for a different leaf`);
+    return out;
+  }
+  const leaf = distinct[0];
+  if (!/^[0-9a-f]{64}$/.test(leaf)) {
+    out.errors.push("leaf must be 64 hex chars");
+    return out;
+  }
+  const sth = block.sth;
+  if (!sth || typeof sth !== "object") {
+    out.errors.push("no sth: the block must carry the signed head its proof targets");
+    return out;
+  }
+  out.sth = sth;
+  out.leaf_index = Number(block.leaf_index);
+  out.tree_size = Number(block.tree_size ?? sth.tree_size);
+  if (!Number.isInteger(out.leaf_index) || out.leaf_index < 0) {
+    out.errors.push("leaf_index must be a non-negative integer");
+    return out;
+  }
+
+  const sthRes = verifySth(sth, trusted);
   out.sth_valid = sthRes.valid;
   out.key_id = sthRes.key_id;
   if (!sthRes.valid) out.errors.push(...sthRes.errors.map((e) => `sth: ${e}`));
@@ -288,7 +363,7 @@ export async function verifyReceiptInLog(opts: {
       hexToBytes(leaf),
       out.leaf_index,
       out.tree_size,
-      (proof.audit_path || []).map((h) => hexToBytes(String(h))),
+      (block.audit_path || []).map((h) => hexToBytes(String(h))),
       hexToBytes(String(sth.root)),
     );
   } catch (e) {
