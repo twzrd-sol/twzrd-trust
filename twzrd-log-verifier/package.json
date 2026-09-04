@@ -1,6 +1,6 @@
 {
   "name": "twzrd-log-verifier",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Offline verifier for the TWZRD Receipt Transparency log: Merkle inclusion/consistency proofs, Signed Tree Heads with key rotation, Solana anchors, split-view pinning, equivocation detection",
   "license": "MIT",
   "type": "module",
