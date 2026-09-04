@@ -213,6 +213,7 @@ test("verifyReceiptInLog: a leaf that is not in the log fails", async () => {
     fetchImpl: mockServer(),
   });
   assert.ok(!res.valid);
+  assert.equal(res.not_yet_merged, undefined, "a bad proof is a failure, not a pending merge");
 });
 
 test("verifyReceiptInLog: a not-yet-merged leaf reports the 404, not misbehavior", async () => {
@@ -229,6 +230,24 @@ test("verifyReceiptInLog: a not-yet-merged leaf reports the 404, not misbehavior
   });
   assert.ok(!res.valid);
   assert.match(res.errors.join(" "), /inclusion proof:.*404/);
+  assert.equal(res.not_yet_merged, true, "a 404 is reported as a structured pending state");
+});
+
+test("verifyReceiptInLog: a non-404 fetch failure is not reported as pending", async () => {
+  const res = await verifyReceiptInLog({
+    baseUrl: BASE,
+    leaf: bytesToHex(entries[12]),
+    trusted: pinnedDir,
+    fetchImpl: async (url: string) => {
+      if (url.endsWith("/.well-known/twzrd-log")) {
+        return { ok: true, status: 200, json: async () => descriptor };
+      }
+      return { ok: false, status: 503, json: async () => ({}) };
+    },
+  });
+  assert.ok(!res.valid);
+  assert.equal(res.not_yet_merged, undefined, "503 is an outage, not a merge delay");
+  assert.match(res.errors.join(" "), /HTTP 503/);
 });
 
 test("verifyReceiptInLog: refuses to run with no pin and no TOFU opt-in", async () => {

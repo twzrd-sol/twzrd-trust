@@ -29,23 +29,33 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
+> **Not yet published to npm.** Run it from this repo until it is:
+>
+> ```bash
+> npm --prefix twzrd-log-verifier install && npm --prefix twzrd-log-verifier run build
+> alias twzrd-log-verifier='node "$PWD/twzrd-log-verifier/dist/src/cli.js"'
+> ```
+>
+> Every line below assumes that alias. `npx -y twzrd-log-verifier …` will work
+> once the package is on the registry; it does not resolve today.
+
 ```bash
-npx -y twzrd-log-verifier selftest   # prove the checker checks (no files, no network)
+twzrd-log-verifier selftest   # prove the checker checks (no files, no network)
 
 # Is my paid receipt in the log the current signed head commits to?
-npx -y twzrd-log-verifier inclusion --receipt receipt.json --proof proof.json --sth sth.json
+twzrd-log-verifier inclusion --receipt receipt.json --proof proof.json --sth sth.json
 
 # Did the log only append between two heads I saw at different times?
-npx -y twzrd-log-verifier consistency --old sth-old.json --new sth-new.json --proof proof.json
+twzrd-log-verifier consistency --old sth-old.json --new sth-new.json --proof proof.json
 
 # Was this head anchored on Solana by the published authority?
-npx -y twzrd-log-verifier anchor --sth sth.json --tx <tx-signature> --authority <b58> [--rpc <url>]
+twzrd-log-verifier anchor --sth sth.json --tx <tx-signature> --authority <b58> [--rpc <url>]
 
 # Do two heads contradict each other? (a positive result is publishable proof)
-npx -y twzrd-log-verifier equivocation --a sth-a.json --b sth-b.json [--proof consistency.json]
+twzrd-log-verifier equivocation --a sth-a.json --b sth-b.json [--proof consistency.json]
 
 # Watch a live log: prove it only appended since the head you last pinned.
-npx -y twzrd-log-verifier monitor --base-url https://intel.twzrd.xyz --state ./pin.json
+twzrd-log-verifier monitor --base-url https://intel.twzrd.xyz --state ./pin.json
 ```
 
 `monitor` is the split-view detector. It fetches the log's current head, demands

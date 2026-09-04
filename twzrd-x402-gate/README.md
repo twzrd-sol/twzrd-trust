@@ -553,6 +553,38 @@ represented as a TWZRD trust `allow`. Set `TWZRD_UNSUPPORTED_NETWORK_MODE=strict
 only** — on an unscored network there is no receipt to buy, so the decision carries
 `receiptSkipped: "unscored_network"` and continues. Use `strict` mode to fail closed there.
 
+`requireLogInclusion` sits one step further: a captured Path A receipt does not **count** as
+trust until its leaf is proven included in the Receipt Transparency log under a key you
+pinned ([spec](../docs/transparency-log.md)). A valid signature proves authorship and
+integrity; only the log proves the issuer showed everyone the same answer. The gate takes no
+dependency on the log verifier — you wire it, and `verifyReceiptInLog`'s result fits the
+verdict shape with no adapter:
+
+```typescript
+import { verifyReceiptInLog } from "twzrd-log-verifier"; // not yet on npm — see its README
+
+await evaluate_x402_resource(url, requirements, {
+  requireReceipt: true,
+  x402Fetch,
+  requireLogInclusion: {
+    verifier: (receipt) =>
+      verifyReceiptInLog({ baseUrl: "https://intel.twzrd.xyz", receipt, trusted: pinnedKeyDirectory }),
+    // hard: true         — an unproven receipt denies spend (default)
+    // onPending: "deny"  — a leaf not merged yet is unprovable at pay time; "allow"
+    //                      tolerates the one-anchor-period merge window (default "deny")
+    // refuseTofu: true   — never accept keys the log advertised about itself (default)
+  },
+});
+```
+
+The receipt is returned either way (`result.receipt`) — you paid for it. What changes is
+`approved`: a denial sets `logInclusionDenied: true`, `policyAction: "block"`, and a reason of
+`twzrd_log_inclusion_failed | _pending | _tofu_refused | _error`; `result.logInclusion` carries
+the verdict (`key_id`, `leaf_index`, `tree_size`, `pending`, `tofu`). A verifier that throws
+denies under `hard` — a broken or unreachable verifier must not wave receipts through. **Until
+the live API serves `/v1/log/*`, every receipt reports `pending`**, so leave this off in
+production or set `onPending: "allow"` knowingly.
+
 Dual-chain accepts still prefer the Solana entry for scoring (same as payment clients that
 prefer Solana when available).
 

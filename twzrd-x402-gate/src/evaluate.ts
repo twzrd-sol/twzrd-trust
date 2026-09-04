@@ -9,6 +9,12 @@ import {
   shouldRequirePathAReceipt,
   type RequireReceiptPolicy,
 } from "./receipt-policy.js";
+import {
+  evaluateLogInclusion,
+  resolveRequireLogInclusionPolicy,
+  type LogInclusionOutcome,
+  type RequireLogInclusionPolicy,
+} from "./log-inclusion.js";
 import type {
   TwzrdDecision,
   TwzrdGateConfig,
@@ -46,6 +52,14 @@ export type EvaluateX402Options = TwzrdGateConfig & {
    */
   onReceipt?: (receipt: unknown, tx: string | undefined) => void;
   /**
+   * Require a captured Path A receipt to be proven included in the Receipt
+   * Transparency log under a key the host pinned, before it counts as trust.
+   * Opt-in; runs only when a receipt was actually captured. Hard by default:
+   * an unproven receipt denies spend. The host wires the verifier (see
+   * log-inclusion.ts) — the gate takes no dependency on the log verifier.
+   */
+  requireLogInclusion?: RequireLogInclusionPolicy | false;
+  /**
    * Autonomous risk-escalation. When the free preflight is inconclusive
    * (decision="warn" and otherwise proceeding), the gate autonomously settles the
    * cheap $0.001 quick tier and RE-DECIDES on the paid score: below `blockBelowScore`
@@ -80,6 +94,10 @@ export type EvaluateX402Result = {
   receiptRequired?: boolean;
   /** true when hard requireReceipt denied spend because Path A failed */
   receiptRequiredDenied?: boolean;
+  /** Present when requireLogInclusion evaluated the captured receipt */
+  logInclusion?: LogInclusionOutcome;
+  /** true when hard requireLogInclusion denied spend (receipt not proven in the log) */
+  logInclusionDenied?: boolean;
   /** true when a `warn` triggered an autonomous paid quick-tier re-decision (escalateOnWarn) */
   escalated?: boolean;
   /** the paid quick-tier score that drove the escalated decision; null when the quick tier could not answer */
@@ -222,12 +240,35 @@ export async function evaluate_x402_resource(
             : undefined);
         const feeCaptured = !!tx || body.charged === true;
         if (opts.onReceipt) opts.onReceipt(receipt, tx);
+
+        // The receipt was paid for and is returned either way; what
+        // requireLogInclusion decides is whether it may COUNT as trust.
+        const logPolicy = resolveRequireLogInclusionPolicy(opts.requireLogInclusion);
+        let logInclusion: LogInclusionOutcome | undefined;
+        if (logPolicy) {
+          logInclusion = await evaluateLogInclusion(receipt, logPolicy);
+          if (logInclusion.denyReason) {
+            return {
+              ...base,
+              approved: false,
+              receipt,
+              receiptTx: tx,
+              receiptFeeCaptured: feeCaptured,
+              receiptRequired,
+              logInclusion,
+              logInclusionDenied: true,
+              reason: `${logInclusion.denyReason} (${(logInclusion.errors ?? []).join("; ") || "receipt not proven in the transparency log"}; price=${priceUsdc ?? "?"} decision=${decision})`,
+              policyAction: "block",
+            };
+          }
+        }
         return {
           ...base,
           receipt,
           receiptTx: tx,
           receiptFeeCaptured: feeCaptured,
           receiptRequired,
+          ...(logInclusion ? { logInclusion } : {}),
         };
       }
       // Non-OK paid response: hard require → deny; soft → fail-open.

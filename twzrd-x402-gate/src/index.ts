@@ -46,6 +46,16 @@ export {
   type ResolvedRequireReceiptPolicy,
 } from "./receipt-policy.js";
 export {
+  evaluateLogInclusion,
+  resolveRequireLogInclusionPolicy,
+  type LogInclusionDenyReason,
+  type LogInclusionOutcome,
+  type LogInclusionVerdict,
+  type LogInclusionVerifier,
+  type RequireLogInclusionPolicy,
+  type ResolvedRequireLogInclusionPolicy,
+} from "./log-inclusion.js";
+export {
   DEFAULT_BUYER_MATERIAL_USDC,
   DEFAULT_BUYER_REQUIRE_RECEIPT,
   DEFAULT_BUYER_ESCALATE_ON_WARN,
