@@ -1,16 +1,29 @@
 # TWZRD Receipt Transparency Log (TRT) — Spec v0.2
 
-**Status:** Draft for implementation · **Applies to:** V6 trust receipts, AgentReadinessReceipt V1
+**Status:** v0.1 domain **live** since 2026-09-03 (genesis, `tree_size` 1); v0.2 key directory not yet deployed · **Applies to:** V6 trust receipts, AgentReadinessReceipt V1
 **Verifier:** [`twzrd-log-verifier`](../twzrd-log-verifier/) (source in this repo)
-**Last updated:** 2026-09-03
+**Last updated:** 2026-09-04
 
-> **v0.2 changes (pre-genesis).** Heads now carry a `key_id` bound into the
-> signature, and relying parties pin a **key directory** rather than a single
-> key, so the log stays verifiable across key rotations — the 2026-09-02 receipt
-> rotation showed this is an operational reality, not a hypothetical. No log has
-> been served yet (`/v1/log/sth` is 404, `tree_size` would be 0), so this costs
-> nothing and breaks no published head. The v0.1 domain remains implemented and
-> verifiable; it was never served. See [Key rotation](#key-rotation).
+> **What is live (verified 2026-09-04).** `https://intel.twzrd.xyz/v1/log/sth`
+> serves a head under the **v0.1 domain** `TWZRD:RECEIPT_LOG_STH_V1` for `log_id`
+> `intel.twzrd.xyz/v6`: genesis at `tree_size` 1, `timestamp_unix` 1788450541
+> (2026-09-03T15:49:01Z), signed by the receipt issuer key
+> `Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`, no `key_id`. The descriptor at
+> `/.well-known/twzrd-log` is the v0.1 single-key form (`sth_pubkey`, no `keys`),
+> `anchor_authority` is null (nothing is anchored yet), and
+> `/v1/log/proof/inclusion` serves proofs. Paid responses carry the proof inline —
+> see [Paid receipt responses](#http-api-implemented-by-the-log-server).
+>
+> **v0.2 (this document) is the upgrade target, not yet served.** It binds a
+> `key_id` into the head signature and has relying parties pin a **key directory**
+> rather than a single key, so the log stays verifiable across key rotations — the
+> 2026-09-02 receipt rotation showed that is an operational reality. When this note
+> was first written (2026-09-03 09:44Z) `/v1/log/sth` was not yet deployed; the log
+> went live under v0.1 six hours later and the note was not updated until now.
+> `twzrd-log-verifier` ≥ 0.2 verifies both domains and accepts both under one
+> `log_id`, so a v0.1 head stays valid against its single pinned key and a
+> signing-format upgrade does not by itself force a re-genesis. See
+> [Key rotation](#key-rotation).
 
 ## Why
 
@@ -117,9 +130,9 @@ Rules:
 - `signing_pubkey` is advisory. A verifier checks the signature against the key it
   resolved from its own pinned directory; the envelope's copy must agree with that
   key, and never replaces it.
-- The v0.1 domain `TWZRD:RECEIPT_LOG_STH_V1` had no `key_id` and was never served
-  by any log. It stays verifiable against a single pinned key so anything built
-  against the v0.1 package keeps working. Because a V1 preimage does not cover
+- The v0.1 domain `TWZRD:RECEIPT_LOG_STH_V1` has no `key_id`. **It is what the live
+  log serves today** (status note above). It verifies against a single pinned key,
+  so anything built against the v0.1 package keeps working. Because a V1 preimage does not cover
   `key_id`, a V1 envelope that carries one is **rejected** rather than verified —
   the field would authenticate nothing.
 
@@ -206,7 +219,9 @@ anchored root existed **no later than** that anchor's on-chain block time.
 
 ## Log descriptor (well-known)
 
-Served at `https://intel.twzrd.xyz/.well-known/twzrd-log`:
+Served at `https://intel.twzrd.xyz/.well-known/twzrd-log`. This is the v0.2 form; the
+live descriptor is still the v0.1 single-key form (`sth_pubkey` in place of `keys`,
+`anchor_authority` null), which the verifier also accepts:
 
 ```json
 {
@@ -250,8 +265,13 @@ single-key `sth_pubkey` form is still accepted for v0.1-era descriptors.
 | `GET /v1/log/anchors?limit=<n>` | Recent anchors: `[{ tree_size, root, tx_signature, slot, block_time }]` |
 
 Paid receipt responses (`/v1/intel/trust`, `/v1/intel/merchant`) additionally attach,
-once the leaf is merged: `log_inclusion: { log_id, leaf_index, tree_size, audit_path }`
-— reusing the existing receipt `proof` slot semantics. A **merge delay SLA** of one
+once the leaf is merged: `log_inclusion: { log_id, leaf, leaf_index, tree_size,
+audit_path, sth, anchor, verify }` — the proof, the leaf it is for, and the signed head
+it targets, so the buyer verifies offline with nothing but the pinned key
+(`verifyLogInclusion` in `twzrd-log-verifier`; a `leaf` that disagrees with
+`twzrd_receipt.leaf` is rejected, not verified). `anchor` is
+`{ cluster, tx_signature, slot }` or null while the head is unanchored; `verify` is the
+relative URL of the same proof for re-fetching. A **merge delay SLA** of one
 anchor period is allowed: a receipt may be served before its leaf is in the tree, and
 the inclusion proof becomes fetchable by `receipt.leaf` afterward.
 
