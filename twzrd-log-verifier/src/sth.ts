@@ -4,11 +4,12 @@
  * preimage (same integer conventions as the V6 receipt leaf encoding).
  *
  * Two domains:
- *   V1 — original v0.1 layout, no key_id. Never served by any log (the log had
- *        no genesis before v0.2 landed); kept so anything built against the
- *        merged v0.1 package still verifies.
- *   V2 — current. Binds `key_id` into the preimage so a head names its signer
- *        authentically and stays verifiable across key rotations.
+ *   V1 — original v0.1 layout, no key_id. What the live log actually serves
+ *        (genesis 2026-09-03; see docs/transparency-log.md); kept so anything
+ *        built against it still verifies.
+ *   V2 — the upgrade target, not yet served. Binds `key_id` into the preimage
+ *        so a head names its signer authentically and stays verifiable across
+ *        key rotations.
  *
  * A key_id is only meaningful when it is signed over. A V1 envelope carrying a
  * key_id field is therefore rejected rather than verified: the field would be
