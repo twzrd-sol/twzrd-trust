@@ -101,8 +101,9 @@ async function run() {
     // Non-object input from a JS consumer must resolve to "set but
     // misconfigured" — never throw (null did), never silently disable a hard
     // policy (true would have read as an empty object).
+    // The resolver takes `unknown` — no cast needed to reach this behavior.
     for (const bad of [true, null, "yes", 1] as unknown[]) {
-      const p = resolveRequireLogInclusionPolicy(bad as never);
+      const p = resolveRequireLogInclusionPolicy(bad);
       assert.ok(p, `${String(bad)} resolves to a policy, not null`);
       assert.equal(p!.verifier, undefined, `${String(bad)}: no verifier`);
       assert.equal(p!.hard, true, `${String(bad)}: hard by default`);
@@ -341,6 +342,10 @@ async function run() {
 
   // 16/17. A JS caller passing a non-object (`true`, or `null` — the one that
   //        actually threw) must be DENIED, not crash evaluate_x402_resource.
+  //        The `as never` here is deliberate and stays: the OPTION type is
+  //        strict by design (`true` is not a valid config), so reaching this
+  //        path from TypeScript requires opting out of the type — which is the
+  //        point. Only the resolver's own signature is `unknown`.
   for (const bad of [true, null] as unknown[]) {
     const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
       fetch: preflight(WARN),

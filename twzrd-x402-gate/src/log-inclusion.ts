@@ -103,24 +103,32 @@ export type LogInclusionOutcome = {
  * kept even without a verifier: a hard policy the host forgot to wire must deny,
  * not silently skip — the same rule `requireReceipt` applies to a missing
  * `x402Fetch`.
+ *
+ * The parameter is `unknown` on purpose. This is the runtime boundary, and JS
+ * callers can hand it anything; the signature should say so rather than force
+ * casts to reach behavior that exists exactly for those inputs. The *option*
+ * type on EvaluateX402Options stays strict (`RequireLogInclusionPolicy | false`)
+ * because `true` is not a valid config — there is no default verifier — and the
+ * type must not suggest otherwise. Strict at the API, honest at the boundary.
  */
 export function resolveRequireLogInclusionPolicy(
-  raw: RequireLogInclusionPolicy | false | undefined,
+  raw: unknown,
 ): ResolvedRequireLogInclusionPolicy | null {
   if (raw === undefined || raw === false) return null;
-  // JS consumers can pass anything. `null` would throw on property access and
-  // crash evaluate_x402_resource; `true` (valid for other knobs) would silently
-  // read as an empty object. Either way the host asked for the policy without
-  // wiring a verifier, so resolve to "set but misconfigured": hard mode then
-  // denies instead of crashing or silently skipping.
+  // `null` would throw on property access and crash evaluate_x402_resource;
+  // `true` (valid for sibling knobs) would read as an empty object. Either way
+  // the host asked for the policy without wiring a verifier, so resolve to
+  // "set but misconfigured": hard mode then denies instead of crashing or
+  // silently skipping.
   if (typeof raw !== "object" || raw === null) {
     return { verifier: undefined, hard: true, onPending: "deny", refuseTofu: true };
   }
+  const r = raw as Partial<Record<keyof RequireLogInclusionPolicy, unknown>>;
   return {
-    verifier: typeof raw.verifier === "function" ? raw.verifier : undefined,
-    hard: raw.hard !== false,
-    onPending: raw.onPending === "allow" ? "allow" : "deny",
-    refuseTofu: raw.refuseTofu !== false,
+    verifier: typeof r.verifier === "function" ? (r.verifier as LogInclusionVerifier) : undefined,
+    hard: r.hard !== false,
+    onPending: r.onPending === "allow" ? "allow" : "deny",
+    refuseTofu: r.refuseTofu !== false,
   };
 }
 
