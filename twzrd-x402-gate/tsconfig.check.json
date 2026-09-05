@@ -1,11 +1,8 @@
 {
-  // Typecheck-only config. tsconfig.json is the BUILD config: it emits to dist/
-  // with rootDir "src", so it cannot also cover test/ and examples/ without
-  // shipping them in the published package. This one checks everything and
-  // emits nothing — `npm run typecheck` uses it, `npm run build` does not.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
+    "allowJs": true,
     "rootDir": ".",
     "declaration": false,
     "declarationMap": false,

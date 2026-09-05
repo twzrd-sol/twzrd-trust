@@ -1,6 +1,6 @@
 {
   "name": "twzrd-x402-gate",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Core: buyer-side x402 trust gate. Free TWZRD preflight (ReadinessCard) before signing USDC to any merchant, with optional $0.001 paid trust escalate on warn — blocking spend on bad intel, no human in the loop. Optional: createTwzrdSettleGuard for resource servers to apply merchant policy on the payer before settle+serve. installTwzrdAutoGate is the canonical default-on entry across fetch payWrap, x402 client (onBeforePaymentCreation), PayAI x402-solana beforePayment (2.1.0+), PayKit onBeforeX402PaymentCreation (Foundation #303), and MPP onChallenge. Fail-closed by default — set TWZRD_FAIL_OPEN=true for outage allow; kill switch TWZRD_GATE_ENABLED=false or TWZRD_AUTO_GATE=0. Always stamps X-Twzrd-Caller for seat metrics.",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,6 +28,10 @@
     "./evidence-verify": {
       "types": "./dist/evidence-verify.d.ts",
       "import": "./dist/evidence-verify.js"
+    },
+    "./cloudflare-base": {
+      "types": "./dist/cloudflare-base.d.ts",
+      "import": "./dist/cloudflare-base.js"
     }
   },
   "files": [
@@ -42,7 +46,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "test": "tsx --test test/*.test.ts test/consumer-spend-control.ts",
     "pack-smoke": "node scripts/pack-smoke.mjs",
-    "verify-release": "npm run typecheck && npm test && npm run pack-smoke",
+    "pack-release-contract": "node scripts/assert-packed-surface.mjs --public-release --from-package",
+    "verify-release": "npm run typecheck && npm test && npm run pack-smoke && npm run pack-release-contract",
     "safe-fetch": "tsx src/safe-fetch.ts",
     "guard-demo": "tsx examples/agentic-market-gate.ts",
     "autoreceipt-demo": "tsx examples/auto-receipt.ts --dry-run",

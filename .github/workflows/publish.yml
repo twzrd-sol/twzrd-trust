@@ -1,0 +1,83 @@
+name: Publish twzrd-x402-gate to npm
+
+# Deliberately workflow_dispatch ONLY -- no push/tag/release trigger.
+# This package's publish token has real authority over a package with real
+# users; a workflow reachable by an untrusted PR (e.g. via `pull_request`)
+# is the standard way CI publish tokens get exfiltrated. Manual button-press
+# only, by a human who can see exactly what version is about to ship.
+#
+# Permissions:
+# - contents: write (for creating tags / releases)
+# - id-token: write (for npm provenance / OIDC minting)
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: 'package.json version this run must match (safety check -- prevents publishing the wrong commit by accident)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    defaults:
+      run:
+        working-directory: twzrd-x402-gate
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: .
+
+      - name: Verify version matches the operator's confirmation
+        run: |
+          ACTUAL=$(node -p "require('./package.json').version")
+          if [ "$ACTUAL" != "${{ inputs.expected_version }}" ]; then
+            echo "::error::package.json is $ACTUAL, you confirmed ${{ inputs.expected_version }} -- refusing to publish. Re-run with the correct version, or fix the checked-out ref."
+            exit 1
+          fi
+          echo "Confirmed: publishing $ACTUAL"
+
+      - name: Build
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: pack-smoke (real tarball install + consumer check)
+        run: npm run pack-smoke
+
+      - name: Refuse an incomplete public tarball
+        run: npm run pack-release-contract
+
+      - name: Publish
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify against the live registry
+        # npm's registry is eventually consistent: poll with a deadline
+        run: |
+          for i in $(seq 1 18); do
+            LIVE=$(npm view twzrd-x402-gate@${{ inputs.expected_version }} version 2>/dev/null || true)
+            if [ "$LIVE" = "${{ inputs.expected_version }}" ]; then
+              echo "Verified live: twzrd-x402-gate@$LIVE (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/18: registry does not show ${{ inputs.expected_version }} yet, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::Registry still does not show ${{ inputs.expected_version }} after 3 minutes -- publish may have failed. Check manually."
+          exit 1
