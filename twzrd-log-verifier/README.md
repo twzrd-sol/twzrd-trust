@@ -45,6 +45,10 @@ twzrd-log-verifier selftest   # prove the checker checks (no files, no network)
 # Is my paid receipt in the log the current signed head commits to?
 twzrd-log-verifier inclusion --receipt receipt.json --proof proof.json --sth sth.json
 
+# A paid response already carries its proof — verify it directly, no separate
+# --leaf/--sth files (log_inclusion or the whole response as --proof):
+twzrd-log-verifier inclusion --proof paid-response.json
+
 # Did the log only append between two heads I saw at different times?
 twzrd-log-verifier consistency --old sth-old.json --new sth-new.json --proof proof.json
 
