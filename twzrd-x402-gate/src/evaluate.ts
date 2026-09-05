@@ -96,7 +96,12 @@ export type EvaluateX402Result = {
   receiptRequired?: boolean;
   /** true when hard requireReceipt denied spend because Path A failed */
   receiptRequiredDenied?: boolean;
-  /** Present when requireLogInclusion evaluated the captured receipt */
+  /**
+   * Present whenever requireLogInclusion was in play for an attempted Path A:
+   * either a captured receipt was verified, or none was captured to verify
+   * (then `checked` is false and `errors` says why). Its presence does NOT
+   * imply a receipt exists — read `receipt` for that.
+   */
   logInclusion?: LogInclusionOutcome;
   /** true when hard requireLogInclusion denied spend (receipt not proven in the log) */
   logInclusionDenied?: boolean;
@@ -322,25 +327,40 @@ export async function evaluate_x402_resource(
     receiptMiss = typeof opts.x402Fetch !== "function" ? "missing_x402Fetch" : "no_payTo";
   }
 
-  // Hard requireLogInclusion: when Path A was attempted it must yield a
-  // receipt that is then proven. Every path above that ends without a
-  // captured receipt lands here — non-OK, thrown, missing x402Fetch — and
-  // none of them may fail open: an outage on the receipt endpoint must not
-  // produce a better outcome than an empty receipt body. Path A that was not
-  // attempted by policy (below the requireReceipt threshold) is out of scope;
-  // this knob gates receipts, it does not override the host's threshold.
-  if (logPolicy?.hard && attemptReceipt && base.approved) {
+  // requireLogInclusion when Path A was attempted but yielded no receipt.
+  // Every path above that ends without a captured receipt lands here —
+  // non-OK, thrown, missing x402Fetch, no payTo. The policy is evaluated for
+  // ANY enabled mode so the result is never silent about it:
+  //   - hard: deny. An outage on the receipt endpoint must not produce a
+  //     better outcome than an empty receipt body.
+  //   - soft: annotate only. "Soft annotates, never denies" holds here too;
+  //     otherwise soft would be indistinguishable from policy-off exactly
+  //     when the receipt path failed.
+  // Path A that was not attempted by policy (below the requireReceipt
+  // threshold) is out of scope; this knob gates receipts, it does not
+  // override the host's threshold.
+  if (logPolicy && attemptReceipt) {
     const miss = receiptMiss ?? "not_captured";
     const outcome = await evaluateLogInclusion(undefined, logPolicy);
-    return {
-      ...base,
-      approved: false,
-      receiptRequired,
-      logInclusion: { ...outcome, errors: [`no receipt captured: ${miss}`] },
-      logInclusionDenied: true,
-      reason: `twzrd_log_inclusion_failed (no receipt captured: ${miss}; price=${priceUsdc ?? "?"} decision=${decision})`,
-      policyAction: "block",
+    const annotated: LogInclusionOutcome = {
+      ...outcome,
+      errors: [`no receipt captured: ${miss}`],
     };
+    // evaluateLogInclusion only sets denyReason under a hard policy.
+    if (annotated.denyReason && base.approved) {
+      return {
+        ...base,
+        approved: false,
+        receiptRequired,
+        logInclusion: annotated,
+        logInclusionDenied: true,
+        reason: `${annotated.denyReason} (no receipt captured: ${miss}; price=${priceUsdc ?? "?"} decision=${decision})`,
+        policyAction: "block",
+      };
+    }
+    // Soft policy, or already denied upstream: carry the annotation on `base`
+    // so every later return (escalation included) reports it.
+    base.logInclusion = annotated;
   }
 
   // Cheap re-decide only when Path A did not already fire.

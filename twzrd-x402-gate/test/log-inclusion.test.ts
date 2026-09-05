@@ -328,7 +328,9 @@ async function run() {
     assert.equal("logInclusion" in r, false);
   }
 
-  // 15. Soft policy + paid fetch non-OK → soft never denies.
+  // 15. Soft policy + paid fetch non-OK → soft never denies, but it must
+  //     ANNOTATE: a soft policy that attaches nothing here would be
+  //     indistinguishable from policy-off exactly when the receipt path failed.
   {
     const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
       fetch: preflight(WARN),
@@ -338,6 +340,11 @@ async function run() {
     });
     assert.equal(r.approved, true);
     assert.equal(r.logInclusionDenied, undefined);
+    assert.ok(r.logInclusion, "soft mode must still report that nothing could be proven");
+    assert.equal(r.logInclusion?.checked, false);
+    assert.equal(r.logInclusion?.valid, false);
+    assert.deepEqual(r.logInclusion?.errors, ["no receipt captured: paid_response_not_ok (HTTP 500)"]);
+    assert.equal(r.logInclusion?.denyReason, undefined, "soft outcome carries no deny reason");
   }
 
   // 16/17. A JS caller passing a non-object (`true`, or `null` — the one that
