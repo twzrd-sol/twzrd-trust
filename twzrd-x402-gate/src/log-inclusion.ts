@@ -23,6 +23,13 @@
  *     },
  *   });
  *
+ * Scope: the policy gates receipts, it does not override the host's Path A
+ * threshold. When Path A is ATTEMPTED, a hard policy requires it to yield a
+ * receipt that is then proven — non-OK, thrown, and missing-x402Fetch all
+ * deny (evaluate.ts), so an outage on the receipt endpoint can never produce
+ * a better outcome than an empty receipt body. Path A not attempted by policy
+ * (below the requireReceipt threshold) is out of scope.
+ *
  * Defaults are the conservative reading of docs/transparency-log.md:
  *   - hard: an unproven receipt denies spend (it never silently "counts").
  *   - onPending "deny": a leaf not yet merged is unprovable at pay time. The

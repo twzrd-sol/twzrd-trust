@@ -54,9 +54,11 @@ export type EvaluateX402Options = TwzrdGateConfig & {
   /**
    * Require a captured Path A receipt to be proven included in the Receipt
    * Transparency log under a key the host pinned, before it counts as trust.
-   * Opt-in; runs only when a receipt was actually captured. Hard by default:
-   * an unproven receipt denies spend. The host wires the verifier (see
-   * log-inclusion.ts) — the gate takes no dependency on the log verifier.
+   * Opt-in. Hard by default: when Path A is attempted it must yield a receipt
+   * that is then proven — an unproven, missing, or unfetchable receipt denies
+   * spend. Path A not attempted by policy (below the requireReceipt threshold)
+   * is out of scope. The host wires the verifier (see log-inclusion.ts) — the
+   * gate takes no dependency on the log verifier.
    */
   requireLogInclusion?: RequireLogInclusionPolicy | false;
   /**
@@ -203,6 +205,10 @@ export async function evaluate_x402_resource(
     decision,
     priceUsdc,
   });
+  const logPolicy = resolveRequireLogInclusionPolicy(opts.requireLogInclusion);
+  // Why Path A ended without a captured receipt, when it did. Read by the hard
+  // requireLogInclusion guard below the Path A block.
+  let receiptMiss: string | undefined;
 
   if (attemptReceipt && typeof opts.x402Fetch === "function" && payTo) {
     try {
@@ -243,7 +249,6 @@ export async function evaluate_x402_resource(
 
         // The receipt was paid for and is returned either way; what
         // requireLogInclusion decides is whether it may COUNT as trust.
-        const logPolicy = resolveRequireLogInclusionPolicy(opts.requireLogInclusion);
         let logInclusion: LogInclusionOutcome | undefined;
         if (logPolicy) {
           logInclusion = await evaluateLogInclusion(receipt, logPolicy);
@@ -282,6 +287,7 @@ export async function evaluate_x402_resource(
           policyAction: "block",
         };
       }
+      receiptMiss = `paid_response_not_ok (HTTP ${resp.status})`;
     } catch {
       if (receiptRequired && receiptPolicy?.hard !== false) {
         return {
@@ -294,6 +300,7 @@ export async function evaluate_x402_resource(
         };
       }
       // Soft autoReceipt: fail-open — do not block merchant spend.
+      receiptMiss = "paid_fetch_error";
     }
   } else if (
     receiptRequired &&
@@ -309,6 +316,29 @@ export async function evaluate_x402_resource(
       receiptRequiredDenied: true,
       reason:
         "twzrd_receipt_required_missing_x402Fetch (wire x402Fetch for Path A)",
+      policyAction: "block",
+    };
+  } else if (attemptReceipt) {
+    receiptMiss = typeof opts.x402Fetch !== "function" ? "missing_x402Fetch" : "no_payTo";
+  }
+
+  // Hard requireLogInclusion: when Path A was attempted it must yield a
+  // receipt that is then proven. Every path above that ends without a
+  // captured receipt lands here — non-OK, thrown, missing x402Fetch — and
+  // none of them may fail open: an outage on the receipt endpoint must not
+  // produce a better outcome than an empty receipt body. Path A that was not
+  // attempted by policy (below the requireReceipt threshold) is out of scope;
+  // this knob gates receipts, it does not override the host's threshold.
+  if (logPolicy?.hard && attemptReceipt && base.approved) {
+    const miss = receiptMiss ?? "not_captured";
+    const outcome = await evaluateLogInclusion(undefined, logPolicy);
+    return {
+      ...base,
+      approved: false,
+      receiptRequired,
+      logInclusion: { ...outcome, errors: [`no receipt captured: ${miss}`] },
+      logInclusionDenied: true,
+      reason: `twzrd_log_inclusion_failed (no receipt captured: ${miss}; price=${priceUsdc ?? "?"} decision=${decision})`,
       policyAction: "block",
     };
   }

@@ -581,7 +581,11 @@ The receipt is returned either way (`result.receipt`) — you paid for it. What 
 `approved`: a denial sets `logInclusionDenied: true`, `policyAction: "block"`, and a reason of
 `twzrd_log_inclusion_failed | _pending | _tofu_refused | _error`; `result.logInclusion` carries
 the verdict (`key_id`, `leaf_index`, `tree_size`, `pending`, `tofu`). A verifier that throws
-denies under `hard` — a broken or unreachable verifier must not wave receipts through. **Until
+denies under `hard` — a broken or unreachable verifier must not wave receipts through. So does a
+Path A attempt that yields no receipt at all (non-OK response, thrown fetch, `x402Fetch` not
+wired): an outage on the receipt endpoint must never produce a *better* outcome than an empty
+receipt body. Path A that your `requireReceipt` threshold never attempted is out of scope — this
+knob gates receipts, it does not override your threshold. **Until
 the live API serves `/v1/log/*`, every receipt reports `pending`**, so leave this off in
 production or set `onPending: "allow"` knowingly.
 

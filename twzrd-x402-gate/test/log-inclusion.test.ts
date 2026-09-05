@@ -248,6 +248,85 @@ async function run() {
     assert.equal(r.approved, false);
   }
 
+  // ── Path A attempted but yielded no receipt: hard must not fail open ──────
+  // An outage on the receipt endpoint must never produce a BETTER outcome
+  // than an empty receipt body (case 7). autoReceipt (soft receipt) is used so
+  // requireReceipt's own hard deny cannot mask what requireLogInclusion does.
+
+  // 11. Paid fetch non-OK → denied, verifier never consulted.
+  {
+    const v = verifierMock(PROVEN);
+    const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
+      fetch: preflight(WARN),
+      autoReceipt: true,
+      x402Fetch: x402Mock({ error: "upstream" }, 500),
+      requireLogInclusion: { verifier: v },
+    });
+    assert.equal(v.calls.length, 0, "nothing to verify");
+    assert.equal(r.approved, false, "a 500 on the receipt endpoint must not approve");
+    assert.equal(r.logInclusionDenied, true);
+    assert.equal(r.policyAction, "block");
+    assert.match(r.reason, /^twzrd_log_inclusion_failed \(no receipt captured: paid_response_not_ok \(HTTP 500\)/);
+    assert.equal(r.receiptRequiredDenied, undefined, "requireReceipt was not the denier");
+  }
+
+  // 12. Paid fetch throws → denied.
+  {
+    const v = verifierMock(PROVEN);
+    const throwing = (async () => {
+      throw new Error("ECONNRESET");
+    }) as unknown as typeof fetch;
+    const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
+      fetch: preflight(WARN),
+      autoReceipt: true,
+      x402Fetch: throwing,
+      requireLogInclusion: { verifier: v },
+    });
+    assert.equal(v.calls.length, 0);
+    assert.equal(r.approved, false, "a thrown receipt fetch must not approve");
+    assert.match(r.reason, /^twzrd_log_inclusion_failed \(no receipt captured: paid_fetch_error/);
+    assert.deepEqual(r.logInclusion?.errors, ["no receipt captured: paid_fetch_error"]);
+  }
+
+  // 13. Path A wanted (autoReceipt) but x402Fetch not wired → denied, not skipped.
+  {
+    const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
+      fetch: preflight(WARN),
+      autoReceipt: true,
+      requireLogInclusion: { verifier: verifierMock(PROVEN) },
+    });
+    assert.equal(r.approved, false);
+    assert.match(r.reason, /^twzrd_log_inclusion_failed \(no receipt captured: missing_x402Fetch/);
+  }
+
+  // 14. Path A NOT attempted by policy → out of scope: the knob gates receipts,
+  //     it does not override the host's own threshold.
+  {
+    const v = verifierMock(PROVEN);
+    const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
+      fetch: preflight({ decision: "allow", trust_score: 90, can_spend: true }),
+      requireReceipt: { minSpendUsdc: 10 }, // price is $0.05, allow → no Path A
+      x402Fetch: x402Mock({ tx: "SHOULD_NOT_HAPPEN" }),
+      requireLogInclusion: { verifier: v },
+    });
+    assert.equal(v.calls.length, 0);
+    assert.equal(r.approved, true, "below-threshold allow proceeds; no receipt was ever in play");
+    assert.equal(r.logInclusionDenied, undefined);
+    assert.equal("logInclusion" in r, false);
+  }
+
+  // 15. Soft policy + paid fetch non-OK → soft never denies.
+  {
+    const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
+      fetch: preflight(WARN),
+      autoReceipt: true,
+      x402Fetch: x402Mock({ error: "upstream" }, 500),
+      requireLogInclusion: { verifier: verifierMock(PROVEN), hard: false },
+    });
+    assert.equal(r.approved, true);
+    assert.equal(r.logInclusionDenied, undefined);
+  }
+
   console.log("log-inclusion: ok");
 }
 
