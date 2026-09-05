@@ -556,19 +556,28 @@ only** — on an unscored network there is no receipt to buy, so the decision ca
 `requireLogInclusion` sits one step further: a captured Path A receipt does not **count** as
 trust until its leaf is proven included in the Receipt Transparency log under a key you
 pinned ([spec](../docs/transparency-log.md)). A valid signature proves authorship and
-integrity; only the log proves the issuer showed everyone the same answer. The gate takes no
-dependency on the log verifier — you wire it, and `verifyReceiptInLog`'s result fits the
-verdict shape with no adapter:
+integrity; only the log proves the issuer showed everyone the same answer. The log is **live**
+(v0.1 domain, genesis 2026-09-03), and a paid response carries its proof **inline** as
+`log_inclusion` — the audit path plus the signed head it targets — once the leaf is merged, so
+the usual case verifies **offline** with nothing but your pinned key. The gate takes no
+dependency on the log verifier — you wire it; it receives the receipt *and* the whole paid
+response, and `twzrd-log-verifier`'s results fit the verdict shape with no adapter:
 
 ```typescript
-import { verifyReceiptInLog } from "twzrd-log-verifier"; // not yet on npm — see its README
+import { verifyLogInclusion, verifyReceiptInLog } from "twzrd-log-verifier"; // not yet on npm — see its README
+
+// Today the log serves a single signing key (the receipt issuer key); pin it out of band.
+// When v0.2 ships a key directory, pass that here instead — same call.
+const PIN = "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS";
 
 await evaluate_x402_resource(url, requirements, {
   requireReceipt: true,
   x402Fetch,
   requireLogInclusion: {
-    verifier: (receipt) =>
-      verifyReceiptInLog({ baseUrl: "https://intel.twzrd.xyz", receipt, trusted: pinnedKeyDirectory }),
+    verifier: async (_receipt, ctx) =>
+      ctx.logInclusion
+        ? verifyLogInclusion(ctx.response, PIN)                                  // offline: no round-trip
+        : verifyReceiptInLog({ baseUrl: "https://intel.twzrd.xyz", receipt: ctx.response, trusted: PIN }), // fetch; 404 ⇒ pending
     // hard: true         — an unproven receipt denies spend (default)
     // onPending: "deny"  — a leaf not merged yet is unprovable at pay time; "allow"
     //                      tolerates the one-anchor-period merge window (default "deny")
@@ -585,9 +594,13 @@ denies under `hard` — a broken or unreachable verifier must not wave receipts 
 Path A attempt that yields no receipt at all (non-OK response, thrown fetch, `x402Fetch` not
 wired): an outage on the receipt endpoint must never produce a *better* outcome than an empty
 receipt body. Path A that your `requireReceipt` threshold never attempted is out of scope — this
-knob gates receipts, it does not override your threshold. **Until
-the live API serves `/v1/log/*`, every receipt reports `pending`**, so leave this off in
-production or set `onPending: "allow"` knowingly.
+knob gates receipts, it does not override your threshold.
+
+Two things to know today: a leaf is merged within one anchor period, so a receipt paid for
+*just now* may not yet carry `log_inclusion` — the fetch fallback above then reports `pending`,
+and `onPending` decides. And nothing is **anchored** on Solana yet (`anchor_authority` is null),
+so inclusion currently proves *what the log committed to*, not yet *when* — the anchor is what
+makes backdating detectable.
 
 Dual-chain accepts still prefer the Solana entry for scoring (same as payment clients that
 prefer Solana when available).

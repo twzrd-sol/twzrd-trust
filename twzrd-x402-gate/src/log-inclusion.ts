@@ -51,7 +51,35 @@ export type LogInclusionVerdict = {
   tree_size?: number;
 };
 
-export type LogInclusionVerifier = (receipt: unknown) => Promise<LogInclusionVerdict>;
+/**
+ * What the gate hands the verifier alongside the receipt. A paid response
+ * carries its inclusion proof INLINE (`log_inclusion`: proof + the signed
+ * head it targets) once the leaf is merged, so the offline verifier needs the
+ * whole response, not just `twzrd_receipt`. `logInclusion` is that block when
+ * present; it is a convenience, not a verdict — an absent block means the
+ * host's verifier decides what to do (fetch, or report pending).
+ */
+export type LogInclusionContext = {
+  /** The entire paid /v1/intel/trust response body. */
+  response: unknown;
+  /** `response.log_inclusion`, when the server attached one. */
+  logInclusion?: unknown;
+};
+
+/**
+ * Host-wired verifier. A one-argument function is assignable too, so existing
+ * `(receipt) => …` wirings keep working; the second argument is what lets a
+ * host verify offline against the block the response already carries:
+ *
+ *   verifier: async (_receipt, ctx) =>
+ *     ctx.logInclusion
+ *       ? verifyLogInclusion(ctx.response, pin)               // offline, no round-trip
+ *       : verifyReceiptInLog({ baseUrl, receipt: ctx.response, trusted: pin }), // fetch; 404 => pending
+ */
+export type LogInclusionVerifier = (
+  receipt: unknown,
+  ctx: LogInclusionContext,
+) => Promise<LogInclusionVerdict>;
 
 export type RequireLogInclusionPolicy = {
   /** Checks a captured receipt against the log. Required. */
@@ -149,6 +177,7 @@ function deny(
 export async function evaluateLogInclusion(
   receipt: unknown,
   policy: ResolvedRequireLogInclusionPolicy,
+  ctx: LogInclusionContext = { response: undefined },
 ): Promise<LogInclusionOutcome> {
   if (receipt === undefined || receipt === null) {
     return deny(
@@ -171,7 +200,7 @@ export async function evaluateLogInclusion(
 
   let verdict: LogInclusionVerdict;
   try {
-    verdict = await policy.verifier(receipt);
+    verdict = await policy.verifier(receipt, ctx);
   } catch (e) {
     return deny(
       { checked: true, valid: false, errors: [(e as Error)?.message ?? String(e)] },

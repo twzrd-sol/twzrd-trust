@@ -48,6 +48,7 @@ export {
 export {
   evaluateLogInclusion,
   resolveRequireLogInclusionPolicy,
+  type LogInclusionContext,
   type LogInclusionDenyReason,
   type LogInclusionOutcome,
   type LogInclusionVerdict,

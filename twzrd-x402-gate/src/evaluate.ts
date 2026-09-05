@@ -240,6 +240,8 @@ export async function evaluate_x402_resource(
           tx_pending?: string;
           charged?: boolean;
           twzrd_receipt?: Record<string, unknown>;
+          /** Inclusion proof + signed head, attached once the leaf is merged. */
+          log_inclusion?: Record<string, unknown>;
         };
         const receipt = body.twzrd_receipt;
         const preimage = receipt?.preimage as Record<string, unknown> | undefined;
@@ -256,7 +258,12 @@ export async function evaluate_x402_resource(
         // requireLogInclusion decides is whether it may COUNT as trust.
         let logInclusion: LogInclusionOutcome | undefined;
         if (logPolicy) {
-          logInclusion = await evaluateLogInclusion(receipt, logPolicy);
+          // The whole response goes along: the proof the server attached lives
+          // beside the receipt, and an offline verifier needs both.
+          logInclusion = await evaluateLogInclusion(receipt, logPolicy, {
+            response: body,
+            logInclusion: body.log_inclusion,
+          });
           if (logInclusion.denyReason) {
             return {
               ...base,
