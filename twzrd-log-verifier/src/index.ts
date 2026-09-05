@@ -64,9 +64,11 @@ export {
   fetchConsistencyProof,
   extractReceiptLeaf,
   verifyReceiptInLog,
+  verifyLogInclusion,
   verifyHeadsConsistent,
   type LogDescriptor,
   type InclusionProofResponse,
+  type LogInclusionBlock,
   type ReceiptInLogResult,
   type TrustResolution,
 } from "./client.js";
