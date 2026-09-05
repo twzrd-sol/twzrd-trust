@@ -9,6 +9,12 @@ import {
   shouldRequirePathAReceipt,
   type RequireReceiptPolicy,
 } from "./receipt-policy.js";
+import {
+  evaluateLogInclusion,
+  resolveRequireLogInclusionPolicy,
+  type LogInclusionOutcome,
+  type RequireLogInclusionPolicy,
+} from "./log-inclusion.js";
 import type {
   TwzrdDecision,
   TwzrdGateConfig,
@@ -46,6 +52,16 @@ export type EvaluateX402Options = TwzrdGateConfig & {
    */
   onReceipt?: (receipt: unknown, tx: string | undefined) => void;
   /**
+   * Require a captured Path A receipt to be proven included in the Receipt
+   * Transparency log under a key the host pinned, before it counts as trust.
+   * Opt-in. Hard by default: when Path A is attempted it must yield a receipt
+   * that is then proven — an unproven, missing, or unfetchable receipt denies
+   * spend. Path A not attempted by policy (below the requireReceipt threshold)
+   * is out of scope. The host wires the verifier (see log-inclusion.ts) — the
+   * gate takes no dependency on the log verifier.
+   */
+  requireLogInclusion?: RequireLogInclusionPolicy | false;
+  /**
    * Autonomous risk-escalation. When the free preflight is inconclusive
    * (decision="warn" and otherwise proceeding), the gate autonomously settles the
    * cheap $0.001 quick tier and RE-DECIDES on the paid score: below `blockBelowScore`
@@ -80,6 +96,15 @@ export type EvaluateX402Result = {
   receiptRequired?: boolean;
   /** true when hard requireReceipt denied spend because Path A failed */
   receiptRequiredDenied?: boolean;
+  /**
+   * Present whenever requireLogInclusion was in play for an attempted Path A:
+   * either a captured receipt was verified, or none was captured to verify
+   * (then `checked` is false and `errors` says why). Its presence does NOT
+   * imply a receipt exists — read `receipt` for that.
+   */
+  logInclusion?: LogInclusionOutcome;
+  /** true when hard requireLogInclusion denied spend (receipt not proven in the log) */
+  logInclusionDenied?: boolean;
   /** true when a `warn` triggered an autonomous paid quick-tier re-decision (escalateOnWarn) */
   escalated?: boolean;
   /** the paid quick-tier score that drove the escalated decision; null when the quick tier could not answer */
@@ -185,6 +210,10 @@ export async function evaluate_x402_resource(
     decision,
     priceUsdc,
   });
+  const logPolicy = resolveRequireLogInclusionPolicy(opts.requireLogInclusion);
+  // Why Path A ended without a captured receipt, when it did. Read by the hard
+  // requireLogInclusion guard below the Path A block.
+  let receiptMiss: string | undefined;
 
   if (attemptReceipt && typeof opts.x402Fetch === "function" && payTo) {
     try {
@@ -222,12 +251,34 @@ export async function evaluate_x402_resource(
             : undefined);
         const feeCaptured = !!tx || body.charged === true;
         if (opts.onReceipt) opts.onReceipt(receipt, tx);
+
+        // The receipt was paid for and is returned either way; what
+        // requireLogInclusion decides is whether it may COUNT as trust.
+        let logInclusion: LogInclusionOutcome | undefined;
+        if (logPolicy) {
+          logInclusion = await evaluateLogInclusion(receipt, logPolicy);
+          if (logInclusion.denyReason) {
+            return {
+              ...base,
+              approved: false,
+              receipt,
+              receiptTx: tx,
+              receiptFeeCaptured: feeCaptured,
+              receiptRequired,
+              logInclusion,
+              logInclusionDenied: true,
+              reason: `${logInclusion.denyReason} (${(logInclusion.errors ?? []).join("; ") || "receipt not proven in the transparency log"}; price=${priceUsdc ?? "?"} decision=${decision})`,
+              policyAction: "block",
+            };
+          }
+        }
         return {
           ...base,
           receipt,
           receiptTx: tx,
           receiptFeeCaptured: feeCaptured,
           receiptRequired,
+          ...(logInclusion ? { logInclusion } : {}),
         };
       }
       // Non-OK paid response: hard require → deny; soft → fail-open.
@@ -241,6 +292,7 @@ export async function evaluate_x402_resource(
           policyAction: "block",
         };
       }
+      receiptMiss = `paid_response_not_ok (HTTP ${resp.status})`;
     } catch {
       if (receiptRequired && receiptPolicy?.hard !== false) {
         return {
@@ -253,6 +305,7 @@ export async function evaluate_x402_resource(
         };
       }
       // Soft autoReceipt: fail-open — do not block merchant spend.
+      receiptMiss = "paid_fetch_error";
     }
   } else if (
     receiptRequired &&
@@ -270,6 +323,44 @@ export async function evaluate_x402_resource(
         "twzrd_receipt_required_missing_x402Fetch (wire x402Fetch for Path A)",
       policyAction: "block",
     };
+  } else if (attemptReceipt) {
+    receiptMiss = typeof opts.x402Fetch !== "function" ? "missing_x402Fetch" : "no_payTo";
+  }
+
+  // requireLogInclusion when Path A was attempted but yielded no receipt.
+  // Every path above that ends without a captured receipt lands here —
+  // non-OK, thrown, missing x402Fetch, no payTo. The policy is evaluated for
+  // ANY enabled mode so the result is never silent about it:
+  //   - hard: deny. An outage on the receipt endpoint must not produce a
+  //     better outcome than an empty receipt body.
+  //   - soft: annotate only. "Soft annotates, never denies" holds here too;
+  //     otherwise soft would be indistinguishable from policy-off exactly
+  //     when the receipt path failed.
+  // Path A that was not attempted by policy (below the requireReceipt
+  // threshold) is out of scope; this knob gates receipts, it does not
+  // override the host's threshold.
+  if (logPolicy && attemptReceipt) {
+    const miss = receiptMiss ?? "not_captured";
+    const outcome = await evaluateLogInclusion(undefined, logPolicy);
+    const annotated: LogInclusionOutcome = {
+      ...outcome,
+      errors: [`no receipt captured: ${miss}`],
+    };
+    // evaluateLogInclusion only sets denyReason under a hard policy.
+    if (annotated.denyReason && base.approved) {
+      return {
+        ...base,
+        approved: false,
+        receiptRequired,
+        logInclusion: annotated,
+        logInclusionDenied: true,
+        reason: `${annotated.denyReason} (no receipt captured: ${miss}; price=${priceUsdc ?? "?"} decision=${decision})`,
+        policyAction: "block",
+      };
+    }
+    // Soft policy, or already denied upstream: carry the annotation on `base`
+    // so every later return (escalation included) reports it.
+    base.logInclusion = annotated;
   }
 
   // Cheap re-decide only when Path A did not already fire.

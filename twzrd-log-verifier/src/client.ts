@@ -62,9 +62,19 @@ function joinUrl(baseUrl: string, path: string): string {
   return baseUrl.replace(/\/+$/, "") + (path.startsWith("/") ? path : `/${path}`);
 }
 
+/** A non-2xx response, carrying the status so callers can branch on it. */
+export class HttpError extends Error {
+  readonly status: number;
+  constructor(url: string, status: number) {
+    super(`GET ${url} -> HTTP ${status}`);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
+
 async function getJson(url: string, fetchImpl: FetchLike): Promise<unknown> {
   const res = await fetchImpl(url, { headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error(`GET ${url} -> HTTP ${res.status}`);
+  if (!res.ok) throw new HttpError(url, res.status);
   return res.json();
 }
 
@@ -198,6 +208,12 @@ export interface ReceiptInLogResult {
   tofu: boolean;
   sth_valid: boolean;
   inclusion_valid: boolean;
+  /**
+   * The log answered 404 for this leaf: not merged yet. Within the merge-delay
+   * SLA that is a retry case, not misbehavior. A structured field so relying
+   * parties branch on it rather than on the error text.
+   */
+  not_yet_merged?: boolean;
   key_id?: string;
   leaf_index?: number;
   tree_size?: number;
@@ -266,6 +282,7 @@ export async function verifyReceiptInLog(opts: {
   try {
     proof = await fetchInclusionProof(opts.baseUrl, leaf, { descriptor, fetchImpl });
   } catch (e) {
+    if (e instanceof HttpError && e.status === 404) out.not_yet_merged = true;
     out.errors.push(`inclusion proof: ${(e as Error).message}`);
     return out;
   }
