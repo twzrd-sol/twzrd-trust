@@ -80,7 +80,12 @@ export type LogInclusionDenyReason =
 export type LogInclusionOutcome = {
   /** true when a verifier actually ran against a receipt */
   checked: boolean;
-  /** true only when inclusion was proven under a caller-pinned key */
+  /**
+   * true when the verifier proved inclusion and the policy accepted the
+   * verdict. Under the default `refuseTofu` that implies a caller-pinned key;
+   * with `refuseTofu: false` a TOFU verdict can be valid too — read `tofu`
+   * alongside this, never in place of it.
+   */
   valid: boolean;
   /** leaf not merged yet */
   pending?: boolean;
