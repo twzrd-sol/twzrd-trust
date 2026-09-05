@@ -108,6 +108,14 @@ export function resolveRequireLogInclusionPolicy(
   raw: RequireLogInclusionPolicy | false | undefined,
 ): ResolvedRequireLogInclusionPolicy | null {
   if (raw === undefined || raw === false) return null;
+  // JS consumers can pass anything. `null` would throw on property access and
+  // crash evaluate_x402_resource; `true` (valid for other knobs) would silently
+  // read as an empty object. Either way the host asked for the policy without
+  // wiring a verifier, so resolve to "set but misconfigured": hard mode then
+  // denies instead of crashing or silently skipping.
+  if (typeof raw !== "object" || raw === null) {
+    return { verifier: undefined, hard: true, onPending: "deny", refuseTofu: true };
+  }
   return {
     verifier: typeof raw.verifier === "function" ? raw.verifier : undefined,
     hard: raw.hard !== false,

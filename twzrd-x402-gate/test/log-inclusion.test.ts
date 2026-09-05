@@ -98,6 +98,18 @@ async function run() {
   }
 
   {
+    // Non-object input from a JS consumer must resolve to "set but
+    // misconfigured" — never throw (null did), never silently disable a hard
+    // policy (true would have read as an empty object).
+    for (const bad of [true, null, "yes", 1] as unknown[]) {
+      const p = resolveRequireLogInclusionPolicy(bad as never);
+      assert.ok(p, `${String(bad)} resolves to a policy, not null`);
+      assert.equal(p!.verifier, undefined, `${String(bad)}: no verifier`);
+      assert.equal(p!.hard, true, `${String(bad)}: hard by default`);
+    }
+  }
+
+  {
     const policy = resolveRequireLogInclusionPolicy({ verifier: verifierMock(new Error("log unreachable")) })!;
     const o = await evaluateLogInclusion(RECEIPT, policy);
     assert.equal(o.checked, true);
@@ -325,6 +337,20 @@ async function run() {
     });
     assert.equal(r.approved, true);
     assert.equal(r.logInclusionDenied, undefined);
+  }
+
+  // 16/17. A JS caller passing a non-object (`true`, or `null` — the one that
+  //        actually threw) must be DENIED, not crash evaluate_x402_resource.
+  for (const bad of [true, null] as unknown[]) {
+    const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
+      fetch: preflight(WARN),
+      autoReceipt: true,
+      x402Fetch: x402Mock({ tx: "TX_AAA", twzrd_receipt: RECEIPT }),
+      requireLogInclusion: bad as never,
+    });
+    assert.equal(r.approved, false, `${String(bad)}: denied, not thrown`);
+    assert.equal(r.logInclusionDenied, true);
+    assert.match(r.reason, /^twzrd_log_inclusion_error \(requireLogInclusion is set but no verifier/);
   }
 
   console.log("log-inclusion: ok");
