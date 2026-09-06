@@ -48,12 +48,14 @@ function x402Mock(body: unknown, status = 200) {
 /** Injected verifier mock: records what it was handed, returns or throws. */
 function verifierMock(result: LogInclusionVerdict | Error) {
   const calls: unknown[] = [];
-  const fn = async (receipt: unknown) => {
+  const contexts: unknown[] = [];
+  const fn = async (receipt: unknown, ctx?: unknown) => {
     calls.push(receipt);
+    contexts.push(ctx);
     if (result instanceof Error) throw result;
     return result;
   };
-  return Object.assign(fn, { calls });
+  return Object.assign(fn, { calls, contexts });
 }
 
 const RECEIPT = { leaf: "0x" + "ab".repeat(32), preimage: { settlement_tx: "TX_PRE" } };
@@ -363,6 +365,56 @@ async function run() {
     assert.equal(r.approved, false, `${String(bad)}: denied, not thrown`);
     assert.equal(r.logInclusionDenied, true);
     assert.match(r.reason, /^twzrd_log_inclusion_error \(requireLogInclusion is set but no verifier/);
+  }
+
+  // ── The seam carries the whole paid response, so an offline verifier can
+  //    use the block the server attached beside the receipt. ─────────────────
+
+  // 16. Verifier receives (receipt, ctx): ctx.response is the full body and
+  //     ctx.logInclusion is the attached block.
+  {
+    const BLOCK = { log_id: "intel.twzrd.xyz/v6", leaf: RECEIPT.leaf, leaf_index: 0, tree_size: 1, audit_path: [] };
+    const v = verifierMock(PROVEN);
+    const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
+      fetch: preflight(WARN),
+      autoReceipt: true,
+      x402Fetch: x402Mock({ tx: "TX_AAA", twzrd_receipt: RECEIPT, log_inclusion: BLOCK }),
+      requireLogInclusion: { verifier: v },
+    });
+    assert.equal(r.approved, true);
+    assert.equal(v.calls.length, 1);
+    assert.deepEqual(v.calls[0], RECEIPT, "first arg is still the bare receipt");
+    const ctx = v.contexts[0] as { response: Record<string, unknown>; logInclusion: unknown };
+    assert.deepEqual(ctx.logInclusion, BLOCK, "ctx.logInclusion is the attached block");
+    assert.deepEqual(ctx.response.twzrd_receipt, RECEIPT, "ctx.response is the whole paid body");
+    assert.deepEqual(ctx.response.log_inclusion, BLOCK);
+    assert.equal(ctx.response.tx, "TX_AAA");
+  }
+
+  // 17. No block attached → ctx.logInclusion is undefined, response still passed.
+  {
+    const v = verifierMock(PROVEN);
+    await evaluateWith(v);
+    const ctx = v.contexts[0] as { response: Record<string, unknown>; logInclusion: unknown };
+    assert.equal(ctx.logInclusion, undefined, "no block → undefined, not a guess");
+    assert.deepEqual(ctx.response.twzrd_receipt, RECEIPT);
+  }
+
+  // 18. A legacy one-argument verifier keeps working (the second arg is additive).
+  {
+    let seen: unknown;
+    const legacy = async (receipt: unknown) => {
+      seen = receipt;
+      return PROVEN;
+    };
+    const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
+      fetch: preflight(WARN),
+      autoReceipt: true,
+      x402Fetch: x402Mock({ tx: "TX_AAA", twzrd_receipt: RECEIPT }),
+      requireLogInclusion: { verifier: legacy },
+    });
+    assert.equal(r.approved, true);
+    assert.deepEqual(seen, RECEIPT);
   }
 
   console.log("log-inclusion: ok");
