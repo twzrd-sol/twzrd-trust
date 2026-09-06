@@ -36,6 +36,7 @@ import {
   fetchSth,
   fetchConsistencyProof,
   resolveTrust,
+  verifyLogInclusion,
   type LogDescriptor,
 } from "./client.js";
 import { bytesToHex, hexToBytes, b58encode } from "./util.js";
@@ -48,7 +49,9 @@ in TWZRD's servers or code: inclusion proofs, consistency proofs, Solana
 anchors, and equivocation (contradictory signed tree heads).
 
 commands:
-  inclusion    --receipt FILE | --leaf HEX32, --proof FILE, [--sth FILE]
+  inclusion    --proof FILE [--receipt FILE | --leaf HEX32] [--sth FILE]
+               omit --receipt/--leaf/--sth when --proof is already a live paid
+               response or its log_inclusion block — it names its own leaf and head
   consistency  --old FILE --new FILE --proof FILE
   anchor       --sth FILE --tx SIGNATURE --authority KEY [--rpc URL]
   equivocation --a FILE --b FILE [--proof FILE] [--proof-out FILE]
@@ -176,10 +179,32 @@ function cmdInclusion(args: string[]): number {
   const receiptPath = getOpt(args, "--receipt");
   const leafHexArg = getOpt(args, "--leaf");
   const proofPath = getOpt(args, "--proof");
-  if (!proofPath || (!receiptPath && !leafHexArg)) {
-    console.error("inclusion requires --proof and one of --receipt / --leaf");
+  const sthPath = getOpt(args, "--sth");
+  if (!proofPath) {
+    console.error("inclusion requires --proof, plus --receipt / --leaf unless --proof already names one");
     return 1;
   }
+  const proofDoc = readJson(proofPath) as Record<string, unknown>;
+
+  // A live paid response (or its bare log_inclusion block) already names its own
+  // leaf and carries its own head — verify it directly, no --leaf required. Only
+  // takes this path with no --receipt/--leaf/--sth override, so the legacy
+  // separate-files invocation below is unaffected.
+  if (!receiptPath && !leafHexArg && !sthPath) {
+    const res = verifyLogInclusion(proofDoc, trusted);
+    console.log(`leaf            : ${res.leaf ? `0x${res.leaf}` : "(unresolved)"}`);
+    console.log(`log_id          : ${res.sth?.log_id ?? "(none)"}`);
+    console.log(`tree_size       : ${res.tree_size ?? res.sth?.tree_size ?? "(none)"}`);
+    console.log(`pinned          : ${describeTrust(trusted)}`);
+    console.log(
+      `sth signature   : ${res.sth_valid ? "valid" : "INVALID"}${res.key_id ? ` [key_id ${res.key_id}]` : ""}`,
+    );
+    console.log(`inclusion       : ${res.inclusion_valid ? "valid" : "INVALID"}`);
+    res.errors.forEach((e) => console.log(`  - ${e}`));
+    console.log(`RESULT          : ${res.valid ? "VALID (leaf is in the signed log)" : "INVALID"}`);
+    return res.valid ? 0 : 1;
+  }
+
   const leafHex = receiptPath
     ? extractLeafHex(readJson(receiptPath))
     : String(leafHexArg).toLowerCase().replace(/^0x/, "");
@@ -187,8 +212,7 @@ function cmdInclusion(args: string[]): number {
     console.error("--leaf must be 64 hex chars");
     return 1;
   }
-  const proof = readJson(proofPath) as Record<string, unknown>;
-  const sthPath = getOpt(args, "--sth");
+  const proof = proofDoc;
   const sth = (sthPath ? readJson(sthPath) : proof.sth) as SignedTreeHead | undefined;
   if (!sth) {
     console.error("no STH: pass --sth or embed one in the proof file as .sth");

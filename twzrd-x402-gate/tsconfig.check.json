@@ -6,6 +6,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
+    "allowJs": true,
     // ".." not ".": test/log-inclusion-offline.test.ts imports the sibling
     // workspace's SOURCE (twzrd-log-verifier/src) on purpose, so a signature
     // drift between the gate's verifier seam and the real verifier fails

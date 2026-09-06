@@ -48,6 +48,15 @@ assert.equal(typeof gate.exportEvidenceBundle, "function");
 assert.equal(typeof gate.listDirectoryCallables, "function");
 assert.equal(gate.EVIDENCE_BUNDLE_SCHEMA, "twzrd.evidence_bundle.v1");
 assert.equal(gate.CLIENT_VERSION, pkg.version);
+const declared = Object.keys(pkg.exports || {}).filter(
+  (k) => k !== "." && k !== "./package.json",
+);
+for (const sub of declared) {
+  const spec = pkg.exports[sub];
+  const target = typeof spec === "string" ? spec : spec?.import;
+  assert.ok(target, "declared export " + sub + " has no import target");
+  await import("twzrd-x402-gate/" + sub.slice(2));
+}
 // Unsafe-grade API lives only behind the /unsafe subpath, never the root.
 assert.equal(gate.unsafeAssertIntentApprovedWithoutSignature, undefined);
 const unsafe = await import("twzrd-x402-gate/unsafe");
