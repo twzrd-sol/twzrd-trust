@@ -7,12 +7,7 @@
   "compilerOptions": {
     "noEmit": true,
     "allowJs": true,
-    // ".." not ".": test/log-inclusion-offline.test.ts imports the sibling
-    // workspace's SOURCE (twzrd-log-verifier/src) on purpose, so a signature
-    // drift between the gate's verifier seam and the real verifier fails
-    // typecheck here rather than in a host's integration. With noEmit, rootDir
-    // governs only the "every file must live under it" constraint — nothing
-    // about layout — and `include` still limits entry points to this package.
+    // Include sibling verifier source imported by offline tests; noEmit keeps this check-only.
     "rootDir": "..",
     "declaration": false,
     "declarationMap": false,

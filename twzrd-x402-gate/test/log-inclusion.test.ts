@@ -114,7 +114,7 @@ async function run() {
 
   {
     const policy = resolveRequireLogInclusionPolicy({ verifier: verifierMock(new Error("log unreachable")) })!;
-    const o = await evaluateLogInclusion(RECEIPT, policy);
+    const o = await evaluateLogInclusion(RECEIPT, policy, { response: { twzrd_receipt: RECEIPT } });
     assert.equal(o.checked, true);
     assert.equal(o.valid, false);
     assert.equal(o.denyReason, "twzrd_log_inclusion_error", "a throwing verifier denies under hard — never fail-open");
@@ -124,7 +124,7 @@ async function run() {
   {
     // Soft policy: same failures annotate but never deny.
     const policy = resolveRequireLogInclusionPolicy({ verifier: verifierMock({ valid: false, errors: ["nope"] }), hard: false })!;
-    const o = await evaluateLogInclusion(RECEIPT, policy);
+    const o = await evaluateLogInclusion(RECEIPT, policy, { response: { twzrd_receipt: RECEIPT } });
     assert.equal(o.valid, false);
     assert.equal(o.denyReason, undefined, "soft policy annotates, does not deny");
   }

@@ -348,7 +348,7 @@ export async function evaluate_x402_resource(
   // override the host's threshold.
   if (logPolicy && attemptReceipt) {
     const miss = receiptMiss ?? "not_captured";
-    const outcome = await evaluateLogInclusion(undefined, logPolicy);
+    const outcome = await evaluateLogInclusion(undefined, logPolicy, { response: undefined });
     const annotated: LogInclusionOutcome = {
       ...outcome,
       errors: [`no receipt captured: ${miss}`],

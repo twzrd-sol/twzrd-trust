@@ -177,7 +177,7 @@ function deny(
 export async function evaluateLogInclusion(
   receipt: unknown,
   policy: ResolvedRequireLogInclusionPolicy,
-  ctx: LogInclusionContext = { response: undefined },
+  ctx: LogInclusionContext,
 ): Promise<LogInclusionOutcome> {
   if (receipt === undefined || receipt === null) {
     return deny(
