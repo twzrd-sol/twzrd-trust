@@ -6,6 +6,10 @@
  * ./evidence-verify. Live docs still pin 0.9.3. This script is the lock so the
  * next publish cannot claim "latest" while missing the reviewed seats.
  *
+ * `./unsafe` was in this required list at 0.10.0/0.10.1. That export is a
+ * documented signature bypass (#2382). Removed: complete means PayKit +
+ * evidence-verify, never the bypass.
+ *
  *   node scripts/assert-packed-surface.mjs --public-release --from-package
  *
  * Exits 1 when the coordinated surface is incomplete. Do not put this on the
@@ -19,7 +23,6 @@ import { fileURLToPath } from "node:url";
 export const PUBLIC_RELEASE_SURFACE = {
   subpaths: [
     "./safe-fetch",
-    "./unsafe",
     "./evidence-verify",
     "./cloudflare-base",
   ],

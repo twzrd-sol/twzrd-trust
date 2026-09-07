@@ -57,10 +57,9 @@ for (const sub of declared) {
   assert.ok(target, "declared export " + sub + " has no import target");
   await import("twzrd-x402-gate/" + sub.slice(2));
 }
-// Unsafe-grade API lives only behind the /unsafe subpath, never the root.
+// Bypass API must not ship on the public surface (#2382).
 assert.equal(gate.unsafeAssertIntentApprovedWithoutSignature, undefined);
-const unsafe = await import("twzrd-x402-gate/unsafe");
-assert.equal(typeof unsafe.unsafeAssertIntentApprovedWithoutSignature, "function");
+assert.equal(pkg.exports["./unsafe"], undefined);
 let seen = null;
 await gate.twzrdPreflight({ resource_name: "pack-smoke", seller_wallet: "SELLER" }, gate.resolveConfig({
   attribution: { integration: "pack-smoke", runId: "1" },
