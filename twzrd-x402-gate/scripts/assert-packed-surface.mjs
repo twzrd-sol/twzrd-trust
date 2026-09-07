@@ -8,6 +8,13 @@
  *
  *   node scripts/assert-packed-surface.mjs --public-release --from-package
  *
+ * `./unsafe` was a REQUIRED subpath here. That is what made 0.10.0 (2026-09-02)
+ * and 0.10.1 (2026-09-07) unpublishable-but-published: the contract demanded a
+ * documented signature-bypass export, so a green publish gate shipped it twice.
+ * The operator deprecated both and retagged latest (0.9.3, then 0.9.4). Removed:
+ * "complete" means the reviewed seats (PayKit, evidence-verify), never the bypass.
+ * Mirrors wzrd-final #2563 into the repo that actually publishes.
+ *
  * Exits 1 when the coordinated surface is incomplete. Do not put this on the
  * default `npm test` path until the monorepo fork carries PayKit; put it on
  * the publish workflow so a button-press cannot ship another partial tarball.
@@ -19,7 +26,6 @@ import { fileURLToPath } from "node:url";
 export const PUBLIC_RELEASE_SURFACE = {
   subpaths: [
     "./safe-fetch",
-    "./unsafe",
     "./evidence-verify",
     "./cloudflare-base",
   ],

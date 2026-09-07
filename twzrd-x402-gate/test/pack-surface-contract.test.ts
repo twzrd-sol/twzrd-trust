@@ -21,7 +21,6 @@ const pkgRoot = join(__dirname, "..");
 const NPM_0_10_0_EXPORTS = {
   ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
   "./safe-fetch": { types: "./dist/safe-fetch.d.ts", import: "./dist/safe-fetch.js" },
-  "./unsafe": { types: "./dist/unsafe.d.ts", import: "./dist/unsafe.js" },
   "./package.json": "./package.json",
 };
 
@@ -75,7 +74,7 @@ function run() {
   assert.equal(
     localPublic.ok,
     true,
-    "twzrd-trust release surface must be complete: exports PayKit, unsafe, evidence-verify, cloudflare-base",
+    "twzrd-trust release surface must be complete: exports PayKit, evidence-verify, cloudflare-base — never ./unsafe (#2382)",
   );
 
   console.log("pack-surface-contract.test.ts: ALL PASSED");
