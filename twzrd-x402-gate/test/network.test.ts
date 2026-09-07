@@ -55,13 +55,16 @@ async function run() {
     assert.equal(strict.decision, "unknown");
   }
 
-  // --- twzrdApprovePayment: Base never calls preflight ---
+  // --- twzrdApprovePayment: Base never calls Solana preflight ---
+  // Observe still GETs merchant_card (wash is wallet-keyed). Count by URL so a
+  // wash lookup is not mistaken for a reputation preflight.
   {
     let preflightHits = 0;
     const cfg = resolveConfig({
       unsupportedNetworkMode: "observe",
-      fetch: (async () => {
-        preflightHits += 1;
+      fetch: (async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/intel/preflight")) preflightHits += 1;
         return new Response("{}", { status: 500 });
       }) as typeof fetch,
     });
@@ -77,7 +80,7 @@ async function run() {
     assert.equal(preflightHits, 0, "Base must not hit Solana preflight");
     assert.equal(r.verdict, "unknown");
     assert.equal(r.reason, "network_not_scored");
-    assert.equal(r.approved, true, "observe allows unscored");
+    assert.equal(r.approved, true, "observe allows unscored (wash fail-open on 500)");
     assert.equal(r.reputationScored, false);
     assert.equal(r.policyAction, "allow");
     assert.equal(r.score, null);
@@ -122,8 +125,9 @@ async function run() {
       )) as unknown as typeof fetch;
     const cfg = resolveConfig({
       unsupportedNetworkMode: "observe",
-      fetch: (async () => {
-        preflightHits += 1;
+      fetch: (async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/intel/preflight")) preflightHits += 1;
         return new Response("{}", { status: 200 });
       }) as typeof fetch,
     });

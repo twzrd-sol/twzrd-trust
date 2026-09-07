@@ -81,8 +81,9 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     if (Number.isFinite(n) && n >= 0) washMaxUsdc = n;
   }
 
-  // Default observe: Base/EVM payments are allowed but marked decision=unknown
-  // (policy allow ≠ reputation allow). Strict blocks unscored networks before sign.
+  // Default observe: Base/EVM skip Solana preflight and are marked
+  // decision=unknown (policy allow ≠ reputation allow). Wash still runs —
+  // wash_flagged refuses before sign. Strict blocks unscored networks outright.
   const envMode = (process.env.TWZRD_UNSUPPORTED_NETWORK_MODE ?? "").trim().toLowerCase();
   const unsupportedNetworkMode: "observe" | "strict" =
     overrides?.unsupportedNetworkMode ??

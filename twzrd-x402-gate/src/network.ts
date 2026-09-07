@@ -112,7 +112,9 @@ export function classifyNetwork(
 
 /**
  * Policy action for an unscored (or unsupported) network.
- * - observe (default): allow payment but never claim reputation approval
+ * - observe (default): allow payment but never claim reputation approval.
+ *   Callers that refuse wash_flagged must still run merchant_card after this
+ *   (see twzrdApprovePayment) — observe is not a wash bypass.
  * - strict: block before signing
  */
 export type UnsupportedNetworkMode = "observe" | "strict";

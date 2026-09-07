@@ -150,7 +150,9 @@ Everything else (thresholds, wash caps, fail posture, settle guard): [README](./
 
 ## What this will NOT do
 
-- **No Base/EVM reputation.** Non-Solana networks get an explicit `unknown` (payment
-  allowed, observed) unless you set `TWZRD_UNSUPPORTED_NETWORK_MODE=strict`.
+- **No Base/EVM reputation.** Non-Solana networks get an explicit `unknown`
+  (observed; no Solana preflight) unless you set
+  `TWZRD_UNSUPPORTED_NETWORK_MODE=strict`. Observe is not a wash bypass —
+  `wash_flagged` still refuses before sign.
 - **No delivery guarantee.** It screens the merchant before you pay, nothing after.
 - **Not a wallet.** It never holds keys or signs — it only decides if your signer runs.

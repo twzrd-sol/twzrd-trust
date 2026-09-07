@@ -69,8 +69,9 @@ export type TwzrdGateConfig = {
   washMaxUsdc?: number;
   /**
    * How to handle payments on networks TWZRD does not reputation-score (Base/EVM/…).
-   * - observe (default): allow payment, emit decision=unknown + telemetry
-   * - strict: block before signing (policy_action=block)
+   * - observe (default): skip Solana preflight, emit decision=unknown + telemetry.
+   *   Does **not** skip merchant_card wash — wash_flagged still refuses before sign.
+   * - strict: block before signing (policy_action=block), no intel calls
    * Env: TWZRD_UNSUPPORTED_NETWORK_MODE=observe|strict
    */
   unsupportedNetworkMode?: "observe" | "strict";

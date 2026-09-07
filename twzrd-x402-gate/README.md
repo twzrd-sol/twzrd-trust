@@ -542,7 +542,7 @@ The gate **recognizes** multi-chain 402s but only **reputation-scores Solana mai
 | Network | Reputation scored? | Default policy (`unsupportedNetworkMode`) |
 |---------|-------------------|-------------------------------------------|
 | Solana mainnet | Yes — free preflight + merchant_card | allow/block from intel |
-| Base / other EVM (`eip155:*`) | **No** | `observe` (default): `decision=unknown`, `policyAction=allow`, telemetry `unsupported_network_seen` |
+| Base / other EVM (`eip155:*`) | **No** Solana preflight | `observe` (default): `decision=unknown`, `policyAction=allow`, telemetry `unsupported_network_seen`. **Wash still runs** — `wash_flagged` refuses before sign. |
 | Base / EVM in `strict` mode | No | `policyAction=block` before sign |
 
 This is intentional: Base listing abundance ≠ Solana behavioral history. Unsupported is never

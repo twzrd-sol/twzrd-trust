@@ -15,6 +15,7 @@ import type {
   TwzrdApprovalResult,
   TwzrdApproveContext,
   TwzrdDecision,
+  TwzrdGateDecision,
   TwzrdPreflightInput,
   TwzrdReadinessCard,
 } from "./types.js";
@@ -125,6 +126,62 @@ export async function twzrdPreflight(
   return card;
 }
 
+/**
+ * Trustless wash tighten (merchant_card). Wallet-keyed, chain-neutral.
+ * Only tightens; fail-open when the card is unreachable (no invent).
+ */
+async function tightenWithMerchantCardWash(input: {
+  seller: string | undefined;
+  approved: boolean;
+  reason: string;
+  verdict: TwzrdGateDecision;
+  priceUsdc?: number;
+  cfg: ResolvedTwzrdGateConfig;
+}): Promise<{
+  approved: boolean;
+  reason: string;
+  verdict: TwzrdGateDecision;
+  washFlagged: boolean | null;
+  washCapped?: boolean;
+}> {
+  let washFlagged: boolean | null = null;
+  let approved = input.approved;
+  let reason = input.reason;
+  let verdict = input.verdict;
+
+  if (input.cfg.refuseWashFlagged && input.seller) {
+    const mcard = await fetchMerchantCard(input.seller, {
+      intelBase: input.cfg.intelBase,
+      fetch: input.cfg.fetch,
+    });
+    if (mcard && typeof mcard.wash_flagged === "boolean") {
+      washFlagged = mcard.wash_flagged;
+    }
+  }
+
+  const wash = applyWashFlaggedPolicy({
+    approved,
+    reason,
+    washFlagged,
+    priceUsdc: input.priceUsdc,
+    refuseWashFlagged: input.cfg.refuseWashFlagged,
+    washMaxUsdc: input.cfg.washMaxUsdc,
+  });
+  approved = wash.approved;
+  reason = wash.reason;
+  washFlagged = wash.washFlagged;
+  if (!approved && wash.washFlagged === true) {
+    verdict = "block";
+  }
+  return {
+    approved,
+    reason,
+    verdict,
+    washFlagged,
+    washCapped: wash.washCapped,
+  };
+}
+
 export async function twzrdApprovePayment(
   context: TwzrdApproveContext,
   config?: ResolvedTwzrdGateConfig,
@@ -151,32 +208,63 @@ export async function twzrdApprovePayment(
 
   // Path E: classify network before any Solana reputation call.
   // Base/EVM → explicit unknown (never a fabricated score). Solana → full preflight.
+  // Observe is "don't claim Solana reputation", not "skip wash". Wash is
+  // wallet-keyed; a wash_flagged payTo on Base must still refuse-before-sign.
   const netCls = classifyNetwork(context.chain, context.payTo ?? context.sellerWallet);
   if (!netCls.reputationScored) {
     const undecided = decideUnsupportedNetwork(netCls, cfg.unsupportedNetworkMode);
-    logUnsupportedNetwork({
-      network: netCls.network,
-      payTo: context.payTo ?? context.sellerWallet,
-      amountBucket: amountBucket(
-        context.priceUsdc != null && Number.isFinite(context.priceUsdc)
-          ? String(Math.round(context.priceUsdc * 1_000_000))
-          : undefined,
-      ),
-      policyMode: cfg.unsupportedNetworkMode,
-      policyAction: undecided.policyAction,
-      adapter: context.agentIntent,
+    const unsupportedLog = (policyAction: "allow" | "block") =>
+      logUnsupportedNetwork({
+        network: netCls.network,
+        payTo: context.payTo ?? context.sellerWallet,
+        amountBucket: amountBucket(
+          context.priceUsdc != null && Number.isFinite(context.priceUsdc)
+            ? String(Math.round(context.priceUsdc * 1_000_000))
+            : undefined,
+        ),
+        policyMode: cfg.unsupportedNetworkMode,
+        policyAction,
+        adapter: context.agentIntent,
+      });
+    // Strict: block before intel. Wash opt-out: keep the observe allow.
+    // Observe + refuseWashFlagged (default): still GET merchant_card.
+    if (undecided.policyAction === "block" || !cfg.refuseWashFlagged) {
+      unsupportedLog(undecided.policyAction);
+      return {
+        decisionId,
+        approved: undecided.approved,
+        verdict: "unknown",
+        score: null,
+        card: {},
+        reason: undecided.reason,
+        network: undecided.network,
+        networkSupported: undecided.networkSupported,
+        reputationScored: false,
+        policyAction: undecided.policyAction,
+      };
+    }
+    const wash = await tightenWithMerchantCardWash({
+      seller: context.sellerWallet ?? context.payTo,
+      approved: undecided.approved,
+      reason: undecided.reason,
+      verdict: "unknown",
+      priceUsdc: context.priceUsdc,
+      cfg,
     });
+    unsupportedLog(wash.approved ? "allow" : "block");
     return {
       decisionId,
-      approved: undecided.approved,
-      verdict: "unknown",
+      approved: wash.approved,
+      verdict: wash.verdict,
       score: null,
       card: {},
-      reason: undecided.reason,
+      reason: wash.reason,
+      washFlagged: wash.washFlagged,
+      washCapped: wash.washCapped,
       network: undecided.network,
       networkSupported: undecided.networkSupported,
       reputationScored: false,
-      policyAction: undecided.policyAction,
+      policyAction: wash.approved ? "allow" : "block",
     };
   }
 
@@ -201,53 +289,28 @@ export async function twzrdApprovePayment(
 
     // Trustless step 3: free merchant_card wash refuse (default on).
     // Only tightens; fail-open when card is unreachable (washFlagged=null).
-    let washFlagged: boolean | null = null;
-    let washCapped: boolean | undefined;
-    let approved = result.approved;
-    let reason = result.reason;
-    let verdict = result.verdict;
-
-    if (cfg.refuseWashFlagged) {
-      const seller = card.seller_wallet ?? context.sellerWallet ?? context.payTo;
-      if (seller) {
-        const mcard = await fetchMerchantCard(seller, {
-          intelBase: cfg.intelBase,
-          fetch: cfg.fetch,
-        });
-        if (mcard && typeof mcard.wash_flagged === "boolean") {
-          washFlagged = mcard.wash_flagged;
-        }
-      }
-      const wash = applyWashFlaggedPolicy({
-        approved,
-        reason,
-        washFlagged,
-        priceUsdc: context.priceUsdc,
-        refuseWashFlagged: cfg.refuseWashFlagged,
-        washMaxUsdc: cfg.washMaxUsdc,
-      });
-      approved = wash.approved;
-      reason = wash.reason;
-      washFlagged = wash.washFlagged;
-      washCapped = wash.washCapped;
-      if (!approved && wash.washFlagged === true) {
-        verdict = "block";
-      }
-    }
+    const wash = await tightenWithMerchantCardWash({
+      seller: card.seller_wallet ?? context.sellerWallet ?? context.payTo,
+      approved: result.approved,
+      reason: result.reason,
+      verdict: result.verdict,
+      priceUsdc: context.priceUsdc,
+      cfg,
+    });
 
     return {
       ...result,
       decisionId,
-      approved,
-      reason,
-      verdict,
+      approved: wash.approved,
+      reason: wash.reason,
+      verdict: wash.verdict,
       preflightId: card.preflight_id,
-      washFlagged,
-      washCapped,
+      washFlagged: wash.washFlagged,
+      washCapped: wash.washCapped,
       network: netCls.network,
       networkSupported: true,
       reputationScored: true,
-      policyAction: approved ? "allow" : "block",
+      policyAction: wash.approved ? "allow" : "block",
     };
   } catch (err) {
     if (!cfg.failOpen) {
