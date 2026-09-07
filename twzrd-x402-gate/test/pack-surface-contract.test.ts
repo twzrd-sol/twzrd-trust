@@ -72,10 +72,14 @@ function run() {
     exportMap: local.exportMap,
     indexSource: local.indexSource,
   });
+  assert.ok(
+    !("./unsafe" in (local.exportMap as Record<string, unknown>)),
+    "must never ship ./unsafe (#2382)",
+  );
   assert.equal(
     localPublic.ok,
     true,
-    "twzrd-trust release surface must be complete: exports PayKit, unsafe, evidence-verify, cloudflare-base",
+    "twzrd-trust release surface must be complete: PayKit + evidence-verify + cloudflare-base, never ./unsafe",
   );
 
   console.log("pack-surface-contract.test.ts: ALL PASSED");
