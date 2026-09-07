@@ -6,6 +6,14 @@ name: Publish twzrd-x402-gate to npm
 # is the standard way CI publish tokens get exfiltrated. Manual button-press
 # only, by a human who can see exactly what version is about to ship.
 #
+# Auth (either works):
+# - secrets.NPM_TOKEN: classic granular publish token
+# - npm Trusted Publishing (OIDC): id-token: write is already granted. If
+#   NODE_AUTH_TOKEN is empty, setup-node's registry-url writes
+#   `_authToken=${NODE_AUTH_TOKEN}` which expands to empty and npm then
+#   skips OIDC and dies ENEEDAUTH (run 34089898111). We strip that line
+#   and publish with npm 11+ --provenance on the OIDC path.
+#
 # Permissions:
 # - contents: write (for creating tags / releases)
 # - id-token: write (for npm provenance / OIDC minting)
@@ -33,6 +41,22 @@ jobs:
           node-version: 20
           cache: npm
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Decide publish auth
+        id: auth
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "mode=token" >> "$GITHUB_OUTPUT"
+            echo "Using secrets.NPM_TOKEN"
+          else
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+            echo "::notice::secrets.NPM_TOKEN is empty; will publish via npm Trusted Publishing (OIDC)."
+            echo "If publish later fails auth, either set repo secret NPM_TOKEN or add this workflow"
+            echo "(twzrd-sol/twzrd-trust / .github/workflows/publish.yml) as a trusted publisher"
+            echo "on npmjs.com for twzrd-x402-gate."
+          fi
 
       - name: Install dependencies
         run: npm install
@@ -62,10 +86,30 @@ jobs:
       - name: Refuse an incomplete public tarball
         run: npm run pack-release-contract
 
-      - name: Publish
-        run: npm publish --access public
+      - name: Publish with token
+        if: steps.auth.outputs.mode == 'token'
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish with OIDC trusted publishing
+        if: steps.auth.outputs.mode == 'oidc'
+        run: |
+          # Trusted publishing needs npm 11.5.1+. Node 20 ships npm 10.
+          npm install -g npm@11
+          npm --version
+          # setup-node writes _authToken=${NODE_AUTH_TOKEN} to the *active*
+          # userconfig (NPM_CONFIG_USERCONFIG, often $RUNNER_TEMP/.npmrc).
+          # An empty expansion makes npm skip OIDC and die ENEEDAUTH.
+          NPMRC_PATH="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$NPMRC_PATH" ]; then
+            echo "Stripping _authToken from $NPMRC_PATH"
+            sed -i '/_authToken/d' "$NPMRC_PATH"
+          fi
+          if [ -f "$HOME/.npmrc" ] && [ "$HOME/.npmrc" != "$NPMRC_PATH" ]; then
+            sed -i '/_authToken/d' "$HOME/.npmrc"
+          fi
+          npm publish --access public --provenance
 
       - name: Verify against the live registry
         # npm's registry is eventually consistent: poll with a deadline
