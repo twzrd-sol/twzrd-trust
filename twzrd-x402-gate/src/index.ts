@@ -203,6 +203,37 @@ export {
   type EvidenceOutcomeAttestation,
   type ExportEvidenceBundleOptions,
 } from "./evidence-bundle.js";
+// twzrd.payment_decision.v1 — portable public decision receipt + offline verifier.
+// Also available as the `twzrd-x402-gate/payment-decision` subpath.
+export {
+  PAYMENT_DECISION_SCHEMA,
+  PAYMENT_DECISION_DOMAIN,
+  PAYMENT_DECISION_DECISIONS,
+  PAYMENT_DECISION_REASON_CODES,
+  PAYMENT_DECISION_FIELDS,
+  challengeHashV1,
+  merchantFromChallenge,
+  toCaip2Network,
+  paymentDecisionPreimage,
+  issuePaymentDecisionRecord,
+  paymentDecisionRecordFromToken,
+  primaryReasonCode,
+  decisionFromApproval,
+  verifyPaymentDecisionRecord,
+  validateRecordStructure,
+  scanForbiddenContent,
+  formatPaymentDecisionVerification,
+  TwzrdPaymentDecisionError,
+  type PaymentDecisionRecordV1,
+  type PaymentDecisionRecordDecision,
+  type PaymentDecisionReasonCode,
+  type PaymentDecisionMerchant,
+  type PaymentDecisionSignature,
+  type IssuePaymentDecisionInput,
+  type PaymentDecisionVerification,
+  type PaymentDecisionVerifyError,
+  type VerifyPaymentDecisionOptions,
+} from "./payment-decision.js";
 export {
   quickCheck,
   QUICK_PRICE_USDC,

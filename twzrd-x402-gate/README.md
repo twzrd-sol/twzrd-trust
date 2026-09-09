@@ -886,6 +886,38 @@ Emits `twzrd.gate_adoption_transcript.v1` JSON: block path aborts with `signerIn
 harness's own limits: [`docs/strategy/gate-adoption-operator-proof.md`](../docs/strategy/gate-adoption-operator-proof.md)
 in this repo — the same path the transcript's `acceptanceDoc` field cites.
 
+## Portable decision receipt: `twzrd.payment_decision.v1`
+
+A frozen, closed public record of one decision — what the agent saw
+(`challenge_hash`), what it decided (`allow | block | warn | unavailable`), why
+(one code from a closed enum) and an `evidence_id` — signed with your existing
+decision signer and verifiable **offline** by anyone holding your public key.
+No TWZRD call in the verification path. `unavailable` is a first-class decision
+and is never written as `block`. The record carries **no** score, secret, raw
+authorization/payload, amount or resource URL; the verifier rejects any of them.
+
+```ts
+import { createLocalDecisionSigner, evaluateIntent } from "twzrd-x402-gate";
+import { paymentDecisionRecordFromToken, verifyPaymentDecisionRecord } from "twzrd-x402-gate/payment-decision";
+
+const signer = createLocalDecisionSigner({ keyId: "ops-2026-09" });
+const token = await evaluateIntent(intent, { signer, policy });
+const record = await paymentDecisionRecordFromToken(token, selectedAccepts, signer);
+
+// relying party, anywhere, later:
+const r = verifyPaymentDecisionRecord(record, { publicKeyPem, challenge: selectedAccepts });
+r.ok && r.decision; // "block" — or null when rejected
+```
+
+```bash
+npx twzrd-payment-decision --verify record.json --pubkey issuer.spki.pem [--challenge accepts-entry.json] [--json]
+```
+
+Spec (schema, challenge normalization, what is signed, what is forbidden):
+[`docs/payment-decision-v1-spec.md`](../docs/payment-decision-v1-spec.md) ·
+JSON Schema: [`docs/schemas/twzrd.payment_decision.v1.schema.json`](../docs/schemas/twzrd.payment_decision.v1.schema.json) ·
+test vectors: `test/fixtures/payment-decision-v1-vectors.json`.
+
 ## Run attribution (optional, for integration correlation)
 
 When you set `attribution`, the gate stamps **only the TWZRD preflight request** (never the

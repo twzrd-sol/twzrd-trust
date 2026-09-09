@@ -25,6 +25,7 @@ export const PUBLIC_RELEASE_SURFACE = {
     "./safe-fetch",
     "./evidence-verify",
     "./cloudflare-base",
+    "./payment-decision",
   ],
   named: [
     "createTwzrdPayKitBeforePaymentHook",
