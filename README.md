@@ -87,6 +87,7 @@ One path. Install `twzrd-x402-gate@0.9.3`. Free preflight does not enforce; Auto
 4. **Pay only when policy allows** — blocks have `signerInvocations === 0`
 5. **Verify** — bind-v1 / V6 (optional ACK-Pay VC). No second passport format
 6. **Evidence bundle** — `exportEvidenceBundle` / `npx twzrd-evidence-bundle`
+7. **Portable decision receipt** — `twzrd.payment_decision.v1`: what the agent saw, `allow | block | warn | unavailable`, a reason code and an evidence id, verifiable offline with `npx twzrd-payment-decision --verify` — spec: [docs/payment-decision-v1-spec.md](./docs/payment-decision-v1-spec.md)
 
 Refuse-first demo (0 USDC): `npx tsx twzrd-x402-gate/examples/commerce-kit.ts`  
 Walkthrough: [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)

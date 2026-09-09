@@ -9,7 +9,8 @@
     "twzrd-safe-fetch": "./bin/twzrd-safe-fetch.js",
     "twzrd-gate-eval-refuse": "./bin/twzrd-gate-eval-refuse.js",
     "twzrd-gate-doctor": "./bin/twzrd-gate-doctor.js",
-    "twzrd-evidence-bundle": "./bin/twzrd-evidence-bundle.js"
+    "twzrd-evidence-bundle": "./bin/twzrd-evidence-bundle.js",
+    "twzrd-payment-decision": "./bin/twzrd-payment-decision.js"
   },
   "exports": {
     ".": {
@@ -28,6 +29,10 @@
     "./cloudflare-base": {
       "types": "./dist/cloudflare-base.d.ts",
       "import": "./dist/cloudflare-base.js"
+    },
+    "./payment-decision": {
+      "types": "./dist/payment-decision.d.ts",
+      "import": "./dist/payment-decision.js"
     }
   },
   "files": [
@@ -62,7 +67,8 @@
     "live-autogate-matrix": "tsx examples/live-autogate-matrix.ts",
     "gate-eval-refuse": "node bin/twzrd-gate-eval-refuse.js",
     "gate-doctor": "tsx src/doctor.ts",
-    "evidence-verify": "tsx src/evidence-verify.ts --verify"
+    "evidence-verify": "tsx src/evidence-verify.ts --verify",
+    "payment-decision-verify": "tsx src/payment-decision.ts --verify"
   },
   "keywords": [
     "x402",

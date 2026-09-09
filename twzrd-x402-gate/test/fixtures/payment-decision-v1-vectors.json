@@ -1,0 +1,93 @@
+{
+  "$comment": "twzrd.payment_decision.v1 test vectors. Signed with a derived TEST key (sha256 of a fixed phrase, see test/payment-decision.test.ts) — never a deployment key. Verify each record with public_key_pem at any clock before 2030-01-01T00:00:00Z; a conforming verifier in any language must ACCEPT all four and report the named decision.",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5/BFckaw2uwsPQ1wpU6xnlDrdyyXSEkWXX/CjbcMTek=\n-----END PUBLIC KEY-----\n",
+  "challenge": {
+    "scheme": "exact",
+    "network": "solana",
+    "payTo": "MerchantWa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "maxAmountRequired": "10000",
+    "resource": "https://api.merchant.example/v1/weather?units=metric&city=berlin",
+    "description": "Weather, per call",
+    "mimeType": "application/json",
+    "maxTimeoutSeconds": 60
+  },
+  "records": {
+    "allow": {
+      "schema": "twzrd.payment_decision.v1",
+      "challenge_hash": "c586f10e04891f27ad92889369b24efcfd271e07d661079dbe46d8c54e3b59b3",
+      "merchant": {
+        "origin": "https://api.merchant.example",
+        "pay_to": "MerchantWa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "scheme": "exact",
+      "decision": "allow",
+      "reason_code": "ALLOW",
+      "evidence_id": "00000000-0000-4000-8000-00000000a110",
+      "expires_at": "2030-01-01T00:00:00.000Z",
+      "signature": {
+        "alg": "ed25519",
+        "key_id": "twzrd-pd-v1-vectors",
+        "sig": "0zhr6fAthSGDKyP8W8AnXdWXozH/NnVXgHgmObZD369cnF8NHBJYnA4MdxFCVG64P/qOVrXYX6ZAhWdC99SLDA=="
+      }
+    },
+    "block": {
+      "schema": "twzrd.payment_decision.v1",
+      "challenge_hash": "c586f10e04891f27ad92889369b24efcfd271e07d661079dbe46d8c54e3b59b3",
+      "merchant": {
+        "origin": "https://api.merchant.example",
+        "pay_to": "MerchantWa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "scheme": "exact",
+      "decision": "block",
+      "reason_code": "WASH_FLAGGED",
+      "evidence_id": "00000000-0000-4000-8000-00000000b10c",
+      "expires_at": "2030-01-01T00:00:00.000Z",
+      "signature": {
+        "alg": "ed25519",
+        "key_id": "twzrd-pd-v1-vectors",
+        "sig": "GfBtXgyAunEGBx+yJY6eyOQCSA/y9tRNxbYyyUGEKbjxv/O9ZC7PG2T7YPzFp220//ULA8cRpWSZlFJ2Us5RDg=="
+      }
+    },
+    "warn": {
+      "schema": "twzrd.payment_decision.v1",
+      "challenge_hash": "c586f10e04891f27ad92889369b24efcfd271e07d661079dbe46d8c54e3b59b3",
+      "merchant": {
+        "origin": "https://api.merchant.example",
+        "pay_to": "MerchantWa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "scheme": "exact",
+      "decision": "warn",
+      "reason_code": "INTEL_WARN",
+      "evidence_id": "00000000-0000-4000-8000-00000000fa11",
+      "expires_at": "2030-01-01T00:00:00.000Z",
+      "signature": {
+        "alg": "ed25519",
+        "key_id": "twzrd-pd-v1-vectors",
+        "sig": "szVUZCjq3USQly87Ve8QRdDFG6I5jTlRC+4zs7+J7OhORgwhCQaT4Fq3IpVmPZBc9rF0A7T0KfIN+/zkhVX3Bw=="
+      }
+    },
+    "unavailable": {
+      "schema": "twzrd.payment_decision.v1",
+      "challenge_hash": "c586f10e04891f27ad92889369b24efcfd271e07d661079dbe46d8c54e3b59b3",
+      "merchant": {
+        "origin": "https://api.merchant.example",
+        "pay_to": "MerchantWa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "scheme": "exact",
+      "decision": "unavailable",
+      "reason_code": "INTEL_UNAVAILABLE",
+      "evidence_id": "00000000-0000-4000-8000-000000000dead",
+      "expires_at": "2030-01-01T00:00:00.000Z",
+      "signature": {
+        "alg": "ed25519",
+        "key_id": "twzrd-pd-v1-vectors",
+        "sig": "LBpUrDNcfElMNymWCJLMiRAUUET9AP2ncss95m9dZMIoXJHKyFf6KrFJ3upkfzRblwZw0mSUSZ5QzwjhoCP4BA=="
+      }
+    }
+  }
+}
