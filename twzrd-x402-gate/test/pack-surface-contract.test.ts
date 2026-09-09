@@ -49,6 +49,10 @@ function run() {
         types: "./dist/cloudflare-base.d.ts",
         import: "./dist/cloudflare-base.js",
       },
+      "./payment-decision": {
+        types: "./dist/payment-decision.d.ts",
+        import: "./dist/payment-decision.js",
+      },
     },
     indexSource: [
       "export { CLIENT_VERSION } from \"./version.js\";",
@@ -79,7 +83,7 @@ function run() {
   assert.equal(
     localPublic.ok,
     true,
-    "twzrd-trust release surface must be complete: PayKit + evidence-verify + cloudflare-base, never ./unsafe",
+    "twzrd-trust release surface must be complete: PayKit + evidence-verify + cloudflare-base + payment-decision, never ./unsafe",
   );
 
   console.log("pack-surface-contract.test.ts: ALL PASSED");
