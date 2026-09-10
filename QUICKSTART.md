@@ -17,7 +17,7 @@ endpoints before this document was committed.
 ## 1. Install
 
 ```bash
-npm install twzrd-x402-gate@0.9.3 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.5 x402-solana@3.0.0
 ```
 
 ## 2. First call — nothing to configure
