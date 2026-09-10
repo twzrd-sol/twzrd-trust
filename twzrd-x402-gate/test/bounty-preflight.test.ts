@@ -160,8 +160,8 @@ test("buildPreflightReport is a zero-spend self-serve transcript, never an adopt
   assert.equal(report.usdc_spent, 0);
   assert.equal(report.signer_invocation_count, 0);
   assert.equal(report.board.source, "deskcrew");
-  assert.equal(report.gate.pay_to, GATE_OK.payTo);
-  assert.equal(report.gate.network, "base");
+  assert.equal(report.gate?.pay_to, GATE_OK.payTo);
+  assert.equal(report.gate?.network, "base");
   assert.equal(report.rows.length, 1);
   assert.equal(report.rows[0].proceed, true);
   assert.equal(report.proceed, true);
