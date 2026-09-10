@@ -37,8 +37,11 @@ const DESKCREW = {
   humanPage: "https://deskcrew.io/arena", agentDocs: "https://deskcrew.io/agents", runYourOwn: "https://deskcrew.io/bounties",
 };
 const DESKCREW_ROW = { id: "t-1001", title: "Refund not received", bountyUsd: 1, entrants: 5, payoutNetwork: "base", entryFeeUsd: 0.06 };
-const GATE_OK: GateVerdict = { decision: "warn", approved: true, reason: "thin history", payTo: "0xB075aA8206D6De88EDEeD0eE4015a1a33D3659D8", network: "eip155:8453", priceUsdc: 0.02 };
-const GATE_BLOCK: GateVerdict = { ...GATE_OK, decision: "block", approved: false, reason: "twzrd_wash_flagged refuse" };
+const GATE_OK: GateVerdict = { decision: "warn", approved: true, reason: "thin history", payTo: "0xB075aA8206D6De88EDEeD0eE4015a1a33D3659D8", network: "eip155:8453", priceUsdc: 0.02, reputationScored: true, policyAction: "allow" };
+const GATE_BLOCK: GateVerdict = { ...GATE_OK, decision: "block", approved: false, reason: "twzrd_wash_flagged refuse", policyAction: "block" };
+// What the buyer gate actually returns for a Base payTo today: reputation is Solana-only,
+// so the "allow" is the observe-mode policy pass-through with only the wash axis checked.
+const GATE_UNSCORED: GateVerdict = { ...GATE_OK, decision: "unknown", approved: true, reason: "unsupported_network_observe", reputationScored: false, policyAction: "allow" };
 
 test("normalizeNetwork folds CAIP-2 and marketing names onto solana | base", () => {
   assert.equal(normalizeNetwork("eip155:8453"), "base");
@@ -97,7 +100,13 @@ test("parseBoardDescriptor dispatches on shape", () => {
 });
 
 const row = (over: Partial<BoardRow> = {}): BoardRow => ({ id: "t-1001", title: "Refund", bounty_usd: 1, agent_share: 0.85, entrants: 5, payout_network: "base", approval_rate_pct: 21, entry_fee_usd: 0.06, stake_usd: 0, source: "deskcrew", ...over });
-const base = { row: row(), attemptCostUsd: 0.02, maxAttemptUsd: 0.5, assumedWinProb: 0.2, myNetworks: ["solana", "base"], gate: GATE_OK };
+const base = { row: row(), attemptCostUsd: 0.02, maxAttemptUsd: 0.5, assumedWinProb: 0.2, myNetworks: ["solana", "base"], allowUnscored: false, gate: GATE_OK };
+
+test("decideBounty fails closed on a payee the gate could not score, unless the operator opts in", () => {
+  assert.deepEqual(decideBounty({ ...base, gate: GATE_UNSCORED }).reasons, ["gate_unscored"], "a policy allow is not a trust allow");
+  assert.deepEqual(decideBounty({ ...base, gate: GATE_UNSCORED, allowUnscored: true }).reasons, []);
+  assert.deepEqual(decideBounty({ ...base, gate: { ...GATE_UNSCORED, approved: false, decision: "block", reason: "twzrd_wash_flagged" }, allowUnscored: true }).reasons, ["gate_block", "gate_wash_flagged"], "wash on an unscored rail still refuses");
+});
 
 test("decideBounty proceeds when the gate allows, the rail matches, the cost fits, and the declared win probability clears break-even", () => {
   const d = decideBounty(base);
@@ -151,10 +160,12 @@ test("buildPreflightReport is a zero-spend self-serve transcript, never an adopt
   const board = parseDeskcrewDescriptor({ ...DESKCREW, bounties: [DESKCREW_ROW] });
   const report = buildPreflightReport({
     board, boardUrl: "https://deskcrew.io/api/arena/contests", paidEndpoint: "https://deskcrew.io/api/x402/paid/ping", gate: GATE_OK,
-    args: { attemptCostUsd: 0.02, maxAttemptUsd: 0.5, assumedWinProb: 0.2, myNetworks: ["solana", "base"] },
+    args: { attemptCostUsd: 0.02, maxAttemptUsd: 0.5, assumedWinProb: 0.2, myNetworks: ["solana", "base"], allowUnscored: false },
     checkedAt: "2026-09-10T00:00:00.000Z",
   });
   assert.equal(report.schema, BOUNTY_PREFLIGHT_SCHEMA);
+  assert.equal(report.gate?.reputation_scored, true);
+  assert.equal(report.gate?.policy_action, "allow");
   assert.equal(report.lineage, "self_serve_handoff_command");
   assert.equal(report.closes_external_adoption_metric, false);
   assert.equal(report.usdc_spent, 0);
@@ -166,10 +177,10 @@ test("buildPreflightReport is a zero-spend self-serve transcript, never an adopt
   assert.equal(report.rows[0].proceed, true);
   assert.equal(report.proceed, true);
   assert.deepEqual(report.refuse_reasons, []);
-  const empty = buildPreflightReport({ board: parseDeskcrewDescriptor(DESKCREW), boardUrl: "u", paidEndpoint: "p", gate: GATE_OK, args: { attemptCostUsd: 0.02, maxAttemptUsd: null, assumedWinProb: 0.2, myNetworks: ["base"] }, checkedAt: "2026-09-10T00:00:00.000Z" });
+  const empty = buildPreflightReport({ board: parseDeskcrewDescriptor(DESKCREW), boardUrl: "u", paidEndpoint: "p", gate: GATE_OK, args: { attemptCostUsd: 0.02, maxAttemptUsd: null, assumedWinProb: 0.2, myNetworks: ["base"], allowUnscored: false }, checkedAt: "2026-09-10T00:00:00.000Z" });
   assert.equal(empty.proceed, false);
   assert.deepEqual(empty.refuse_reasons, ["no_open_rows"]);
-  const blocked = buildPreflightReport({ board, boardUrl: "u", paidEndpoint: "p", gate: GATE_BLOCK, args: { attemptCostUsd: 0.02, maxAttemptUsd: null, assumedWinProb: 0.2, myNetworks: ["base"] }, checkedAt: "2026-09-10T00:00:00.000Z" });
+  const blocked = buildPreflightReport({ board, boardUrl: "u", paidEndpoint: "p", gate: GATE_BLOCK, args: { attemptCostUsd: 0.02, maxAttemptUsd: null, assumedWinProb: 0.2, myNetworks: ["base"], allowUnscored: false }, checkedAt: "2026-09-10T00:00:00.000Z" });
   assert.equal(blocked.proceed, false);
   assert.deepEqual(blocked.refuse_reasons, ["gate_block", "gate_wash_flagged"]);
 });

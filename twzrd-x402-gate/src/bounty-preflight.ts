@@ -53,7 +53,10 @@ export type BoardDescriptor = {
   open_rows: BoardRow[];
 };
 
-/** What the TWZRD gate said about the board's payTo (from evaluate_x402_resource). */
+/** What the TWZRD gate said about the board's payTo (from evaluate_x402_resource).
+ *  `reputationScored: false` means the rail is outside the behavioral corpus
+ *  (today: anything but Solana) and `approved` is a policy pass-through with only
+ *  the wash axis checked. A policy allow is never a trust allow. */
 export type GateVerdict = {
   decision: "allow" | "warn" | "block" | "unknown";
   approved: boolean;
@@ -62,6 +65,8 @@ export type GateVerdict = {
   network?: string | null;
   priceUsdc?: number | null;
   washFlagged?: boolean | null;
+  reputationScored?: boolean | null;
+  policyAction?: "allow" | "block" | null;
 };
 
 export type DecideArgs = {
@@ -69,6 +74,8 @@ export type DecideArgs = {
   maxAttemptUsd: number | null;
   assumedWinProb: number | null;
   myNetworks: string[];
+  /** Proceed on a payee the gate could not score (wash still refuses). Default false. */
+  allowUnscored: boolean;
 };
 
 export type DecideInput = DecideArgs & { row: BoardRow; gate: GateVerdict | null };
@@ -206,12 +213,13 @@ export function parseBoardDescriptor(json: unknown): BoardDescriptor {
   throw new Error("unrecognized board descriptor: expected a DeskCrew arena descriptor or a ClawTasks bounty list");
 }
 
-export function decideBounty({ row, attemptCostUsd, maxAttemptUsd, assumedWinProb, myNetworks, gate }: DecideInput): Decision {
+export function decideBounty({ row, attemptCostUsd, maxAttemptUsd, assumedWinProb, myNetworks, allowUnscored, gate }: DecideInput): Decision {
   const reasons: string[] = [];
   if (!gate) reasons.push("gate_not_evaluated");
   else {
     if (!gate.approved || gate.decision === "block") reasons.push("gate_block");
     if (gate.washFlagged === true || /wash/i.test(gate.reason ?? "")) reasons.push("gate_wash_flagged");
+    if (gate.reputationScored === false && !allowUnscored) reasons.push("gate_unscored");
   }
   if (row.payout_network === null) reasons.push("payout_network_unknown");
   else if (!myNetworks.map(normalizeNetwork).includes(row.payout_network)) reasons.push("payout_network_unsupported");
@@ -240,7 +248,10 @@ export type PreflightReport = {
   signer_invocation_count: 0;
   args: DecideArgs;
   board: { source: BoardSource; agent_share: number | null; approval_rate_pct: number | null; economics: BoardEconomics; open_rows: number };
-  gate: { decision: GateVerdict["decision"]; approved: boolean; reason: string; pay_to: string | null; network: string | null; price_usdc: number | null } | null;
+  gate: {
+    decision: GateVerdict["decision"]; approved: boolean; reason: string; pay_to: string | null; network: string | null; price_usdc: number | null;
+    reputation_scored: boolean; policy_action: "allow" | "block" | null;
+  } | null;
   rows: Array<BoardRow & Decision>;
   proceed: boolean;
   refuse_reasons: string[];
@@ -266,7 +277,10 @@ export function buildPreflightReport({ board, boardUrl, paidEndpoint, gate, args
     args,
     board: { source: board.source, agent_share: board.agent_share, approval_rate_pct: board.approval_rate_pct, economics: board.economics, open_rows: board.open_rows.length },
     gate: gate
-      ? { decision: gate.decision, approved: gate.approved, reason: gate.reason, pay_to: gate.payTo ?? null, network: normalizeNetwork(gate.network), price_usdc: gate.priceUsdc ?? null }
+      ? {
+          decision: gate.decision, approved: gate.approved, reason: gate.reason, pay_to: gate.payTo ?? null, network: normalizeNetwork(gate.network), price_usdc: gate.priceUsdc ?? null,
+          reputation_scored: gate.reputationScored === true, policy_action: gate.policyAction ?? null,
+        }
       : null,
     rows,
     proceed: rows.some((r) => r.proceed),

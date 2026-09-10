@@ -359,3 +359,25 @@ export {
   type GetPayerFn,
   type SettleGuardOptions,
 } from "./seller-hook.js";
+
+// Worker-side bounty preflight (zero spend): board parsers, break-even math, and
+// the per-row proceed/refuse decision behind bin/twzrd-bounty-preflight.js.
+export {
+  BOUNTY_PREFLIGHT_SCHEMA,
+  breakEvenWinProb,
+  buildPreflightReport,
+  decideBounty,
+  normalizeNetwork,
+  parseBoardDescriptor,
+  parseClawtasksOpen,
+  parseDeskcrewDescriptor,
+  type BoardDescriptor,
+  type BoardEconomics,
+  type BoardRow,
+  type BoardSource,
+  type DecideArgs,
+  type DecideInput,
+  type Decision,
+  type GateVerdict,
+  type PreflightReport,
+} from "./bounty-preflight.js";
