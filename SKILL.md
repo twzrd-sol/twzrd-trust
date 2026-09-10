@@ -12,7 +12,7 @@ description: |
   leaderboard research, counterparty + facilitator footprint, wash/sybil detection,
   batch + compare, offline receipt verify; route settle through TWZRD for free
   merchant_attach + twzrd_receipt on POST /settle.
-  PAID (x402, USDC on Solana): full trust model + V6 receipt at GET /v1/intel/trust/{pubkey}
+  PAID (x402, USDC on Solana): full trust model + V7 receipt at GET /v1/intel/trust/{pubkey}
   (0.05 USDC); merchant track-record at GET /v1/intel/merchant/{pay_to} (0.05 USDC);
   score-only teaser at GET /v1/intel/quick/{pubkey} (0.001 USDC).
   TRIGGERS: should I pay this, is this wallet safe, check seller, x402 preflight, scam
@@ -21,15 +21,15 @@ description: |
   resource join, discover x402, facilitator settle, merchant attach, track record
 homepage: https://intel.twzrd.xyz
 metadata:
-  version: "1.13.16"
+  version: "1.13.17"
   canonical_url: https://intel.twzrd.xyz/skill.md
-  gate_npm: twzrd-x402-gate@0.9.3
+  gate_npm: twzrd-x402-gate@0.9.5
   x402_solana_npm: x402-solana@3.0.0
   # Floor, not an exact pin: a receipt verifier should track the newest
   # signature-checking code, and an exact pin goes stale on every publish.
-  # Floor must stay >= 1.3 - that release added the strict domain allowlist,
-  # proof-depth cap, and future-timestamp skew cap (see test_receipt_verifier_pin.py).
-  verifier_npm: "twzrd-receipt-verifier@^1.3.0"
+  # Floor must stay >= 1.4: V7 binds freshness fields and older published
+  # verifiers reject V7 receipts (see test_receipt_verifier_pin.py).
+  verifier_npm: "twzrd-receipt-verifier@^1.4.0"
   openclaw:
     requires:
       bins: [curl]
@@ -105,14 +105,14 @@ curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 # 2) PRIMARY seat — stock PayAI client beforePayment (x402-solana@3.0.0).
 #    Gate runs AFTER requirement selection, BEFORE signTransaction. Do not only
 #    summarize RUN_THIS_NOW — seat the gate on a signer path.
-npm install twzrd-x402-gate@0.9.3 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.5 x402-solana@3.0.0
 # createX402Client({ wallet, network: "solana",
 #   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })
 # Prove refuse-before-sign (signer=0): npm run x402-solana-before-payment-proof
 # (from the gate package) — or copy-paste createTwzrdBeforePaymentHook as above.
 
 # 2b) FALLBACK CLI smoke (not the primary install story) — owned refuse dogfood
-# npm install twzrd-x402-gate@0.9.3 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+# npm install twzrd-x402-gate@0.9.5 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 
 # 3) OPTIONAL Path A (paid intel) — portable V6 receipt (0.05 USDC). Does not enforce.
@@ -165,7 +165,7 @@ exist. Correct install is `clawhub install` or `npx clawhub install` above.
 **Primary (stock PayAI `x402-solana@3.0.0`):**
 
 ```bash
-npm install twzrd-x402-gate@0.9.3 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.5 x402-solana@3.0.0
 ```
 
 ```ts
@@ -188,7 +188,7 @@ const client = createX402Client({
 **Fallback CLI only** (agents that only run a script and stop do not clear W1):
 
 ```bash
-npm install twzrd-x402-gate@0.9.3 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+npm install twzrd-x402-gate@0.9.5 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 
@@ -419,7 +419,7 @@ Save `twzrd_receipt` to `receipt.json`, then either:
 
 ```bash
 # A) published CLI (offline crypto) — floor pin so npm publish does not stale the skill
-npx 'twzrd-receipt-verifier@^1.3.0' receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
+npx 'twzrd-receipt-verifier@^1.4.0' receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
 
 # B) server verify endpoint (optional; recompute+sig check)
 curl -s -X POST https://intel.twzrd.xyz/v1/receipts/verify \
@@ -448,16 +448,14 @@ seller/payer/amount/facilitator/resource, optional signed track-record leaf.
 Best-effort - never voids the on-chain settle. Direct paid mint remains
 `GET /v1/intel/merchant/{pay_to}`. Still verify any returned `twzrd_receipt` as in step 3.
 
-## Verify any v6 receipt offline (trusts no TWZRD code)
+## Verify any V5, V6, or V7 receipt offline (trusts no TWZRD code)
 
 Same tools as step 3 above — works for merchant track-record receipts **and** paid
 `/v1/intel/trust` receipts:
 
 ```bash
-npx 'twzrd-receipt-verifier@^1.3.0' receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
-# npm only. PyPI stops at 1.2.4, so `pip install 'twzrd-receipt-verifier>=1.3.0'`
-# cannot resolve, and plain `pip install twzrd-receipt-verifier` gives you 1.2.4 -
-# which predates the >=1.3 hardening this floor exists to guarantee.
+npx 'twzrd-receipt-verifier@^1.4.0' receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
+# npm and PyPI both publish 1.4.0. For Python: pip install 'twzrd-receipt-verifier>=1.4.0'
 curl -s -X POST https://intel.twzrd.xyz/v1/receipts/verify \
   -H 'content-type: application/json' \
   -d @receipt.json

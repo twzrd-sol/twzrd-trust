@@ -13,14 +13,14 @@ TWZRD sits **beside** discovery. Bazaars list callables; the gate decides
 whether to pay `pay_to`. Free preflight does **not** enforce. AutoGate on the
 pay path enforces. Blocks have `signerInvocations === 0`.
 
-This document is the product. Install remains `twzrd-x402-gate@0.9.3`.
+This document is the product. Install remains `twzrd-x402-gate@0.9.5`.
 
 ## The six steps
 
 ### 1. Install the gate
 
 ```bash
-npm install twzrd-x402-gate@0.9.3
+npm install twzrd-x402-gate@0.9.5
 ```
 
 Canonical seat — official x402 client:
