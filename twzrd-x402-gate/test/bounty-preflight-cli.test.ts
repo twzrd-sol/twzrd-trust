@@ -44,11 +44,21 @@ test("parseArgs: defaults and explicit flags; DeskCrew boards default to the pai
   const b = parseArgs(["--board", "https://clawtasks.com/api/bounties?status=open", "--paid-endpoint", "https://clawtasks.com/api/paid", "--attempt-cost-usd", "0", "--max-attempt-usd", "0.25", "--my-networks", "base", "--allow-unscored-payee"]);
   assert.deepEqual(b, { boardUrl: "https://clawtasks.com/api/bounties?status=open", paidEndpoint: "https://clawtasks.com/api/paid", attemptCostUsd: 0, maxAttemptUsd: 0.25, assumedWinProb: null, myNetworks: ["base"], allowUnscored: true });
   assert.throws(() => parseArgs(["--board", BOARD_URL, "--allow-unscored-payee", "yes"]), /unexpected argument/);
+  assert.throws(() => parseArgs(["--board", BOARD_URL, "--max-attempt", "0.5"]), /unknown flag --max-attempt/, "a misspelled flag is refused, never silently ignored");
+  assert.throws(() => parseArgs(["--board", BOARD_URL, "--board", BOARD_URL]), /repeated flag --board/);
   assert.throws(() => parseArgs([]), /--board/);
   assert.throws(() => parseArgs(["--board", "https://example.com/board"]), /--paid-endpoint/);
   assert.throws(() => parseArgs(["--board", "http://deskcrew.io/api/arena/contests"]), /https/);
   assert.throws(() => parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "1.5"]), /assumed-win-prob/);
   assert.throws(() => parseArgs(["--board", BOARD_URL, "--attempt-cost-usd", "-1"]), /attempt-cost-usd/);
+});
+
+test("run: every network read carries a timeout so a dead board cannot hang the preflight", async () => {
+  const inits: Array<RequestInit | undefined> = [];
+  const fetchImpl: typeof fetch = (async (url: unknown, init?: RequestInit) => { inits.push(init); return fakeFetch()(url as string, init); }) as unknown as typeof fetch;
+  await runBountyPreflight(parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "0.2"]), { fetch: fetchImpl, evaluate: allowGate, now: () => "2026-09-10T00:00:00.000Z" });
+  assert.equal(inits.length, 2, "board GET + unpaid 402 GET");
+  for (const init of inits) assert.ok(init?.signal instanceof AbortSignal, "each GET is bounded by an AbortSignal");
 });
 
 test("run: reads the board, reads the 402 payTo header-first, gates it, and decides each open row", async () => {

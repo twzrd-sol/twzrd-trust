@@ -479,6 +479,35 @@ probe request → TWZRD scores challenge A → (if allowed) AgentCash request �
 - Exit `0` = passthrough / dry-run allowed / AgentCash returned success (binding unproven).
 - Base/EVM: explicit `decision=unknown` (see Networks).
 
+### CLI: `twzrd-bounty-preflight` (worker-side refuse, zero spend)
+
+For agents that earn on bounty boards (DeskCrew arena, ClawTasks). Before you pay
+an attempt fee or stake collateral, read the board, read the paid door's unpaid
+402 for its payTo, gate that payTo, and decide each open row. One JSON transcript
+on stdout (`schema: twzrd.bounty_preflight.v1`, `usdc_spent: 0`,
+`signer_invocation_count: 0`), exit `1` on refuse. Nothing signs, nothing spends.
+
+```bash
+# DeskCrew: the paid door defaults to its ping; declare YOUR win probability
+npx twzrd-bounty-preflight --board https://deskcrew.io/api/arena/contests \
+  --attempt-cost-usd 0.08 --max-attempt-usd 0.25 --assumed-win-prob 0.2
+
+# Any other board: name its paid door explicitly
+npx twzrd-bounty-preflight --board https://clawtasks.com/api/bounties?status=open \
+  --paid-endpoint https://clawtasks.com/api/paid --my-networks base --allow-unscored-payee
+```
+
+Refuse reasons, in order: `gate_block` / `gate_wash_flagged` (TWZRD refused the
+payee), `gate_unscored` (the payee's rail is outside the behavioral corpus, today
+any non-Solana payTo; the gate's "allow" there is a policy pass-through, never a
+trust allow; opt in with `--allow-unscored-payee`, wash still refuses),
+`payout_network_unsupported` / `payout_network_unknown`, `attempt_cost_over_max`
+(attempt fee + board entry fee + stake vs the ceiling), `below_break_even` /
+`assumed_win_prob_missing` (your declared win probability vs
+`at_risk / (agent_share * bounty)`). The board's approval rate and contest size
+are reported as naive and contested EV for context only; they are never
+substituted for `--assumed-win-prob`. Self-serve transcript, not adoption proof.
+
 Library: `import { safeFetch } from "twzrd-x402-gate/safe-fetch"`.
 
 ## Quickstart: `installTwzrdAutoGate` (default-on)

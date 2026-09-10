@@ -41,6 +41,9 @@ export const USAGE = `usage: twzrd-bounty-preflight --board <https url> [--paid-
                      non-Solana payTo). Wash still refuses. Default: refuse (gate_unscored).`;
 
 const BOOLEAN_FLAGS = new Set(["--allow-unscored-payee"]);
+const VALUE_FLAGS = new Set(["--board", "--paid-endpoint", "--attempt-cost-usd", "--max-attempt-usd", "--assumed-win-prob", "--my-networks"]);
+/** Bound on each read (board descriptor, unpaid 402): a dead board must not hang a preflight. */
+const FETCH_TIMEOUT_MS = 15_000;
 
 function httpsUrl(flag: string, raw: string | undefined): string {
   if (!raw) throw new Error(`${flag} is required`);
@@ -64,6 +67,8 @@ export function parseArgs(argv: string[]): PreflightArgs {
     const a = argv[i];
     if (!a.startsWith("--")) throw new Error(`unexpected argument ${a}`);
     if (BOOLEAN_FLAGS.has(a)) { switches.add(a); continue; }
+    if (!VALUE_FLAGS.has(a)) throw new Error(`unknown flag ${a}`);
+    if (flags.has(a)) throw new Error(`repeated flag ${a}`);
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) throw new Error(`${a} needs a value`);
     flags.set(a, v);
@@ -96,7 +101,8 @@ export async function runBountyPreflight(
   { fetch: doFetch = globalThis.fetch, evaluate = evaluate_x402_resource as EvaluateFn, now = () => new Date().toISOString() }:
     { fetch?: typeof fetch; evaluate?: EvaluateFn; now?: () => string } = {},
 ): Promise<{ report: PreflightReport; exitCode: 0 | 1 }> {
-  const boardRes = await doFetch(args.boardUrl, { headers: { accept: "application/json" } });
+  const bounded = () => ({ headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  const boardRes = await doFetch(args.boardUrl, bounded());
   if (!boardRes.ok) throw new Error(`board GET ${boardRes.status}`);
   let boardJson: unknown;
   try { boardJson = JSON.parse(await boardRes.text()); } catch { throw new Error("board descriptor is not JSON"); }
@@ -104,7 +110,7 @@ export async function runBountyPreflight(
 
   // The unpaid 402 is the only honest source of the payTo the worker is about to pay.
   let gate: GateVerdict;
-  const paidRes = await doFetch(args.paidEndpoint, { headers: { accept: "application/json" } });
+  const paidRes = await doFetch(args.paidEndpoint, bounded());
   if (paidRes.status !== 402) gate = UNGATED("paid_endpoint_not_402");
   else {
     const challenge = await paymentRequiredFromResponse(paidRes);
