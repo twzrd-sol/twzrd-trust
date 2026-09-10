@@ -2,7 +2,7 @@
 
 **Don't let your agent sign blind.**  
 Spend control and counterparty trust for agents paying over x402 on Solana (and Base).
-Vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Free preflight → optional paid V6 receipt. Not a wallet. Not a payment network. Not Catena's Agent Commerce Kit — the walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
+Vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Free preflight → optional paid V7 receipt. Not a wallet. Not a payment network. Not Catena's Agent Commerce Kit — the walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (twzrd-trust **1.13.17**) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
 **Spend-control SDK (npm)** • [`twzrd-x402-gate@0.9.5`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.0`](https://www.npmjs.com/package/x402-solana)  
@@ -85,7 +85,7 @@ One path. Install `twzrd-x402-gate@0.9.5`. Free preflight does not enforce; Auto
 2. **Directory** — `GET /v1/intel/resources` (or `listDirectoryCallables`) — bazaars list; TWZRD sits beside
 3. **Preflight** — free ReadinessCard + merchant_card wash refuse
 4. **Pay only when policy allows** — blocks have `signerInvocations === 0`
-5. **Verify** — bind-v1 / V6 (optional ACK-Pay VC). No second passport format
+5. **Verify** — bind-v1 / V7 (optional ACK-Pay VC). No second passport format
 6. **Evidence bundle** — `exportEvidenceBundle` / `npx twzrd-evidence-bundle`
 7. **Portable decision receipt** — `twzrd.payment_decision.v1`: what the agent saw, `allow | block | warn | unavailable`, a reason code and an evidence id, verifiable offline with `npx twzrd-payment-decision --verify` — spec: [docs/payment-decision-v1-spec.md](./docs/payment-decision-v1-spec.md)
 
@@ -97,7 +97,7 @@ Walkthrough: [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 1. **Discover** — `GET /v1/intel/resources` (resource catalog)
 2. **Merchant card** — `GET /v1/intel/merchant_card/{pay_to}` (refuse if `wash_flagged: true`)
 3. **Preflight** — `POST /v1/intel/preflight` → ReadinessCard (allow / warn / block)
-4. **Optional V6 Receipt** — `GET /v1/intel/trust/{pay_to}` ($0.05 USDC paid receipt)
+4. **Optional V7 Receipt** — `GET /v1/intel/trust/{pay_to}` ($0.05 USDC paid receipt)
 5. **Pay** — sign only when preflight & spend policy allow
 
 ```bash
@@ -113,9 +113,9 @@ curl -s -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 
 | Package | Pin | Description |
 |---|---|---|
-| `twzrd-x402-gate` | **@0.9.3** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
+| `twzrd-x402-gate` | **@0.9.5** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
-| `twzrd-receipt-verifier` | **@^1.3.0** | Standalone offline verifier for Ed25519 V6 receipts |
+| `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V5/V6/V7 receipts |
 | `twzrd-mcp-server` | **@0.5.2** | Local spend-capped auto-pay client (6 tools) |
 | `twzrd-log-verifier` | local `0.2.1` | Offline Receipt Transparency log verifier — inclusion/consistency proofs, key rotation, split-view pinning ([spec](./docs/transparency-log.md)) |
 
