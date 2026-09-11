@@ -1,7 +1,7 @@
 /**
  * Orchestration behind bin/twzrd-bounty-preflight.js, with fetch and the gate
- * injected so it can be tested without a network. Read-only: two GETs (the board,
- * the paid endpoint unpaid to read its 402) plus the free TWZRD preflight. Nothing
+ * injected so it can be tested without a network. Read-only: board GET, unpaid 402
+ * GET, and the free TWZRD intel hop inside evaluate — each bounded by 15s. Nothing
  * is signed, nothing is spent.
  */
 import { evaluate_x402_resource, type EvaluateX402Options, type EvaluateX402Result } from "./evaluate.js";
@@ -21,29 +21,41 @@ export type EvaluateFn = (
 const DEFAULT_PAID_ENDPOINTS: Record<string, string> = {
   "deskcrew.io": "https://deskcrew.io/api/x402/paid/ping",
 };
-const DEFAULT_ATTEMPT_COST_USD = 0.08; // DeskCrew: $0.02 ticket context + $0.06 submission
+const DEFAULT_ATTEMPT_COST_USD = 0.02; // DeskCrew ticket only; row.entry_fee_usd carries the $0.06 submission
 const DEFAULT_NETWORKS = ["solana", "base"];
 
 export const USAGE = `usage: twzrd-bounty-preflight --board <https url> [--paid-endpoint <https url>]
-         [--attempt-cost-usd 0.08] [--max-attempt-usd <usd>] [--assumed-win-prob <0..1>]
+         [--attempt-cost-usd 0.02] [--max-attempt-usd <usd>] [--assumed-win-prob <0..1>]
          [--my-networks solana,base]
 
   --board            board descriptor: DeskCrew arena JSON or a ClawTasks open-bounty list
   --paid-endpoint    the board's x402 door; its unpaid 402 names the payTo the gate scores
                      (defaults to the paid ping for deskcrew.io)
-  --attempt-cost-usd money you spend per attempt before any entry fee or stake (default 0.08)
+  --attempt-cost-usd money you spend per attempt BEFORE any board entry fee or stake
+                     (default 0.02, DeskCrew ticket). at_risk = this + entry_fee + stake
   --max-attempt-usd  ceiling on money at risk per attempt (fee + entry fee + stake)
   --assumed-win-prob YOUR declared paid-win probability; the board's approval rate is
                      never substituted for it. Without it the tool refuses.
   --my-networks      rails your wallet can receive on (default solana,base)
   --allow-unscored-payee
                      proceed when the gate cannot score the payee's rail (today: any
-                     non-Solana payTo). Wash still refuses. Default: refuse (gate_unscored).`;
+                     non-Solana payTo). Wash still refuses. Default: refuse (gate_unscored).
+
+  Exit 0 means at least one open row is eligible — pay only rows with proceed:true.
+  Exit 1 means none are (see refuse_reasons). Exit 2 is a bad invocation.`;
 
 const BOOLEAN_FLAGS = new Set(["--allow-unscored-payee"]);
 const VALUE_FLAGS = new Set(["--board", "--paid-endpoint", "--attempt-cost-usd", "--max-attempt-usd", "--assumed-win-prob", "--my-networks"]);
-/** Bound on each read (board descriptor, unpaid 402): a dead board must not hang a preflight. */
+/** Bound on every network read: board descriptor, unpaid 402, and the free intel hop inside evaluate. */
 const FETCH_TIMEOUT_MS = 15_000;
+
+function withTimeout(doFetch: typeof fetch): typeof fetch {
+  return ((input, init) => {
+    const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    return doFetch(input, { ...init, signal });
+  }) as typeof fetch;
+}
 
 function httpsUrl(flag: string, raw: string | undefined): string {
   if (!raw) throw new Error(`${flag} is required`);
@@ -101,8 +113,9 @@ export async function runBountyPreflight(
   { fetch: doFetch = globalThis.fetch, evaluate = evaluate_x402_resource as EvaluateFn, now = () => new Date().toISOString() }:
     { fetch?: typeof fetch; evaluate?: EvaluateFn; now?: () => string } = {},
 ): Promise<{ report: PreflightReport; exitCode: 0 | 1 }> {
-  const bounded = () => ({ headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  const boardRes = await doFetch(args.boardUrl, bounded());
+  const fetchBound = withTimeout(doFetch);
+  const jsonGet = { headers: { accept: "application/json" } };
+  const boardRes = await fetchBound(args.boardUrl, jsonGet);
   if (!boardRes.ok) throw new Error(`board GET ${boardRes.status}`);
   let boardJson: unknown;
   try { boardJson = JSON.parse(await boardRes.text()); } catch { throw new Error("board descriptor is not JSON"); }
@@ -110,7 +123,7 @@ export async function runBountyPreflight(
 
   // The unpaid 402 is the only honest source of the payTo the worker is about to pay.
   let gate: GateVerdict;
-  const paidRes = await doFetch(args.paidEndpoint, bounded());
+  const paidRes = await fetchBound(args.paidEndpoint, jsonGet);
   if (paidRes.status !== 402) gate = UNGATED("paid_endpoint_not_402");
   else {
     const challenge = await paymentRequiredFromResponse(paidRes);
@@ -118,7 +131,7 @@ export async function runBountyPreflight(
     const { payTo, amountMicro } = payToFromRequirements(req);
     if (!payTo) gate = UNGATED("paid_endpoint_no_payto");
     else {
-      const result = await evaluate(args.paidEndpoint, req, { gateOnCanSpend: false, refuseWashFlagged: true, failOpen: false, fetch: doFetch });
+      const result = await evaluate(args.paidEndpoint, req, { gateOnCanSpend: false, refuseWashFlagged: true, failOpen: false, fetch: fetchBound });
       gate = {
         decision: result.decision,
         approved: result.approved,

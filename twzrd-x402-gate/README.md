@@ -485,12 +485,14 @@ For agents that earn on bounty boards (DeskCrew arena, ClawTasks). Before you pa
 an attempt fee or stake collateral, read the board, read the paid door's unpaid
 402 for its payTo, gate that payTo, and decide each open row. One JSON transcript
 on stdout (`schema: twzrd.bounty_preflight.v1`, `usdc_spent: 0`,
-`signer_invocation_count: 0`), exit `1` on refuse. Nothing signs, nothing spends.
+`signer_invocation_count: 0`). Exit `0` means at least one open row is eligible
+— pay only rows with `proceed: true`. Exit `1` means none are. Nothing signs,
+nothing spends.
 
 ```bash
-# DeskCrew: the paid door defaults to its ping; declare YOUR win probability
+# DeskCrew: ticket-only attempt cost; the row's entry fee is added separately
 npx twzrd-bounty-preflight --board https://deskcrew.io/api/arena/contests \
-  --attempt-cost-usd 0.08 --max-attempt-usd 0.25 --assumed-win-prob 0.2
+  --attempt-cost-usd 0.02 --max-attempt-usd 0.25 --assumed-win-prob 0.2
 
 # Any other board: name its paid door explicitly
 npx twzrd-bounty-preflight --board https://clawtasks.com/api/bounties?status=open \

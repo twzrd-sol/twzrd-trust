@@ -268,7 +268,7 @@ export function buildPreflightReport({ board, boardUrl, paidEndpoint, gate, args
     schema: BOUNTY_PREFLIGHT_SCHEMA,
     lineage: "self_serve_handoff_command",
     closes_external_adoption_metric: false,
-    note: "Worker preflight transcript: public board data plus a free TWZRD verdict on the board payTo. No signer, no USDC. Board approval rates are context, never the caller's win probability.",
+    note: "Worker preflight transcript: public board data plus a free TWZRD verdict on the board payTo. No signer, no USDC. Board approval rates are context, never the caller's win probability. proceed/exit 0 means at least one open row is eligible — pay only rows with proceed:true.",
     checked_at: checkedAt,
     board_url: boardUrl,
     paid_endpoint: paidEndpoint,

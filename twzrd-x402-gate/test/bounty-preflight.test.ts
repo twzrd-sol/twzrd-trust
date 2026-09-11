@@ -184,3 +184,20 @@ test("buildPreflightReport is a zero-spend self-serve transcript, never an adopt
   assert.equal(blocked.proceed, false);
   assert.deepEqual(blocked.refuse_reasons, ["gate_block", "gate_wash_flagged"]);
 });
+
+test("buildPreflightReport: proceed means at least one eligible row, not every row", () => {
+  const board = parseDeskcrewDescriptor({
+    ...DESKCREW,
+    bounties: [DESKCREW_ROW, { ...DESKCREW_ROW, id: "t-cheap", bountyUsd: 0.25, entrants: 2 }],
+  });
+  const report = buildPreflightReport({
+    board, boardUrl: "u", paidEndpoint: "p", gate: GATE_OK,
+    args: { attemptCostUsd: 0.02, maxAttemptUsd: 0.5, assumedWinProb: 0.2, myNetworks: ["solana", "base"], allowUnscored: false },
+    checkedAt: "2026-09-10T00:00:00.000Z",
+  });
+  assert.equal(report.rows[0].proceed, true);
+  assert.deepEqual(report.rows[1].reasons, ["below_break_even"]);
+  assert.equal(report.proceed, true, "one eligible row is enough for proceed/exit 0");
+  assert.deepEqual(report.refuse_reasons, ["below_break_even"]);
+  assert.match(report.note, /at least one open row is eligible/);
+});

@@ -40,7 +40,7 @@ const unscoredGate: EvaluateFn = async (_url, req) => ({ decision: "unknown", ap
 
 test("parseArgs: defaults and explicit flags; DeskCrew boards default to the paid ping", () => {
   const a = parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "0.2"]);
-  assert.deepEqual(a, { boardUrl: BOARD_URL, paidEndpoint: PING, attemptCostUsd: 0.08, maxAttemptUsd: null, assumedWinProb: 0.2, myNetworks: ["solana", "base"], allowUnscored: false });
+  assert.deepEqual(a, { boardUrl: BOARD_URL, paidEndpoint: PING, attemptCostUsd: 0.02, maxAttemptUsd: null, assumedWinProb: 0.2, myNetworks: ["solana", "base"], allowUnscored: false }, "default attempt cost is the ticket only; the row carries entry fee");
   const b = parseArgs(["--board", "https://clawtasks.com/api/bounties?status=open", "--paid-endpoint", "https://clawtasks.com/api/paid", "--attempt-cost-usd", "0", "--max-attempt-usd", "0.25", "--my-networks", "base", "--allow-unscored-payee"]);
   assert.deepEqual(b, { boardUrl: "https://clawtasks.com/api/bounties?status=open", paidEndpoint: "https://clawtasks.com/api/paid", attemptCostUsd: 0, maxAttemptUsd: 0.25, assumedWinProb: null, myNetworks: ["base"], allowUnscored: true });
   assert.throws(() => parseArgs(["--board", BOARD_URL, "--allow-unscored-payee", "yes"]), /unexpected argument/);
@@ -56,8 +56,13 @@ test("parseArgs: defaults and explicit flags; DeskCrew boards default to the pai
 test("run: every network read carries a timeout so a dead board cannot hang the preflight", async () => {
   const inits: Array<RequestInit | undefined> = [];
   const fetchImpl: typeof fetch = (async (url: unknown, init?: RequestInit) => { inits.push(init); return fakeFetch()(url as string, init); }) as unknown as typeof fetch;
-  await runBountyPreflight(parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "0.2"]), { fetch: fetchImpl, evaluate: allowGate, now: () => "2026-09-10T00:00:00.000Z" });
-  assert.equal(inits.length, 2, "board GET + unpaid 402 GET");
+  const evaluate: EvaluateFn = async (url, req, opts) => {
+    assert.equal(typeof opts.fetch, "function", "evaluate must receive the bounded fetch");
+    await opts.fetch!("https://intel.twzrd.xyz/v1/intel/preflight", { method: "POST", headers: { "content-type": "application/json" } });
+    return allowGate(url, req, opts);
+  };
+  await runBountyPreflight(parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "0.2"]), { fetch: fetchImpl, evaluate, now: () => "2026-09-10T00:00:00.000Z" });
+  assert.equal(inits.length, 3, "board GET + unpaid 402 GET + intel hop inside evaluate");
   for (const init of inits) assert.ok(init?.signal instanceof AbortSignal, "each GET is bounded by an AbortSignal");
 });
 
@@ -83,6 +88,13 @@ test("run: reads the board, reads the 402 payTo header-first, gates it, and deci
   assert.equal(report.rows[0].proceed, true);
   assert.equal(report.rows[0].at_risk_usd, 0.08);
   assert.equal(report.proceed, true);
+});
+
+test("run: default attempt cost is the ticket only; the row's entry fee is added", async () => {
+  const { report } = await runBountyPreflight(parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "0.2"]), { fetch: fakeFetch(), evaluate: allowGate, now: () => "2026-09-10T00:00:00.000Z" });
+  assert.equal(report.args.attemptCostUsd, 0.02);
+  assert.equal(report.rows[0].entry_fee_usd, 0.06);
+  assert.equal(report.rows[0].at_risk_usd, 0.08, "0.02 ticket + 0.06 entry, not 0.08 + 0.06");
 });
 
 test("run: a gate block refuses with exit 1 and names the reasons", async () => {
