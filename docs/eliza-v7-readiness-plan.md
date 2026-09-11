@@ -16,7 +16,7 @@ restored as part of a coordinated release.
 - `plugin-trustgate/` is synced to the published `0.3.6` runtime artifact.
 - `eliza-plugin/` remains artifact-only and V6-oriented in its README and `dist/`.
 - Historical source is recoverable from repo history:
-  `git show 98e4b78:eliza-plugin/src/actions/intel-trust.ts`
+  `git show 98e4b78779980c4b5b9581b78dfe292eda82aad5:eliza-plugin/src/actions/intel-trust.ts`
   and the surrounding `eliza-plugin/src/` tree.
 - The helper script `scripts/extract-eliza-source-baseline.mjs` can list or
   extract that historical baseline into a separate migration directory without
@@ -24,7 +24,8 @@ restored as part of a coordinated release.
 
 ## Source baseline
 
-The earliest public release commit (`98e4b78`) contains TypeScript source and
+The earliest public release commit
+(`98e4b78779980c4b5b9581b78dfe292eda82aad5`) contains TypeScript source and
 tests for the Eliza plugin before the public mirror was stripped to artifacts:
 
 - `src/actions/intel-trust.ts`

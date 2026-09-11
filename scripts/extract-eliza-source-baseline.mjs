@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-const BASELINE_COMMIT = "98e4b78";
+const BASELINE_COMMIT = "98e4b78779980c4b5b9581b78dfe292eda82aad5";
 const SOURCE_ROOT = "eliza-plugin";
 const FILES = [
   "README.md",
@@ -52,6 +52,15 @@ if (listOnly) {
 }
 if (!target || target.startsWith("--")) usage(1);
 
+function ensureBaselineCommit() {
+  try {
+    execFileSync("git", ["cat-file", "-e", `${BASELINE_COMMIT}^{commit}`], { stdio: "ignore" });
+    return;
+  } catch {
+    execFileSync("git", ["fetch", "--depth=1", "origin", BASELINE_COMMIT], { stdio: "inherit" });
+  }
+}
+
 const outDir = resolve(target);
 if (existsSync(outDir)) {
   const entries = readdirSync(outDir);
@@ -64,6 +73,7 @@ if (existsSync(outDir)) {
 }
 mkdirSync(outDir, { recursive: true });
 
+ensureBaselineCommit();
 for (const file of FILES) {
   const bytes = execFileSync("git", ["show", `${BASELINE_COMMIT}:${SOURCE_ROOT}/${file}`]);
   const dest = resolve(outDir, file);
