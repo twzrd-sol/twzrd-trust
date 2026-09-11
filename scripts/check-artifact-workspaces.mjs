@@ -19,6 +19,7 @@ try {
     readFile(join(baselineDir, 'src/actions/verify-receipt.ts'), 'utf8'),
     readFile(join(baselineDir, 'test/plugin-registration.intel.ts'), 'utf8'),
   ]);
+  await execFileAsync(process.execPath, ['scripts/inventory-eliza-migration.mjs']);
 } finally {
   await rm(baselineDir, { recursive: true, force: true });
 }
