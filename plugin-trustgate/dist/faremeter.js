@@ -25,7 +25,8 @@
  * client hooks). This is the Faremeter-native composition point.
  */
 import { checkTrust } from "./gate.js";
-const SOLANA_NETWORK_RE = /^solana([:-]|$)/i;
+// Shared with facilitator.ts — see network.ts for why the old regex was wrong.
+import { isSolanaNetwork } from "./network.js";
 export class TwzrdPayerChooserBlockedError extends Error {
     name = "TwzrdPayerChooserBlockedError";
     blocked;
@@ -72,7 +73,7 @@ export function createTwzrdPayerChooser(config = {}) {
             // immediately: a blocked Solana seller must not be paid via a non-Solana
             // alt-rail in the same accepts[] (#1632). Unscored candidates reach the
             // first-available fallback below only when nothing scoreable blocked.
-            if (solanaOnly && network !== "" && !SOLANA_NETWORK_RE.test(network)) {
+            if (solanaOnly && network !== "" && !isSolanaNetwork(network)) {
                 onVerdict?.({ skipped: true, reason: "non_solana_network", payTo: payTo || undefined });
                 continue;
             }

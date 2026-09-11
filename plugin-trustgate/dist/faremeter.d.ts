@@ -39,8 +39,17 @@ export type FaremeterPaymentExecer = {
         payload: object;
     }>;
 };
-/** Faremeter payerChooser signature (async allowed; sync also works). */
-export type FaremeterPayerChooser = (execers: FaremeterPaymentExecer[]) => Promise<FaremeterPaymentExecer>;
+/**
+ * Faremeter payerChooser signature (async allowed; sync also works).
+ *
+ * Generic over the caller's execer type so the concrete `PaymentExecer` from
+ * `@faremeter/fetch` flows straight through. A non-generic
+ * `(e: FaremeterPaymentExecer[]) => Promise<FaremeterPaymentExecer>` is
+ * structurally *wider* than faremeter's own `PaymentExecer` (which additionally
+ * requires `scheme`, `asset`, `maxTimeoutSeconds`), so assigning it to
+ * `WrapOpts.payerChooser` failed to typecheck and forced callers into a cast.
+ */
+export type FaremeterPayerChooser = <T extends FaremeterPaymentExecer>(execers: T[]) => Promise<T>;
 export interface FaremeterChooserConfig extends TrustGateConfig {
     /**
      * Only screen Solana (CAIP-2 `solana:*` or bare `solana`). Non-Solana

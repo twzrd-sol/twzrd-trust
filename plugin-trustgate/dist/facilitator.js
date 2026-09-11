@@ -33,8 +33,9 @@
  *   });
  */
 import { checkTrust } from "./gate.js";
-/** Match CAIP-2 (`solana:5eykt4...`) and plain-form (`solana`, `solana-devnet`) network ids. */
-const SOLANA_NETWORK_RE = /^solana([:-]|$)/i;
+// Shared with faremeter.ts. The private regex this replaced did not match
+// "mainnet-beta", so real Solana mainnet settlements skipped the gate.
+import { isSolanaNetwork } from "./network.js";
 function resolveSeller(ctx) {
     return ctx?.requirements?.payTo ?? ctx?.paymentPayload?.accepted?.payTo;
 }
@@ -55,7 +56,7 @@ export function createOnBeforeSettleHook(config = {}) {
         // Only score Solana settles; everything else passes through unscored.
         // An empty/unknown network is treated as "possibly Solana" (fail-closed on ambiguity):
         // skip the early-return only when we have a confirmed non-Solana network identifier.
-        if (solanaOnly && network !== "" && !SOLANA_NETWORK_RE.test(network))
+        if (solanaOnly && network !== "" && !isSolanaNetwork(network))
             return;
         const seller = resolveSeller(ctx);
         if (!seller)
