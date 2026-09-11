@@ -1,0 +1,17 @@
+{
+  "name": "@twzrd/example-eliza-agent-commerce",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Copy-paste ElizaOS Agent Commerce Kit journey",
+  "scripts": {
+    "start": "node run.mjs",
+    "demo:offline": "node run.mjs --offline",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@elizaos/core": "^1.0.0",
+    "@twzrd/agent-commerce-kit": "file:../.."
+  },
+  "engines": { "node": ">=20" }
+}

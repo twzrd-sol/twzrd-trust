@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://twzrd.xyz/contracts/agent-commerce-loop/v1",
+  "title": "Agent Commerce Loop",
+  "type": "object",
+  "required": ["contract_version", "loop_id", "resource", "parties", "activity", "price", "policy", "payment", "delivery", "attribution", "events"],
+  "properties": {
+    "contract_version": { "const": "twzrd.agent-commerce-loop/1.0" },
+    "loop_id": { "type": "string", "minLength": 1 },
+    "resource": {
+      "type": "object",
+      "required": ["id", "uri", "version"],
+      "properties": { "id": {"type":"string"}, "uri": {"type":"string"}, "version": {"type":"string"} },
+      "additionalProperties": false
+    },
+    "parties": {
+      "type": "object",
+      "required": ["payer", "seller", "facilitator", "custody"],
+      "properties": {
+        "payer": {"type":"string"}, "seller": {"type":"string"},
+        "facilitator": {"type":["string","null"]},
+        "custody": {"enum":["self_custody","facilitated_non_custodial","facilitator_custody","unknown"]}
+      },
+      "additionalProperties": false
+    },
+    "activity": { "enum": ["house", "sponsored", "external"] },
+    "price": {
+      "type":"object", "required":["amount","asset","network"],
+      "properties":{"amount":{"type":"string","pattern":"^[0-9]+(\\.[0-9]+)?$"},"asset":{"type":"string"},"network":{"type":"string"}},
+      "additionalProperties":false
+    },
+    "policy": {
+      "type":"object", "required":["decision","reasons"],
+      "properties":{"decision":{"enum":["allow","warn","block"]},"reasons":{"type":"array","items":{"type":"string"}},"preflight_ref":{"type":["string","null"]}},
+      "additionalProperties":false
+    },
+    "payment": {
+      "type":"object", "required":["status","intent_ref","signature_ref","settlement_ref"],
+      "properties":{"status":{"enum":["not_started","blocked","intended","signed","settled","failed"]},"intent_ref":{"type":["string","null"]},"signature_ref":{"type":["string","null"]},"settlement_ref":{"type":["string","null"]},"failure":{"type":["string","null"]}},
+      "additionalProperties":false
+    },
+    "delivery": {
+      "type":"object", "required":["status","delivery_ref"],
+      "properties":{"status":{"enum":["not_started","delivered","failed"]},"delivery_ref":{"type":["string","null"]},"failure":{"type":["string","null"]}},
+      "additionalProperties":false
+    },
+    "receipt": { "type": ["object","null"] },
+    "attribution": {
+      "type":"object", "required":["status","evidence_refs"],
+      "properties":{"status":{"enum":["unverified","verified","failed"]},"evidence_refs":{"type":"array","items":{"type":"string"}}},
+      "additionalProperties":false
+    },
+    "events": {"type":"array","items":{"type":"object","required":["sequence","stage","at"],"properties":{"sequence":{"type":"integer","minimum":0},"stage":{"enum":["discover","preflight","policy_decision","payment_intent","settlement","delivery","signed_receipt","outcome_evidence"]},"at":{"type":"string"},"data":{"type":"object"}}}}
+  }
+}
