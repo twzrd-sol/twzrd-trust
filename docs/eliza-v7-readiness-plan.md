@@ -48,6 +48,15 @@ To extract the historical baseline for comparison:
 node scripts/extract-eliza-source-baseline.mjs --target /tmp/eliza-plugin-source-baseline
 ```
 
+To inventory the current migration surface:
+
+```bash
+node scripts/inventory-eliza-migration.mjs
+```
+
+That inventory is run by `npm run test:artifacts` so the recoverable source
+baseline and the current `dist/` comparison stay CI-protected.
+
 ## Required V7 work
 
 1. Restore or obtain the actual upstream Eliza plugin source.
