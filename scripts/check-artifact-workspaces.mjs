@@ -20,6 +20,21 @@ try {
     readFile(join(baselineDir, 'test/plugin-registration.intel.ts'), 'utf8'),
   ]);
   await execFileAsync(process.execPath, ['scripts/inventory-eliza-migration.mjs']);
+  const sourceWorkspaceDir = await mkdtemp(join(tmpdir(), 'twzrd-eliza-source-workspace-'));
+  try {
+    await execFileAsync(process.execPath, [
+      'scripts/prepare-eliza-source-workspace.mjs',
+      '--target',
+      sourceWorkspaceDir,
+    ]);
+    await Promise.all([
+      readFile(join(sourceWorkspaceDir, 'source/src/actions/intel-trust.ts'), 'utf8'),
+      readFile(join(sourceWorkspaceDir, 'current-dist/actions/merchant-card.js'), 'utf8'),
+      readFile(join(sourceWorkspaceDir, 'migration-inventory.json'), 'utf8'),
+    ]);
+  } finally {
+    await rm(sourceWorkspaceDir, { recursive: true, force: true });
+  }
 } finally {
   await rm(baselineDir, { recursive: true, force: true });
 }

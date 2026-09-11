@@ -57,6 +57,17 @@ node scripts/inventory-eliza-migration.mjs
 That inventory is run by `npm run test:artifacts` so the recoverable source
 baseline and the current `dist/` comparison stay CI-protected.
 
+To create a scratch workspace for the actual source migration:
+
+```bash
+node scripts/prepare-eliza-source-workspace.mjs --target /tmp/eliza-plugin-v7-workspace
+```
+
+The workspace contains the recovered `source/`, current mirrored `current-dist/`,
+and `migration-inventory.json`. It is intentionally outside `eliza-plugin/` so
+the public mirror stays artifact-only until a coordinated source release and
+artifact resync.
+
 ## Required V7 work
 
 1. Restore or obtain the actual upstream Eliza plugin source.
