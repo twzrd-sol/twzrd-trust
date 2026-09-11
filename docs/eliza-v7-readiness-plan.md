@@ -18,6 +18,9 @@ restored as part of a coordinated release.
 - Historical source is recoverable from repo history:
   `git show 98e4b78:eliza-plugin/src/actions/intel-trust.ts`
   and the surrounding `eliza-plugin/src/` tree.
+- The helper script `scripts/extract-eliza-source-baseline.mjs` can list or
+  extract that historical baseline into a separate migration directory without
+  changing `eliza-plugin/`.
 
 ## Source baseline
 
@@ -37,6 +40,12 @@ tests for the Eliza plugin before the public mirror was stripped to artifacts:
 That source is not automatically current. Later artifact-only releases added
 surfaces such as `merchant-card`, so the migration should compare historical
 source with the current `dist/` package before editing or publishing.
+
+To extract the historical baseline for comparison:
+
+```bash
+node scripts/extract-eliza-source-baseline.mjs --target /tmp/eliza-plugin-source-baseline
+```
 
 ## Required V7 work
 
