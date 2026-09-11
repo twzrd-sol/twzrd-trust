@@ -1,11 +1,14 @@
 # Eliza V7 readiness plan
 
-Status: source migration needed
+Status: source restored in `eliza-plugin-source/` (V7 migration). npm publish of
+`@wzrd_sol/eliza-plugin` and public-mirror resync of `eliza-plugin/` remain
+follow-up after merge.
 
 This note turns the remaining Eliza gap from issue #90 into an executable
 migration map. It does not make `eliza-plugin/` buildable in this public mirror.
-That package is still an artifact-only mirror unless source is intentionally
-restored as part of a coordinated release.
+That package is still an artifact-only mirror. Restored TypeScript lives in
+`eliza-plugin-source/` so the artifact scripts stay no-op until a coordinated
+publish and resync.
 
 ## Current evidence
 
@@ -72,9 +75,10 @@ artifact resync.
 
 1. Restore or obtain the actual upstream Eliza plugin source.
 
-   The public mirror has enough historical source to identify the shape of the
-   plugin, but a release should start from the real upstream source used to
-   publish `@wzrd_sol/eliza-plugin@0.6.1`.
+   Done in-repo: `eliza-plugin-source/` restores the 98e4b78 baseline and
+   forward-ports `merchant-card` from the 0.6.1 artifact. The private
+   `wzrd-final` tree still holds 0.6.1 / V6 and is not imported (see that
+   package's README). A release should publish from this restored source.
 
 2. Update paid trust action semantics.
 
@@ -119,11 +123,14 @@ artifact resync.
 
 ## Completion evidence
 
-Eliza readiness is complete only when all of the following are true:
+Source-side items now live in `eliza-plugin-source/`:
 
 - the Eliza plugin source is available for review,
 - V7 receipt handling is implemented in source,
 - Eliza registration and V7 receipt tests pass from source,
-- the npm package is published,
-- this public mirror is resynced from that published package,
+
+Still required after merge (publish / resync):
+
+- the npm package is published as `@wzrd_sol/eliza-plugin`,
+- this public mirror `eliza-plugin/` is resynced from that published package,
 - artifact checks in this repository pass after the resync.

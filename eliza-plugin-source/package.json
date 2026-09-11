@@ -1,0 +1,65 @@
+{
+  "name": "@wzrd_sol/eliza-plugin-source",
+  "private": true,
+  "version": "0.7.0",
+  "description": "V7-migrated ElizaOS plugin source for @wzrd_sol/eliza-plugin. Publishable after merge as the next @wzrd_sol/eliza-plugin line; this public-mirror directory is not the artifact-only eliza-plugin/ package.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "test": "tsx --test test/plugin-registration.intel.ts test/receipt-v7.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@wzrd_sol/sdk": "^0.4.8",
+    "bs58": "^5.0.0",
+    "tweetnacl": "^1.0.3",
+    "twzrd-receipt-verifier": "^1.4.0",
+    "twzrd-x402-gate": "^0.9.5"
+  },
+  "peerDependencies": {
+    "@elizaos/core": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@elizaos/core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@elizaos/core": "^1.0.0",
+    "@types/node": "^22.13.10",
+    "tsx": "^4.23.12",
+    "typescript": "^5.6.3"
+  },
+  "keywords": [
+    "solana",
+    "eliza",
+    "elizaos",
+    "wzrd",
+    "intel",
+    "x402",
+    "trust",
+    "receipt",
+    "v7",
+    "preflight",
+    "merchant_card"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
+    "directory": "eliza-plugin-source"
+  },
+  "bugs": {
+    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
+  }
+}
