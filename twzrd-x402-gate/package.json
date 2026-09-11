@@ -10,7 +10,8 @@
     "twzrd-gate-eval-refuse": "./bin/twzrd-gate-eval-refuse.js",
     "twzrd-gate-doctor": "./bin/twzrd-gate-doctor.js",
     "twzrd-evidence-bundle": "./bin/twzrd-evidence-bundle.js",
-    "twzrd-payment-decision": "./bin/twzrd-payment-decision.js"
+    "twzrd-payment-decision": "./bin/twzrd-payment-decision.js",
+    "twzrd-bounty-preflight": "./bin/twzrd-bounty-preflight.js"
   },
   "exports": {
     ".": {
@@ -68,7 +69,8 @@
     "gate-eval-refuse": "node bin/twzrd-gate-eval-refuse.js",
     "gate-doctor": "tsx src/doctor.ts",
     "evidence-verify": "tsx src/evidence-verify.ts --verify",
-    "payment-decision-verify": "tsx src/payment-decision.ts --verify"
+    "payment-decision-verify": "tsx src/payment-decision.ts --verify",
+    "bounty-preflight": "node bin/twzrd-bounty-preflight.js"
   },
   "keywords": [
     "x402",
