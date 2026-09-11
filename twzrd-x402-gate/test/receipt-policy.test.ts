@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_REQUIRE_RECEIPT_MIN_SPEND_USDC,
+  completionOfPaidIntel,
   resolveRequireReceiptPolicy,
   shouldAttemptPathAReceipt,
   shouldRequirePathAReceipt,
@@ -51,6 +52,18 @@ function reqs(amountMicro: string) {
 }
 
 async function main() {
+  // Paid intel is incomplete until an independent verifier returns a result.
+  // Actor recap is not an argument — it cannot change the verdict.
+  assert.equal(completionOfPaidIntel({ receipt: null, verifierOk: null }), "incomplete");
+  assert.equal(completionOfPaidIntel({ receipt: { twzrd_receipt: true }, verifierOk: null }), "incomplete");
+  assert.equal(completionOfPaidIntel({ receipt: { twzrd_receipt: true }, verifierOk: false }), "failed");
+  assert.equal(completionOfPaidIntel({ receipt: { twzrd_receipt: true }, verifierOk: true }), "done");
+  assert.equal(
+    completionOfPaidIntel({ receipt: { recap: "I verified locally" }, verifierOk: null }),
+    "incomplete",
+    "story-done is incomplete",
+  );
+
   // Pure policy
   assert.equal(resolveRequireReceiptPolicy(undefined), null);
   assert.equal(resolveRequireReceiptPolicy(false), null);

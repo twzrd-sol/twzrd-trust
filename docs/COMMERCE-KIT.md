@@ -131,9 +131,15 @@ screen the payer before you deliver. It is not this walkthrough.
 
 ## What counts as done
 
-A non-TWZRD operator runs this loop in their environment and publishes a
-scrub-clean `twzrd.evidence_bundle.v1`. Internal dogfood, CI, house wallets,
-and sponsored payers do not increment `path_b_artifacts_external`.
+Path A (paid intel): `twzrd-receipt-verifier@^1.4.0` exits 0 on the saved
+receipt against the live issuer key. A 200 body, a settlement tx, or an
+agent recap is incomplete. `completionOfPaidIntel` in the gate takes only
+`receipt` + `verifierOk` — the actor's story is not an input.
+
+Path B (gate adoption): a non-TWZRD operator runs this loop in their
+environment and publishes a scrub-clean `twzrd.evidence_bundle.v1`. Internal
+dogfood, CI, house wallets, and sponsored payers do not increment
+`path_b_artifacts_external`.
 
 ## Parking lot
 

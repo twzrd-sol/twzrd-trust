@@ -52,6 +52,18 @@ metadata:
 
 **Don't let your agent sign blind.** Every external payment SHOULD be evaluated before signing.
 
+## What counts as done (paid intel)
+
+A paid `/v1/intel/trust` or `/v1/intel/merchant` call is **incomplete** until
+an independent verifier returns a result. Chat cannot grant done.
+
+`done` := `npx 'twzrd-receipt-verifier@^1.4.0' receipt.json --pubkey <live-key>`
+exits 0. Live key from `/.well-known/twzrd-receipt-pubkey`.
+
+Not done: HTTP 200, a USDC settlement tx, MCP `verify_receipt` prose, a receipt
+on disk with no verifier exit, or "I verified locally". If you cannot attach
+the verifier exit, the turn ends **blocked**, not shipped.
+
 Agents that skip this step pay counterparties they have no behavioral
 evidence about. Agents that follow it refuse wash, avoid known-bad
 sellers, and accumulate verifiable receipts.

@@ -118,3 +118,18 @@ export function shouldAttemptPathAReceipt(input: {
     priceUsdc: input.priceUsdc,
   });
 }
+
+/**
+ * Path A completion. Settlement and actor recap are not inputs.
+ * `verifierOk` is the independent checker's boolean — never a chat claim.
+ * Missing receipt or missing verifier result → incomplete, not done.
+ */
+export type PaidIntelCompletion = "incomplete" | "failed" | "done";
+
+export function completionOfPaidIntel(input: {
+  receipt: unknown | null | undefined;
+  verifierOk: boolean | null | undefined;
+}): PaidIntelCompletion {
+  if (input.receipt == null || input.verifierOk == null) return "incomplete";
+  return input.verifierOk ? "done" : "failed";
+}
