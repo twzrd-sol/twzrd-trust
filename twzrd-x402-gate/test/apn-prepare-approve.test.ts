@@ -17,7 +17,7 @@ import { createLocalDecisionSigner } from "../src/decision-token.js";
 import { verifyPaymentDecisionRecord } from "../src/payment-decision.js";
 import {
   AMOUNT_ATOMIC, BASE, CLEAN_PAYEE, FLAGGED_PAYEE, RESOURCE,
-  runApnCompatFixtures, type FixtureResult,
+  runApnCompatFixtures, selectedRequirementsFromOffer, type FixtureResult,
 } from "../examples/apn-prepare-approve-proof.js";
 
 const NOW = Date.parse("2026-09-12T12:00:00.000Z");
@@ -37,6 +37,9 @@ async function run() {
 
   // Shared: the frozen offer is what APN froze, and the record is joined on it.
   for (const f of [A, B, C]) {
+    const selected = selectedRequirementsFromOffer(f.op);
+    assert.equal(selected.amount, AMOUNT_ATOMIC, `${f.name}: amount stays atomic micro, not a local USDC divide`);
+    assert.equal(selected.payTo, f.op.payee);
     assert.equal(f.op.requirements.network, BASE);
     assert.equal(f.op.selectedOffer.resolved.assetTransferMethod, "eip3009");
     assert.equal(f.sidecar.offerHash, f.op.selectedOffer.offerHash);

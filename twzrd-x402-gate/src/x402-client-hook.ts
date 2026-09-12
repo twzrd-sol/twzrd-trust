@@ -16,7 +16,7 @@ import { priceUsdcFromAmountMicro } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 import { quickCheck } from "./quick.js";
 import { CLIENT_VERSION } from "./version.js";
-import type { TwzrdGateConfig } from "./types.js";
+import type { TwzrdApprovalResult, TwzrdGateConfig } from "./types.js";
 import { x402RequirementsToIntent } from "./intent-adapters.js";
 import { evaluateIntent, type Mandate, type SpendLedger, type SpendPolicy } from "./policy-runtime.js";
 import {
@@ -161,6 +161,12 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
    */
   onReceipt?: (receipt: unknown, tx: string | undefined) => void;
   /**
+   * Raw `twzrdApprovePayment` result, before abort/allow mapping.
+   * Sidecar issuers (APN packet) bind a payment_decision.v1 to this object.
+   * Never throws into the payment path.
+   */
+  onApproval?: (approval: TwzrdApprovalResult) => void;
+  /**
    * Optional callback after each policy decision (telemetry / logging).
    * Never throws into the payment path.
    */
@@ -276,6 +282,11 @@ export async function evaluateBeforePaymentCreation(
     },
     cfg,
   );
+  try {
+    options.onApproval?.(approval);
+  } catch {
+    /* telemetry */
+  }
 
   // Opt-in Payment Control: build the canonical intent and run the policy
   // runtime, feeding the preflight result in as remote intelligence.
