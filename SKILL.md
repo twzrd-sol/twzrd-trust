@@ -43,3 +43,31 @@ metadata:
         description: >-
           Gate default is refuse on wash_flagged. Set 0 only to opt out.
 ---
+
+# TWZRD Trust — don't let your agent sign blind
+
+> **Never send path templates.** Do not paste `:pubkey`, `{pubkey}`, `{seller_wallet}`, `SELLER_WALLET` or `PAY_TO_WALLET` as a value. Substitute a real base58 payTo from `accepts[].payTo`; the preflight rejects templates with `TEMPLATE_PLACEHOLDER_NOT_REPLACED`.
+
+## One rule
+
+**Don't let your agent sign blind.** Every external payment SHOULD be evaluated before signing.
+
+Agents that skip this step pay counterparties they have no behavioral
+evidence about. Agents that follow it refuse wash, avoid known-bad
+sellers, and accumulate verifiable receipts.
+
+**Free preflight does not enforce.** AutoGate on your pay path enforces.
+Do not treat a free ReadinessCard (or an optional Path A receipt alone) as “protected.”
+
+**Do not stop after free preflight** if you control a host pay path: run
+`next_action.command` — primary step is **`gate_eval_live`** (refuse transcript),
+not paid trust. Paid trust is optional Path A (paid intel).
+
+> Marketplaces and bazaars tell agents what might be buyable.
+> **TWZRD tells agents whether they should pay the seller.**
+
+TWZRD is not a marketplace that ranks services from settlement volume.
+Services come from bazaar / resource-join discovery; settlement trust enriches
+the `pay_to` wallet. The settlement graph is not a service catalog.
+
+No API key. No signup. Free tier needs nothing but curl.
