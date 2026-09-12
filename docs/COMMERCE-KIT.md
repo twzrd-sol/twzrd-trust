@@ -3,7 +3,7 @@
 The TWZRD commerce loop is a walkthrough of `twzrd-x402-gate`, not a second
 package and not Catena's Agent Commerce Kit (ACK-Pay). ACK-Pay remains the
 optional receipt-passport shape on paid `/trust` and settle. The portable
-artifact is the existing V6 receipt (or bind-v1). Do not invent another format.
+artifact is the existing V7 receipt (or bind-v1). V6 remains verifiable. Do not invent another format.
 
 ```
 directory → preflight → policy → pay or refuse → verify receipt → evidence bundle
@@ -13,14 +13,14 @@ TWZRD sits **beside** discovery. Bazaars list callables; the gate decides
 whether to pay `pay_to`. Free preflight does **not** enforce. AutoGate on the
 pay path enforces. Blocks have `signerInvocations === 0`.
 
-This document is the product. Install remains `twzrd-x402-gate@0.9.5`.
+This document is the product. Install remains `twzrd-x402-gate@0.9.7`.
 
 ## The six steps
 
 ### 1. Install the gate
 
 ```bash
-npm install twzrd-x402-gate@0.9.5
+npm install twzrd-x402-gate@0.9.7
 ```
 
 Canonical seat — official x402 client:
@@ -84,14 +84,14 @@ npx tsx examples/commerce-kit.ts
 npx twzrd-gate-eval-refuse
 ```
 
-Paid path is optional and tiny. `quickCheck` is $0.001 on `warn`. A V6 receipt
+Paid path is optional and tiny. `quickCheck` is $0.001 on `warn`. A V7 receipt
 is $0.05 when you want a portable proof.
 
 ### 5. Verify the receipt afterward
 
 After an allowed pay: bind-v1 via `POST /v1/intel/resource_bind/verify` or
-independent recomputation ([REVIEW.md](../REVIEW.md)). V6 receipts verify
-offline with `twzrd-receipt-verifier`. No second passport format.
+independent recomputation ([REVIEW.md](../REVIEW.md)). V5/V6/V7 receipts verify
+offline with `twzrd-receipt-verifier@^1.4.0`. No second passport format.
 
 ### 6. Export an evidence bundle
 
@@ -121,9 +121,9 @@ harness, is [`strategy/gate-adoption-operator-proof.md`](strategy/gate-adoption-
 | Check | Price | Role |
 |---|---|---|
 | Preflight + merchant_card | Free | Decide |
-| bind-v1 / V6 verify | Free | Verify |
+| bind-v1 / V5–V7 verify | Free | Verify |
 | `quickCheck` | $0.001 | Decide harder on `warn` |
-| V6 receipt / ACK-Pay VC | $0.05 | Portable proof / learn |
+| V7 receipt / ACK-Pay VC | $0.05 | Portable proof / learn |
 | Settle guard payer screen | Free (advisory) | Deliver |
 
 Merchant settle guard (`createTwzrdSettleGuard`) is the complementary page:

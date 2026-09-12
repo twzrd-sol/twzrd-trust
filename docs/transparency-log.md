@@ -27,7 +27,7 @@
 
 ## Why
 
-A valid V6 receipt proves *authorship and integrity* of its signed fields. It does not
+A valid V6 or V7 receipt proves *authorship and integrity* of its signed fields. It does not
 prevent **equivocation** — TWZRD issuing two conflicting signed receipts for the same
 subject at the same time and showing different answers to different buyers — and it does
 not prevent **backdating**. The transparency log closes both gaps:

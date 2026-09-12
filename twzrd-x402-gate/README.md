@@ -80,7 +80,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.9.6
+npm install twzrd-x402-gate@0.9.7
 ```
 
 ```typescript
@@ -125,7 +125,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.9.6
+npm install twzrd-x402-gate@0.9.7
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -295,7 +295,7 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.9.6
+npm install twzrd-x402-gate@0.9.7
 ```
 
 Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
@@ -672,14 +672,14 @@ const safeFetch = withTwzrdGuard(x402Fetch, {
   autoReceipt: true,   // on warn or allow, auto-buy the $0.05 TWZRD trust receipt
   x402Fetch,           // the paying fetch — TWZRD earns the fee on-chain
   onReceipt: (receipt, tx) => {
-    // receipt is a twzrd_receipt (V6 + ERC-8004 reputation_credential)
+    // receipt is a twzrd_receipt (V7 + ERC-8004 reputation_credential)
     console.log("Trust receipt captured:", tx);
   },
 });
 ```
 
 `autoReceipt` is **off by default** — it spends the **buyer's** USDC, so you opt in. When on,
-every warn/allow verdict settles $0.05 USDC to TWZRD and returns a signed V6 trust credential
+every warn/allow verdict settles $0.05 USDC to TWZRD and returns a signed V7 trust credential
 for the counterparty before you pay the resource.
 
 **`x402Fetch` is yours to supply** (this package is dependency-free). Wire the proven
@@ -698,7 +698,7 @@ is the next step.
 ### Quick tier ($0.001) — cheap paid qualify
 
 The reputation ladder has three rungs: **free** preflight (`allow/warn/block`), **$0.001**
-`quickCheck` (tier + score, no receipt), **$0.05** `autoReceipt` (full intel + signed V6
+`quickCheck` (tier + score, no receipt), **$0.05** `autoReceipt` (full intel + signed V7
 receipt). When the free preflight is inconclusive (`warn` / unknown seller) and you want a
 cheap *paid* confirmation before committing — without paying 50× for the portable receipt —
 use `quickCheck`:
