@@ -190,8 +190,13 @@ export function installTwzrdAutoGate(
     const state: ClientInstallState = { disabled: false };
     clientInstalls.set(target as object, state);
 
-    // Wrap the registrar so every installed before-payment hook honors uninstall + env kill.
-    const originalRegister = target.onBeforePaymentCreation.bind(target);
+    // Wrap the registrar ONLY for TWZRD's own registration below, then restore
+    // it. AUDIT FIX: leaving the patch in place gated every hook the host
+    // registered later behind TWZRD's kill switch / uninstall — "gate off"
+    // silently became "all host policy off".
+    const ownProp = Object.prototype.hasOwnProperty.call(target, "onBeforePaymentCreation");
+    const originalProp = target.onBeforePaymentCreation;
+    const originalRegister = originalProp.bind(target);
     target.onBeforePaymentCreation = ((hook) =>
       originalRegister(async (context) => {
         if (state.disabled || isTwzrdAutoGateDisabled()) {
@@ -200,7 +205,12 @@ export function installTwzrdAutoGate(
         return hook(context);
       })) as X402ClientLike["onBeforePaymentCreation"];
 
-    installTwzrdX402ClientHook(target, x402Opts);
+    try {
+      installTwzrdX402ClientHook(target, x402Opts);
+    } finally {
+      if (ownProp) target.onBeforePaymentCreation = originalProp;
+      else delete (target as Partial<X402ClientLike>).onBeforePaymentCreation;
+    }
     return target;
   }
 

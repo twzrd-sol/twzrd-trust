@@ -274,6 +274,22 @@ export async function evaluateBeforePaymentCreation(
   // when payTo/amount are missing — the legacy gate already denies those.
   let intent: PaymentIntent | undefined;
   let decision: PaymentDecision | undefined;
+  if (options?.paymentControl && !(payTo && amountMicro)) {
+    // AUDIT FIX: this used to fall through to the legacy verdict, but the
+    // legacy gate does NOT deny a missing/empty amount — a preflight `allow`
+    // proceeded to sign with every mandate/policy ceiling unevaluated.
+    const reason = `[twzrd] payment_control_unevaluable: missing ${payTo ? "amount" : "payTo"} payTo=${payTo ?? "unknown"}`;
+    try {
+      options.onDecision?.({
+        approved: false, reason, verdict: String(approval.verdict), payTo,
+        network: approval.network ?? network, amountMicro,
+        reputationScored: approval.reputationScored, policyAction: "block",
+      });
+    } catch {
+      /* telemetry */
+    }
+    return { abort: true, reason };
+  }
   if (options?.paymentControl && payTo && amountMicro) {
     const signer = pcSigner ?? resolvePaymentControlSigner(options.paymentControl);
     const pc = options.paymentControl;

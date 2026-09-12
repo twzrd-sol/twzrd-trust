@@ -1,5 +1,6 @@
 import type { ResolvedTwzrdGateConfig } from "./config.js";
 import {
+  paymentRequiredFromResponse,
   payToFromRequirements,
   pickRequirements,
   priceUsdcFromAmountMicro,
@@ -28,11 +29,10 @@ export function wrapFetchWithTwzrdGate(
     const resp = await innerFetch(input, init);
     if (resp.status !== 402) return resp;
 
-    let body: X402PaymentRequiredBody = {};
-    try {
-      body = (await resp.clone().json()) as X402PaymentRequiredBody;
-    } catch {
-      // 402 without a parseable x402 body — nothing to gate on; pass through
+    // AUDIT FIX: header (v2) before body — the same precedence the payer uses.
+    const body: X402PaymentRequiredBody | null = await paymentRequiredFromResponse(resp);
+    if (body === null) {
+      // No header and no JSON body — nothing an x402 payer can pay from either.
       return resp;
     }
 

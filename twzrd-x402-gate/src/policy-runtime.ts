@@ -232,14 +232,6 @@ export async function evaluateIntent(
         toMicroUsd(mandate.maxPerTransactionUsd),
       );
     }
-    if (mandate.monthlyCeilingUsd !== undefined && options.ledger) {
-      const spent = options.ledger.spentMicro(`mandate:${mandate.mandateId}`, MONTH_MS, now);
-      const ceiling = toMicroUsd(mandate.monthlyCeilingUsd);
-      if (spent + amountMicro > ceiling) {
-        const remaining = ceiling > spent ? ceiling - spent : 0n;
-        blockBudget("MANDATE_MONTHLY_CEILING", remaining);
-      }
-    }
   }
 
   /* 2. Company policy — local hard controls */
@@ -268,18 +260,6 @@ export async function evaluateIntent(
         prior + (prior * BigInt(Math.round(policy.recurringMaxPriceIncreasePct * 100))) / 10_000n;
       if (amountMicro > ceiling) block("RECURRING_PRICE_INCREASE");
     }
-    if (policy.newCounterpartyCap && options.ledger) {
-      const windowMs = policy.newCounterpartyCap.windowHours * 3_600_000;
-      const scope = `counterparty:${intent.payTo}`;
-      const seen = options.ledger.firstSeen(scope);
-      const isNew = seen === undefined || now - seen <= windowMs;
-      if (isNew) {
-        const spent = options.ledger.spentMicro(scope, windowMs, now);
-        if (spent + amountMicro > toMicroUsd(policy.newCounterpartyCap.capUsd)) {
-          block("NEW_COUNTERPARTY_CAP");
-        }
-      }
-    }
   }
 
   /* 3. Remote intelligence (skipped when already blocked locally) */
@@ -297,6 +277,30 @@ export async function evaluateIntent(
         warn("UNKNOWN_ABOVE_LIMIT");
       } else {
         block("UNKNOWN_ABOVE_LIMIT");
+      }
+    }
+  }
+
+  /* 3b. Ledger caps — AUDIT FIX: evaluated in the SAME synchronous segment as
+     the record below. Checked before `await intelligence`, two concurrent
+     evaluations read one headroom and both recorded past the ceiling. */
+  if (mandate?.monthlyCeilingUsd !== undefined && options.ledger) {
+    const spent = options.ledger.spentMicro(`mandate:${mandate.mandateId}`, MONTH_MS, now);
+    const ceiling = toMicroUsd(mandate.monthlyCeilingUsd);
+    if (spent + amountMicro > ceiling) {
+      const remaining = ceiling > spent ? ceiling - spent : 0n;
+      blockBudget("MANDATE_MONTHLY_CEILING", remaining);
+    }
+  }
+  if (policy?.newCounterpartyCap && options.ledger) {
+    const windowMs = policy.newCounterpartyCap.windowHours * 3_600_000;
+    const scope = `counterparty:${intent.payTo}`;
+    const seen = options.ledger.firstSeen(scope);
+    const isNew = seen === undefined || now - seen <= windowMs;
+    if (isNew) {
+      const spent = options.ledger.spentMicro(scope, windowMs, now);
+      if (spent + amountMicro > toMicroUsd(policy.newCounterpartyCap.capUsd)) {
+        block("NEW_COUNTERPARTY_CAP");
       }
     }
   }

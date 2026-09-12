@@ -11,6 +11,7 @@
 import { toMicroUsd } from "./intent.js";
 import { classifyNetwork } from "./network.js";
 import {
+  paymentRequiredFromResponse,
   payToFromRequirements,
   pickRequirements,
   priceUsdcFromAmountMicro,
@@ -85,6 +86,27 @@ export type SpendControlResult = {
  */
 const defaultMemoryLedger = createMemorySpendLedger();
 
+/**
+ * AUDIT FIX (ledger TOCTOU): headroom is checked before `await preflight /
+ * prepare / pay` but recorded after, so two concurrent calls could both pass
+ * the same cap and both invoke the signer. Reserve in the SAME tick as the
+ * check; release once the ledger row is written (or the call fails).
+ * Process-local, like the default ledger — multi-process callers still need
+ * an external ledger.
+ */
+const inflight = new WeakMap<SpendLedger, Map<string, bigint>>();
+function reservedMicro(ledger: SpendLedger, key: string): bigint {
+  return inflight.get(ledger)?.get(key) ?? 0n;
+}
+function adjustReservation(ledger: SpendLedger, keys: string[], delta: bigint): void {
+  let m = inflight.get(ledger);
+  if (!m) { m = new Map(); inflight.set(ledger, m); }
+  for (const k of keys) {
+    const next = (m.get(k) ?? 0n) + delta;
+    if (next <= 0n) m.delete(k); else m.set(k, next);
+  }
+}
+
 function netOk(network: string | undefined, payTo: string | undefined, allow?: string[]): boolean {
   if (!allow?.length) return true;
   const c = classifyNetwork(network, payTo);
@@ -106,10 +128,9 @@ export async function spendControlSafeFetch(
   const ledger = opts.ledger ?? (file ? createFileSpendLedger(file) : defaultMemoryLedger);
   const res = await fetchImpl(url);
   if (res.status !== 402) return { verdict: "allow", response: res, signerInvocations: 0 };
-  let body: X402PaymentRequiredBody;
-  try {
-    body = (await res.clone().json()) as X402PaymentRequiredBody;
-  } catch {
+  // AUDIT FIX: header (v2) before body — the same precedence the payer uses.
+  const body: X402PaymentRequiredBody | null = await paymentRequiredFromResponse(res);
+  if (body === null) {
     return { verdict: "block", reason: "unparseable_402", signerInvocations: 0 };
   }
   rememberRawInvoice(body, url);
@@ -130,7 +151,14 @@ export async function spendControlSafeFetch(
   if (!payTo || amountMicro == null) {
     return { verdict: "block", reason: "no_payable_requirement", signerInvocations: 0 };
   }
-  const spendMicro = BigInt(String(amountMicro).split(".")[0] || "0");
+  // AUDIT FIX: a seller-controlled amount must be a base-unit integer; anything
+  // else ("-100", "0.5", "1e6") previously slid under the cap or threw mid-path.
+  if (!/^\d+$/.test(String(amountMicro))) {
+    return { verdict: "block", reason: "malformed_amount", signerInvocations: 0 };
+  }
+  const spendMicro = BigInt(String(amountMicro));
+  // AUDIT FIX: the payer only ever sees the offer the gate approved.
+  const offer = { ...body, accepts: [selected] };
   const maxMicro = opts.maxSpend != null ? toMicroUsd(opts.maxSpend) : undefined;
   if (maxMicro != null && spendMicro > maxMicro) {
     return { verdict: "block", reason: "over_max_spend", signerInvocations: 0 };
@@ -140,68 +168,74 @@ export async function spendControlSafeFetch(
   const agentKey = `agent:${opts.agentId ?? "default"}`;
   const merchantKey = `merchant:${payTo}`;
   const mandateKey = `mandate:${opts.mandateId ?? "default"}`;
+  const keys = [agentKey, merchantKey, mandateKey];
   if (maxMicro != null) {
-    for (const key of [agentKey, merchantKey, mandateKey]) {
-      if (ledger.spentMicro(key, WIN, now) + spendMicro > maxMicro) {
+    for (const key of keys) {
+      if (ledger.spentMicro(key, WIN, now) + reservedMicro(ledger, key) + spendMicro > maxMicro) {
         return { verdict: "block", reason: "over_cumulative_spend", signerInvocations: 0 };
       }
     }
+    adjustReservation(ledger, keys, spendMicro); // same tick as the check
   }
-  let verdict: "allow" | "warn" | "block" = "allow";
-  const price = priceUsdcFromAmountMicro(amountMicro) ?? 0;
-  if (opts.preflight) {
-    const card = await opts.preflight(payTo, price);
-    if (card.decision === "block") return { verdict: "block", reason: "intel_block", signerInvocations: 0 };
-    if (card.decision === "warn") verdict = "warn";
-  }
-  let stamped = null as ReturnType<typeof stampResourceBind> | null;
-  if (opts.requireOfferBinding) {
-    stamped = stampResourceBind(selected as ResourceBindReq, body);
-  }
-  let response = res;
-  let txb64: string | undefined;
-  let signerInvocations = 0;
-  if (opts.requireOfferBinding) {
-    const leaf_hash = stamped?.leaf_hash ?? null;
-    if (!leaf_hash || !opts.prepareBoundPayment || !opts.submitBoundPayment) {
-      return {
-        verdict: "block", reason: "bind_requires_prepared_payment", signerInvocations: 0,
-        receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" },
-      };
+  const record = () => { for (const k of keys) ledger.record(k, spendMicro, now); };
+  const settle = async (): Promise<SpendControlResult> => {
+    let verdict: "allow" | "warn" | "block" = "allow";
+    const price = priceUsdcFromAmountMicro(amountMicro) ?? 0;
+    if (opts.preflight) {
+      const card = await opts.preflight(payTo, price);
+      if (card.decision === "block") return { verdict: "block", reason: "intel_block", signerInvocations: 0 };
+      if (card.decision === "warn") verdict = "warn";
     }
-    const prepared = await opts.prepareBoundPayment({
-      url, paymentRequired: body, selected, leafHash: leaf_hash,
-      memo: resourceBindMemo(leaf_hash),
-    });
-    txb64 = prepared.transactionBase64;
-    const d = await evaluateResourceBindLegsFromSvmTx(txb64, {
-      leaf_hash, pay_to: payTo, asset: String(selected.asset ?? ""), amount_raw: String(amountMicro),
-    });
-    const receipt: SpendControlResult["receipt"] = { strength: d.strength, leaf_hash: d.leaf_hash, fact_type: "resource_bound" };
-    if (d.strength !== "hard") {
-      return { verdict: "block", reason: "bind_mismatch", receipt, signerInvocations: 0 };
+    let stamped = null as ReturnType<typeof stampResourceBind> | null;
+    if (opts.requireOfferBinding) {
+      stamped = stampResourceBind(selected as ResourceBindReq, body);
     }
-    signerInvocations = 1;
-    const paid = await opts.submitBoundPayment({ transactionBase64: txb64, url, paymentRequired: body, selected });
-    if (paid.response) response = paid.response;
-    ledger.record(agentKey, spendMicro, now);
-    ledger.record(merchantKey, spendMicro, now);
-    ledger.record(mandateKey, spendMicro, now);
+    let response = res;
+    let txb64: string | undefined;
+    let signerInvocations = 0;
+    if (opts.requireOfferBinding) {
+      const leaf_hash = stamped?.leaf_hash ?? null;
+      if (!leaf_hash || !opts.prepareBoundPayment || !opts.submitBoundPayment) {
+        return {
+          verdict: "block", reason: "bind_requires_prepared_payment", signerInvocations: 0,
+          receipt: { strength: "refuse", leaf_hash, fact_type: "resource_bound" },
+        };
+      }
+      const prepared = await opts.prepareBoundPayment({
+        url, paymentRequired: offer, selected, leafHash: leaf_hash,
+        memo: resourceBindMemo(leaf_hash),
+      });
+      txb64 = prepared.transactionBase64;
+      const d = await evaluateResourceBindLegsFromSvmTx(txb64, {
+        leaf_hash, pay_to: payTo, asset: String(selected.asset ?? ""), amount_raw: String(amountMicro),
+      });
+      const receipt: SpendControlResult["receipt"] = { strength: d.strength, leaf_hash: d.leaf_hash, fact_type: "resource_bound" };
+      if (d.strength !== "hard") {
+        return { verdict: "block", reason: "bind_mismatch", receipt, signerInvocations: 0 };
+      }
+      signerInvocations = 1;
+      const paid = await opts.submitBoundPayment({ transactionBase64: txb64, url, paymentRequired: offer, selected });
+      if (paid.response) response = paid.response;
+      record();
+      return { verdict, response, receipt, signerInvocations };
+    }
+    if (opts.pay) {
+      signerInvocations = 1;
+      const paid = await opts.pay({ url, paymentRequired: offer, selected });
+      if (paid.response) response = paid.response;
+      txb64 = paid.transactionBase64;
+    }
+    let receipt: SpendControlResult["receipt"];
+    if (signerInvocations > 0 || !opts.pay) {
+      record();
+    }
     return { verdict, response, receipt, signerInvocations };
+  };
+  try {
+    return await settle();
+  } finally {
+    if (maxMicro != null) adjustReservation(ledger, keys, -spendMicro);
   }
-  if (opts.pay) {
-    signerInvocations = 1;
-    const paid = await opts.pay({ url, paymentRequired: body, selected });
-    if (paid.response) response = paid.response;
-    txb64 = paid.transactionBase64;
-  }
-  let receipt: SpendControlResult["receipt"];
-  if (signerInvocations > 0 || !opts.pay) {
-    ledger.record(agentKey, spendMicro, now);
-    ledger.record(merchantKey, spendMicro, now);
-    ledger.record(mandateKey, spendMicro, now);
-  }
-  return { verdict, response, receipt, signerInvocations };
 }
 
 export const twzrd = { safeFetch: spendControlSafeFetch };

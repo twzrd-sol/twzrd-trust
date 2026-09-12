@@ -13,7 +13,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import {
   ADOPTION_TRANSCRIPT_SCHEMA,
-  isInternalIntegration,
+  resolveLineage,
   runGateAdoptionProof,
   type GateAdoptionLineage,
   type GateAdoptionTranscript,
@@ -136,10 +136,9 @@ export function exportEvidenceBundle(opts: ExportEvidenceBundleOptions): Evidenc
     signerInvocations: block?.signerInvocations ?? 0,
   };
 
-  const lineage =
-    opts.lineage ??
-    transcript?.lineage ??
-    (isInternalIntegration(integration) ? "dogfood" : "external_candidate");
+  // AUDIT FIX (finding B): neither opts.lineage nor a hand-edited
+  // transcript.lineage may loosen an internal integration to external_candidate.
+  const lineage = resolveLineage(integration, opts.lineage ?? transcript?.lineage);
 
   const redactions = [
     "secrets_and_private_keys",
