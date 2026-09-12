@@ -7,10 +7,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { verifyReceipt as verifyReceiptSdk } from '@wzrd_sol/sdk';
+import { TRUSTED_RECEIPT_PUBKEY, verifyReceipt as verifyReceiptSdk } from '@wzrd_sol/sdk';
 import {
   classifyReceipt,
   describeReceiptSurface,
+  freshnessFromVerify,
   freshnessStatusFor,
   verifyReceipt,
   type TwzrdReceiptLike,
@@ -100,5 +101,65 @@ describe('V7 receipt surface (source)', () => {
       'SDK 0.4.8 still reports only v5/v6 leaf versions',
     );
     assert.equal(sdk.valid, false);
+  });
+
+  it('does not treat envelope version/kind as V7 when the domain is V6', () => {
+    const spoofed: TwzrdReceiptLike = {
+      ...v6Unsigned,
+      version: 'v7',
+      kind: 'twzrd_reputation_receipt_v7',
+      preimage: { ...v6Unsigned.preimage, version: 'v7' },
+    };
+    assert.equal(classifyReceipt(spoofed), 'v6');
+    const surface = describeReceiptSurface(spoofed);
+    assert.equal(surface.freshness, 'derived_from_timestamp');
+    const result = verifyReceipt(spoofed);
+    assert.equal(result.receiptVersion, 'v6');
+    assert.equal(result.freshness, 'derived_from_timestamp');
+    assert.notEqual(result.freshness, 'signed');
+    assert.equal(result.valid, false);
+  });
+
+  it('V7 kind/version mismatch is INVALID and must not report freshness=signed', () => {
+    const mismatched = structuredClone(v7Example);
+    mismatched.kind = 'twzrd_reputation_receipt_v6';
+    const result = verifyReceipt(mismatched);
+    assert.equal(result.receiptVersion, 'v7');
+    assert.equal(result.valid, false);
+    assert.equal(result.freshnessUnauthenticated, true);
+    assert.equal(result.freshness, 'unauthenticated');
+    assert.equal(freshnessFromVerify(result), 'unauthenticated');
+  });
+
+  it('maxAgeSeconds rejects the official V7 example (timestamp is not current)', () => {
+    const result = verifyReceipt(v7Example, { maxAgeSeconds: 86400 });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.length > 0);
+    assert.equal(result.freshness, 'unauthenticated');
+  });
+
+  it('freshnessFromVerify is signed only for valid authenticated V7', () => {
+    assert.equal(
+      freshnessFromVerify({ valid: true, freshnessUnauthenticated: false, receiptVersion: 'v7' }),
+      'signed',
+    );
+    assert.equal(
+      freshnessFromVerify({ valid: true, freshnessUnauthenticated: true, receiptVersion: 'v7' }),
+      'unauthenticated',
+    );
+    assert.equal(
+      freshnessFromVerify({ valid: false, freshnessUnauthenticated: false, receiptVersion: 'v7' }),
+      'unauthenticated',
+    );
+    assert.equal(
+      freshnessFromVerify({ valid: false, freshnessUnauthenticated: true, receiptVersion: 'v6' }),
+      'derived_from_timestamp',
+    );
+  });
+
+  it('SDK v1 TRUSTED_RECEIPT_PUBKEY fail-closes the official V7 example', () => {
+    const result = verifyReceipt(v7Example, { trustedPubkey: TRUSTED_RECEIPT_PUBKEY });
+    assert.equal(result.valid, false);
+    assert.equal(result.freshness, 'unauthenticated');
   });
 });

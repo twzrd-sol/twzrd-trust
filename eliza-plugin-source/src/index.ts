@@ -87,6 +87,7 @@ export {
 export { WzrdClient } from './client.js';
 export type { InferResult, ReportResult, RewardsBalance, ClaimResult } from './client.js';
 
+/** SDK intel helpers. TRUSTED_RECEIPT_PUBKEY is the v1 key — use CURRENT_RECEIPT_PUBKEY for V7 verify. */
 export {
   IntelPaymentRequiredError,
   intelPreflight,
@@ -103,6 +104,7 @@ export {
   classifyReceipt,
   describeReceiptSurface,
   freshnessStatusFor,
+  freshnessFromVerify,
   formatVerifyResult,
   CURRENT_RECEIPT_PUBKEY,
   CURRENT_RECEIPT_KEY_ID,

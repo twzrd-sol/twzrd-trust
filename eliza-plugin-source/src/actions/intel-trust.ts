@@ -10,7 +10,13 @@ import type { Action, HandlerCallback, IAgentRuntime, Memory } from '@elizaos/co
 import { fetchIntelTrust, preSpendGate, IntelPaymentRequiredError } from '@wzrd_sol/sdk';
 import { extractPubkey, formatPaymentRequired, getIntelBase, withTimeout } from '../intel-helpers.js';
 import { resolvePayingFetch } from '../paying-fetch.js';
-import { describeReceiptSurface, type TwzrdReceiptLike } from '../receipt-verify.js';
+import {
+  classifyReceipt,
+  describeReceiptSurface,
+  freshnessFromVerify,
+  verifyReceipt,
+  type TwzrdReceiptLike,
+} from '../receipt-verify.js';
 
 export const intelTrustAction: Action = {
   name: 'WZRD_INTEL_TRUST',
@@ -97,7 +103,11 @@ export const intelTrustAction: Action = {
         };
       };
       const receipt = paid.twzrd_receipt as TwzrdReceiptLike | undefined;
+      const verified = receipt ? verifyReceipt(receipt) : null;
       const surface = describeReceiptSurface(receipt);
+      const freshness = verified
+        ? freshnessFromVerify(verified)
+        : surface.freshness;
       const vc = paid.reputation_credential?.credentialSubject;
       const lines = [
         `Trust payload for ${pubkey}`,
@@ -119,8 +129,11 @@ export const intelTrustAction: Action = {
       if (receipt) {
         lines.push(
           `${surface.label}, leaf: ${receipt.leaf}`,
-          surface.detail,
-          'Use WZRD_VERIFY_RECEIPT (twzrd-receipt-verifier@^1.4.0) to verify offline.',
+          `Offline verify: ${verified?.valid ? 'VALID' : 'INVALID'} (freshness=${freshness})`,
+          verified?.valid
+            ? surface.detail
+            : 'Do not treat freshness as signed unless offline verify is VALID on a V7 domain.',
+          'Use WZRD_VERIFY_RECEIPT (twzrd-receipt-verifier) to re-check offline.',
         );
       } else {
         lines.push('No twzrd_receipt in response.');
@@ -131,8 +144,9 @@ export const intelTrustAction: Action = {
         success: true,
         data: {
           ...res,
-          receipt_surface: surface.version,
-          freshness: surface.freshness,
+          receipt_surface: classifyReceipt(receipt),
+          freshness,
+          receipt_valid: verified?.valid ?? false,
         } as unknown as Record<string, unknown>,
       };
     } catch (err) {

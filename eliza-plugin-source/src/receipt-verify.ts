@@ -11,10 +11,21 @@
 import { createRequire } from 'node:module';
 
 export const REPUTATION_V5_DOMAIN = 'TWZRD:AO_REPUTATION_RECEIPT_V5';
+export const ATTENTION_V5_DOMAIN = 'TWZRD:AO_ATTENTION_RECEIPT_V5';
 export const REPUTATION_V6_DOMAIN = 'TWZRD:AO_REPUTATION_RECEIPT_V6';
+export const ATTENTION_V6_DOMAIN = 'TWZRD:AO_ATTENTION_RECEIPT_V6';
 export const REPUTATION_V7_DOMAIN = 'TWZRD:AO_REPUTATION_RECEIPT_V7';
 export const CURRENT_RECEIPT_PUBKEY = 'Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS';
 export const CURRENT_RECEIPT_KEY_ID = 'twzrd-receipt-ed25519-v2';
+
+/** Canonical domains only — same allowlist as twzrd-receipt-verifier. Envelope version/kind are not used. */
+const DOMAIN_VERSION: Record<string, ReceiptVersion> = {
+  [REPUTATION_V7_DOMAIN]: 'v7',
+  [REPUTATION_V6_DOMAIN]: 'v6',
+  [ATTENTION_V6_DOMAIN]: 'v6',
+  [REPUTATION_V5_DOMAIN]: 'v5',
+  [ATTENTION_V5_DOMAIN]: 'v5',
+};
 
 export type ReceiptVersion = 'v7' | 'v6' | 'v5' | 'unknown';
 /** V7 binds freshness. V6 freshness is advisory only. V5 also leaves provenance unsigned. */
@@ -78,26 +89,39 @@ function loadVerifier(): VerifierModule {
 export function classifyReceipt(receipt: TwzrdReceiptLike | null | undefined): ReceiptVersion {
   if (!receipt || typeof receipt !== 'object') return 'unknown';
   const domain = String(receipt.preimage?.domain ?? '');
-  const version = String(receipt.version ?? receipt.preimage?.version ?? '').toLowerCase();
-  const kind = String(receipt.kind ?? '');
-  if (
-    domain === REPUTATION_V7_DOMAIN ||
-    version === 'v7' ||
-    kind === 'twzrd_reputation_receipt_v7'
-  ) {
-    return 'v7';
-  }
-  if (domain.includes('_V6') || version === 'v6') return 'v6';
-  if (domain.includes('_V5') || version === 'v5') return 'v5';
-  return 'unknown';
+  return DOMAIN_VERSION[domain] ?? 'unknown';
 }
 
+/**
+ * Surface policy for a classified version. Not a verify result — V7 here means
+ * "this domain *would* bind freshness if the verifier returns valid".
+ */
 export function freshnessStatusFor(version: ReceiptVersion): FreshnessStatus {
   if (version === 'v7') return 'signed';
   if (version === 'v6') return 'derived_from_timestamp';
   return 'unauthenticated';
 }
 
+/**
+ * Agent-facing freshness after offline verify. `signed` only when the verifier
+ * authenticated a V7 leaf (`valid` and `freshness_unauthenticated === false`).
+ * Missing `freshness_unauthenticated` is treated as unauthenticated (fail closed).
+ */
+export function freshnessFromVerify(result: {
+  valid: boolean;
+  freshnessUnauthenticated: boolean;
+  receiptVersion: ReceiptVersion;
+}): FreshnessStatus {
+  if (result.valid && result.freshnessUnauthenticated === false && result.receiptVersion === 'v7') {
+    return 'signed';
+  }
+  if (result.receiptVersion === 'v6') {
+    return 'derived_from_timestamp';
+  }
+  return 'unauthenticated';
+}
+
+/** Classify from domain and report that version's surface policy. Not a verify. */
 export function describeReceiptSurface(receipt: TwzrdReceiptLike | null | undefined): {
   version: ReceiptVersion;
   freshness: FreshnessStatus;
@@ -137,7 +161,7 @@ export function describeReceiptSurface(receipt: TwzrdReceiptLike | null | undefi
     version,
     freshness,
     label: 'Receipt unknown',
-    detail: 'Could not classify receipt version from domain/kind/version.',
+    detail: 'Could not classify receipt version from the verifier domain allowlist.',
   };
 }
 
@@ -155,25 +179,29 @@ export function verifyReceipt(
   opts: VerifyReceiptOptions = {},
 ): VerifyReceiptResult {
   const version = classifyReceipt(receipt);
-  const freshness = freshnessStatusFor(version);
   const trustedPubkey = opts.trustedPubkey ?? CURRENT_RECEIPT_PUBKEY;
   const verifier = loadVerifier();
   const raw = verifier.verify(receipt, trustedPubkey, {
     maxAgeSeconds: opts.maxAgeSeconds,
   });
-  return {
+  // Fail closed: a verifier early-return (kind/version mismatch) omits the flag.
+  const freshnessUnauthenticated = raw.freshness_unauthenticated !== false;
+  const result = {
     valid: !!raw.valid,
     leafValid: !!raw.leaf_valid,
     signatureValid: !!raw.signature_valid,
     trustedPubkey: raw.trusted_pubkey ?? trustedPubkey,
     errors: Array.isArray(raw.errors) ? raw.errors : [],
     receiptVersion: version,
-    freshness,
-    freshnessUnauthenticated: raw.freshness_unauthenticated ?? version !== 'v7',
+    freshnessUnauthenticated,
     unauthenticatedFields: raw.unauthenticated_fields ?? [],
     recomputedLeaf: raw.recomputed_leaf,
     boundFreshnessCard: verifier.formatBoundFreshnessCard(receipt, raw),
-    verifiedBy: 'twzrd-receipt-verifier',
+    verifiedBy: 'twzrd-receipt-verifier' as const,
+  };
+  return {
+    ...result,
+    freshness: freshnessFromVerify(result),
   };
 }
 
@@ -182,14 +210,12 @@ export function formatVerifyResult(result: VerifyReceiptResult): string {
     const prefix =
       result.receiptVersion === 'v6'
         ? 'Receipt INVALID (legacy V6, freshness=derived_from_timestamp)'
-        : result.receiptVersion === 'v7'
-          ? 'Receipt INVALID (V7, freshness=signed)'
-          : `Receipt INVALID (${result.receiptVersion}, freshness=${result.freshness})`;
+        : `Receipt INVALID (${result.receiptVersion}, freshness=${result.freshness})`;
     return `${prefix}: ${result.errors.join('; ') || 'unknown error'}`;
   }
   const lines = [
     `Receipt VALID (v${result.receiptVersion === 'unknown' ? '?' : result.receiptVersion.replace(/^v/, '')}, freshness=${result.freshness}, leaf=${result.leafValid}, sig=${result.signatureValid}, key=${result.trustedPubkey})`,
-    `Verified by ${result.verifiedBy}@^1.4.0`,
+    `Verified by ${result.verifiedBy}`,
   ];
   if (result.receiptVersion === 'v6') {
     lines.push(

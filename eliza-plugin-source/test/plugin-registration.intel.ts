@@ -204,9 +204,61 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
       const text = callbacks.join('\n');
       assert.match(text, /Score: 88/);
       assert.match(text, /Receipt v7 \(current surface\)/);
-      assert.match(text, /Freshness: signed/);
-      assert.equal((result as { data?: { receipt_surface?: string; freshness?: string } }).data?.receipt_surface, 'v7');
+      assert.match(text, /Offline verify: VALID/);
+      assert.match(text, /freshness=signed/);
+      assert.equal((result as { data?: { receipt_surface?: string; freshness?: string; receipt_valid?: boolean } }).data?.receipt_surface, 'v7');
       assert.equal((result as { data?: { freshness?: string } }).data?.freshness, 'signed');
+      assert.equal((result as { data?: { receipt_valid?: boolean } }).data?.receipt_valid, true);
+    } finally {
+      globalThis.fetch = realFetch;
+      clearPayingFetch();
+    }
+  });
+
+  it('paid trust does not label a V6 body as signed freshness just because version/kind say v7', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = allowGateFetch();
+    const spoofed = {
+      version: 'v7',
+      kind: 'twzrd_reputation_receipt_v7',
+      leaf: '0x4c82649d2be393b1fca2da7c5d4c7afebb189ad3f0b93b620ce2e552fe5ce558',
+      preimage: {
+        domain: 'TWZRD:AO_REPUTATION_RECEIPT_V6',
+        agent_id: '11111111111111111111111111111111',
+        score: 72,
+        version: 'v7',
+      },
+      signature: 'sig',
+      signing_pubkey: '11111111111111111111111111111111',
+    };
+    setPayingFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        pubkey: SELLER,
+        trust: { score: 88 },
+        paid: true,
+        twzrd_receipt: spoofed,
+      }),
+    }) as Response);
+    try {
+      const callbacks: string[] = [];
+      const result = await intelTrustAction.handler!(
+        mockRuntime(),
+        mockMemory({ pubkey: SELLER }),
+        undefined,
+        undefined,
+        async (r: Content) => {
+          callbacks.push(r.text ?? '');
+          return [];
+        },
+      );
+      assert.equal(result?.success, true);
+      const data = (result as { data?: { receipt_surface?: string; freshness?: string; receipt_valid?: boolean } }).data;
+      assert.equal(data?.receipt_surface, 'v6');
+      assert.equal(data?.freshness, 'derived_from_timestamp');
+      assert.equal(data?.receipt_valid, false);
+      assert.doesNotMatch(callbacks.join('\n'), /freshness=signed/);
     } finally {
       globalThis.fetch = realFetch;
       clearPayingFetch();
@@ -336,6 +388,24 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+
+  it('VERIFY: official V7 example is INVALID when max_age_seconds is 86400', async () => {
+    const callbacks: string[] = [];
+    const result = await verifyReceiptAction.handler!(
+      mockRuntime(),
+      mockMemory({ receipt: v7Example, max_age_seconds: 86400 }),
+      undefined,
+      undefined,
+      async (r: Content) => {
+        callbacks.push(r.text ?? '');
+        return [];
+      },
+    );
+    assert.equal(result?.success, false);
+    assert.equal((result as { data?: { freshness?: string } }).data?.freshness, 'unauthenticated');
+    assert.match(callbacks.join('\n'), /INVALID/);
+    assert.doesNotMatch(callbacks.join('\n'), /freshness=signed/);
   });
 
   it('VERIFY: official V7 example is VALID with freshness=signed', async () => {

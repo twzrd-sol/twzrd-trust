@@ -41,6 +41,24 @@ verify (`WZRD_VERIFY_RECEIPT`) uses `twzrd-receipt-verifier@^1.4.0`.
 the v1 signing key. This source keeps the SDK for free preflight, merchant_card,
 and paid `fetchIntelTrust`, and routes verification through the verifier.
 
+Classification uses the verifier domain allowlist only
+(`TWZRD:AO_REPUTATION_RECEIPT_V{5,6,7}` and attention V5/V6). Envelope
+`version` / `kind` cannot promote a V6 body to `freshness=signed`. That label
+is set only after `twzrd-receipt-verifier` returns `valid === true` **and**
+`freshness_unauthenticated === false` on a V7 domain. A missing
+`freshness_unauthenticated` flag is treated as unauthenticated.
+
+`TRUSTED_RECEIPT_PUBKEY` remains the SDK v1 re-export for compatibility. Pin
+`CURRENT_RECEIPT_PUBKEY` (v2) when calling `verifyReceipt`. Do not pass the v1
+key or live V7 receipts will fail closed.
+
+## `verifyReceipt` vs published 0.6.1
+
+Source `verifyReceipt` and `getIntelClient().verify` are **synchronous**. They
+do not accept `fetchPubkey` / `apiBase` (0.6.1 delegated those to the SDK) and
+they return `receiptVersion` + `freshness` instead of SDK `leafVersion`. Paid
+trust runs this verifier on the returned receipt before labeling freshness.
+
 ## Test (source, not mirrored dist)
 
 ```bash
