@@ -49,6 +49,8 @@ await execFileAsync(process.execPath, [
   "--target",
   sourceDir,
 ]);
+await writeMerchantCardSource(sourceDir);
+await registerMerchantCardAction(sourceDir);
 await cp("eliza-plugin/dist", distDir, { recursive: true });
 
 const { stdout: inventoryJson } = await execFileAsync(process.execPath, [
@@ -81,7 +83,8 @@ package.
 
 ## Immediate source work
 
-1. Forward-port the current artifact-only \`merchant-card\` action into source.
+1. Review the generated \`src/actions/merchant-card.ts\` forward-port against
+   \`current-dist/actions/merchant-card.js\`.
 2. Migrate \`intel-trust\`, \`verify-receipt\`, \`index\`, and registration tests
    from V5/V6 receipt wording and fixtures to V7 behavior.
 3. Keep V6 verification as a downgraded legacy path where supported.
@@ -91,6 +94,135 @@ package.
 );
 
 await readFile(join(sourceDir, "src/actions/intel-trust.ts"), "utf8");
+await readFile(join(sourceDir, "src/actions/merchant-card.ts"), "utf8");
 await readFile(join(distDir, "actions/merchant-card.js"), "utf8");
 
 console.log(`Prepared Eliza source migration workspace at ${outDir}`);
+
+async function writeMerchantCardSource(root) {
+  await writeFile(
+    join(root, "src/actions/merchant-card.ts"),
+    `/**
+ * WZRD_MERCHANT_CARD - Free demand-quality graph card for a receive wallet.
+ * Includes wash_flagged (buyer refuse default) and optional catalog join.
+ *
+ * Forward-ported from the current artifact mirror by
+ * scripts/prepare-eliza-source-workspace.mjs. Review against current-dist before
+ * publishing a source release.
+ */
+import type { Action, HandlerCallback, IAgentRuntime, Memory } from '@elizaos/core';
+import { fetchMerchantCard } from '@wzrd_sol/sdk';
+import { extractPubkey, getIntelBase, withTimeout } from '../intel-helpers.js';
+
+function formatMerchantCard(card: Record<string, any>): string {
+  const lines = [
+    \`Merchant card for \${card.merchant ?? 'unknown'}\`,
+    \`In corpus: \${card.in_corpus ? 'yes' : 'no'}\`,
+    \`Wash flagged: \${
+      card.wash_flagged === true ? 'YES - default refuse pay' : card.wash_flagged === false ? 'no' : 'unknown'
+    }\`,
+  ];
+  if (card.wash_label) lines.push(\`Wash label: \${card.wash_label}\`);
+  if (card.provider_reputation_tier) lines.push(\`Tier: \${card.provider_reputation_tier}\`);
+  if (card.unique_payers_90d != null) lines.push(\`Unique payers (90d): \${card.unique_payers_90d}\`);
+  if (card.offering_status) lines.push(\`Offering: \${card.offering_status}\`);
+  if (card.catalog_enriched) {
+    const name =
+      card.catalog && typeof card.catalog === 'object' && 'name' in card.catalog
+        ? String(card.catalog.name ?? '')
+        : '';
+    lines.push(\`Catalog enriched: yes\${name ? \` (\${name})\` : ''} - listing only, not quality proof\`);
+  } else {
+    lines.push('Catalog enriched: no (graph only)');
+  }
+  if (card.wash_flagged === true) {
+    lines.push('Policy: do not pay this pay_to (trustless default). Cap only if operator set washMaxUsdc.');
+  }
+  return lines.join('\\n');
+}
+
+export const merchantCardAction: Action = {
+  name: 'WZRD_MERCHANT_CARD',
+  similes: ['WZRD_MERCHANT', 'MERCHANT_CARD', 'INTEL_MERCHANT_CARD', 'CHECK_WASH'],
+  description:
+    'Free GET merchant demand-quality card for a Solana receive wallet (no auth). ' +
+    'Returns wash_flagged, tier, unique payers, catalog join when listed. ' +
+    'Default: if wash_flagged is true, do not pay that pay_to.',
+  examples: [
+    [
+      {
+        name: '{{user1}}',
+        content: { text: 'Merchant card for 7G73dUxj8Qn4yH4x9zXkKqZ8oKqZ8oKqZ8o' },
+      },
+      {
+        name: '{{agentName}}',
+        content: { text: 'Merchant card: wash_flagged YES - default refuse pay' },
+      },
+    ],
+  ],
+  validate: async () => true,
+  handler: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    _state,
+    _opt,
+    callback?: HandlerCallback,
+  ) => {
+    const content = (message.content ?? {}) as Record<string, unknown>;
+    const pubkey = extractPubkey(content);
+    if (!pubkey) {
+      await callback?.({
+        text: 'Provide a merchant/seller wallet (32-44 char base58) for merchant_card.',
+      });
+      return { success: false, error: 'Missing pubkey' };
+    }
+    const apiBase = getIntelBase(runtime);
+    try {
+      const card = await withTimeout(() => fetchMerchantCard(pubkey, { apiBase }));
+      if (!card) {
+        await callback?.({
+          text:
+            \`Merchant card unavailable for \${pubkey} (network or invalid). \` +
+            \`Fail-open: do not invent wash_flagged; use WZRD_INTEL_PREFLIGHT decision only.\`,
+        });
+        return { success: false, error: 'merchant_card_unavailable' };
+      }
+      const text = formatMerchantCard(card as Record<string, any>);
+      await callback?.({ text });
+      return {
+        success: true,
+        data: {
+          ...(card as Record<string, unknown>),
+          refuse_pay: (card as Record<string, any>).wash_flagged === true,
+        },
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await callback?.({ text: \`Merchant card failed: \${msg}\` });
+      return { success: false, error: msg };
+    }
+  },
+};
+`,
+  );
+}
+
+async function registerMerchantCardAction(root) {
+  const indexPath = join(root, "src/index.ts");
+  let text = await readFile(indexPath, "utf8");
+  if (!text.includes("merchantCardAction")) {
+    text = text.replace(
+      "import { intelPreflightAction } from './actions/intel-preflight.js';\n",
+      "import { intelPreflightAction } from './actions/intel-preflight.js';\nimport { merchantCardAction } from './actions/merchant-card.js';\n",
+    );
+    text = text.replace(
+      "    intelPreflightAction,\n    intelTrustAction,",
+      "    intelPreflightAction,\n    merchantCardAction,\n    intelTrustAction,",
+    );
+    text = text.replace(
+      "  intelPreflightAction,\n  intelTrustAction,",
+      "  intelPreflightAction,\n  merchantCardAction,\n  intelTrustAction,",
+    );
+  }
+  await writeFile(indexPath, text);
+}
