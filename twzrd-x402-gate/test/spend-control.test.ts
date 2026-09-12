@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createMemorySpendLedger } from "../src/policy-runtime.js";
 import { createFileSpendLedger } from "../src/spend-ledger-file.js";
 import { twzrd, verifyOfferBindingAfterPay } from "../src/spend-control.js";
-import { resourceBindLeafHash, resourceBindMemo } from "../src/resource-bind.js";
+import { resourceBindLeafHash, resourceBindLeafHashV2, resourceBindMemo } from "../src/resource-bind.js";
 import { EXACT_SVM_TRANSFER_CHECKED_FIXTURE as FIX } from "./fixtures/exact-svm-transfer-checked.js";
 
 const SOL = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
@@ -189,6 +189,25 @@ async function run() {
   assert.equal(noLeafHash.receipt.strength, "refuse");
   assert.equal(noLeafHash.receipt.leaf_hash, null);
 
+  signs = 0;
+  const noDecision = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), requireDecisionBind: true,
+    pay: async () => { signs += 1; return { response: new Response("paid") }; },
+  });
+  assert.equal(noDecision.verdict, "block");
+  assert.equal(noDecision.reason, "decision_bind_required");
+  assert.equal(noDecision.signerInvocations, 0);
+  assert.equal(signs, 0);
+
+  signs = 0;
+  const withDecision = await twzrd.safeFetch("https://merchant.example/paid", {
+    fetch: fetch402(), requireDecisionBind: true, decisionId: "decision-test-1",
+    pay: async () => { signs += 1; return { response: new Response("paid") }; },
+  });
+  assert.equal(withDecision.verdict, "allow");
+  assert.equal(withDecision.signerInvocations, 1);
+  assert.equal(signs, 1);
+
   bindPayCalls = 0;
   const mismatch = await twzrd.safeFetch("https://merchant.example/paid", {
     fetch: fetch402(), requireOfferBinding: true,
@@ -271,6 +290,62 @@ async function run() {
   assert.equal(bound.receipt?.strength, "hard");
   assert.equal(bound.receipt?.fact_type, "resource_bound");
   assert.equal(submittedTx, preparedTx);
+
+  let seenRb2: string | undefined;
+  let rb2PayCalls = 0;
+  const selectedForV2 = {
+    scheme: "exact", network: "solana", payTo: FIX.expectedTokenPayer,
+    amount: "50000", asset: FIX.mint, resource,
+  };
+  const v2leaf = resourceBindLeafHashV2(selectedForV2, {
+    decision_id: "decision-test-1", preflight_id: 42,
+  });
+  const boundV2 = await twzrd.safeFetch(resource, {
+    fetch: fetch402(body402({ payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint })),
+    requireOfferBinding: true,
+    requireDecisionBind: true,
+    decisionId: "decision-test-1",
+    preflightId: 42,
+    composeBoundTransaction: async ({ selected, memo }) => {
+      seenRb2 = memo;
+      assert.equal(memo, resourceBindMemo(v2leaf, 2));
+      assert.notEqual(memo, resourceBindMemo(resourceBindLeafHash(selected)));
+      const both = kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
+        kit.createTransactionMessage({ version: 0 }),
+        (m) => kit.setTransactionMessageFeePayer(owner, m),
+        (m) => kit.setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
+        (m) => kit.appendTransactionMessageInstructions([xfer, {
+          programAddress: kit.address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+          accounts: [], data: new TextEncoder().encode(String(memo)),
+        }], m),
+      )));
+      return { transactionBase64: both };
+    },
+    pay: async () => {
+      rb2PayCalls += 1;
+      return { response: new Response("ok", { status: 200 }) };
+    },
+  });
+  assert.ok(String(seenRb2).startsWith("rb2:"));
+  assert.ok(String(seenRb2).length <= 48);
+  assert.equal(boundV2.verdict, "allow");
+  assert.equal(boundV2.receipt?.strength, "hard");
+  assert.equal(rb2PayCalls, 1);
+
+  rb2PayCalls = 0;
+  const rb2NoId = await twzrd.safeFetch(resource, {
+    fetch: fetch402(body402({ payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint })),
+    requireOfferBinding: true,
+    requireDecisionBind: true,
+    composeBoundTransaction: async () => {
+      throw new Error("must not compose without decision_id");
+    },
+    pay: async () => { rb2PayCalls += 1; return { response: new Response("x") }; },
+  });
+  assert.equal(rb2NoId.verdict, "block");
+  assert.equal(rb2NoId.reason, "decision_bind_required");
+  assert.equal(rb2NoId.signerInvocations, 0);
+  assert.equal(rb2PayCalls, 0);
   console.log("spend-control.test.ts: ALL PASSED");
 }
 await run();

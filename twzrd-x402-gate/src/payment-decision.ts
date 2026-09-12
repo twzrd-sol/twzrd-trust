@@ -9,10 +9,11 @@
  *
  * This module is that record plus its verifier. It is deliberately small:
  *
- *   - the challenge binding is the existing resource-bind v1 leaf
- *     (resourceBindLeafHash), so `challenge_hash` equals the bind leaf a
- *     relying party may already hold from the evidence bundle or the on-chain
- *     `rb1:` memo — one binding, not a second one;
+ *   - the challenge binding is the resource-bind leaf that was stamped
+ *     (v1 / `rb1:` or v2 / `rb2:` when decision_id is set), so
+ *     `challenge_hash` equals the bind leaf a relying party may already hold
+ *     from the evidence bundle or the on-chain memo — one binding, not a
+ *     second one;
  *   - the signature is the existing DecisionSigner (Ed25519 over a
  *     domain-separated canonical JSON preimage, exactly like DecisionToken);
  *   - the reason codes are the codes the existing policy runtime already
@@ -36,7 +37,12 @@ import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import type { DecisionSigner, PaymentDecision } from "./decision-token.js";
 import { scanForSecretValues, type SecretKind } from "./evidence-verify.js";
 import { canonicalJson } from "./intent.js";
-import { resourceBindLeafHash, type ResourceBindReq } from "./resource-bind.js";
+import {
+  resourceBindLeafHash,
+  resourceBindLeafHashV2,
+  type DecisionBind,
+  type ResourceBindReq,
+} from "./resource-bind.js";
 import type { TwzrdApprovalResult } from "./types.js";
 
 export const PAYMENT_DECISION_SCHEMA = "twzrd.payment_decision.v1" as const;
@@ -175,19 +181,17 @@ const FORBIDDEN_KEY_RE =
 /**
  * sha256 of the normalized 402 challenge.
  *
- * This IS the resource-bind v1 leaf (resource-bind.ts resourceBindLeafHash):
+ * This IS the resource-bind leaf the gate stamped:
  *
- *   requirements_hash = sha256(canonicalJson({amount, asset, network, payTo, resource, scheme}))
- *   leaf = { amount_raw, asset, body_hash: "0"*64, network, pay_to,
- *            requirements_hash, resource_url: canonicalResourceUrl(resource), schema_version: 1 }
- *   challenge_hash = sha256("twzrd:x402-resource-binding:v1\n" + canonicalJson(leaf))
+ *   v1 (no decision_id): resourceBindLeafHash / rb1:
+ *   v2 (decision_id set): resourceBindLeafHashV2 / rb2:
  *
  * `network` is hashed as SERVED (the raw 402 string), not CAIP-2 normalized:
  * the hash commits to what the agent saw. The record's `network` field is the
  * CAIP-2 label. Fails closed when the challenge lacks payTo, amount, resource,
  * network or scheme — an under-specified challenge cannot be committed to.
  */
-export function challengeHashV1(challenge: ResourceBindReq): string {
+function assertChallengeComplete(challenge: ResourceBindReq, label: string): void {
   const payTo = challenge.payTo ?? challenge.pay_to;
   const amount = challenge.amount ?? challenge.maxAmountRequired;
   const missing: string[] = [];
@@ -197,9 +201,18 @@ export function challengeHashV1(challenge: ResourceBindReq): string {
   if (!isNonEmpty(challenge.network)) missing.push("network");
   if (!isNonEmpty(challenge.scheme)) missing.push("scheme");
   if (missing.length) {
-    throw new Error(`[twzrd] challengeHashV1: 402 challenge is missing ${missing.join(", ")}`);
+    throw new Error(`[twzrd] ${label}: 402 challenge is missing ${missing.join(", ")}`);
   }
+}
+
+export function challengeHash(challenge: ResourceBindReq, bind?: DecisionBind): string {
+  assertChallengeComplete(challenge, bind?.decision_id ? "challengeHash" : "challengeHashV1");
+  if (bind?.decision_id) return resourceBindLeafHashV2(challenge, bind);
   return resourceBindLeafHash(challenge);
+}
+
+export function challengeHashV1(challenge: ResourceBindReq): string {
+  return challengeHash(challenge);
 }
 
 /** origin + payTo. The resource URL itself never leaves this function. */
@@ -281,6 +294,9 @@ export type IssuePaymentDecisionInput = {
   expires_at: string;
   /** CAIP-2 override when the challenge's network string has no known alias. */
   network?: string;
+  /** When set, challenge_hash is the bind-v2 leaf (payer can commit via rb2:). */
+  decision_id?: string;
+  preflight_id?: number;
 };
 
 export class TwzrdPaymentDecisionError extends Error {
@@ -304,7 +320,12 @@ export async function issuePaymentDecisionRecord(
 ): Promise<PaymentDecisionRecordV1> {
   const unsigned: UnsignedPaymentDecisionRecord = {
     schema: PAYMENT_DECISION_SCHEMA,
-    challenge_hash: challengeHashV1(input.challenge),
+    challenge_hash: challengeHash(
+      input.challenge,
+      input.decision_id
+        ? { decision_id: input.decision_id, preflight_id: input.preflight_id }
+        : undefined,
+    ),
     merchant: merchantFromChallenge(input.challenge),
     network: input.network ?? toCaip2Network(String(input.challenge.network)),
     scheme: String(input.challenge.scheme),
@@ -458,6 +479,9 @@ export type VerifyPaymentDecisionOptions = {
    * scheme against it, so the record is proven to be about THIS offer.
    */
   challenge?: ResourceBindReq;
+  /** Required to recompute a v2 challenge_hash. Same fields the issuer used. */
+  decision_id?: string;
+  preflight_id?: number;
 };
 
 export type PaymentDecisionVerification = {
@@ -739,7 +763,12 @@ export function verifyPaymentDecisionRecord(
     challengeBound = true;
     const fail = (x: E) => { challengeBound = false; errors.push(x); };
     try {
-      const recomputed = challengeHashV1(options.challenge);
+      const recomputed = challengeHash(
+        options.challenge,
+        options.decision_id
+          ? { decision_id: options.decision_id, preflight_id: options.preflight_id }
+          : undefined,
+      );
       if (recomputed !== rec.challenge_hash) {
         fail(err("challenge_hash_mismatch", "challenge_hash",
           `record commits to a different 402 challenge (recomputed ${recomputed.slice(0, 16)}…)`));

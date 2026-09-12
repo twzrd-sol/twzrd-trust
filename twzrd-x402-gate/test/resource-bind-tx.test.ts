@@ -6,7 +6,7 @@ import {
   evaluateResourceBindFromSvmTx,
   evaluateResourceBindLegsFromSvmTx,
 } from "../src/resource-bind-tx.js";
-import { resourceBindMemo } from "../src/resource-bind.js";
+import { pickBindMemo, resourceBindMemo } from "../src/resource-bind.js";
 
 assert.equal(await extractSvmMemoFromTransaction(""), null);
 assert.equal(await extractSvmMemoFromTransaction("not-base64!!!"), null);
@@ -96,5 +96,24 @@ if (!peer) {
   const hard = await evaluateResourceBindLegsFromSvmTx(both, match);
   assert.equal(hard.strength, "hard");
   assert.match(hard.reason, /same tx/);
+
+  const leafV2 = "bb".repeat(32);
+  const wantV2 = resourceBindMemo(leafV2, 2);
+  const rb2only = kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
+    kit.createTransactionMessage({ version: 0 }),
+    (m) => kit.setTransactionMessageFeePayer(kit.address("11111111111111111111111111111111"), m),
+    (m) => kit.setTransactionMessageLifetimeUsingBlockhash(
+      { blockhash: kit.blockhash("11111111111111111111111111111111"), lastValidBlockHeight: 0n },
+      m,
+    ),
+    (m) => kit.appendTransactionMessageInstruction({
+      programAddress: kit.address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+      accounts: [],
+      data: new TextEncoder().encode(wantV2),
+    }, m),
+  )));
+  assert.equal(await extractSvmMemoFromTransaction(rb2only), wantV2);
+  assert.equal((await evaluateResourceBindFromSvmTx(rb2only, leafV2)).strength, "hard");
+  assert.equal(pickBindMemo([want, wantV2]), wantV2);
 }
 console.log("resource-bind-tx.test.ts: ALL PASSED");
