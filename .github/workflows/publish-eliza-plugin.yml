@@ -72,6 +72,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Build twzrd-x402-gate
+        run: npm run build --workspace=twzrd-x402-gate
+
       - name: Verify source version matches the operator's confirmation
         run: |
           ACTUAL=$(node -p "require('./eliza-plugin-source/package.json').version")
