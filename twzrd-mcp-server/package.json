@@ -1,6 +1,6 @@
 {
   "name": "twzrd-mcp-server",
-  "version": "0.5.3",
+  "version": "0.5.2",
   "description": "Local, spend-capped Solana x402 client for TWZRD Agent Intelligence; prefer the 22-tool hosted MCP.",
   "type": "module",
   "bin": {
