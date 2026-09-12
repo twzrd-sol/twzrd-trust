@@ -11,6 +11,7 @@ import {
   shouldRequirePathAReceipt,
 } from "../src/receipt-policy.js";
 import { evaluate_x402_resource } from "../src/evaluate.js";
+import { withTwzrdGuard } from "../src/with-guard.js";
 
 const SELLER = "GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs";
 
@@ -46,6 +47,19 @@ function reqs(amountMicro: string) {
     amount: amountMicro,
     payTo: SELLER,
     asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    resource: "https://merchant.example/paid",
+  };
+}
+
+const BASE_PAYTO = "0x3803A19280DeeFe533D177C4A169412BD341101b";
+function baseReqs(amountMicro: string) {
+  return {
+    scheme: "exact",
+    network: "eip155:8453",
+    maxAmountRequired: amountMicro,
+    amount: amountMicro,
+    payTo: BASE_PAYTO,
+    asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     resource: "https://merchant.example/paid",
   };
 }
@@ -284,6 +298,97 @@ async function main() {
     );
     assert.equal(paidCalls, 0);
     assert.equal(r.approved, false);
+  }
+
+  // W-2026-0902 #2 on evaluate: hard Path A on Base observe must not buy a
+  // Solana receipt, and must not deny a policy allow when /trust/{0x} 402s.
+  {
+    let paidCalls = 0;
+    const x402Fetch = (async () => {
+      paidCalls += 1;
+      return new Response(JSON.stringify({ error: "solana-only" }), { status: 402 });
+    }) as unknown as typeof fetch;
+    const r = await evaluate_x402_resource(
+      "https://merchant.example/paid",
+      baseReqs("11000000"),
+      {
+        fetch: (async () => {
+          throw new Error("preflight must not run on an unscored network");
+        }) as unknown as typeof fetch,
+        requireReceipt: true,
+        x402Fetch,
+        refuseWashFlagged: false,
+        gateOnCanSpend: false,
+      },
+    );
+    assert.equal(paidCalls, 0, "no Path A fetch on an unscored network");
+    assert.equal(r.approved, true);
+    assert.equal(r.decision, "unknown");
+    assert.equal(r.reputationScored, false);
+    assert.equal(r.receiptRequired, true);
+    assert.equal(r.receiptRequiredDenied, undefined);
+    assert.equal(r.receipt, undefined);
+    assert.equal(r.receiptSkipped, "unscored_network");
+  }
+
+  {
+    let paidCalls = 0;
+    const x402Fetch = (async () => {
+      paidCalls += 1;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const r = await evaluate_x402_resource(
+      "https://merchant.example/paid",
+      baseReqs("11000000"),
+      {
+        fetch: (async () => {
+          throw new Error("preflight must not run on an unscored network");
+        }) as unknown as typeof fetch,
+        requireReceipt: true,
+        x402Fetch,
+        refuseWashFlagged: false,
+        unsupportedNetworkMode: "strict",
+      },
+    );
+    assert.equal(paidCalls, 0, "strict Base still must not buy Path A");
+    assert.equal(r.approved, false);
+    assert.equal(r.decision, "unknown");
+    assert.equal(r.receiptSkipped, "unscored_network");
+  }
+
+  {
+    let paidCalls = 0;
+    const challenge = {
+      x402Version: 1,
+      accepts: [{
+        scheme: "exact",
+        network: "eip155:8453",
+        payTo: BASE_PAYTO,
+        amount: "3000000",
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        resource: "https://merchant.example/paid",
+      }],
+    };
+    const merchant = (async () =>
+      new Response(JSON.stringify(challenge), {
+        status: 402,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+    const x402Fetch = (async () => {
+      paidCalls += 1;
+      return new Response("{}", { status: 402 });
+    }) as unknown as typeof fetch;
+    const guarded = withTwzrdGuard(merchant, {
+      fetch: (async () => {
+        throw new Error("preflight must not run on an unscored network");
+      }) as unknown as typeof fetch,
+      x402Fetch,
+      refuseWashFlagged: false,
+      gateOnCanSpend: false,
+    });
+    const resp = await guarded("https://merchant.example/paid");
+    assert.equal(resp.status, 402, "observe still returns the 402");
+    assert.equal(paidCalls, 0, "AutoGate fetch seat must not buy Path A on Base");
   }
 
   console.log("receipt-policy.test.ts: ok");
