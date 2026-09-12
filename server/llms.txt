@@ -1,85 +1,280 @@
-# TWZRD Agent Intel — Agent Orientation
+# TWZRD is the pre-spend trust gate for agents paying over x402
 
-## Live Server
-- **MCP endpoint:** `https://intel.twzrd.xyz/mcp` (streamable HTTP, 24 tools)
-- **HTTP API:** `https://intel.twzrd.xyz/v1/intel/...`
-- **Agent Card:** `https://intel.twzrd.xyz/.well-known/agent-card.json`
-- **OpenAPI:** `https://intel.twzrd.xyz/openapi.json`
+> Primary settlement rail: **Solana**. Free read-only scoring also covers **Base**
+> (EIP-3009 USDC settlements, high-confidence bucket).
 
-## Core Flow
+> **Clearance model.** Advisory preflight is free ($0). Signed execution
+> clearance is **$0.001**: `GET /v1/intel/quick/{payTo}` (`quickCheck`) plus a
+> portable `twzrd.payment_decision.v1` record (offline verify:
+> `npx twzrd-payment-decision --verify`). Path A V7 / merchant track-record
+> receipts ($0.05) are optional and are **not** the primary product.
 
-Before paying any x402 endpoint:
-1. Call `get_readiness_card_tool(seller_wallet="...")` — free
-2. If `decision == "block"` → DO NOT PAY
-3. If `decision == "warn"` → optional: buy paid trust receipt ($0.05)
-4. If `decision == "allow"` → proceed with payment
-5. After payment → `verify_receipt(receipt)` to check the signed proof
+> TWZRD is a pre-sign risk-policy layer: observed settlement reputation feeds
+> `allow | warn | block` before the wallet signs. It does not verify identity,
+> and it is not a payment gateway or a way to move funds.
 
-## 🛡️ Self-Serve Trust Badges (free, embeddable, cacheable)
+## Core product: buyer gate (install before any x402 client signs)
 
-Add instant credibility to your Smithery / CDP Bazaar / marketplace listing with a one-line image embed:
+Install the gate in your x402 client so a `block` verdict refuses the payment
+before your wallet ever signs - the refusal itself is the product working.
+Primary seat: `twzrd-x402-gate@0.9.6` + `x402-solana@3.0.0`. Hook runs after
+requirement selection, before `signTransaction`. Path B success = refuse
+transcript (`signer_invocation_count=0`), not `day0.gate_evals` or free_card_hits.
 
-- **Wash trust badge:** `<img src="https://api.twzrd.xyz/v1/wash/badge/YOUR_WALLET">`
-  Shows real-time wash detection score for your wallet. Auto-updates hourly.
-- **Provider reputation badge:** `<img src="https://api.twzrd.xyz/v1/reputation/badge/YOUR_WALLET">`
-  Dynamic provider reputation tier from the live provider_reputation engine.
-- **Full reputation report:** `POST https://api.twzrd.xyz/v1/reputation/analyze`
-  Body: `{"wallet":"YOURS","merchants":["MERCHANT_PUBKEY"]}`
-  Returns tier, confidence, evidence (heavy-fleet CV, captive payer %, revenue).
+```bash
+npm install twzrd-x402-gate@0.9.6 x402-solana@3.0.0
+# Prove refuse-before-sign. The gate's OPTIONAL peers are not auto-installed by
+# npm, so on a cold machine run the full line first:
+#   npm install twzrd-x402-gate@0.9.6 x402-solana@3.0.0 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+# node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
+#
+# (There is no examples/ directory inside the published package - its `files`
+# array ships only dist, bin, README and QUICKSTART. bin/ is the proof path.)
+```
 
-Both badges are free, require no API key, and cache with `Cache-Control: public, max-age=3600`.
+```ts
+import { createX402Client } from "x402-solana";
+import { createTwzrdBeforePaymentHook } from "twzrd-x402-gate";
 
-## All Free Tools
+const client = createX402Client({
+  wallet,
+  network: "solana",
+  beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }),
+});
+// Alt: installTwzrdAutoGate("x402-solana", opts) — same hook.
+// One call: twzrd.safeFetch(url, opts) — cap+ledger+bind pre-sign; /llms-full.txt.
+// Protocol-neutral seats (the decision sits above the rail): @x402/core installTwzrdAutoGate(client);
+//   MPP installTwzrdAutoGate("mpp", { signer, policy }) — block throws pre-sign;
+//   faremeter createTwzrdPayerChooser() (@wzrd_sol/plugin-trustgate/faremeter >=0.3.6); payWrap wraps any paying fetch.
+// Clearance SKU: sub-material warn -> $0.001 quickCheck + payment_decision.v1.
+// Optional Path A ($0.05 V7) is not the primary product. Refuse-only seats stay free.
+```
 
-- `get_readiness_card_tool` — primary pre-spend gate
-- `evaluate_x402_resource` — fetch URL + extract seller + preflight
-- `low_level_preflight` — richer preflight with evidence
-- `get_solana_market_status` — backend health probe
-- `get_solana_market_visibility_map` — active settlement markets
-- `get_solana_market_orderbook_depth` — liquidity depth per ticker
-- `get_solana_market_shape` — market structure signals
-- `get_solana_market_onchain_trades_summary` — recent trades
-- `score_wallet_for_intel` — wallet intel score (0-100)
-- `get_top_intel_agents` — active agent leaderboard
-- `get_provider_reputation` — seller-side reputation tier
-- `is_wash_fleet` — circular-flow wash check
-- `verify_receipt` — offline receipt verification
-- `get_facilitator_footprint` — facilitator breadth
-- `get_counterparties` — who a wallet pays
-- `score_wallets_batch` — batch score (up to 25)
-- `compare_wallets` — side-by-side comparison
-- `verify_root_inputs` — WZRD protocol root verification
+Free HTTP/MCP preflight is **advisory** ($0) until this gate (or equivalent) is
+installed and the host honors the decision. Signed clearance is the $0.001
+`payment_decision.v1` / `quickCheck` SKU. Preflight does NOT block settlement
+by itself.
 
-## Receipts API (query + verify + export)
+### Decision semantics (allow | warn | block)
 
-- `GET /v1/receipts` — query receipts by wallet, date range, tx hash
-- `GET /v1/receipts/:id` — single receipt detail
-- `POST /v1/receipts/verify` — offline V6 receipt verification
-- `POST /v1/receipts/export` — bulk export (CSV/JSON)
+```bash
+curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
+  -H 'content-type: application/json' \
+  -d '{"seller_wallet":"GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs","price_usdc":0.01,"agent_intent":"preflight"}'
+```
 
-## Spend Authorization (Surface #1)
+- `block`: do not pay. (Verdict is at `readiness_card.decision`.)
+- `warn`: thin/unknown history; proceed deliberately or buy portable proof.
+- `allow`: evidence supports a small spend; not a guarantee or identity claim.
 
-Every MCP paid tool call (quick_trust at $0.001, full_trust at $0.05) now POSTs to `/v1/spend/authorize` before x402 payment. In shadow mode all calls are authorized and logged. Signals: wallet reputation (wash), provider reputation, velocity caps, policy match.
+`twzrd_demo_gate` is a deterministic no-spend proof: block aborts before any
+signer; allow proceeds but still spends nothing. Caller-supplied attribution is
+an `external_candidate`, never proof of an external run.
 
-- `POST /v1/spend/authorize` — multi-signal gate
-- `GET /v1/spend/policy/:wallet` — read wallet policy
-- `PUT /v1/spend/policy/:wallet` — set wallet policy
-- `GET /v1/spend/stats` — shadow mode metrics
+### Fixtures (do not confuse roles)
 
-## Pricing
+| Role | Fixture |
+|------|---------|
+| REFUSE dogfood (owned) | `GET /v1/intel/refuse-fixture` · payTo `CnTmHDXV…` (owned) (synthetic hard refuse; not a third-party brand) |
+| WARN control | minifetch `https://minifetch.com/api/v1/x402/extract/url-preview?url=https://github.com` · `46vMcwuC…` |
+| Wash education only (not hero allow) | `BJGdsDXJFy63eCAnX3UmGfShp8BuqbtkTfcamyRGr7VQ` |
 
-Free MCP tools, free badge embeds, free receipt verification. Paid x402 surfaces:
-- `GET /v1/intel/trust/{pubkey}` (0.05 USDC) — full renorm model + signed V6 receipt
-- `GET /v1/intel/quick/{pubkey}` (0.001 USDC) — quick tier+score
-- Market data routes (0.03 USDC each)
-- Spend authorization check (free, pre-payment)
+## Where TWZRD fits in your payment path
 
-## Source
-- Public repo: https://github.com/twzrd-sol/twzrd-trust
-- Scoring engine (intel_scoring, wash_signal, trust_renorm): private
-- MCP auto-pay server (npm): twzrd-mcp-server@0.4.0 (TWZRD_RPC_URL required for paid)
-- MCP auto-pay server (PyPI): twzrd-mcp@0.1.6
+| Stage | Call | Result |
+|---|---|---|
+| Before | `POST /v1/intel/preflight` | free advisory ReadinessCard |
+| Before | `get_readiness_card_tool` | free MCP `decision` at top level |
+| Before | `GET /v1/intel/merchant_card/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` | seller graph, wash, catalog, payable conformance |
+| During | buyer gate at `onBeforePaymentCreation` / `beforePayment` | block aborts before wallet signing |
+| Clearance | `GET /v1/intel/quick/{payTo}` + `twzrd.payment_decision.v1` | **$0.001** signed execution clearance |
+| After (optional) | `GET /v1/intel/trust/{payTo}` | $0.05 Path A intel receipt — not the primary SKU |
+| After | `POST /v1/receipts/verify` | free offline receipt verify |
 
-## Live Mainnet Proof
-- Settle tx: `5inMkSPpe9v3jD7ca3VZpTV6kHnqBU8mNgDwAysBvUFN4YapspeCTZZFcrTwAU73vr5Ec2FUFqxiM8jdBjFFwtda`
-- Evidence: `docs/launch/evidence/twzrd-mcp-settle-proof-2026-06-26T02-57-57Z.md`
+Refuse-receipt: caller's own local deny, not a TWZRD wash verdict. Replay 90 days.
+
+A pasted `:pubkey`/`{pubkey}` now 402s the example wallet. Substitute a real
+payTo to score someone else. Runnable as-is:
+`GET https://intel.twzrd.xyz/v1/intel/merchant_card/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs`
+
+## Supporting surfaces
+
+Everything below is optional or secondary. Agents that only install the buyer
+gate already have the core product. These surfaces feed preflight, attach proof,
+or expose discovery — they are not the wedge.
+
+### Discovery inputs (BEFORE paying, optional)
+
+Seller-first path when you need more than a wallet string:
+1. `GET /v1/intel/resources` — resource join SOT (listed|live_402 ≠ settlement trust).
+2. URL: `evaluate_x402_resource`. Ingested overlay: `get_x402_directory` / `GET /v1/intel/x402-directory`.
+3. `get_merchant_card` — refuse hard wash; inspect `payable_conformance` + `next_action`.
+4. Preflight (above) → honor decision → gate on pay path → $0.001 clearance if needed.
+
+Discovery entry points (drive free preflights):
+- Skill: https://intel.twzrd.xyz/skill.md
+- Resources SOT: GET https://intel.twzrd.xyz/v1/intel/resources
+- Marketplace: GET https://intel.twzrd.xyz/v1/intel/marketplace
+
+Services come from bazaar / resource-join discovery; settlement trust enriches
+`pay_to`. The settlement graph is not a service catalog. Payer leaderboards are
+secondary research. Observed payer wallets are not TWZRD customers, revenue, or
+proof every wallet is an autonomous agent. Polygon rows are wash=unknown (no
+corpus ingest). Free merchant card: `GET /v1/intel/merchant_card/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs`.
+
+### Zero-install MCP (recommended)
+
+Skill: "set up https://intel.twzrd.xyz/skill.md" (or `npx clawhub install twzrd-trust`).
+Hosted MCP: `https://intel.twzrd.xyz/mcp` (22 free tools; dual Accept).
+
+```json
+{"mcpServers":{"twzrd-agent-intel":{"url":"https://intel.twzrd.xyz/mcp"}}}
+```
+
+```bash
+openclaw mcp add twzrd --url https://intel.twzrd.xyz/mcp --transport streamable-http
+```
+
+No wallet • No signup • Free preflight ($0) • Clearance SKU $0.001 (`payment_decision.v1`).
+
+Local auto-pay MCP is optional: `pip install twzrd-mcp` or
+`npx -y twzrd-mcp-server`. Payments are disabled unless the operator explicitly
+sets `TWZRD_MCP_PAYMENTS_ENABLED=1` and local caps:
+
+```json
+{"mcpServers":{"twzrd":{"command":"npx","args":["-y","twzrd-mcp-server"],"env":{"TWZRD_MCP_PAYMENTS_ENABLED":"1","TWZRD_RPC_URL":"<mainnet rpc>","TWZRD_WALLET_SECRET_KEY":"<base58 secret>","TWZRD_MAX_USDC_PER_CALL":"0.05","TWZRD_MAX_USDC_TOTAL":"1.00"}}}}
+```
+
+### Optional Path A intel receipt (not the primary SKU)
+
+$0.05 V7 / merchant track-record receipts are optional portable intel. They do
+not enforce and they are not execution clearance. Clearance is $0.001.
+
+```bash
+curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
+  -H 'content-type: application/json' \
+  -d '{"seller_wallet":"46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe","price_usdc":0.002}'
+# Optional portable receipt (0.05 USDC) — does not install a gate
+npx agentcash@latest fetch \
+  'https://intel.twzrd.xyz/v1/intel/trust/46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe?seller_wallet=46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe'
+```
+
+Unpaid GET on a paid route returns HTTP 402 with `next_action` in the JSON body.
+
+- `GET https://intel.twzrd.xyz/v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs?seller_wallet=GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.05 USDC.
+- `GET https://intel.twzrd.xyz/v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.05 USDC.
+- `GET https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.001 USDC. No V7 receipt.
+- `GET /v1/intel/reality-check` — 15.0 USDC Reality Check PDF.
+- `POST /v1/intel/verify-endpoint` — 0.05 USDC. Body `{"url": "https://your-api.example"}`. not_a_trust_vouch; not_ready still charged. Free unsigned: `POST /v1/agent-readiness`.
+
+`seller_wallet=` or `X-TWZRD-Seller-Wallet` identifies the settle-gate counterparty
+on trust routes; market routes use `merchant=`. Omit them and the gate has nothing
+to evaluate. x402 v2: unpaid → `payment-required`; sign an `accepts` entry; retry
+with `payment-signature`. Payer holds USDC; fee payer sponsors gas only.
+
+### Market-data discovery
+
+Temporarily unlisted: no market-data upstream is configured. The market
+routes answer honest HTTP 503 (never cached fake data) and the
+`get_solana_market_status` MCP tool reports `available: false`.
+
+### Settle rail (opt-in facilitator — not Path B)
+
+`GET /supported` → pin `kinds[].extra.feePayer` (currently `GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP`).
+Do not copy a card pubkey. `/health.fee_payer` is Path A; `path_s_fee_payer` is
+legacy AgentCash. Then `POST /verify` + `/settle`: gas cosign + V6 attach.
+`/settle` calls `evaluate_settle_gate`; read `settle_gate_enforcing` on `/health`
+(shadow logs a would-block and still settles). Self-facilitated settle on Solana when `/health` shows
+`self_facilitate: true`. Path B = buyer AutoGate refuse. Path A paid 402s may
+still list external feePayers (CDP / PayAI / Dexter).
+
+### Free HTTP catalog
+
+- `GET /v1/intel/resources` · `GET /v1/intel/x402-directory` · `GET /v1/intel/marketplace`
+- `POST /v1/intel/preflight` · `GET /v1/intel/merchant_card/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` · `GET /v1/intel/score_wallet_for_intel?wallet=GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs`
+- Wallet-graph discovery (free): `GET /v1/intel/sellers` · `GET /v1/intel/get_counterparties?wallet=GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` · `GET /v1/intel/get_facilitator_footprint?wallet=GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` · `GET /v1/intel/compare_wallets?wallet_a=GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs&wallet_b=46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe` · `GET https://intel.twzrd.xyz/v1/intel/badge/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs`
+- `GET /v1/intel/cohort_stats` · `GET /v1/intel/verdict-history/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` · `GET /v1/intel/get_top_intel_agents?limit=10` (secondary research)
+- `GET /v1/receipts/example` · `POST /v1/receipts/verify` · `GET /.well-known/x402` · `GET /openapi.json` · `GET /health`
+
+### Receipt and re-call contract
+
+V6 = keccak256 leaf + Ed25519 over raw leaf bytes. Verify offline with
+`npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS` or
+`POST /v1/receipts/verify`. Paid receipts carry `recheck_after_unix`,
+`staleness_days`, `score_decay_model` under `twzrd_receipt.preimage`. Once due,
+re-call paid trust or treat the cached score as decayed (stale ≠ invalid).
+
+> **Honesty note — freshness is NOT bound by the signature.** The freshness
+> triple (`recheck_after_unix`, `staleness_days`, `score_decay_model`) sits
+> outside the keccak leaf on every receipt version (V5 and V6) — a holder can
+> rewrite it and the signature still verifies. `verify_receipt` lists them in
+> `unauthenticated_fields` whenever present. Treat them as advice, not
+> attestation: the signature attests the bound score fields
+> (`bound_score_fields`), nothing more. the receipt is a signed snapshot of a score, not
+> a proof that the score is still current.
+
+Watch lane (push side of the re-call contract):
+  Instead of polling recheck_after_unix yourself, register a watch and TWZRD
+  re-checks the seller for you (polled every ~120s once due).
+  Register  POST https://intel.twzrd.xyz/v1/intel/watch
+            body: {"payer_wallet":"...","seller_wallet":"...","webhook_url":"https://..."}
+            webhook_url is optional - omit it for poll-only watches.
+  Notify    when a re-check is due AND the intel materially changed (decision
+            change, score moves > 5 points, or first check after registration),
+            TWZRD POSTs event twzrd.watch.recheck_due to your webhook with
+            fresh_intel: {trust_score, decision, recheck_after_unix,
+            staleness_days, seller_wallet}.
+  Webhooks  public HTTPS only - private/reserved IPs are rejected at
+            registration and redirects are never followed on delivery.
+  Limits    max 25 active watches per payer_wallet.
+  List      GET https://intel.twzrd.xyz/v1/intel/watch?payer_wallet=...  (webhook URLs masked to host)
+  Remove    DELETE https://intel.twzrd.xyz/v1/intel/watch/123?payer_wallet=GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs
+  MCP       twzrd_watch_add / twzrd_watch_list / twzrd_watch_remove.
+
+### Trust gate semantics (twzrd-agent-intel service v0.5.9)
+
+- Service package, npm buyer gate, and framework plugins version independently.
+- Preflight does NOT block settlement; an installed client hook must honor the decision.
+- With `TWZRD_SETTLE_GATE_ENABLED=true` and not shadow (`settle_gate_enforcing`
+  on `GET /health`), paid routes can refuse settlement before broadcast if the
+  explicit seller scores below policy; shadow mode logs only.
+- MCP tools are free. Paid prices above apply to direct HTTP routes.
+- Registry ownership key `/.well-known/mcp-registry-auth` is NOT the receipt-signing key.
+
+### Framework adapters (secondary to buyer gate)
+
+```bash
+npm install @wzrd_sol/plugin-trustgate@^0.3.6
+```
+
+For elizaOS or facilitator operators, use the package's `onBeforeSettle` adapter.
+For resource servers, the optional merchant policy screens the payer before
+settlement and service; it is secondary to the buyer-side gate:
+
+```ts
+import { createTwzrdSettleGuard, twzrdPayerScreen } from "twzrd-x402-gate";
+server.onBeforeSettle(createTwzrdSettleGuard({ screen: twzrdPayerScreen() }));
+```
+
+## Docs
+
+- [Resource join SOT](https://intel.twzrd.xyz/v1/intel/resources): free inventory of callables (listed|live_402; settlement overlay separate)
+- [Preflight](https://intel.twzrd.xyz/v1/intel/preflight): free allow/warn/block check before payment
+- [Merchant card](https://intel.twzrd.xyz/v1/intel/merchant_card/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs): observed seller graph, wash and payable conformance
+- [Quick clearance](https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs): $0.001 execution clearance (`payment_decision.v1`)
+- [Trust receipt](https://intel.twzrd.xyz/v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs): optional $0.05 Path A intel — not the primary SKU
+- [x402 directory](https://intel.twzrd.xyz/v1/intel/x402-directory): wash overlay on ingested listings (not the settlement graph as catalog)
+- [Receipt example](https://intel.twzrd.xyz/v1/receipts/example): explicitly sample-only signed receipt
+- [Receipt verify](https://intel.twzrd.xyz/v1/receipts/verify): recompute leaf and verify Ed25519 signature
+- [OpenAPI](https://intel.twzrd.xyz/openapi.json): canonical HTTP schemas and x402 annotations
+- [MCP](https://intel.twzrd.xyz/mcp): hosted Streamable HTTP server with 22 tools
+- [MCP card](https://intel.twzrd.xyz/.well-known/mcp.json): transport, install and exact declared tools
+- [Full reference](https://intel.twzrd.xyz/llms-full.txt): complete tool catalog, policies and examples
+- [Smithery](https://smithery.ai/servers/wzrd/twzrd-agent-intel): existing hosted marketplace listing
+- [Public source](https://github.com/twzrd-sol/twzrd-trust): public packages and integration source
+
+## Optional
+
+- [Health](https://intel.twzrd.xyz/health): current package version, network and catalog counts
+- [Agent card](https://intel.twzrd.xyz/.well-known/agent-card.json): A2A and MCP discovery
+- [x402 descriptor](https://intel.twzrd.xyz/.well-known/x402): current paid/free resource metadata
