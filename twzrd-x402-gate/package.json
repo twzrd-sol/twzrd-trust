@@ -20,7 +20,11 @@
       "types": "./dist/safe-fetch.d.ts",
       "import": "./dist/safe-fetch.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./evidence-verify": {
+      "types": "./dist/evidence-verify.d.ts",
+      "import": "./dist/evidence-verify.js"
+    }
   },
   "files": [
     "dist",
@@ -50,7 +54,8 @@
     "demo:buyer-no-spend": "tsx src/adoption-proof.ts -- --integration ops-demo-buyer-no-spend",
     "live-autogate-matrix": "tsx examples/live-autogate-matrix.ts",
     "gate-eval-refuse": "node bin/twzrd-gate-eval-refuse.js",
-    "gate-doctor": "tsx src/doctor.ts"
+    "gate-doctor": "tsx src/doctor.ts",
+    "evidence-verify": "tsx src/evidence-verify.ts --verify"
   },
   "keywords": [
     "x402",
