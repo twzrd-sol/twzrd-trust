@@ -4,7 +4,7 @@
 
 Check a seller wallet and requested resource **before** you pay over Solana x402.
 Free tools return allow / warn / block; optional paid tools buy deeper reputation
-evidence or a signed V6 receipt with explicit spend caps. TWZRD scores observed
+evidence or a signed V7 receipt with explicit spend caps. TWZRD scores observed
 wallet and payment behavior. It does not prove a person, company, or autonomous
 agent identity.
 
@@ -45,7 +45,7 @@ block path. The hosted MCP is also [listed on Smithery](https://smithery.ai/serv
 | `wallet_lookup` | free | facilitators + counterparty breadth for a wallet |
 | `verify_receipt` | free | offline-verify a wallet's cNFT receipt (Ed25519 vs genesis authority `2ELSDxLkb7dYrN6EUG69tNtULAq4Fo7WPvXyrZPmuFif`) — trust no server |
 | `quick_trust` | $0.001 | quick tier + score for any wallet |
-| `full_trust` | $0.05 | full trust intel + signed V6 receipt |
+| `full_trust` | $0.05 | full trust intel + signed V7 receipt |
 
 > `quick_trust` / `full_trust` buy intel on **any** wallet (you look risky ones up
 > on purpose) — they don't refuse a target. Use `preflight` to vet a wallet you're
@@ -121,7 +121,7 @@ the paying-client brake, not a Path A shop.
 
 ## Verify receipts offline (trust no one)
 
-`full_trust` returns a portable Ed25519-signed V6 receipt. Verify it without
+`full_trust` returns a portable Ed25519-signed V7 receipt. Verify it without
 trusting any TWZRD server — new receipts use issuer key
 `twzrd-receipt-ed25519-v2`; legacy v1 keys remain verify-only during the
 bounded compatibility rollout.
