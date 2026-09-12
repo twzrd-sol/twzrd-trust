@@ -64,6 +64,7 @@
     "adoption-proof": "tsx src/adoption-proof.ts",
     "evidence-bundle": "tsx src/evidence-bundle.ts",
     "commerce-kit": "tsx examples/commerce-kit.ts",
+    "consumer-adjacency-demo": "tsx examples/consumer-adjacency-demo.ts",
     "demo:buyer-no-spend": "tsx src/adoption-proof.ts -- --integration ops-demo-buyer-no-spend",
     "live-autogate-matrix": "tsx examples/live-autogate-matrix.ts",
     "gate-eval-refuse": "node bin/twzrd-gate-eval-refuse.js",
