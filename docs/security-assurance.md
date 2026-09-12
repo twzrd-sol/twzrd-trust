@@ -1,7 +1,7 @@
 # TWZRD Security & Trust Assurance
 
-**Applies to:** `twzrd-x402-gate@0.9.5`, TWZRD Agent Intelligence, and V7 trust receipts  
-**Last verified:** 2026-09-10  
+**Applies to:** `twzrd-x402-gate@0.9.7`, TWZRD Agent Intelligence, and V7 trust receipts  
+**Last verified:** 2026-09-12  
 **Disclosure Policy:** [SECURITY.md](../SECURITY.md)
 
 This document states the security properties TWZRD implements, the evidence an evaluator can independently reproduce, and the explicit trust boundaries of the system.
@@ -29,7 +29,7 @@ The security loop is:
 | **Zero Signer Invocations on Block** | When policy blocks, `signerInvocations === 0` — the wallet is never called | [`examples/guard-demo.ts`](../twzrd-x402-gate/examples/guard-demo.ts) |
 | **Decision Transparency** | Preflight returns `allow`, `warn`, or `block`, with confidence, reason codes, risk factors, and recommended budget caps | [`POST /v1/intel/preflight`](https://intel.twzrd.xyz/openapi.json) |
 | **Offer Binding (`bind-v1`)** | Evaluates settled transaction memo and transfer legs against the scored 402 requirements | [`resource-bind-tx.ts`](../twzrd-x402-gate/src/resource-bind-tx.ts) |
-| **Portable Proof** | V7 receipts bind provenance and freshness fields into a Keccak-256 leaf and sign the leaf with Ed25519 | [`docs/receipt-v6-spec.md`](./receipt-v6-spec.md) |
+| **Portable Proof** | V7 receipts bind provenance and freshness fields into a Keccak-256 leaf and sign the leaf with Ed25519 | [`docs/receipt-v6-spec.md`](./receipt-v6-spec.md) (V6 layout + V7 migration) |
 | **Offline Verification** | Verifier pins the published Ed25519 key and validates receipts with zero network calls | [`twzrd-receipt-verifier@^1.4.0`](https://www.npmjs.com/package/twzrd-receipt-verifier) |
 | **No Payment Custody** | TWZRD recommends or enforces buyer policy; the buyer's own wallet signs and broadcasts | [`README.md`](../README.md) |
 

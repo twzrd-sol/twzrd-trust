@@ -21,7 +21,7 @@ Merkle algorithms and the TWZRD byte layouts are the only logic here.
 
 ## Why this exists
 
-A valid V6 receipt proves TWZRD authored it. It does not stop TWZRD from
+A valid V6 or V7 receipt proves TWZRD authored it. It does not stop TWZRD from
 answering differently to different buyers (equivocation) or issuing receipts
 after the fact (backdating). The transparency log makes both **provable**: every
 receipt leaf is appended to one Merkle tree, heads are signed and anchored on

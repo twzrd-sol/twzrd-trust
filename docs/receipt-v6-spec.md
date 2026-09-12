@@ -109,7 +109,7 @@ The following fields are JSON-only advisory metadata:
 
 V6 receipts remain cryptographically verifiable for their leaf-bound provenance fields, but their freshness advisory fields are **not authenticated**. Verifiers MUST label a V6 result `freshness: derived_from_timestamp` and MUST NOT treat `recheck_after_unix`, `staleness_days`, or `score_decay_model` as signed claims.
 
-V7 will bind every action-driving freshness field into the signed leaf. During migration, verifiers should accept V6 only with this explicit downgraded freshness status; policies that require signed freshness MUST reject V6. The V7 issuer and verifier change is coordinated in the external receipt-verifier release.
+V7 binds those action-driving freshness fields into the signed leaf. Live Intel paid receipts (`GET /v1/intel/trust/{pubkey}`) are V7. Offline verify requires [`twzrd-receipt-verifier@^1.4.0`](https://www.npmjs.com/package/twzrd-receipt-verifier); older published verifiers reject V7. Verifiers still accept V6 with the explicit downgraded freshness status; policies that require signed freshness MUST reject V6.
 
 ---
 
