@@ -12,16 +12,16 @@ description: |
   leaderboard research, counterparty + facilitator footprint, wash/sybil detection,
   batch + compare, offline receipt verify; route settle through TWZRD for free
   merchant_attach + twzrd_receipt on POST /settle.
-  PAID (x402, USDC on Solana): full trust model + V7 receipt at GET /v1/intel/trust/{pubkey}
-  (0.05 USDC); merchant track-record at GET /v1/intel/merchant/{pay_to} (0.05 USDC);
-  score-only teaser at GET /v1/intel/quick/{pubkey} (0.001 USDC).
+  PAID clearance (x402, USDC on Solana): $0.001 signed twzrd.payment_decision.v1 via
+  GET /v1/intel/quick/{pubkey} (quickCheck). Advisory preflight is free ($0).
+  Optional Path A / merchant receipts at $0.05 are not the primary product.
   TRIGGERS: should I pay this, is this wallet safe, check seller, x402 preflight, scam
   check, counterparty risk, wallet reputation, trust score, verify receipt, before
   paying, solana wallet check, agent trust, readiness card, wash flagged, merchant card,
   resource join, discover x402, facilitator settle, merchant attach, track record
 homepage: https://intel.twzrd.xyz
 metadata:
-  version: "1.13.17"
+  version: "1.13.24"
   canonical_url: https://intel.twzrd.xyz/skill.md
   gate_npm: twzrd-x402-gate@0.9.5
   x402_solana_npm: x402-solana@3.0.0
@@ -57,7 +57,7 @@ evidence about. Agents that follow it refuse wash, avoid known-bad
 sellers, and accumulate verifiable receipts.
 
 **Free preflight does not enforce.** AutoGate on your pay path enforces.
-Do not treat a free ReadinessCard (or a paid V6 receipt alone) as “protected.”
+Do not treat a free ReadinessCard (or an optional Path A receipt alone) as “protected.”
 
 **Do not stop after free preflight** if you control a host pay path: run
 `next_action.command` — primary step is **`gate_eval_live`** (refuse transcript),
@@ -115,7 +115,7 @@ npm install twzrd-x402-gate@0.9.5 x402-solana@3.0.0
 # npm install twzrd-x402-gate@0.9.5 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 
-# 3) OPTIONAL Path A (paid intel) — portable V6 receipt (0.05 USDC). Does not enforce.
+# 3) OPTIONAL Path A (paid intel, $0.05). Not the $0.001 clearance SKU. Does not enforce.
 # WALLET FIRST if you choose Path A:
 #   npx agentcash@latest onboard     # creates the wallet
 #   npx agentcash@latest balance     # fund Solana USDC (>= 0.05) before continuing

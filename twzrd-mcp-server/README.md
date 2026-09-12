@@ -12,7 +12,7 @@ agent identity.
 when you want local auto-pay for paid intel.**
 
 ```json
-// Recommended — 24 tools, no wallet, nothing to install
+// Recommended — 22 tools, no wallet, nothing to install
 { "mcpServers": { "twzrd": { "url": "https://intel.twzrd.xyz/mcp" } } }
 ```
 
@@ -30,7 +30,7 @@ pip install twzrd-mcp          # Python
 
 | Surface | Tools | Wallet | Use when |
 |---------|-------|--------|----------|
-| `https://intel.twzrd.xyz/mcp` (hosted) | 24 | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, and observed-market research. |
+| `https://intel.twzrd.xyz/mcp` (hosted) | 22 | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, and observed-market research. |
 | `twzrd-mcp-server` / `twzrd-mcp` (this local package) | 6 | Only for paid | You want `quick_trust` / `full_trust` auto-paid locally with caps. |
 
 Start with hosted `twzrd_demo_gate` for a zero-setup, zero-spend proof of the
