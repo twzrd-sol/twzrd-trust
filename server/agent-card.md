@@ -2,8 +2,8 @@
 
 **Category:** Trust & Reputation / Solana x402
 **Transport:** MCP (streamable HTTP)
-**Endpoint:** `https://intel.twzrd.xyz/mcp` (24 tools, streamable HTTP)
-**Pricing:** Free (all MCP tools, no API key, no wallet) + x402 paid trust receipts at $0.05 USDC
+**Endpoint:** `https://intel.twzrd.xyz/mcp` (22 tools, streamable HTTP)
+**Pricing:** Free advisory preflight ($0). Signed execution clearance **$0.001** (`twzrd.payment_decision.v1` / `quickCheck`). Optional Path A intel receipts are $0.05 and are not the primary SKU.
 
 ## What it does
 

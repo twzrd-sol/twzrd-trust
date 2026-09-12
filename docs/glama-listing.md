@@ -62,7 +62,7 @@ Expected output:
 
 ## How to Install
 
-### Option A: Zero-Install Hosted MCP (Recommended — 24 Tools)
+### Option A: Zero-Install Hosted MCP (Recommended — 22 Tools)
 Add to your Cursor / Claude / Windsurf MCP config:
 ```json
 {
@@ -76,7 +76,7 @@ Add to your Cursor / Claude / Windsurf MCP config:
 
 ### Option B: Node SDK / Local Package
 ```bash
-npm install twzrd-x402-gate@0.9.5 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.6 x402-solana@3.0.0
 ```
 
 ---
