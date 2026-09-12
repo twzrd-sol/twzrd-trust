@@ -36,6 +36,28 @@ Expected output:
 
 ---
 
+## From this repo
+
+This checkout is a public monorepo, not `npm install twzrd-x402-gate`. CI is
+root `npm ci` then `npm run ci` (Node 20). Do **not** `npm ci` inside
+`twzrd-x402-gate/` — gate typecheck needs sibling `twzrd-log-verifier` deps
+from the root lockfile.
+
+```bash
+npm ci
+npm run build
+npm run typecheck
+npm test --workspace=twzrd-x402-gate
+npm run gate-eval-refuse --workspace=twzrd-x402-gate
+```
+
+`gate-eval-refuse` is the hello-world that closes (0 USDC, `signer_invocation_count: 0`).
+It needs egress to `https://intel.twzrd.xyz`. Artifact dirs (`eliza-plugin/`,
+`plugin-trustgate/`, `twzrd-mcp-server/`) are `dist/` mirrors — do not try to
+build or demo them locally. Hosted MCP: `https://intel.twzrd.xyz/mcp`.
+
+---
+
 ## Quickstart
 
 ### 1. Install
@@ -116,7 +138,7 @@ curl -s -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 | `twzrd-x402-gate` | **@0.9.7** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V5/V6/V7 receipts |
-| `twzrd-mcp-server` | **@0.5.3** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
+| `twzrd-mcp-server` | **@0.5.2** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.6** | Eliza / facilitator adapter |
 
 - **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)

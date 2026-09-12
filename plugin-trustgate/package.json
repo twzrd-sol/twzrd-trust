@@ -29,13 +29,13 @@
     "typecheck": "echo 'plugin-trustgate: typecheck ok'",
     "test": "echo 'plugin-trustgate: tests passed'",
     "prepublishOnly": "npm run build",
-    "guard-demo": "tsx examples/first-installer.ts",
-    "payai-demo": "tsx examples/payai-facilitator.ts",
-    "resource-gate-demo": "tsx examples/resource-server-gate.ts",
-    "demo:wash-abort": "tsx examples/wash-abort-demo.ts",
-    "demo:wash-abort:live": "TWZRD_LIVE_DEMO=1 tsx examples/wash-abort-demo.ts",
-    "demo:faremeter-chooser": "tsx examples/faremeter-payer-chooser.ts",
-    "demo:faremeter-chooser:live": "TWZRD_LIVE_DEMO=1 tsx examples/faremeter-payer-chooser.ts"
+    "guard-demo": "echo 'plugin-trustgate: dist-only mirror; no local examples' && exit 1",
+    "payai-demo": "echo 'plugin-trustgate: dist-only mirror; no local examples' && exit 1",
+    "resource-gate-demo": "echo 'plugin-trustgate: dist-only mirror; no local examples' && exit 1",
+    "demo:wash-abort": "echo 'plugin-trustgate: dist-only mirror; no local examples' && exit 1",
+    "demo:wash-abort:live": "echo 'plugin-trustgate: dist-only mirror; no local examples' && exit 1",
+    "demo:faremeter-chooser": "echo 'plugin-trustgate: dist-only mirror; no local examples' && exit 1",
+    "demo:faremeter-chooser:live": "echo 'plugin-trustgate: dist-only mirror; no local examples' && exit 1"
   },
   "keywords": [
     "elizaos",

@@ -134,10 +134,11 @@ npx twzrd-receipt-verifier <receipt.json> --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9y
 
 ## Development
 
-`npm run build && npm run demo` lists tools and runs a free preflight from source
-(no spend by default). For the operator-authorized `$0.001` settle proof, set
-`TWZRD_DEMO_PAID=quick`, provide a wallet key, and pin both caps to `0.001`
-(see `examples/agent-drop-in.mjs`).
+This directory in the public mirror is **`dist/` only**. `npm run build` is a
+no-op echo. `npm run demo` exits 1 on purpose — the in-tree demo imports a gate
+export this workspace copy does not provide. Use hosted MCP
+`https://intel.twzrd.xyz/mcp` or `npx -y twzrd-mcp-server` from npm. Do not
+treat this checkout as a from-source MCP build.
 
 ---
 
