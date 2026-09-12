@@ -1,0 +1,29 @@
+{
+  "version": "v7",
+  "kind": "twzrd_reputation_receipt_v7",
+  "leaf": "0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688",
+  "preimage": {
+    "domain": "TWZRD:AO_REPUTATION_RECEIPT_V7",
+    "agent_id": "11111111111111111111111111111111",
+    "score": 72,
+    "attention_score": null,
+    "confidence_bps": 8000,
+    "timestamp_unix": 1748736000,
+    "payer": "11111111111111111111111111111111",
+    "settlement_anchor": "63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031",
+    "version": "v7",
+    "reputation_score": null,
+    "reputation_confidence_bps": null,
+    "reputation_score_version": "intel_renorm_v1_1",
+    "reputation_feature_window_start_unix": null,
+    "reputation_data_quality": "example",
+    "recheck_after_unix": 1748995200,
+    "staleness_days": 3,
+    "score_decay_model": "step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25",
+    "settlement_tx": "EXAMPLE-sample-receipt-no-real-settlement-tx-0001"
+  },
+  "signature": "tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn",
+  "signing_pubkey": "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS",
+  "key_id": "twzrd-receipt-ed25519-v2",
+  "signing_alg": "ed25519"
+}

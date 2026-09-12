@@ -7,11 +7,19 @@
 This repo is a **public mirror**. Most top-level directories are published-artifact
 mirrors, **not** buildable source:
 
-- `twzrd-x402-gate/` — the **only** package with real `src/` + `test/`. All development,
-  linting, building, and testing happens here.
+- `twzrd-x402-gate/` — the primary package with real `src/` + `test/`. Gate
+  development, linting, building, and testing happens here.
+- `eliza-plugin-source/` — restored V7 Eliza plugin TypeScript (issue #90). Real
+  `src/` + `test/`. Lint: `npm run typecheck --workspace=@wzrd_sol/eliza-plugin-source`.
+  Test: `npm test --workspace=@wzrd_sol/eliza-plugin-source`. This is **not** the
+  public artifact; do not treat it as `@wzrd_sol/eliza-plugin` on npm until
+  `npm view @wzrd_sol/eliza-plugin version` shows the source version. Pack with
+  `npm run pack:eliza`. Human-gated publish:
+  `.github/workflows/publish-eliza-plugin.yml`. Resync the mirror only from the
+  live tarball: `node scripts/resync-eliza-plugin.mjs --version <live>`.
 - `eliza-plugin/`, `plugin-trustgate/`, `twzrd-mcp-server/` — ship `dist/` only (no `src/`,
-  no lockfile). Their `package.json` `test`/`build` scripts reference files that are not in
-  this mirror, so they are not buildable/testable here. Don't try to `npm install`/build them.
+  no lockfile). Their `package.json` `test`/`build` scripts are no-ops in this
+  mirror. Don't try to `npm install`/build them, and do not hand-edit `eliza-plugin/dist/`.
 - `server/` — static docs + `.well-known` only. Its `Dockerfile` installs a private Python
   package (`twzrd-agent-intel`) that is **not** in this repo, so it cannot be built/run here.
 
