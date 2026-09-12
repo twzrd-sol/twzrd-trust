@@ -1,8 +1,8 @@
 /** Product twzrd.safeFetch — not AgentCash ./safe-fetch. Run: npx tsx test/spend-control.test.ts */
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "./helpers/tmpdir.js";
 import { createMemorySpendLedger } from "../src/policy-runtime.js";
 import { createFileSpendLedger } from "../src/spend-ledger-file.js";
 import { twzrd, verifyOfferBindingAfterPay } from "../src/spend-control.js";
@@ -80,7 +80,7 @@ async function run() {
   assert.equal(merchBlock.reason, "over_cumulative_spend");
   assert.equal(merchBlock.signerInvocations, 0);
 
-  const ledgerPath = join(mkdtempSync(join(tmpdir(), "twzrd-sf-")), "ledger.jsonl");
+  const ledgerPath = join(tempDir("twzrd-sf-"), "ledger.jsonl");
   const fileOpts = {
     fetch: fetch402(), maxSpend: "0.025", ledgerFile: ledgerPath, agentId: "a1", mandateId: "m1", pay,
   };
@@ -146,7 +146,7 @@ async function run() {
   // File ledger: one shared instance per path, so two concurrent successful
   // calls append to a single hash chain (a fresh replay must not throw) and
   // the merchant key sums both.
-  const racePath = join(mkdtempSync(join(tmpdir(), "twzrd-sf-race-")), "ledger.jsonl");
+  const racePath = join(tempDir("twzrd-sf-race-"), "ledger.jsonl");
   const fileRace = { fetch: fetch402(), maxSpend: "0.10", ledgerFile: racePath, pay: slowPay };
   const [f1, f2] = await Promise.all([
     twzrd.safeFetch("https://merchant.example/paid", { ...fileRace, agentId: "fa", mandateId: "ma" }),

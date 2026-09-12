@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "./helpers/tmpdir.js";
 import { createFileDecisionLedger, DECISION_LEDGER_SCHEMA_VERSION } from "../src/decision-ledger-file.js";
 
-const path = join(mkdtempSync(join(tmpdir(), "twzrd-decision-ledger-")), "decisions.jsonl");
+const path = join(tempDir("twzrd-decision-ledger-"), "decisions.jsonl");
 const signalListenersBefore = process.listenerCount("SIGTERM");
 const ledger = createFileDecisionLedger(path);
 assert.equal(process.listenerCount("SIGTERM"), signalListenersBefore, "signal hooks are opt-in");
