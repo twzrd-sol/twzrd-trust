@@ -29,6 +29,20 @@ try {
   const tarball = readdirSync(root).find((name) => name.endsWith(".tgz") && name.includes(pkg.version));
   if (!tarball) throw new Error(`npm pack produced no tarball for ${pkg.name}@${pkg.version}`);
 
+  // Inspect the tarball itself. npm install chmod's extracted bins to 0755 even
+  // when the packed file is 0644, so a post-install spawn would miss a 4f6cde7
+  // regression (workspace/file: links then exit 126).
+  const listing = run("tar", ["-tzvf", tarball], root).stdout;
+  for (const rel of Object.values(pkg.bin || {})) {
+    const packed = `package/${String(rel).replace(/^\.\//, "")}`;
+    const line = listing.split("\n").find((l) => l.trimEnd().endsWith(packed));
+    if (!line) throw new Error(`pack-smoke: tarball missing ${packed}`);
+    const mode = line.trim().split(/\s+/, 1)[0];
+    if (mode.length < 4 || mode[3] !== "x") {
+      throw new Error(`pack-smoke: ${packed} is not owner-executable in tarball (${mode})`);
+    }
+  }
+
   const consumer = join(temp, "consumer");
   run("mkdir", ["-p", consumer], temp);
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
