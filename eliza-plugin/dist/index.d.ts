@@ -1,20 +1,13 @@
 /**
- * @wzrd_sol/eliza-plugin — WZRD Agent Intel for ElizaOS
+ * @wzrd_sol/eliza-plugin-source — V7-migrated WZRD Agent Intel for ElizaOS
  *
  * Intel lane (default https://intel.twzrd.xyz):
  *   WZRD_INTEL_PREFLIGHT → WZRD_MERCHANT_CARD → WZRD_INTEL_TRUST → WZRD_VERIFY_RECEIPT
  * Paid intel requires a caller-supplied x402 fetch — either setPayingFetch(payingFetch)
- * (already-composed, unguarded) or installTwzrdAutoGate(payWrap) (default-on: guards the
- * raw fetch before your client signs, then registers it the same way).
- * Default: preSpendGate refuses wash_flagged pay_to (free merchant_card).
+ * or installTwzrdAutoGate(payWrap). Current paid receipt surface is V7.
  *
  * Legacy earn lane (opt-in via createWzrdPlugin({ legacyEarnActions: true })):
  *   WZRD_INFER → WZRD_REPORT → WZRD_EARN → WZRD_CLAIM / WZRD_REWARDS on api.twzrd.xyz
- *
- * Config (runtime.getSetting):
- *   WZRD_INTEL_URL      — optional, defaults to https://intel.twzrd.xyz
- *   WZRD_API_URL        — earn lane only, defaults to https://api.twzrd.xyz
- *   SOLANA_PRIVATE_KEY  — earn lane only (agent Ed25519 auth)
  */
 import type { Action, Plugin } from '@elizaos/core';
 import { inferAction } from './actions/infer.js';
@@ -43,5 +36,8 @@ export { getWzrdClient, clearClientCache, getIntelApiBase, getIntelClient } from
 export { setPayingFetch, clearPayingFetch, resolvePayingFetch, installTwzrdAutoGate, } from './paying-fetch.js';
 export { WzrdClient } from './client.js';
 export type { InferResult, ReportResult, RewardsBalance, ClaimResult } from './client.js';
-export { IntelPaymentRequiredError, intelPreflight, fetchIntelTrust, fetchMerchantCard, verifyReceipt, preSpendGate, intelTrustUrl, TRUSTED_RECEIPT_PUBKEY, INTEL_TRUST_PRICE_USDC, } from '@wzrd_sol/sdk';
-export type { ReadinessCard, PreflightInput, PreflightResponse, MerchantCard, TwzrdReceipt, IntelTrustResponse, VerifyReceiptResult, X402PaymentRequired, } from '@wzrd_sol/sdk';
+/** SDK intel helpers. TRUSTED_RECEIPT_PUBKEY is the v1 key — use CURRENT_RECEIPT_PUBKEY for V7 verify. */
+export { IntelPaymentRequiredError, intelPreflight, fetchIntelTrust, fetchMerchantCard, preSpendGate, intelTrustUrl, TRUSTED_RECEIPT_PUBKEY, INTEL_TRUST_PRICE_USDC, } from '@wzrd_sol/sdk';
+export { verifyReceipt, classifyReceipt, describeReceiptSurface, freshnessStatusFor, freshnessFromVerify, formatVerifyResult, CURRENT_RECEIPT_PUBKEY, CURRENT_RECEIPT_KEY_ID, REPUTATION_V5_DOMAIN, REPUTATION_V6_DOMAIN, REPUTATION_V7_DOMAIN, } from './receipt-verify.js';
+export type { VerifyReceiptResult, VerifyReceiptOptions, TwzrdReceiptLike, ReceiptVersion, FreshnessStatus, } from './receipt-verify.js';
+export type { ReadinessCard, PreflightInput, PreflightResponse, MerchantCard, TwzrdReceipt, IntelTrustResponse, X402PaymentRequired, } from '@wzrd_sol/sdk';

@@ -1,5 +1,6 @@
 import { intelTrustUrl, } from '@wzrd_sol/sdk';
 const DEFAULT_INTEL = 'https://intel.twzrd.xyz';
+const SOLANA_PUBKEY_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 export function getIntelBase(runtime) {
     const url = runtime.getSetting('WZRD_INTEL_URL');
     return typeof url === 'string' && url.length > 0 ? url : DEFAULT_INTEL;
@@ -41,7 +42,6 @@ export function parseReceipt(content) {
     }
     return null;
 }
-const SOLANA_PUBKEY_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 export function extractPubkey(content) {
     const direct = str(content.pubkey ?? content.seller_wallet ?? content.wallet);
     if (direct && SOLANA_PUBKEY_RE.test(direct))
@@ -107,7 +107,7 @@ function tryParseJson(text) {
 }
 function extractWallet(text) {
     const m = text.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
-    return m ? m[0] : null;
+    return m && SOLANA_PUBKEY_RE.test(m[0]) ? m[0] : null;
 }
 function pickPreflight(obj) {
     return compactPreflight({
@@ -140,15 +140,6 @@ function compactPreflight(input) {
 }
 /**
  * Timeout wrapper for SDK network calls (preflight/trust/verify).
- * Supports two call forms for minimal change:
- * - withTimeout(promise) for preflight (SDK does not expose fetchImpl/signal)
- * - withTimeout((signal) => sdkCallWithFetchImpl(abortingFetch)) for trust/verify
- * Uses AbortController + signal: abort() is called on timeout so that when caller
- * wires the returned signal into fetchImpl, the underlying network request is aborted.
- * Always clears timer in finally (no leak). Attaches rejection observer to the
- * call promise (without altering settlement) to avoid unhandled rejections on the
- * loser of the race.
- * Applied to actions + getIntelClient delegates.
  */
 export function withTimeout(pOrMake, ms = 8000) {
     if (typeof pOrMake === 'function') {
@@ -162,14 +153,12 @@ export function withTimeout(pOrMake, ms = 8000) {
             }, ms);
         });
         const callP = makeCall(controller.signal);
-        // Observe rejections on callP so a late rejection after timeout does not emit unhandledrejection.
         callP.then(undefined, () => { });
         return Promise.race([callP, timeoutP]).finally(() => {
             if (timer !== undefined)
                 clearTimeout(timer);
         });
     }
-    // legacy path (promise passed directly): still safe timeout + no unhandled + clear
     const p = pOrMake;
     let timer;
     const timeoutP = new Promise((_, reject) => {

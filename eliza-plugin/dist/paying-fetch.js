@@ -6,18 +6,7 @@ export function setPayingFetch(f) {
 }
 /**
  * Default-on replacement for `setPayingFetch(payWrap(rawFetch))`: guards the raw fetch
- * with the free TWZRD preflight BEFORE handing it to your x402 client's `payWrap`, so a
- * blocked seller is refused before your client ever signs — then registers the result as
- * the module paying fetch (same slot `setPayingFetch` writes to).
- *
- * Opt out with `TWZRD_AUTO_GATE=0` (env) or `{ disabled: true }`.
- *
- * @example
- *   import { installTwzrdAutoGate } from '@wzrd_sol/eliza-plugin';
- *   import { wrapFetchWithPayment } from '@x402/svm';
- *
- *   installTwzrdAutoGate((guarded) => wrapFetchWithPayment(guarded, buyerWallet));
- *   const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
+ * with the free TWZRD preflight BEFORE handing it to your x402 client's `payWrap`.
  */
 export function installTwzrdAutoGate(payWrap, options) {
     setPayingFetch(buildAutoGate(payWrap, options));
