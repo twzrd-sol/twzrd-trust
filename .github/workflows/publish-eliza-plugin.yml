@@ -1,0 +1,121 @@
+name: Publish @wzrd_sol/eliza-plugin to npm
+
+# Deliberately workflow_dispatch ONLY -- no push/tag/release trigger.
+# Same reason as publish.yml for twzrd-x402-gate: a workflow reachable by an
+# untrusted PR is how CI publish tokens get exfiltrated.
+#
+# This workflow must exist on the default branch before Actions can dispatch
+# it. Until the V7 source PR merges, dispatch with source_ref pointing at the
+# branch that contains eliza-plugin-source/ and scripts/pack-eliza-plugin.mjs.
+#
+# Auth (either works):
+# - secrets.NPM_TOKEN
+# - npm Trusted Publishing (OIDC): add this workflow as a trusted publisher
+#   on npmjs.com for @wzrd_sol/eliza-plugin
+#
+# After a successful publish, resync the public mirror with:
+#   node scripts/resync-eliza-plugin.mjs --version <published>
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: 'eliza-plugin-source package.json version this run must match'
+        required: true
+      source_ref:
+        description: 'git ref that contains eliza-plugin-source and the pack scripts (empty = the branch selected in the Actions UI)'
+        required: false
+        default: ''
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref != '' && inputs.source_ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Decide publish auth
+        id: auth
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "mode=token" >> "$GITHUB_OUTPUT"
+            echo "Using secrets.NPM_TOKEN"
+          else
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+            echo "::notice::secrets.NPM_TOKEN is empty; will publish via npm Trusted Publishing (OIDC)."
+            echo "If publish later fails auth, either set repo secret NPM_TOKEN or add this workflow"
+            echo "(twzrd-sol/twzrd-trust / .github/workflows/publish-eliza-plugin.yml) as a trusted publisher"
+            echo "on npmjs.com for @wzrd_sol/eliza-plugin."
+          fi
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Verify source version matches the operator's confirmation
+        run: |
+          ACTUAL=$(node -p "require('./eliza-plugin-source/package.json').version")
+          if [ "$ACTUAL" != "${{ inputs.expected_version }}" ]; then
+            echo "::error::eliza-plugin-source is $ACTUAL, you confirmed ${{ inputs.expected_version }} -- refusing to publish."
+            exit 1
+          fi
+          echo "Confirmed: publishing @wzrd_sol/eliza-plugin@$ACTUAL"
+
+      - name: Typecheck source
+        run: npm run typecheck --workspace=@wzrd_sol/eliza-plugin-source
+
+      - name: Test source
+        run: npm test --workspace=@wzrd_sol/eliza-plugin-source
+
+      - name: Pack public tarball
+        run: node scripts/pack-eliza-plugin.mjs
+
+      - name: Refuse an incomplete public tarball
+        run: node scripts/assert-eliza-publish-pack.mjs --from-staging .npm/eliza-plugin-publish/staging --from-tarball "$(node -p "require('./.npm/eliza-plugin-publish/manifest.json').tarball")"
+
+      - name: Publish with token
+        if: steps.auth.outputs.mode == 'token'
+        working-directory: .npm/eliza-plugin-publish/staging
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish with OIDC trusted publishing
+        if: steps.auth.outputs.mode == 'oidc'
+        working-directory: .npm/eliza-plugin-publish/staging
+        run: |
+          npm install -g npm@11
+          npm --version
+          NPMRC_PATH="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$NPMRC_PATH" ]; then
+            echo "Stripping _authToken from $NPMRC_PATH"
+            sed -i '/_authToken/d' "$NPMRC_PATH"
+          fi
+          if [ -f "$HOME/.npmrc" ] && [ "$HOME/.npmrc" != "$NPMRC_PATH" ]; then
+            sed -i '/_authToken/d' "$HOME/.npmrc"
+          fi
+          npm publish --access public --provenance
+
+      - name: Verify against the live registry
+        run: |
+          for i in $(seq 1 18); do
+            LIVE=$(npm view @wzrd_sol/eliza-plugin@${{ inputs.expected_version }} version 2>/dev/null || true)
+            if [ "$LIVE" = "${{ inputs.expected_version }}" ]; then
+              echo "Verified live: @wzrd_sol/eliza-plugin@$LIVE (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/18: registry does not show ${{ inputs.expected_version }} yet, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::Registry still does not show ${{ inputs.expected_version }} after 3 minutes -- publish may have failed."
+          exit 1

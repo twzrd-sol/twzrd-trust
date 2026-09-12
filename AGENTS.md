@@ -12,7 +12,11 @@ mirrors, **not** buildable source:
 - `eliza-plugin-source/` — restored V7 Eliza plugin TypeScript (issue #90). Real
   `src/` + `test/`. Lint: `npm run typecheck --workspace=@wzrd_sol/eliza-plugin-source`.
   Test: `npm test --workspace=@wzrd_sol/eliza-plugin-source`. This is **not** the
-  public artifact; do not treat it as `@wzrd_sol/eliza-plugin` on npm until publish.
+  public artifact; do not treat it as `@wzrd_sol/eliza-plugin` on npm until
+  `npm view @wzrd_sol/eliza-plugin version` shows the source version. Pack with
+  `npm run pack:eliza`. Human-gated publish:
+  `.github/workflows/publish-eliza-plugin.yml`. Resync the mirror only from the
+  live tarball: `node scripts/resync-eliza-plugin.mjs --version <live>`.
 - `eliza-plugin/`, `plugin-trustgate/`, `twzrd-mcp-server/` — ship `dist/` only (no `src/`,
   no lockfile). Their `package.json` `test`/`build` scripts are no-ops in this
   mirror. Don't try to `npm install`/build them, and do not hand-edit `eliza-plugin/dist/`.

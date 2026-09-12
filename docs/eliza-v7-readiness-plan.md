@@ -1,8 +1,10 @@
 # Eliza V7 readiness plan
 
-Status: source restored in `eliza-plugin-source/` (V7 migration). npm publish of
-`@wzrd_sol/eliza-plugin` and public-mirror resync of `eliza-plugin/` remain
-follow-up after merge.
+Status: source restored in `eliza-plugin-source/` (V7 migration). Publish path
+is `scripts/pack-eliza-plugin.mjs` + `.github/workflows/publish-eliza-plugin.yml`.
+Live `@wzrd_sol/eliza-plugin` is still `0.6.1` until that workflow (or an
+operator `npm publish` of the packed staging dir) ships `0.7.0`. Public-mirror
+resync is `scripts/resync-eliza-plugin.mjs --version <live>` only.
 
 This note turns the remaining Eliza gap from issue #90 into an executable
 migration map. It does not make `eliza-plugin/` buildable in this public mirror.
@@ -108,10 +110,12 @@ artifact resync.
 
 5. Publish and resync.
 
-   After the source package passes its own tests, publish the next
-   `@wzrd_sol/eliza-plugin` version, then resync `eliza-plugin/` in this mirror
-   from the published artifact. Keep the no-op scripts here unless source is
-   intentionally added to this public mirror.
+   Pack with `node scripts/pack-eliza-plugin.mjs` (rewrites the public name
+   without colliding with the artifact workspace). Ship via Actions → Publish
+   `@wzrd_sol/eliza-plugin` (`expected_version` = `eliza-plugin-source`
+   version). Then `node scripts/resync-eliza-plugin.mjs --version <live>`.
+   Keep the no-op scripts on the mirror unless source is intentionally added
+   to this public mirror.
 
 ## Do not do
 

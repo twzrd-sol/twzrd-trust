@@ -71,16 +71,27 @@ npm run typecheck
 with zero payment attempts, a paid-trust V7 fixture, official V7 example
 verification, and the legacy V6 downgrade label.
 
-## Publish and public-mirror resync (not done in this directory)
+## Publish and public-mirror resync
 
-After merge, the remaining #90 acceptance items are:
+Do not rename this workspace package to `@wzrd_sol/eliza-plugin` (it would
+collide with the artifact mirror). Pack and publish through the scripts:
 
-1. Publish the next `@wzrd_sol/eliza-plugin` version from this source (rename
-   `package.json` `name` to `@wzrd_sol/eliza-plugin`, un-private, build, npm
-   publish). This repo's `.github/workflows/publish.yml` does not publish Eliza;
-   historical publishes came from `wzrd-final`.
-2. Resync `eliza-plugin/` from that published tarball (`dist/`, `package.json`,
-   `README.md` only). Keep artifact-only no-op scripts unless source is
-   intentionally moved into the public mirror.
+```bash
+node scripts/pack-eliza-plugin.mjs
+node scripts/assert-eliza-publish-pack.mjs
+```
 
-Do not hand-edit `eliza-plugin/dist/` as a substitute for that release path.
+Human-gated release: Actions → **Publish @wzrd_sol/eliza-plugin to npm**
+(`.github/workflows/publish-eliza-plugin.yml`) with `expected_version` matching
+this `package.json` (currently `0.7.0`). That workflow must exist on `main`
+before it can be dispatched. Until this branch merges, pass `source_ref` as
+the branch that contains `eliza-plugin-source/`.
+
+After the version is live on npm:
+
+```bash
+node scripts/resync-eliza-plugin.mjs --version 0.7.0
+```
+
+That overwrites `eliza-plugin/` from the **published** tarball only. Do not
+hand-edit `eliza-plugin/dist/` as a substitute.
