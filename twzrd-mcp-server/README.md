@@ -3,10 +3,10 @@
 <!-- mcp-name: xyz.twzrd/twzrd-mcp -->
 
 Check a seller wallet and requested resource **before** you pay over Solana x402.
-Free tools return allow / warn / block; optional paid tools buy deeper reputation
-evidence or a signed V7 receipt with explicit spend caps. TWZRD scores observed
-wallet and payment behavior. It does not prove a person, company, or autonomous
-agent identity.
+Free tools return allow / warn / block. Paid clearance is **$0.001**
+`quick_trust` / `twzrd.payment_decision.v1`. Optional `$0.05` `full_trust` is
+Path A intel, not the primary SKU. TWZRD scores observed wallet and payment
+behavior. It does not prove a person, company, or autonomous agent identity.
 
 **Prefer the zero-install hosted Agent Intelligence MCP. Use this package only
 when you want local auto-pay for paid intel.**
@@ -44,8 +44,8 @@ block path. The hosted MCP is also [listed on Smithery](https://smithery.ai/serv
 | `merchant_card` | free | seller graph card — `wash_flagged: true` → **don't pay** (locked sequence step 2) |
 | `wallet_lookup` | free | facilitators + counterparty breadth for a wallet |
 | `verify_receipt` | free | offline-verify a wallet's cNFT receipt (Ed25519 vs genesis authority `2ELSDxLkb7dYrN6EUG69tNtULAq4Fo7WPvXyrZPmuFif`) — trust no server |
-| `quick_trust` | $0.001 | quick tier + score for any wallet |
-| `full_trust` | $0.05 | full trust intel + signed V7 receipt |
+| `quick_trust` | **$0.001** | Clearance SKU: `twzrd.payment_decision.v1` / quick tier + score |
+| `full_trust` | $0.05 | Optional Path A intel + signed V7 receipt — not the primary SKU |
 
 > `quick_trust` / `full_trust` buy intel on **any** wallet (you look risky ones up
 > on purpose) — they don't refuse a target. Use `preflight` to vet a wallet you're
@@ -56,7 +56,7 @@ block path. The hosted MCP is also [listed on Smithery](https://smithery.ai/serv
 1. **Free `preflight`** on the seller's receive wallet.
 2. `block` → don't pay. Done, $0 spent.
 3. **Free `merchant_card`** on the same wallet — `wash_flagged: true` → don't pay.
-4. `warn` → consider a $0.05 `full_trust` signed receipt before deciding.
+4. `warn` → **$0.001** `quick_trust` / `payment_decision.v1` clearance. Optional `$0.05` `full_trust` is Path A intel, not the primary SKU.
 5. `allow` + clean card + small spend → pay. Keep the receipt; scores decay, so re-check stale decisions.
 
 ## Install & config

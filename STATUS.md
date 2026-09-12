@@ -18,7 +18,7 @@ Date: 2026-09-12
 |---|---|
 | Gate + AutoGate / safeFetch | `twzrd-x402-gate@0.9.7` |
 | Portable decision receipt | `twzrd.payment_decision.v1` (#85/#86) |
-| Docs pin gate/verifier | #87 → gate 0.9.5, verifier `^1.4.0` |
+| Docs pin gate/verifier | #107 → gate **0.9.7** + llms clearance SKU **$0.001**; verifier floor `^1.4.0` since #87 |
 | Eliza migration prep | #89–#95 |
 | Live refuse-before-sign demo | `GET /v1/intel/demo-gate` → block, `signer_invocations: 0` |
 | Canonical skill | `SKILL.md` / https://intel.twzrd.xyz/skill.md (1.13.24) |

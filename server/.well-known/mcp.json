@@ -1,11 +1,13 @@
 {
   "name": "twzrd-agent-intel",
   "version": "0.5.4",
-  "description": "Agent intelligence and reputation tools for the Solana x402 agent economy. Check a counterparty before you pay.",
-  "tools": 24,
+  "description": "Agent intelligence and reputation tools for the Solana x402 agent economy. Check a counterparty before you pay. Advisory preflight is free ($0); signed execution clearance is $0.001 (twzrd.payment_decision.v1 / quickCheck).",
+  "tools": 22,
   "endpoint": "https://intel.twzrd.xyz/mcp",
   "transport": "streamable-http",
   "x402": true,
   "free_tier": true,
-  "paid_trust_usdc": 0.05
+  "clearance_usdc": 0.001,
+  "paid_trust_usdc": 0.05,
+  "gate_npm": "twzrd-x402-gate@0.9.7"
 }

@@ -4,6 +4,8 @@
 
 Vet any counterparty wallet **before** you sign or send USDC over x402. Blocks happen before your private key is ever reached (**`signerInvocations: 0`** on block) — protecting your agent against malicious sellers, wash trading, and unvetted contracts.
 
+Advisory preflight is free ($0). Signed execution clearance is **$0.001** (`twzrd.payment_decision.v1` / `quickCheck`). Optional Path A V7 receipts are $0.05 and are not the primary SKU. Pin: `twzrd-x402-gate@0.9.7`.
+
 ---
 
 ## Zero-Setup 60-Second Proof
