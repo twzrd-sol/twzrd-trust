@@ -1,12 +1,9 @@
 name: Publish @wzrd_sol/eliza-plugin to npm
 
-# Deliberately workflow_dispatch ONLY -- no push/tag/release trigger.
-# Same reason as publish.yml for twzrd-x402-gate: a workflow reachable by an
-# untrusted PR is how CI publish tokens get exfiltrated.
-#
-# This workflow must exist on the default branch before Actions can dispatch
-# it. Until the V7 source PR merges, dispatch with source_ref pointing at the
-# branch that contains eliza-plugin-source/ and scripts/pack-eliza-plugin.mjs.
+# Not pull_request-triggered -- that is how CI publish tokens get exfiltrated.
+# Operator button: workflow_dispatch. Also runs on write-access tag pushes
+# matching eliza-plugin-v* (this environment can push tags but cannot
+# workflow_dispatch: GitHub App 403).
 #
 # Auth (either works):
 # - secrets.NPM_TOKEN
@@ -25,6 +22,9 @@ on:
         description: 'git ref that contains eliza-plugin-source and the pack scripts (empty = the branch selected in the Actions UI)'
         required: false
         default: ''
+  push:
+    tags:
+      - 'eliza-plugin-v*'
 
 jobs:
   publish:
@@ -35,7 +35,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref != '' && inputs.source_ref || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref != '' && inputs.source_ref || github.ref }}
+
+      - name: Resolve expected version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "expected=${{ inputs.expected_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "expected=${GITHUB_REF_NAME#eliza-plugin-v}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Publishing expected version from ${{ github.event_name }}"
 
       - uses: actions/setup-node@v4
         with:
@@ -65,8 +75,9 @@ jobs:
       - name: Verify source version matches the operator's confirmation
         run: |
           ACTUAL=$(node -p "require('./eliza-plugin-source/package.json').version")
-          if [ "$ACTUAL" != "${{ inputs.expected_version }}" ]; then
-            echo "::error::eliza-plugin-source is $ACTUAL, you confirmed ${{ inputs.expected_version }} -- refusing to publish."
+          EXPECTED="${{ steps.ver.outputs.expected }}"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::eliza-plugin-source is $ACTUAL, you confirmed $EXPECTED -- refusing to publish."
             exit 1
           fi
           echo "Confirmed: publishing @wzrd_sol/eliza-plugin@$ACTUAL"
@@ -108,14 +119,15 @@ jobs:
 
       - name: Verify against the live registry
         run: |
+          EXPECTED="${{ steps.ver.outputs.expected }}"
           for i in $(seq 1 18); do
-            LIVE=$(npm view @wzrd_sol/eliza-plugin@${{ inputs.expected_version }} version 2>/dev/null || true)
-            if [ "$LIVE" = "${{ inputs.expected_version }}" ]; then
+            LIVE=$(npm view @wzrd_sol/eliza-plugin@"$EXPECTED" version 2>/dev/null || true)
+            if [ "$LIVE" = "$EXPECTED" ]; then
               echo "Verified live: @wzrd_sol/eliza-plugin@$LIVE (attempt $i)"
               exit 0
             fi
-            echo "Attempt $i/18: registry does not show ${{ inputs.expected_version }} yet, retrying in 10s..."
+            echo "Attempt $i/18: registry does not show $EXPECTED yet, retrying in 10s..."
             sleep 10
           done
-          echo "::error::Registry still does not show ${{ inputs.expected_version }} after 3 minutes -- publish may have failed."
+          echo "::error::Registry still does not show $EXPECTED after 3 minutes -- publish may have failed."
           exit 1
