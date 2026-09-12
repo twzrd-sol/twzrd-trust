@@ -73,9 +73,11 @@ const agent = { plugins: [trustGatePlugin /* ...your others */] };   // 1. agent
 if (!(await canSpendSafely(payTo))) throw new Error("TWZRD: blocked seller"); // 2. hard stop before signing
 ```
 
-Runnable end-to-end (no auth, no key): [`examples/first-installer.ts`](./examples/first-installer.ts) -
-`npx tsx examples/first-installer.ts`. Against the live gate it blocks a real
-wash-flagged seller (decision `block`) and proceeds on a clean one (decision `warn`).
+This directory in the public mirror is **`dist/` only** — there is no
+`examples/` tree here. Install the published package
+(`npm install @wzrd_sol/plugin-trustgate`) or use hosted MCP
+`https://intel.twzrd.xyz/mcp`. Do not run `npx tsx examples/first-installer.ts`
+from this checkout.
 
 ## How it works
 
@@ -135,8 +137,11 @@ outage. Solana-only by default. Throws `TwzrdPayerChooserBlockedError` when all
 scoreable candidates are blocked — **no signature**.
 
 ```bash
-npm run demo:faremeter-chooser --workspace=packages/plugin-trustgate
+# published package only — this mirror has no examples/
+# npm run demo:faremeter-chooser --workspace=@wzrd_sol/plugin-trustgate
 ```
+
+That script is not startable from this public-mirror checkout.
 
 ## Facilitator operators
 

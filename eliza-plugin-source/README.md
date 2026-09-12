@@ -24,7 +24,7 @@ Investigation (do not import from these):
 | `twzrd-sol/wzrd-velocity` `agents/eliza-plugin` | Historical home in the 0.3.0 baseline `package.json`. No longer hosts the intel plugin. |
 | `twzrd-sol/wzrd-final` `agents/eliza-plugin` | Still `@wzrd_sol/eliza-plugin@0.6.1` / V6. Readiness plan forbids importing that lane. |
 | npm `@wzrd_sol/eliza-plugin@0.6.1` | Published 2026-07-23. Public `eliza-plugin/` is the artifact resync of that tarball. |
-| This repo publish workflow | Publishes `twzrd-x402-gate` only. There is no Eliza publish/resync workflow here. |
+| This repo publish workflow | Gate publish plus `.github/workflows/publish-eliza-plugin.yml` / `eliza-plugin-v*` tags. Pack with `npm run pack:eliza`. Resync the artifact mirror from the live tarball: `node scripts/resync-eliza-plugin.mjs --version <live>`. |
 
 ## V7 vs legacy V6
 

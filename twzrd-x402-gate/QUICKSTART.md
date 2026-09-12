@@ -78,10 +78,20 @@ after `createPayKitClient` — PayKit only accepts the hook at construction.
 
 ## 2. Prove it blocked something (spends nothing)
 
+Hello-world that closes from this package (needs a prior **repo-root** `npm ci`
+and `npm run build`; do not `npm ci` in this directory):
+
 ```bash
-# Stock-client seat proof (beforePayment, signer_invocation_count=0)
-# needs x402-solana@3.0.0 installed - the harness fallback runs but does not
-# clear closure (its negative arm counts a would-be sign)
+npm run gate-eval-refuse
+# signer_invocation_count: 0, usdc_spent: 0
+```
+
+Optional seat proofs (live intel; the clean-fixture leg can exit 2 when
+`CLEAN_PAYTO` is wash-flagged — that is not the first demo):
+
+```bash
+# Stock-client seat proof (beforePayment). Needs x402-solana@3.0.0.
+# Harness fallback runs without it but does not clear closure.
 npm run x402-solana-before-payment-proof
 # writes block-proof-<run_id>.json — hook: beforePayment
 

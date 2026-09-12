@@ -14,7 +14,25 @@ not enforce; AutoGate on the pay path does.
 Every code sample below was executed against the published package and live
 endpoints before this document was committed.
 
-## 1. Install
+## From this repo
+
+Working in the clone, not `npm install twzrd-x402-gate` into some other app:
+
+```bash
+# repo root — the only supported install (matches .github/workflows/ci.yml)
+npm ci
+npm run build
+npm run typecheck
+npm test --workspace=twzrd-x402-gate
+npm run gate-eval-refuse --workspace=twzrd-x402-gate
+```
+
+Do not `npm ci` inside `twzrd-x402-gate/`. That nested lockfile is publish-only.
+`gate-eval-refuse` is the hello-world that closes (0 USDC). The
+`x402-solana-before-payment-proof` script is a seat proof and can fail when
+the live clean fixture is wash-flagged.
+
+## 1. Install (published package)
 
 ```bash
 npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0
