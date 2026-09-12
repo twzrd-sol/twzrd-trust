@@ -263,6 +263,9 @@ export async function spendControlSafeFetch(
     // makes check+reserve atomic for concurrent calls on this event loop.
     release = reserveSpend(pending, keys, spendMicro);
   }
+  // The payer only ever sees the offer the gate approved. Handing it the whole
+  // accepts[] lets a client that ignores `selected` pick an unvetted sibling.
+  const offer = { ...body, accepts: [selected] };
   try {
     let verdict: "allow" | "warn" | "block" = "allow";
     const price = priceUsdcFromAmountMicro(amountMicro) ?? 0;
@@ -290,7 +293,7 @@ export async function spendControlSafeFetch(
         return refuseNoCompose();
       }
       const composed = await opts.composeBoundTransaction({
-        url, paymentRequired: body, selected, leafHash: leaf_hash,
+        url, paymentRequired: offer, selected, leafHash: leaf_hash,
         memo: resourceBindMemo(leaf_hash),
       });
       txb64 = composed.transactionBase64;
@@ -310,7 +313,7 @@ export async function spendControlSafeFetch(
       }
       if (opts.pay) {
         signerInvocations = 1;
-        const paid = await opts.pay({ url, paymentRequired: body, selected, transactionBase64: txb64 });
+        const paid = await opts.pay({ url, paymentRequired: offer, selected, transactionBase64: txb64 });
         if (paid.response) response = paid.response;
       }
       if (signerInvocations > 0) recordSpend();
@@ -318,7 +321,7 @@ export async function spendControlSafeFetch(
     }
     if (opts.pay) {
       signerInvocations = 1;
-      const paid = await opts.pay({ url, paymentRequired: body, selected });
+      const paid = await opts.pay({ url, paymentRequired: offer, selected });
       if (paid.response) response = paid.response;
     }
     let receipt: SpendControlResult["receipt"];

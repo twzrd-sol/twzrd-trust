@@ -16,7 +16,7 @@ Date: 2026-09-12
 
 | Item | Pin / note |
 |---|---|
-| Gate + AutoGate / safeFetch | `twzrd-x402-gate@0.9.6` |
+| Gate + AutoGate / safeFetch | `twzrd-x402-gate@0.9.7` |
 | Portable decision receipt | `twzrd.payment_decision.v1` (#85/#86) |
 | Docs pin gate/verifier | #87 → gate 0.9.5, verifier `^1.4.0` |
 | Eliza migration prep | #89–#95 |
@@ -38,7 +38,7 @@ Date: 2026-09-12
 ## How an external agent installs (≤5 commands)
 
 ```bash
-npm i twzrd-x402-gate@0.9.6 x402-solana@3.0.0
+npm i twzrd-x402-gate@0.9.7 x402-solana@3.0.0
 npm i twzrd-receipt-verifier@^1.4.0   # optional; Path A offline verify floor
 curl -fsS https://intel.twzrd.xyz/v1/intel/demo-gate | jq '{verdict:(.steps[]|select(.name=="block_path").verdict),signerInvocations:(.steps[]|select(.name=="block_path").signer_invocations),mode}'
 # Then: installTwzrdAutoGate / twzrd.safeFetch on Solana pay paths only — see README
