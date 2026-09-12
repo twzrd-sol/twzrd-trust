@@ -108,12 +108,14 @@ curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0
 # createX402Client({ wallet, network: "solana",
 #   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })
-# Prove refuse-before-sign (signer=0): npm run x402-solana-before-payment-proof
-# (from the gate package) — or copy-paste createTwzrdBeforePaymentHook as above.
+# Hello-world that closes from this repo (after root npm ci && npm run build):
+# npm run gate-eval-refuse --workspace=twzrd-x402-gate
+# Optional seat proof (can exit 2 if the live clean fixture is wash-flagged):
+# npm run x402-solana-before-payment-proof --workspace=twzrd-x402-gate
 
-# 2b) FALLBACK CLI smoke (not the primary install story) — owned refuse dogfood
-# npm install twzrd-x402-gate@0.9.7 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
-# node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
+# 2b) Published-package CLI smoke — owned refuse dogfood
+# npm install twzrd-x402-gate@0.9.7
+# npx twzrd-gate-eval-refuse
 
 # 3) OPTIONAL Path A (paid intel, $0.05 V7). Not the $0.001 clearance SKU. Does not enforce.
 # WALLET FIRST if you choose Path A:

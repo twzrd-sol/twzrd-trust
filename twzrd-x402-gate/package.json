@@ -101,8 +101,8 @@
   },
   "peerDependencies": {
     "@scure/base": ">=1.0.0",
-    "@solana/kit": ">=5.1.0",
     "@solana-program/token": ">=0.9.0",
+    "@solana/kit": ">=5.1.0",
     "@x402/core": ">=2.0.0",
     "@x402/fetch": ">=2.0.0",
     "@x402/svm": ">=2.0.0",
@@ -137,14 +137,15 @@
   },
   "devDependencies": {
     "@scure/base": "^1.2.0",
-    "@solana/kit": "^5.1.0",
     "@solana-program/token": "^0.9.0",
+    "@solana/kit": "^5.1.0",
     "@types/node": "^20.11.0",
     "@x402/core": "^2.22.0",
     "@x402/fetch": "^2.22.0",
     "@x402/svm": "^2.22.0",
     "js-sha3": "^0.13.0",
     "tsx": "^4.23.12",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "x402-solana": "^3.0.0"
   }
 }

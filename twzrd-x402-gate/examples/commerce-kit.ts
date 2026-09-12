@@ -32,6 +32,7 @@ import {
 } from "../src/evidence-bundle.js";
 import { fetchMerchantCard } from "../src/merchant-card.js";
 import { twzrdApprovePayment } from "../src/policy.js";
+import { CLIENT_VERSION } from "../src/version.js";
 
 const INTEL = (process.env.TWZRD_INTEL_BASE ?? "https://intel.twzrd.xyz").replace(/\/+$/, "");
 const REFUSE_URL = `${INTEL}/v1/intel/refuse-fixture`;
@@ -160,7 +161,7 @@ async function main() {
   }
 
   logStep(1, "Install", {
-    package: "twzrd-x402-gate@0.9.3",
+    package: `twzrd-x402-gate@${CLIENT_VERSION}`,
     seat: "installTwzrdAutoGate",
     mcp: "https://intel.twzrd.xyz/mcp",
   });

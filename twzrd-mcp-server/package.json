@@ -33,8 +33,8 @@
     "reputation"
   ],
   "scripts": {
-    "build": "echo 'twzrd-mcp-server: built'",
-    "demo": "node examples/agent-drop-in.mjs",
+    "build": "echo 'twzrd-mcp-server: dist-only mirror; nothing to compile'",
+    "demo": "echo 'twzrd-mcp-server: use hosted https://intel.twzrd.xyz/mcp — this mirror cannot run the local demo' && exit 1",
     "test": "echo 'twzrd-mcp-server: tests passed'",
     "typecheck": "echo 'twzrd-mcp-server: typecheck ok'",
     "prepublishOnly": "npm run build"
