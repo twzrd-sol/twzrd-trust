@@ -1,12 +1,9 @@
 name: Publish @wzrd_sol/eliza-plugin to npm
 
-# Deliberately workflow_dispatch ONLY -- no push/tag/release trigger.
-# Same reason as publish.yml for twzrd-x402-gate: a workflow reachable by an
-# untrusted PR is how CI publish tokens get exfiltrated.
-#
-# workflow_dispatch is the operator button. push tags eliza-plugin-v* exist
-# because this environment can push tags but the GitHub App cannot dispatch
-# Actions (403). Tagging is still write-access gated, not pull_request.
+# Not pull_request-triggered -- that is how CI publish tokens get exfiltrated.
+# Operator button: workflow_dispatch. Also runs on write-access tag pushes
+# matching eliza-plugin-v* (this environment can push tags but cannot
+# workflow_dispatch: GitHub App 403).
 #
 # Auth (either works):
 # - secrets.NPM_TOKEN
