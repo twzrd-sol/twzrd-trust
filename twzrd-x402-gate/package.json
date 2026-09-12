@@ -44,6 +44,7 @@
     "x402-solana-before-payment-proof": "tsx examples/x402-solana-before-payment-proof.ts",
     "x402-solana-before-payment-falsify": "tsx examples/x402-solana-before-payment-falsify.ts",
     "official-dogfood": "tsx examples/official-x402-dogfood.ts",
+    "foreign-client-proof": "tsx examples/foreign-client-proof.ts",
     "adoption-proof": "tsx src/adoption-proof.ts",
     "evidence-bundle": "tsx src/evidence-bundle.ts",
     "commerce-kit": "tsx examples/commerce-kit.ts",
