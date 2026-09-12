@@ -13,9 +13,10 @@
  * synchronous `record()` calls serialise and the chain stays linear.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "./helpers/tmpdir.js";
 
 import { twzrd } from "../src/spend-control.js";
 import {
@@ -43,7 +44,7 @@ async function run() {
   /* ---------- 1. concurrent settles must not break the hash chain ---------- */
   {
     __resetSharedFileSpendLedgers();
-    const file = join(mkdtempSync(join(tmpdir(), "twzrd-ledger-")), "spend.jsonl");
+    const file = join(tempDir("twzrd-ledger-"), "spend.jsonl");
     let signs = 0;
     const pay = async () => {
       signs += 1;
@@ -81,7 +82,7 @@ async function run() {
   /* ---------- 2. one instance per path, and it is the same object ---------- */
   {
     __resetSharedFileSpendLedgers();
-    const dir = mkdtempSync(join(tmpdir(), "twzrd-ledger-"));
+    const dir = tempDir("twzrd-ledger-");
     const a = join(dir, "one.jsonl");
     assert.equal(sharedFileSpendLedger(a), sharedFileSpendLedger(a),
       "same path resolves to the same instance — this is what gives the " +
@@ -96,7 +97,7 @@ async function run() {
   /* ---------- 3. the cumulative cap still holds on the durable path ---------- */
   {
     __resetSharedFileSpendLedgers();
-    const file = join(mkdtempSync(join(tmpdir(), "twzrd-ledger-")), "spend.jsonl");
+    const file = join(tempDir("twzrd-ledger-"), "spend.jsonl");
     let signs = 0;
     const opts = {
       maxSpend: "1.00", ledgerFile: file, agentId: "a1", mandateId: "m1",

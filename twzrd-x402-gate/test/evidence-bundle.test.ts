@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "./helpers/tmpdir.js";
 
 import { runGateAdoptionProof } from "../src/adoption-proof.js";
 import { CLIENT_VERSION } from "../src/version.js";
@@ -133,7 +134,7 @@ async function run() {
   assert.equal(fromHarness.decision.signerInvocations, 0);
   assert.equal(fromHarness.lineage, "dogfood");
 
-  const dir = mkdtempSync(join(tmpdir(), "twzrd-bundle-"));
+  const dir = tempDir("twzrd-bundle-");
   const path = join(dir, "bundle.json");
   writeEvidenceBundle(fromHarness, path);
   const read = JSON.parse(readFileSync(path, "utf8"));

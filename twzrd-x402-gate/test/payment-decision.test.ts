@@ -8,9 +8,10 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "./helpers/tmpdir.js";
 
 import {
   createLocalDecisionSigner,
@@ -511,7 +512,7 @@ async function run() {
 
   /* ---------- 10. CLI ---------- */
   {
-    const dir = mkdtempSync(join(tmpdir(), "twzrd-pd-"));
+    const dir = tempDir("twzrd-pd-");
     const recPath = join(dir, "record.json");
     const pemPath = join(dir, "issuer.pem");
     const chPath = join(dir, "challenge.json");

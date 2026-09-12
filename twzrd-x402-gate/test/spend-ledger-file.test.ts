@@ -3,13 +3,14 @@
  * tamper detection (no network, real tmp files). Run: npx tsx test/spend-ledger-file.test.ts
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "./helpers/tmpdir.js";
 
 import { createFileSpendLedger } from "../src/spend-ledger-file.js";
 
-const dir = mkdtempSync(join(tmpdir(), "twzrd-ledger-"));
+const dir = tempDir("twzrd-ledger-");
 const HOUR = 3_600_000;
 const t0 = 1_700_000_000_000;
 
