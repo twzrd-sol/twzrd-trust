@@ -15,7 +15,7 @@ Pins (origin/main shipped): `twzrd-x402-gate@0.9.7`,
 | `method` stripe / link, or Tempo / MPP-only | **Do not** run Solana wash. Hand off to `stripe-link-cli` or `mpp-agent` |
 | Empty / template `payTo` (`{pubkey}`, `:pubkey`, `PAY_TO_WALLET`, …) | **Refuse** — never sign |
 | Free preflight `decision=block` or merchant_card `next_action` refuse | **Hard stop** (`signerInvocations` must stay 0) |
-| `wash_flagged` + preflight `warn` | **Cap + escalate** Path A — not a hard stop unless price exceeds cap |
+| `wash_flagged` + preflight `warn` | **Cap + $0.001 clearance** (`quickCheck` / `payment_decision.v1`). Optional Path A $0.05 is not the primary SKU. |
 
 Code: `twzrd-x402-gate/src/consumer-adjacency.ts`  
 Tests: `twzrd-x402-gate/test/consumer-adjacency.test.ts`  

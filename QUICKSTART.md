@@ -123,11 +123,11 @@ Two independent external implementations have already reproduced it.
 
 | Thing | Where |
 |---|---|
-| This SDK on npm | `twzrd-x402-gate` (named export `twzrd`) |
+| This SDK on npm | `twzrd-x402-gate@0.9.7` (named export `twzrd`; pin matches `twzrd-x402-gate/package.json`) |
 | Implementation + tests | [`twzrd-x402-gate/`](./twzrd-x402-gate/) in this repo |
 | External review map, mainnet ground truth | [REVIEW.md](./REVIEW.md) |
 | The 7-day integration milestone | [MILESTONE.md](./MILESTONE.md) |
-| Live verifier + merchant intel | `https://intel.twzrd.xyz` (free) |
+| Live verifier + merchant intel | `https://intel.twzrd.xyz` (free advisory preflight; clearance SKU **$0.001** `payment_decision.v1`) |
 
 Questions or a broken sample: open an issue on this repo. A sample that does
 not run exactly as shown is a bug.

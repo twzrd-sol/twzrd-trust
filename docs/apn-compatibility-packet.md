@@ -24,6 +24,9 @@ foreground phrase) is untouched; the wrapper only decides whether `approve` is
 invoked at all, and issues a portable `twzrd.payment_decision.v1` record that
 is stored next to APN's receipt, joined on `offerHash` / operation id.
 
+Pin: `twzrd-x402-gate@0.9.7`. That record is the **$0.001** clearance SKU.
+Path A $0.05 V7 intel is not this packet.
+
 ## What the two fixtures prove
 
 | Fixture | merchant_card | TWZRD decision | `approve` calls | authorizations | broadcast | spend |
