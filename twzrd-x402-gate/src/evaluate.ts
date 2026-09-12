@@ -97,6 +97,12 @@ export type EvaluateX402Result = {
   /** true when hard requireReceipt denied spend because Path A failed */
   receiptRequiredDenied?: boolean;
   /**
+   * Path A is Solana-only. Set when policy would have bought a receipt but the
+   * rail is unscored (W-2026-0902 #2). `hard` means scored networks only — do
+   * not fetch `/v1/intel/trust/{0x…}` and do not deny a policy allow.
+   */
+  receiptSkipped?: "unscored_network";
+  /**
    * Present whenever requireLogInclusion was in play for an attempted Path A:
    * either a captured receipt was verified, or none was captured to verify
    * (then `checked` is false and `errors` says why). Its presence does NOT
@@ -204,12 +210,20 @@ export async function evaluate_x402_resource(
     decision,
     priceUsdc,
   });
-  const attemptReceipt = shouldAttemptPathAReceipt({
+  const wantPathA = shouldAttemptPathAReceipt({
     autoReceipt: opts.autoReceipt,
     requireReceipt: opts.requireReceipt,
     decision,
     priceUsdc,
   });
+  // Paid trust is Solana-only. Mirror the x402 hook (W-2026-0902 #2): do not
+  // buy Path A on an unscored rail, and do not treat a missing Base receipt
+  // as a hard deny of a policy allow.
+  const scoredRail = approval.reputationScored !== false;
+  const attemptReceipt = scoredRail && wantPathA;
+  if (!scoredRail && wantPathA) {
+    base.receiptSkipped = "unscored_network";
+  }
   const logPolicy = resolveRequireLogInclusionPolicy(opts.requireLogInclusion);
   // Why Path A ended without a captured receipt, when it did. Read by the hard
   // requireLogInclusion guard below the Path A block.
