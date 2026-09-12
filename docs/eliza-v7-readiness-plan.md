@@ -4,11 +4,8 @@ Status: `@wzrd_sol/eliza-plugin@0.7.0` is live on npm (V7 receipt surface).
 Source lives in `eliza-plugin-source/`. The public `eliza-plugin/` mirror is
 resynced from the published tarball via `scripts/resync-eliza-plugin.mjs`.
 
-This note turns the remaining Eliza gap from issue #90 into an executable
-migration map. It does not make `eliza-plugin/` buildable in this public mirror.
-That package is still an artifact-only mirror. Restored TypeScript lives in
-`eliza-plugin-source/` so the artifact scripts stay no-op until a coordinated
-publish and resync.
+This note records the V7 migration map. `eliza-plugin/` stays an artifact-only
+mirror (no-op scripts). Restored TypeScript lives in `eliza-plugin-source/`.
 
 ## Current evidence
 
@@ -17,7 +14,7 @@ publish and resync.
 - `twzrd-mcp-server/package.json` now depends on `twzrd-receipt-verifier`
   `^1.4.0` and `twzrd-x402-gate` `^0.9.5`.
 - `plugin-trustgate/` is synced to the published `0.3.6` runtime artifact.
-- `eliza-plugin/` remains artifact-only and V6-oriented in its README and `dist/`.
+- `eliza-plugin/` is artifact-only and resynced from npm `@wzrd_sol/eliza-plugin@0.7.0` (V7).
 - Historical source is recoverable from repo history:
   `git show 98e4b78779980c4b5b9581b78dfe292eda82aad5:eliza-plugin/src/actions/intel-trust.ts`
   and the surrounding `eliza-plugin/src/` tree.
