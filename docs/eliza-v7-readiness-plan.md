@@ -1,10 +1,8 @@
 # Eliza V7 readiness plan
 
-Status: source restored in `eliza-plugin-source/` (V7 migration). Publish path
-is `scripts/pack-eliza-plugin.mjs` + `.github/workflows/publish-eliza-plugin.yml`.
-Live `@wzrd_sol/eliza-plugin` is still `0.6.1` until that workflow (or an
-operator `npm publish` of the packed staging dir) ships `0.7.0`. Public-mirror
-resync is `scripts/resync-eliza-plugin.mjs --version <live>` only.
+Status: `@wzrd_sol/eliza-plugin@0.7.0` is live on npm (V7 receipt surface).
+Source lives in `eliza-plugin-source/`. The public `eliza-plugin/` mirror is
+resynced from the published tarball via `scripts/resync-eliza-plugin.mjs`.
 
 This note turns the remaining Eliza gap from issue #90 into an executable
 migration map. It does not make `eliza-plugin/` buildable in this public mirror.
@@ -133,8 +131,8 @@ Source-side items now live in `eliza-plugin-source/`:
 - V7 receipt handling is implemented in source,
 - Eliza registration and V7 receipt tests pass from source,
 
-Still required after merge (publish / resync):
+Published and resynced:
 
-- the npm package is published as `@wzrd_sol/eliza-plugin`,
-- this public mirror `eliza-plugin/` is resynced from that published package,
-- artifact checks in this repository pass after the resync.
+- npm `@wzrd_sol/eliza-plugin@0.7.0` (Actions run 34682772976),
+- `eliza-plugin/` is resynced from that published tarball,
+- artifact checks pass (`npm run test:artifacts`).

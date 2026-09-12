@@ -3,7 +3,8 @@ import { Keypair } from '@solana/web3.js';
 import { WzrdClient } from './client.js';
 import { getIntelBase, withTimeout } from './intel-helpers.js';
 import { resolvePayingFetch } from './paying-fetch.js';
-import { intelPreflight, fetchIntelTrust, verifyReceipt } from '@wzrd_sol/sdk';
+import { intelPreflight, fetchIntelTrust } from '@wzrd_sol/sdk';
+import { verifyReceipt } from './receipt-verify.js';
 const cache = new Map();
 /** Intel API base URL from runtime settings (default https://intel.twzrd.xyz). */
 export function getIntelApiBase(runtime) {
@@ -35,6 +36,6 @@ export function getIntelClient(runtime) {
             const abortingFetch = ((input, init) => f(input, { ...(init || {}), signal }));
             return fetchIntelTrust(pubkey, { apiBase, fetchImpl: abortingFetch });
         }),
-        verify: (receipt, opts) => withTimeout(() => verifyReceipt(receipt, { apiBase, ...(opts || {}) })),
+        verify: (receipt, opts) => verifyReceipt(receipt, opts),
     };
 }

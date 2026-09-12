@@ -75,7 +75,7 @@ export declare class WzrdClient {
         quality_score?: number;
         latency_ms?: number;
     }): Promise<ReportResult>;
-    /** Check pending + total rewards (reads flat /v1/agent/earned response) */
+    /** Check pending + total rewards (flattens nested /v1/agent/earned response) */
     getRewards(): Promise<RewardsBalance>;
     /** Gasless CCM claim via server relay */
     claimRelay(): Promise<ClaimResult>;
@@ -88,4 +88,5 @@ export declare class WzrdClient {
         claimable: number;
     }>;
 }
-export { intelPreflight as intelPreflightClient, fetchIntelTrust as fetchIntelTrustClient, verifyReceipt as verifyReceiptClient, } from '@wzrd_sol/sdk';
+export { intelPreflight as intelPreflightClient, fetchIntelTrust as fetchIntelTrustClient, } from '@wzrd_sol/sdk';
+export { verifyReceipt as verifyReceiptClient } from './receipt-verify.js';

@@ -1,6 +1,7 @@
 import { WzrdClient } from './client.js';
 import type { IAgentRuntime } from '@elizaos/core';
-import { intelPreflight, verifyReceipt } from '@wzrd_sol/sdk';
+import { intelPreflight } from '@wzrd_sol/sdk';
+import { verifyReceipt } from './receipt-verify.js';
 /** Intel API base URL from runtime settings (default https://intel.twzrd.xyz). */
 export declare function getIntelApiBase(runtime: IAgentRuntime): string;
 export declare function getWzrdClient(runtime: IAgentRuntime): WzrdClient;
@@ -10,5 +11,5 @@ export declare function clearClientCache(): void;
 export declare function getIntelClient(runtime: IAgentRuntime): {
     preflight: (input: Parameters<typeof intelPreflight>[0]) => Promise<import("@wzrd_sol/sdk").PreflightResponse>;
     trust: (pubkey: string) => Promise<import("@wzrd_sol/sdk").IntelTrustResponse>;
-    verify: (receipt: Parameters<typeof verifyReceipt>[0], opts?: Parameters<typeof verifyReceipt>[1]) => Promise<import("@wzrd_sol/sdk").VerifyReceiptResult>;
+    verify: (receipt: Parameters<typeof verifyReceipt>[0], opts?: Parameters<typeof verifyReceipt>[1]) => import("./receipt-verify.js").VerifyReceiptResult;
 };

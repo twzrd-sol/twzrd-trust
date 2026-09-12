@@ -44,7 +44,7 @@ export const intelPreflightAction = {
     description: 'Free pre-spend ReadinessCard for a seller/resource/price/intent. Returns decision (allow/warn/block), ' +
         'trust_score, can_spend, caveats, paid_deep_dive upsell, and root_provenance when applicable. ' +
         'Step 1 of the buyer sequence before any x402 payment; follow with WZRD_MERCHANT_CARD (wash refuse default) ' +
-        'or preSpendGate which runs both free checks.',
+        'or preSpendGate which runs both free checks. Paid deep dive is a V7 receipt via WZRD_INTEL_TRUST.',
     examples: [
         [
             {
@@ -65,7 +65,7 @@ export const intelPreflightAction = {
         const input = parsePreflightInput(content);
         if (!input.seller_wallet && !input.resource_name && !input.resource_url) {
             await callback?.({
-                text: 'Provide seller_wallet, resource_name, or resource_url for preflight. ' +
+                text: 'Provide seller_wallet, resource_name, resource_url, or agent_intent for preflight. ' +
                     'Example: "Preflight seller JUP6Lkb... at 0.25 USDC"',
             });
             return { success: false, error: 'Missing preflight input' };

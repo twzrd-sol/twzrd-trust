@@ -87,17 +87,19 @@ export class WzrdClient {
         }
         return res.json();
     }
-    /** Check pending + total rewards (reads flat /v1/agent/earned response) */
+    /** Check pending + total rewards (flattens nested /v1/agent/earned response) */
     async getRewards() {
         const res = await this.authedFetch('/v1/agent/earned');
         if (!res.ok)
             throw new Error(`Rewards check failed: ${res.status}`);
         const data = await res.json();
+        const economy = data.economy;
+        const routing = data.routing;
         return {
-            pending_ccm: Number(data.pending_ccm ?? 0),
-            total_rewarded_ccm: Number(data.total_earned_ccm ?? 0),
-            rank: data.rank == null ? null : Number(data.rank),
-            contribution_count: Number(data.lifetime_contributions ?? 0),
+            pending_ccm: Number(economy?.pending_ccm ?? 0),
+            total_rewarded_ccm: Number(economy?.earned_ccm ?? 0),
+            rank: null, // rank not in this endpoint
+            contribution_count: Number(routing?.lifetime_contributions ?? 0),
         };
     }
     /** Gasless CCM claim via server relay */
@@ -132,4 +134,5 @@ export class WzrdClient {
 }
 // Thin wrappers delegating to @wzrd_sol/sdk intel surface (preflight/trust/verify) per plan.
 // Kept in client.ts alongside earn WzrdClient. Actual runtime client for intel is via getIntelClient() in factory.
-export { intelPreflight as intelPreflightClient, fetchIntelTrust as fetchIntelTrustClient, verifyReceipt as verifyReceiptClient, } from '@wzrd_sol/sdk';
+export { intelPreflight as intelPreflightClient, fetchIntelTrust as fetchIntelTrustClient, } from '@wzrd_sol/sdk';
+export { verifyReceipt as verifyReceiptClient } from './receipt-verify.js';
