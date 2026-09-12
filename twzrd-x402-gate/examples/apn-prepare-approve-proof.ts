@@ -20,15 +20,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
-import { resolveConfig } from "../src/config.js";
 import { createLocalDecisionSigner, type DecisionSigner } from "../src/decision-token.js";
 import {
   decisionFromApproval,
   issuePaymentDecisionRecord,
   type PaymentDecisionRecordV1,
 } from "../src/payment-decision.js";
-import { twzrdApprovePayment } from "../src/policy.js";
 import type { TwzrdApprovalResult } from "../src/types.js";
+import {
+  evaluateBeforePaymentCreation,
+  type X402SelectedRequirements,
+} from "../src/x402-client-hook.js";
 
 export const BASE = "eip155:8453" as const;
 export const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -195,27 +197,36 @@ export type BeforeApproveDecision = {
   record: PaymentDecisionRecordV1;
 };
 
-/** Decide on the frozen offer; never touches APN's own policy or the signer. */
-export async function decideBeforeApprove(
+/** Frozen APN offer as the selected-requirements shape the shipped evaluator already takes. */
+export function selectedRequirementsFromOffer(op: SelectedPrepareOffer): X402SelectedRequirements {
+  return {
+    payTo: op.payee,
+    network: op.requirements.network,
+    amount: op.amountAtomic,
+    resource: op.requirements.resource,
+    scheme: op.requirements.scheme,
+  };
+}
+
+/**
+ * TWZRD on the frozen offer: same evaluator as PayKit / onBeforePaymentCreation.
+ * Fake `approve` runs only when that evaluator does not abort.
+ */
+export async function decideOnFrozenOffer(
   op: SelectedPrepareOffer,
   opts: { fetch: typeof fetch; signer: DecisionSigner; unsupportedNetworkMode?: "observe" | "strict"; now?: number },
 ): Promise<BeforeApproveDecision> {
-  const cfg = resolveConfig({
+  let approval: TwzrdApprovalResult | undefined;
+  const hook = await evaluateBeforePaymentCreation(selectedRequirementsFromOffer(op), {
     fetch: opts.fetch,
     unsupportedNetworkMode: opts.unsupportedNetworkMode ?? "observe",
     refuseWashFlagged: true,
     failOpen: false,
-  });
-  const approval = await twzrdApprovePayment(
-    {
-      payTo: op.payee,
-      chain: op.requirements.network,
-      priceUsdc: Number(op.amountAtomic) / 1_000_000,
-      resourceUrl: op.requirements.resource,
-      agentIntent: "apn_before_approve",
+    onApproval: (a) => {
+      approval = a;
     },
-    cfg,
-  );
+  });
+  if (!approval) throw new Error("evaluateBeforePaymentCreation did not emit onApproval");
   const { decision, reason_code } = decisionFromApproval(approval);
   const now = opts.now ?? Date.now();
   const record = await issuePaymentDecisionRecord(
@@ -228,7 +239,7 @@ export async function decideBeforeApprove(
     },
     opts.signer,
   );
-  return { proceed: approval.approved === true && approval.policyAction !== "block", approval, record };
+  return { proceed: hook?.abort !== true, approval, record };
 }
 
 /* ---------------- fixtures ---------------- */
@@ -254,7 +265,7 @@ export async function runFixture(
   const intelCalls: string[] = [];
   const challenge = apn.inspect(RESOURCE, input.payTo, AMOUNT_ATOMIC);
   const op = apn.prepare(challenge, "50000");
-  const decision = await decideBeforeApprove(op, {
+  const decision = await decideOnFrozenOffer(op, {
     fetch: routedIntelFetch(input.washFlagged, intelCalls), signer, unsupportedNetworkMode: input.mode, now,
   });
   const receipt = decision.proceed ? apn.approve(op) : null;
