@@ -1,7 +1,7 @@
 # TWZRD
 
 **Don't let your agent sign blind.**  
-Spend control and counterparty trust for agents paying over x402 on Solana (and Base).  
+Spend control and counterparty trust for agents paying over x402 on Solana (and Base).
 Vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Advisory preflight is free ($0). Signed execution clearance is **$0.001** (`twzrd.payment_decision.v1` / `quickCheck`). Not a wallet. Not a payment network. Not Catena's Agent Commerce Kit — the walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (twzrd-trust **1.13.24**) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
