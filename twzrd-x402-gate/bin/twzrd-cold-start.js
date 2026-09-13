@@ -51,9 +51,15 @@ async function main() {
   }
   const { transcript, exitCode } = run;
   console.log(JSON.stringify(transcript, null, 2));
-  console.error(
-    `OK: cold-start ${transcript.allowlisted_count} allowlisted, signer_invocation_count=0, usdc_spent=0 — self-serve, not EXTERNAL_RUN`,
-  );
+  if (transcript.ok) {
+    console.error(
+      `OK: cold-start ${transcript.allowlisted_count} allowlisted, signer_invocation_count=0, usdc_spent=0 — self-serve, not EXTERNAL_RUN`,
+    );
+  } else {
+    console.error(
+      "FAIL: no diet host scored a 402 (signer_invocation_count=0, usdc_spent=0) — self-serve, not EXTERNAL_RUN",
+    );
+  }
   process.exit(exitCode);
 }
 

@@ -84,11 +84,13 @@ npx twzrd-cold-start
 # signer_invocation_count: 0, usdc_spent: 0
 ```
 
-Probes a pinned foreign GET 402 diet (not `*.twzrd`), runs AutoGate (wash
-refuse) before any signer, writes `policy.json`, hops once from the resource
-join. Does not spend. `--spend` is refused. Seat the gate on your payer with
+Probes a pinned foreign GET 402 diet (not `*.twzrd`), scores each `payTo` with
+`evaluate_x402_resource` (wash refuse), writes `policy.json`, hops once from
+the resource join. Does not spend. `--spend` is refused. Seat AutoGate on the
+payer with
 `beforePayment: installTwzrdAutoGate("x402-solana", { refuseWashFlagged: true })`
-using that policy as the host allowlist.
+using that policy as the host allowlist. Live proof (needs egress):
+`npm run cold-start-live`.
 
 ## 2. Prove it blocked something (spends nothing)
 

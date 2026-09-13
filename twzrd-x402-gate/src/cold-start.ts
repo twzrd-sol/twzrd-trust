@@ -1,28 +1,26 @@
 /**
  * Cold-start buyer loop — no spend.
  *
- * Turns a cold agent into a repeating buyer of *foreign* x402 hosts with
- * AutoGate already on the path: pinned diet → 402 probe → wash refuse →
- * default-deny policy.json → one directory hop. Never pays. Never lists a
- * TWZRD-operated seller as diet. Self-runs are dogfood until a foreign
- * --integration plus a server-side join (see gate-adoption-operator-proof.md).
+ * Probe a pinned foreign x402 diet, score each payTo with evaluate_x402_resource
+ * (same policy AutoGate uses), write a default-deny policy.json, hop once from
+ * the resource join. Never pays. Never lists a TWZRD-operated seller as diet.
+ * Seat AutoGate on the real payer with the snippet on the transcript.
  */
 
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 
 import { resolveLineage, type GateAdoptionLineage } from "./adoption-proof.js";
-import { installTwzrdAutoGate } from "./auto-gate.js";
 import { listDirectoryCallables } from "./directory.js";
+import { evaluate_x402_resource } from "./evaluate.js";
 import {
   payToFromRequirements,
   paymentRequiredFromResponse,
   pickRequirements,
   priceUsdcFromAmountMicro,
 } from "./payto.js";
-import type { X402PaymentRequiredBody, X402PaymentRequirements } from "./types.js";
+import type { X402PaymentRequirements } from "./types.js";
 import { CLIENT_VERSION } from "./version.js";
-import type { X402SelectedRequirements } from "./x402-client-hook.js";
 
 export const COLD_START_TRANSCRIPT_SCHEMA = "twzrd.cold_start_transcript.v1" as const;
 export const COLD_START_POLICY_SCHEMA = "twzrd.cold_start_policy.v1" as const;
@@ -44,6 +42,7 @@ export const DEFAULT_MAX_PER_CALL_USDC = 0.05;
 export const DEFAULT_MAX_PER_DAY_USDC = 0.5;
 const FETCH_TIMEOUT_MS = 15_000;
 const DEFAULT_INTEL = "https://intel.twzrd.xyz";
+const HOP_INSPECT_CAP = 8;
 
 const NOT_EXTERNAL = [
   "package_download_counts",
@@ -61,12 +60,14 @@ export const USAGE = `usage: twzrd-cold-start [--diet-url <https url>]... [--no-
          [--integration <id>] [--run-id <uuid>] [--policy-out policy.json] [--out transcript.json]
          [--intel-base https://intel.twzrd.xyz] [--max-per-call-usdc 0.05] [--max-per-day-usdc 0.50]
 
-  Probe a pinned foreign x402 diet (not *.twzrd), run AutoGate (refuse wash) before
-  any signer, write a default-deny policy.json, then hop once from GET /v1/intel/resources.
-  Default is no spend. --spend is refused.
+  Probe a pinned foreign x402 diet (not *.twzrd), score each payTo with
+  evaluate_x402_resource (wash refuse), write a default-deny policy.json, then hop
+  once from GET /v1/intel/resources. Default is no spend. --spend is refused.
+  Seat AutoGate on the payer with the snippet on the transcript.
 
-  Exit 0 writes policy + transcript (signer_invocation_count=0, usdc_spent=0).
-  Exit 2 is a bad invocation. Self-serve is dogfood, not EXTERNAL_RUN.`;
+  Exit 0: at least one diet host scored (allowlisted|refused|over_cap).
+  Exit 1: no diet host scored a 402. Exit 2: bad invocation.
+  Self-serve is dogfood, not EXTERNAL_RUN.`;
 
 export type ColdStartHostStatus =
   | "allowlisted"
@@ -75,7 +76,15 @@ export type ColdStartHostStatus =
   | "not_402"
   | "no_payto"
   | "forbidden"
-  | "probe_error";
+  | "probe_error"
+  | "no_eligible_hop"
+  | "directory_error";
+
+const SCORED: ReadonlySet<ColdStartHostStatus> = new Set([
+  "allowlisted",
+  "refused",
+  "over_cap",
+]);
 
 export type ColdStartHostRow = {
   role: "diet" | "hop";
@@ -106,6 +115,7 @@ export type ColdStartPolicy = {
   mode: "default_deny";
   refuse_wash_flagged: true;
   max_per_call_usdc: number;
+  /** Advisory for the payer; this CLI does not enforce a daily cap. */
   max_per_day_usdc: number;
   autogate: { refuseWashFlagged: true; install: string };
   hosts: ColdStartPolicyHost[];
@@ -121,7 +131,6 @@ export type ColdStartTranscript = {
   lineage: GateAdoptionLineage;
   clientHeader: string;
   autogate: {
-    wired: true;
     refuseWashFlagged: true;
     install: string;
   };
@@ -136,6 +145,7 @@ export type ColdStartTranscript = {
   policy_path: string | null;
   exportedAt: string;
   notExternalRunProof: string[];
+  /** True when at least one diet host was scored (allowlisted|refused|over_cap). */
   ok: boolean;
 };
 
@@ -162,6 +172,7 @@ const VALUE_FLAGS = new Set([
   "--max-per-day-usdc",
 ]);
 
+/** Same 15s bound as bounty-preflight-cli.ts. */
 function withTimeout(doFetch: typeof fetch): typeof fetch {
   return ((input, init) => {
     const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
@@ -212,13 +223,12 @@ export function isForbiddenUrl(url: string): boolean {
     return true;
   }
   if (u.protocol !== "https:") return true;
-  if (isForbiddenHost(u.hostname.toLowerCase().replace(/^www\./, ""))) return true;
+  if (isForbiddenHost(hostnameOf(url))) return true;
   if (u.pathname.includes("/v1/intel/refuse-fixture")) return true;
   return false;
 }
 
 export function isForbiddenPayTo(payTo: string | null | undefined): boolean {
-  if (!payTo) return false;
   return payTo === REFUSE_FIXTURE_PAYTO;
 }
 
@@ -278,42 +288,53 @@ export class HelpError extends Error {
   }
 }
 
+function hostRow(
+  role: "diet" | "hop",
+  resourceUrl: string,
+  extra: Partial<Omit<ColdStartHostRow, "role" | "resource_url">> &
+    Pick<ColdStartHostRow, "status" | "reason">,
+): ColdStartHostRow {
+  const status = extra.status;
+  const abort =
+    extra.abort ?? (status === "forbidden" || status === "refused");
+  return {
+    role,
+    resource_url: resourceUrl,
+    host: extra.host !== undefined ? extra.host : hostnameOf(resourceUrl),
+    pay_to: extra.pay_to ?? null,
+    network: extra.network ?? null,
+    price_usdc: extra.price_usdc ?? null,
+    http_status: extra.http_status ?? null,
+    decision: extra.decision ?? null,
+    approved: extra.approved ?? false,
+    reason: extra.reason,
+    wash_flagged: extra.wash_flagged ?? null,
+    status,
+    abort,
+  };
+}
+
 async function probeUnpaid402(
   url: string,
   fetchImpl: typeof fetch,
 ): Promise<{
-  httpStatus: number | null;
-  challenge: X402PaymentRequiredBody | null;
+  httpStatus: number;
   req: X402PaymentRequirements;
   payTo: string | undefined;
   amountMicro: string | undefined;
-  error: string | null;
+  error: "not_402" | "no_payto" | null;
 }> {
   const resp = await fetchImpl(url, { headers: { accept: "application/json" } });
   if (resp.status !== 402) {
-    return {
-      httpStatus: resp.status,
-      challenge: null,
-      req: {},
-      payTo: undefined,
-      amountMicro: undefined,
-      error: "not_402",
-    };
+    return { httpStatus: resp.status, req: {}, payTo: undefined, amountMicro: undefined, error: "not_402" };
   }
   const challenge = await paymentRequiredFromResponse(resp);
   const req = pickRequirements(challenge?.accepts);
   const { payTo, amountMicro } = payToFromRequirements(req);
   if (!payTo) {
-    return {
-      httpStatus: 402,
-      challenge,
-      req,
-      payTo: undefined,
-      amountMicro,
-      error: "no_payto",
-    };
+    return { httpStatus: 402, req, payTo: undefined, amountMicro, error: "no_payto" };
   }
-  return { httpStatus: 402, challenge, req, payTo, amountMicro, error: null };
+  return { httpStatus: 402, req, payTo, amountMicro, error: null };
 }
 
 export function buildPolicy(input: {
@@ -349,176 +370,85 @@ export function buildPolicy(input: {
 
 export async function runColdStart(
   args: ColdStartArgs,
-): Promise<{ transcript: ColdStartTranscript; policy: ColdStartPolicy; exitCode: 0 }> {
+): Promise<{ transcript: ColdStartTranscript; policy: ColdStartPolicy; exitCode: 0 | 1 }> {
   const fetchBound = withTimeout(globalThis.fetch);
   const exportedAt = new Date().toISOString();
   const lineage = resolveLineage(args.integration);
 
-  type DecisionSnap = {
-    approved: boolean;
-    reason: string;
-    verdict: string;
-    washFlagged: boolean | null;
-  };
-  let lastDecision: DecisionSnap | null = null;
-
-  const beforePayment = installTwzrdAutoGate("x402-solana", {
-    refuseWashFlagged: true,
-    failOpen: false,
-    gateOnCanSpend: false,
-    intelBase: args.intelBase,
-    fetch: fetchBound,
-    attribution: { integration: args.integration, runId: args.runId },
-    onDecision(detail) {
-      lastDecision = {
-        approved: detail.approved,
-        reason: detail.reason,
-        verdict: detail.verdict,
-        washFlagged: /wash_flagged/.test(detail.reason) ? true : null,
-      };
-    },
-  });
-
-  async function gateRequirement(
-    url: string,
-    req: X402PaymentRequirements,
-    _challenge: X402PaymentRequiredBody | null,
-  ): Promise<DecisionSnap & { abort: boolean }> {
-    lastDecision = null;
-    const result = await beforePayment(req as X402SelectedRequirements & Record<string, unknown>, {
-      requestUrl: url,
-      declaredResource: { url },
-    });
-    const abort = result?.abort === true;
-    const snap = lastDecision ?? {
-      approved: !abort,
-      reason: abort ? (result?.reason ?? "aborted") : "twzrd_allow",
-      verdict: abort ? "block" : "allow",
-      washFlagged: null,
-    };
-    return { ...snap, abort };
-  }
-
-  const rows: ColdStartHostRow[] = [];
-
   async function consider(url: string, role: "diet" | "hop"): Promise<ColdStartHostRow> {
-    const host = hostnameOf(url);
-    if (isForbiddenUrl(url) || isForbiddenHost(host)) {
-      return {
-        role,
-        resource_url: url,
-        host,
-        pay_to: null,
-        network: null,
-        price_usdc: null,
-        http_status: null,
-        decision: null,
-        approved: false,
-        reason: "forbidden_twzrd_or_loopback",
-        wash_flagged: null,
-        status: "forbidden",
-        abort: true,
-      };
+    if (isForbiddenUrl(url)) {
+      return hostRow(role, url, { status: "forbidden", reason: "forbidden_twzrd_or_loopback" });
     }
     try {
       const probed = await probeUnpaid402(url, fetchBound);
       if (probed.error === "not_402") {
-        return {
-          role,
-          resource_url: url,
-          host,
-          pay_to: null,
-          network: null,
-          price_usdc: null,
-          http_status: probed.httpStatus,
-          decision: null,
-          approved: false,
-          reason: "not_402",
-          wash_flagged: null,
+        return hostRow(role, url, {
           status: "not_402",
-          abort: false,
-        };
-      }
-      if (probed.error === "no_payto" || !probed.payTo) {
-        return {
-          role,
-          resource_url: url,
-          host,
-          pay_to: null,
-          network: probed.req.network ?? null,
-          price_usdc: priceUsdcFromAmountMicro(probed.amountMicro) ?? null,
+          reason: "not_402",
           http_status: probed.httpStatus,
-          decision: null,
-          approved: false,
-          reason: "no_payto",
-          wash_flagged: null,
-          status: "no_payto",
           abort: false,
-        };
-      }
-      if (isForbiddenPayTo(probed.payTo)) {
-        return {
-          role,
-          resource_url: url,
-          host,
-          pay_to: probed.payTo,
-          network: probed.req.network ?? null,
-          price_usdc: priceUsdcFromAmountMicro(probed.amountMicro) ?? null,
-          http_status: probed.httpStatus,
-          decision: null,
-          approved: false,
-          reason: "forbidden_refuse_fixture_payto",
-          wash_flagged: null,
-          status: "forbidden",
-          abort: true,
-        };
+        });
       }
       const price = priceUsdcFromAmountMicro(probed.amountMicro) ?? null;
-      const gated = await gateRequirement(url, probed.req, probed.challenge);
-      const washFlagged =
-        gated.washFlagged === true || /wash_flagged/.test(gated.reason) ? true : gated.washFlagged;
-      let status: ColdStartHostStatus = "refused";
-      if (gated.approved && !gated.abort && washFlagged !== true) {
-        if (price != null && price > args.maxPerCallUsdc) status = "over_cap";
-        else status = "allowlisted";
+      const network = probed.req.network ?? null;
+      if (probed.error === "no_payto" || !probed.payTo) {
+        return hostRow(role, url, {
+          status: "no_payto",
+          reason: "no_payto",
+          network,
+          price_usdc: price,
+          http_status: probed.httpStatus,
+          abort: false,
+        });
       }
-      return {
-        role,
-        resource_url: url,
-        host,
+      if (isForbiddenPayTo(probed.payTo)) {
+        return hostRow(role, url, {
+          status: "forbidden",
+          reason: "forbidden_refuse_fixture_payto",
+          pay_to: probed.payTo,
+          network,
+          price_usdc: price,
+          http_status: probed.httpStatus,
+        });
+      }
+      const gated = await evaluate_x402_resource(url, probed.req, {
+        gateOnCanSpend: false,
+        refuseWashFlagged: true,
+        failOpen: false,
+        intelBase: args.intelBase,
+        fetch: fetchBound,
+        attribution: { integration: args.integration, runId: args.runId },
+      });
+      const washFlagged = gated.washFlagged ?? null;
+      const approved = gated.approved === true && washFlagged !== true;
+      let status: ColdStartHostStatus = "refused";
+      if (approved) {
+        status = price != null && price > args.maxPerCallUsdc ? "over_cap" : "allowlisted";
+      }
+      return hostRow(role, url, {
+        status,
+        reason: gated.reason,
         pay_to: probed.payTo,
-        network: probed.req.network ?? null,
+        network,
         price_usdc: price,
         http_status: probed.httpStatus,
-        decision: gated.verdict,
-        approved: gated.approved && !gated.abort,
-        reason: gated.reason,
+        decision: gated.decision,
+        approved,
         wash_flagged: washFlagged,
-        status,
-        abort: gated.abort,
-      };
+        abort: !approved,
+      });
     } catch (err) {
-      return {
-        role,
-        resource_url: url,
-        host,
-        pay_to: null,
-        network: null,
-        price_usdc: null,
-        http_status: null,
-        decision: null,
-        approved: false,
-        reason: err instanceof Error ? err.message : String(err),
-        wash_flagged: null,
+      return hostRow(role, url, {
         status: "probe_error",
+        reason: err instanceof Error ? err.message : String(err),
         abort: false,
-      };
+      });
     }
   }
 
-  for (const url of args.dietUrls) {
-    rows.push(await consider(url, "diet"));
-  }
+  const rows: ColdStartHostRow[] = await Promise.all(
+    args.dietUrls.map((url) => consider(url, "diet")),
+  );
 
   if (args.hop) {
     const haveHost = new Set(rows.filter((r) => r.host).map((r) => r.host as string));
@@ -533,12 +463,11 @@ export async function runColdStart(
       let hopped = false;
       let inspected = 0;
       for (const listing of listings) {
-        if (inspected >= 8) break;
+        if (inspected >= HOP_INSPECT_CAP) break;
         const url = listing.resourceUrl;
-        if (!url) continue;
+        if (!url || isForbiddenUrl(url)) continue;
         const host = hostnameOf(url);
-        if (!host || isForbiddenUrl(url) || isForbiddenHost(host)) continue;
-        if (haveHost.has(host)) continue;
+        if (!host || haveHost.has(host)) continue;
         if (listing.payTo && (havePayTo.has(listing.payTo) || isForbiddenPayTo(listing.payTo))) {
           continue;
         }
@@ -549,42 +478,27 @@ export async function runColdStart(
         }
         rows.push(row);
         hopped = true;
-        // One hop: the first extra live 402 that the gate actually scored.
         break;
       }
       if (!hopped) {
-        rows.push({
-          role: "hop",
-          resource_url: "",
-          host: null,
-          pay_to: null,
-          network: null,
-          price_usdc: null,
-          http_status: null,
-          decision: null,
-          approved: false,
-          reason: "no_eligible_hop",
-          wash_flagged: null,
-          status: "probe_error",
-          abort: false,
-        });
+        rows.push(
+          hostRow("hop", "", {
+            host: null,
+            status: "no_eligible_hop",
+            reason: "no_eligible_hop",
+            abort: false,
+          }),
+        );
       }
     } catch (err) {
-      rows.push({
-        role: "hop",
-        resource_url: "",
-        host: null,
-        pay_to: null,
-        network: null,
-        price_usdc: null,
-        http_status: null,
-        decision: null,
-        approved: false,
-        reason: err instanceof Error ? err.message : String(err),
-        wash_flagged: null,
-        status: "probe_error",
-        abort: false,
-      });
+      rows.push(
+        hostRow("hop", "", {
+          host: null,
+          status: "directory_error",
+          reason: err instanceof Error ? err.message : String(err),
+          abort: false,
+        }),
+      );
     }
   }
 
@@ -595,6 +509,7 @@ export async function runColdStart(
   });
   writeFileSync(args.policyOut, `${JSON.stringify(policy, null, 2)}\n`);
 
+  const ok = rows.some((r) => r.role === "diet" && SCORED.has(r.status));
   const transcript: ColdStartTranscript = {
     schema: COLD_START_TRANSCRIPT_SCHEMA,
     package: "twzrd-x402-gate",
@@ -605,7 +520,6 @@ export async function runColdStart(
     lineage,
     clientHeader: `twzrd-x402-gate/${CLIENT_VERSION}`,
     autogate: {
-      wired: true,
       refuseWashFlagged: true,
       install: AUTOGATE_INSTALL_SNIPPET,
     },
@@ -620,17 +534,12 @@ export async function runColdStart(
     policy_path: args.policyOut,
     exportedAt,
     notExternalRunProof: [...NOT_EXTERNAL],
-    ok: true,
+    ok,
   };
-  transcript.ok =
-    transcript.signer_invocation_count === 0 &&
-    transcript.usdc_spent === 0 &&
-    transcript.autogate.wired === true &&
-    transcript.mode === "no_spend";
 
   if (args.out) {
     writeFileSync(args.out, `${JSON.stringify(transcript, null, 2)}\n`);
   }
 
-  return { transcript, policy, exitCode: 0 };
+  return { transcript, policy, exitCode: ok ? 0 : 1 };
 }

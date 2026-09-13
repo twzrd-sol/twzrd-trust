@@ -81,6 +81,8 @@ export type EvaluateX402Result = {
   trustScore: number | null;
   approved: boolean;
   reason: string;
+  /** Free merchant_card.wash_flagged when fetched; null if unavailable. */
+  washFlagged?: boolean | null;
   card: TwzrdReadinessCard;
   /** true when the preflight was unreachable and fail-open allowed the resource */
   failOpen?: boolean;
@@ -192,6 +194,7 @@ export async function evaluate_x402_resource(
     trustScore: approval.card.trust_score ?? null,
     approved: approval.approved,
     reason: approval.reason,
+    washFlagged: approval.washFlagged ?? null,
     card: approval.card,
     failOpen: approval.failOpen,
     receiptUrl,

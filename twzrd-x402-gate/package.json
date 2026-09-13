@@ -48,6 +48,7 @@
     "prepublishOnly": "npm run verify-release",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "test": "node scripts/reap-tmp-run.mjs -- npx tsx --test test/*.test.ts test/consumer-spend-control.ts",
+    "cold-start-live": "npx tsx --test test/live/cold-start.test.ts",
     "pack-smoke": "node scripts/pack-smoke.mjs",
     "pack-release-contract": "node scripts/assert-packed-surface.mjs --public-release --from-package",
     "verify-release": "npm run typecheck && npm test && npm run pack-smoke && npm run pack-release-contract",
