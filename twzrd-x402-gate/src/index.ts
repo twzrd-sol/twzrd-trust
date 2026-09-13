@@ -380,7 +380,6 @@ export {
   parseArgs as parseColdStartArgs,
   runColdStart,
   type ColdStartArgs,
-  type ColdStartDeps,
   type ColdStartHostRow,
   type ColdStartHostStatus,
   type ColdStartPolicy,

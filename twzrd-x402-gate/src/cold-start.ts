@@ -151,13 +151,6 @@ export type ColdStartArgs = {
   maxPerDayUsdc: number;
 };
 
-export type ColdStartDeps = {
-  fetch?: typeof fetch;
-  now?: () => string;
-  listCallables?: typeof listDirectoryCallables;
-  writeFile?: (path: string, contents: string) => void;
-};
-
 const BOOLEAN_FLAGS = new Set(["--no-hop", "--help", "-h"]);
 const VALUE_FLAGS = new Set([
   "--integration",
@@ -356,12 +349,9 @@ export function buildPolicy(input: {
 
 export async function runColdStart(
   args: ColdStartArgs,
-  deps: ColdStartDeps = {},
 ): Promise<{ transcript: ColdStartTranscript; policy: ColdStartPolicy; exitCode: 0 }> {
-  const fetchBound = withTimeout(deps.fetch ?? globalThis.fetch);
-  const listCallables = deps.listCallables ?? listDirectoryCallables;
-  const writeFile = deps.writeFile ?? ((path, contents) => writeFileSync(path, contents));
-  const exportedAt = deps.now?.() ?? new Date().toISOString();
+  const fetchBound = withTimeout(globalThis.fetch);
+  const exportedAt = new Date().toISOString();
   const lineage = resolveLineage(args.integration);
 
   type DecisionSnap = {
@@ -534,7 +524,7 @@ export async function runColdStart(
     const haveHost = new Set(rows.filter((r) => r.host).map((r) => r.host as string));
     const havePayTo = new Set(rows.filter((r) => r.pay_to).map((r) => r.pay_to as string));
     try {
-      const listings = await listCallables({
+      const listings = await listDirectoryCallables({
         intelBase: args.intelBase,
         fetch: fetchBound,
         limit: 20,
@@ -603,7 +593,7 @@ export async function runColdStart(
     maxPerDayUsdc: args.maxPerDayUsdc,
     hosts: rows,
   });
-  writeFile(args.policyOut, `${JSON.stringify(policy, null, 2)}\n`);
+  writeFileSync(args.policyOut, `${JSON.stringify(policy, null, 2)}\n`);
 
   const transcript: ColdStartTranscript = {
     schema: COLD_START_TRANSCRIPT_SCHEMA,
@@ -639,7 +629,7 @@ export async function runColdStart(
     transcript.mode === "no_spend";
 
   if (args.out) {
-    writeFile(args.out, `${JSON.stringify(transcript, null, 2)}\n`);
+    writeFileSync(args.out, `${JSON.stringify(transcript, null, 2)}\n`);
   }
 
   return { transcript, policy, exitCode: 0 };
