@@ -1,10 +1,12 @@
 /**
- * x402 resource-binding v1. Canonical JSON leaf (not the earlier binary sketch).
- * Fields: schema_version, pay_to, asset, amount_raw, network, resource_url,
+ * x402 resource-binding v1 + v2. Canonical JSON leaf (not the earlier binary sketch).
+ * v1 fields: schema_version, pay_to, asset, amount_raw, network, resource_url,
  * body_hash=0, requirements_hash (named projection: payTo/amount/asset/network/
  * resource/scheme — not the verbatim accepts[] blob; mimeType/timeout/extra-only
  * diffs collide). Omitted on purpose: payer (unknown here), tx_signature/slot
- * (a leaf cannot contain its own tx), salt (v1 has none; adding one is v2).
+ * (a leaf cannot contain its own tx), salt (v1 has none).
+ * v2 adds required decision_id and optional preflight_id to that leaf; memo
+ * prefix is rb2: (same 47-byte size). rb1: is frozen.
  * Bind is a local decision (leaf_hash on ResourceBindDecision). This seat
  * never mutates seller extra: ExactSvm/Otto compare extra to the advertised
  * 402 extra. extra.memo and extra.twzrd_resource_bind are not written.
@@ -16,11 +18,20 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "./intent.js";
 
 export const RESOURCE_BIND_DOMAIN = "twzrd:x402-resource-binding:v1";
+export const RESOURCE_BIND_DOMAIN_V2 = "twzrd:x402-resource-binding:v2";
 export const RESOURCE_BIND_EXTRA_KEY = "twzrd_resource_bind";
 export const RESOURCE_BIND_MEMO_PREFIX = "rb1:";
+export const RESOURCE_BIND_V2_MEMO_PREFIX = "rb2:";
 /** Memo program CU ≈ 1320 + 358*bytes. 48 B ≈ 18.5k < ExactSvm 20k budget. */
 export const RESOURCE_BIND_MEMO_MAX = 48;
 export const ZERO_BODY_HASH = "0".repeat(64);
+export const DECISION_ID_MAX_BYTES = 128;
+
+export type ResourceBindSchema = 1 | 2;
+export type DecisionBind = {
+  decision_id: string;
+  preflight_id?: number;
+};
 
 /** v1 402 JSON body keyed by request URL and accepts[].resource. Header is CAIP. */
 export const rawInvoiceByResource = new Map<string, unknown>();
@@ -130,34 +141,86 @@ export function rawReqFromPaymentRequired(
   return null;
 }
 
-export function resourceBindLeafHash(req: ResourceBindReq): string {
+function offerProjection(req: ResourceBindReq): {
+  amount: string; payTo: string; raw: string; requirements_hash: string;
+} {
   const amount = req.amount ?? req.maxAmountRequired ?? "";
   const payTo = req.payTo ?? req.pay_to ?? "";
   const raw = req.resource ?? "";
-  const leaf = {
-    amount_raw: amount, asset: req.asset ?? "", body_hash: ZERO_BODY_HASH,
-    network: req.network ?? "", pay_to: payTo,
+  return {
+    amount, payTo, raw,
     requirements_hash: sha256(canonicalJson({
       amount, asset: req.asset ?? "", network: req.network ?? "",
       payTo, resource: req.resource ?? "", scheme: req.scheme ?? "",
     })),
+  };
+}
+
+export function resourceBindLeafHash(req: ResourceBindReq): string {
+  const { amount, payTo, raw, requirements_hash } = offerProjection(req);
+  const leaf = {
+    amount_raw: amount, asset: req.asset ?? "", body_hash: ZERO_BODY_HASH,
+    network: req.network ?? "", pay_to: payTo, requirements_hash,
     resource_url: raw ? canonicalResourceUrl(raw) : "", schema_version: 1,
   };
   return sha256(`${RESOURCE_BIND_DOMAIN}\n${canonicalJson(leaf)}`);
 }
 
-export function resourceBindMemo(leaf_hash: string): string {
-  const bytes = Buffer.from(leaf_hash, "hex");
-  if (bytes.length !== 32) throw new Error("leaf_hash must be 32-byte hex");
-  return `${RESOURCE_BIND_MEMO_PREFIX}${bytes.toString("base64url")}`;
+/** 1..=128 UTF-8 bytes. Empty or oversized decision_id cannot be committed to. */
+export function assertDecisionId(decision_id: string): string {
+  if (typeof decision_id !== "string") {
+    throw new Error("decision_id required");
+  }
+  const bytes = Buffer.byteLength(decision_id, "utf8");
+  if (bytes < 1 || bytes > DECISION_ID_MAX_BYTES) {
+    throw new Error(`decision_id must be 1..=${DECISION_ID_MAX_BYTES} UTF-8 bytes`);
+  }
+  return decision_id;
 }
 
-export function memoContainsResourceBind(memo: string, leaf_hash: string): boolean {
-  return memo === resourceBindMemo(leaf_hash);
+export function normalizePreflightId(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  return undefined;
+}
+
+export function resourceBindLeafHashV2(req: ResourceBindReq, bind: DecisionBind): string {
+  const decision_id = assertDecisionId(bind.decision_id);
+  const { amount, payTo, raw, requirements_hash } = offerProjection(req);
+  const leaf: Record<string, unknown> = {
+    amount_raw: amount, asset: req.asset ?? "", body_hash: ZERO_BODY_HASH,
+    decision_id, network: req.network ?? "", pay_to: payTo, requirements_hash,
+    resource_url: raw ? canonicalResourceUrl(raw) : "", schema_version: 2,
+  };
+  const preflight_id = normalizePreflightId(bind.preflight_id);
+  if (preflight_id !== undefined) leaf.preflight_id = preflight_id;
+  return sha256(`${RESOURCE_BIND_DOMAIN_V2}\n${canonicalJson(leaf)}`);
+}
+
+export function resourceBindMemo(leaf_hash: string, schema: ResourceBindSchema = 1): string {
+  const bytes = Buffer.from(leaf_hash, "hex");
+  if (bytes.length !== 32) throw new Error("leaf_hash must be 32-byte hex");
+  const prefix = schema === 2 ? RESOURCE_BIND_V2_MEMO_PREFIX : RESOURCE_BIND_MEMO_PREFIX;
+  return `${prefix}${bytes.toString("base64url")}`;
+}
+
+export function memoContainsResourceBind(
+  memo: string, leaf_hash: string, schema?: ResourceBindSchema,
+): boolean {
+  if (schema === 1 || schema === 2) return memo === resourceBindMemo(leaf_hash, schema);
+  return memo === resourceBindMemo(leaf_hash, 1) || memo === resourceBindMemo(leaf_hash, 2);
+}
+
+/** Prefer rb2: then rb1: then the first memo. */
+export function pickBindMemo(memos: readonly string[]): string | null {
+  const rb2 = memos.find((m) => m.startsWith(RESOURCE_BIND_V2_MEMO_PREFIX));
+  if (rb2) return rb2;
+  const rb1 = memos.find((m) => m.startsWith(RESOURCE_BIND_MEMO_PREFIX));
+  if (rb1) return rb1;
+  return memos[0] ?? null;
 }
 
 export function stampResourceBind(
-  req: ResourceBindReq, paymentRequired?: unknown,
+  req: ResourceBindReq, paymentRequired?: unknown, bind?: Partial<DecisionBind>,
 ): ResourceBindDecision {
   const cached = (req.resource && rawInvoiceByResource.get(req.resource))
     || rawInvoiceByResource.get(String(req.resource || ""));
@@ -166,9 +229,18 @@ export function stampResourceBind(
   if (!(hashSrc.payTo ?? hashSrc.pay_to) || !(hashSrc.amount ?? hashSrc.maxAmountRequired) || !hashSrc.resource) {
     return refuse("missing payTo/amount/resource");
   }
+  const decision_id = typeof bind?.decision_id === "string" && bind.decision_id.length > 0
+    ? bind.decision_id : undefined;
   let leaf_hash: string;
-  try { leaf_hash = resourceBindLeafHash(hashSrc); }
-  catch { return refuse("uncanonical resource URL"); }
+  try {
+    leaf_hash = decision_id
+      ? resourceBindLeafHashV2(hashSrc, { decision_id, preflight_id: bind?.preflight_id })
+      : resourceBindLeafHash(hashSrc);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("decision_id")) return refuse("invalid decision_id");
+    return refuse("uncanonical resource URL");
+  }
   return {
     strength: "soft", evidence_level: "client_stamped", fact_type: "resource_bound",
     leaf_hash, extra_stamped: false,
@@ -183,7 +255,7 @@ export function evaluateResourceBind(obs: {
   tx_memo?: string;
 }): ResourceBindDecision {
   if (obs.body_hash && obs.body_hash !== ZERO_BODY_HASH) {
-    return refuse("v1 forbids nonzero body_hash", obs.leaf_hash);
+    return refuse("nonzero body_hash forbidden", obs.leaf_hash);
   }
   const hard = !!obs.tx_contains_hash ||
     (!!obs.tx_memo && memoContainsResourceBind(obs.tx_memo, obs.leaf_hash));

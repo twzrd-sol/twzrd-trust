@@ -19,7 +19,7 @@ import {
   type PaymentDecision,
 } from "../src/decision-token.js";
 import { evaluateIntent } from "../src/policy-runtime.js";
-import { resourceBindLeafHash, type ResourceBindReq } from "../src/resource-bind.js";
+import { resourceBindLeafHash, resourceBindLeafHashV2, type ResourceBindReq } from "../src/resource-bind.js";
 import type { PaymentIntent } from "../src/intent.js";
 import {
   PAYMENT_DECISION_DECISIONS,
@@ -27,6 +27,7 @@ import {
   PAYMENT_DECISION_FIELDS,
   PAYMENT_DECISION_REASON_CODES,
   PAYMENT_DECISION_SCHEMA,
+  challengeHash,
   challengeHashV1,
   decisionFromApproval,
   issuePaymentDecisionRecord,
@@ -480,6 +481,27 @@ async function run() {
       "an unmappable challenge network is reported, never silently passed");
   }
 
+  /* ---------- 8b. bind-v2 challenge_hash when decision_id is set ---------- */
+  {
+    const decision_id = "decision-test-1";
+    const preflight_id = 42;
+    const v2 = resourceBindLeafHashV2(CHALLENGE, { decision_id, preflight_id });
+    assert.equal(challengeHash(CHALLENGE, { decision_id, preflight_id }), v2);
+    assert.notEqual(challengeHashV1(CHALLENGE), v2);
+    const rec = await issuePaymentDecisionRecord(
+      {
+        challenge: CHALLENGE, decision: "allow", reason_code: "ALLOW",
+        evidence_id: "ev-v2", expires_at: FIXTURE_EXPIRES, decision_id, preflight_id,
+      },
+      vectorSigner,
+    );
+    assert.equal(rec.challenge_hash, v2);
+    const ok = verify(rec, { challenge: CHALLENGE, decision_id, preflight_id });
+    assert.equal(ok.ok, true, JSON.stringify(ok.errors));
+    assert.ok(has(verify(rec, { challenge: CHALLENGE }), "challenge_hash_mismatch"),
+      "recomputing v1 against a v2 record fails closed");
+  }
+
   /* ---------- 9. preimage + JSON schema agree with the code ---------- */
   {
     const rec = fixture.records.allow;
@@ -540,7 +562,7 @@ async function run() {
     }
   }
 
-  console.log("payment-decision.test.ts: ALL PASSED (10 sections)");
+  console.log("payment-decision.test.ts: ALL PASSED (11 sections)");
 }
 
 run().catch((e) => {

@@ -5,7 +5,7 @@
  * inclusion (fetch by signature, err null) before treating hard as chain evidence.
  */
 import {
-  evaluateResourceBind, memoContainsResourceBind, RESOURCE_BIND_MEMO_PREFIX,
+  evaluateResourceBind, memoContainsResourceBind, pickBindMemo,
   type ResourceBindDecision,
 } from "./resource-bind.js";
 
@@ -62,7 +62,7 @@ async function observe(transaction: string): Promise<{ memos: string[]; transfer
 export async function extractSvmMemoFromTransaction(transaction: string): Promise<string | null> {
   const o = await observe(transaction);
   if (!o?.memos.length) return null;
-  return o.memos.find((m) => m.startsWith(RESOURCE_BIND_MEMO_PREFIX)) ?? o.memos[0];
+  return pickBindMemo(o.memos);
 }
 
 export async function extractSvmTransferLegs(transaction: string): Promise<SvmTransferLegs | null> {
@@ -88,7 +88,7 @@ export async function evaluateResourceBindLegsFromSvmTx(
 ): Promise<ResourceBindDecision> {
   const o = await observe(transaction);
   if (!o) return evaluateResourceBind({ leaf_hash: leaf.leaf_hash, extra_stamped: false });
-  const tx_memo = o.memos.find((m) => m.startsWith(RESOURCE_BIND_MEMO_PREFIX)) ?? o.memos[0] ?? null;
+  const tx_memo = pickBindMemo(o.memos);
   const tr = o.transfer;
   if (!tr) return refuse(leaf.leaf_hash, "no TransferChecked in tx");
   let amountOk = false;
