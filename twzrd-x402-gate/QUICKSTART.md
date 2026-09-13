@@ -76,6 +76,20 @@ The factory itself does not read `TWZRD_AUTO_GATE`; use the AutoGate seat if you
 want the env kill switch re-read per call. You cannot `installTwzrdAutoGate(client)`
 after `createPayKitClient` — PayKit only accepts the hook at construction.
 
+## 1d. Cold-start a foreign diet (0 USDC)
+
+```bash
+npx twzrd-cold-start
+# policy.json: default-deny allowlist of foreign 402 hosts
+# signer_invocation_count: 0, usdc_spent: 0
+```
+
+Probes a pinned foreign GET 402 diet (not `*.twzrd`), runs AutoGate (wash
+refuse) before any signer, writes `policy.json`, hops once from the resource
+join. Does not spend. `--spend` is refused. Seat the gate on your payer with
+`beforePayment: installTwzrdAutoGate("x402-solana", { refuseWashFlagged: true })`
+using that policy as the host allowlist.
+
 ## 2. Prove it blocked something (spends nothing)
 
 Hello-world that closes from this package (needs a prior **repo-root** `npm ci`

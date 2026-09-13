@@ -17,6 +17,25 @@ This document is the product. Install remains `twzrd-x402-gate@0.9.7`.
 
 ## The six steps
 
+### 0. Cold-start a buyer diet (0 USDC)
+
+A cold agent does not become a customer by browsing a bazaar. Give it a
+default-deny policy and a pinned diet of **foreign** live 402s, with AutoGate
+already on the path:
+
+```bash
+npx twzrd-cold-start
+# writes policy.json — signer_invocation_count: 0, usdc_spent: 0
+```
+
+The command probes GET 402s (not `*.twzrd`), refuses wash, allowlists hosts
+under `--max-per-call-usdc` (default 0.05), then hops **once** from
+`GET /v1/intel/resources`. It does not spend. `--spend` is refused. A self-run
+is dogfood until a foreign `--integration` plus a server-side join.
+
+Then seat the gate on the real payer with the snippet in the transcript
+(`beforePayment: installTwzrdAutoGate("x402-solana", { refuseWashFlagged: true })`).
+
 ### 1. Install the gate
 
 ```bash

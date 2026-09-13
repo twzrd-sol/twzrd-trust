@@ -108,6 +108,8 @@ curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0
 # createX402Client({ wallet, network: "solana",
 #   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })
+# Cold-start a foreign 402 diet + default-deny policy (0 USDC, not a TWZRD bazaar):
+# npx twzrd-cold-start
 # Hello-world that closes from this repo (after root npm ci && npm run build):
 # npm run gate-eval-refuse --workspace=twzrd-x402-gate
 # Optional seat proof (can exit 2 if the live clean fixture is wash-flagged):
@@ -191,6 +193,7 @@ const client = createX402Client({
 
 ```bash
 npm install twzrd-x402-gate@0.9.7 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+npx twzrd-cold-start
 node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 

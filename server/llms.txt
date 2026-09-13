@@ -27,6 +27,7 @@ npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0
 # npm, so on a cold machine run the full line first:
 #   npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
+# npx twzrd-cold-start   # foreign 402 diet + default-deny policy.json (0 USDC)
 #
 # (There is no examples/ directory inside the published package - its `files`
 # array ships only dist, bin, README and QUICKSTART. bin/ is the proof path.)

@@ -363,6 +363,31 @@ export {
 // Worker-side bounty preflight (zero spend): board parsers, break-even math, and
 // the per-row proceed/refuse decision behind bin/twzrd-bounty-preflight.js.
 export {
+  AUTOGATE_INSTALL_SNIPPET,
+  COLD_START_POLICY_SCHEMA,
+  COLD_START_TRANSCRIPT_SCHEMA,
+  DEFAULT_COLD_START_DIET,
+  DEFAULT_MAX_PER_CALL_USDC,
+  DEFAULT_MAX_PER_DAY_USDC,
+  HelpError,
+  REFUSE_FIXTURE_PAYTO,
+  USAGE as COLD_START_USAGE,
+  buildPolicy,
+  hostnameOf,
+  isForbiddenHost,
+  isForbiddenPayTo,
+  isForbiddenUrl,
+  parseArgs as parseColdStartArgs,
+  runColdStart,
+  type ColdStartArgs,
+  type ColdStartDeps,
+  type ColdStartHostRow,
+  type ColdStartHostStatus,
+  type ColdStartPolicy,
+  type ColdStartPolicyHost,
+  type ColdStartTranscript,
+} from "./cold-start.js";
+export {
   BOUNTY_PREFLIGHT_SCHEMA,
   breakEvenWinProb,
   buildPreflightReport,

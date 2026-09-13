@@ -11,7 +11,8 @@
     "twzrd-gate-doctor": "./bin/twzrd-gate-doctor.js",
     "twzrd-evidence-bundle": "./bin/twzrd-evidence-bundle.js",
     "twzrd-payment-decision": "./bin/twzrd-payment-decision.js",
-    "twzrd-bounty-preflight": "./bin/twzrd-bounty-preflight.js"
+    "twzrd-bounty-preflight": "./bin/twzrd-bounty-preflight.js",
+    "twzrd-cold-start": "./bin/twzrd-cold-start.js"
   },
   "exports": {
     ".": {
@@ -71,7 +72,8 @@
     "gate-doctor": "tsx src/doctor.ts",
     "evidence-verify": "tsx src/evidence-verify.ts --verify",
     "payment-decision-verify": "tsx src/payment-decision.ts --verify",
-    "bounty-preflight": "node bin/twzrd-bounty-preflight.js"
+    "bounty-preflight": "node bin/twzrd-bounty-preflight.js",
+    "cold-start": "node bin/twzrd-cold-start.js"
   },
   "keywords": [
     "x402",
