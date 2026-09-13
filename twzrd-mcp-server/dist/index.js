@@ -277,7 +277,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const trustText = await api(`/v1/intel/trust/${String(a.wallet)}${a.seller_wallet ? `?seller_wallet=${a.seller_wallet}` : ""}`, { paid: true });
             return { content: [{ type: "text", text: attachOfflineVerification(trustText) }] };
         }
-        case "preflight": return { content: [{ type: "text", text: await api("/v1/intel/preflight", { method: "POST", body: { seller_wallet: a.seller_wallet, resource_name: a.resource_name || "MCP", price_usdc: a.price_usdc ?? 0.05 } }) }] };
+        case "preflight": {
+            const body = {
+                seller_wallet: a.seller_wallet,
+                resource_name: a.resource_name || "MCP",
+            };
+            if (typeof a.price_usdc === "number" && Number.isFinite(a.price_usdc)) {
+                body.price_usdc = a.price_usdc;
+            }
+            return { content: [{ type: "text", text: await api("/v1/intel/preflight", { method: "POST", body }) }] };
+        }
         case "merchant_card": return { content: [{ type: "text", text: await api(`/v1/intel/merchant_card/${String(a.wallet)}`) }] };
         case "verify_receipt": return { content: [{ type: "text", text: await verifyReceiptByWallet(String(a.wallet)) }] };
         case "wallet_lookup": return { content: [{ type: "text", text: await api(`/v1/intel/get_facilitator_footprint?wallet=${String(a.wallet)}`) }] };
