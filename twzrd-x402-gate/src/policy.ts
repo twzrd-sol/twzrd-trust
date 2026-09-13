@@ -3,6 +3,7 @@ import { CLIENT_VERSION } from "./version.js";
 import {
   applyWashFlaggedPolicy,
   fetchMerchantCard,
+  fetchMerchantCardResult,
 } from "./merchant-card.js";
 import {
   amountBucket,
@@ -128,7 +129,22 @@ export async function twzrdPreflight(
 
 /**
  * Trustless wash tighten (merchant_card). Wallet-keyed, chain-neutral.
- * Only tightens; fail-open when the card is unreachable (no invent).
+ * Only tightens; never invents wash_flagged.
+ *
+ * An UNREACHABLE card (5xx/429, non-JSON body, thrown/aborted fetch) is an
+ * outage and is decided by `cfg.failOpen`, exactly like a preflight outage:
+ * fail-closed by default, allow only when the caller opted into failOpen —
+ * subject to `failClosedOnOutage` and to only-ever-tightening (see below).
+ * A REACHABLE card carrying no wash_flagged is a genuine unknown and still fails
+ * open — that is the no-invent rule and is unchanged. A 4xx is the service
+ * answering, not an outage; see fetchMerchantCardResult.
+ *
+ * These were previously the same thing. fetchMerchantCard caught its own fetch
+ * errors and returned null, so an outage arrived here indistinguishable from
+ * "no signal" and always allowed, while the surrounding try/catch that honours
+ * failOpen never saw the error. `failOpen: false` therefore documented a
+ * guarantee this path could not give (BlockRunAI/ClawRouter v0.12.278 removal
+ * notes, 2026-09-07).
  */
 async function tightenWithMerchantCardWash(input: {
   seller: string | undefined;
@@ -137,6 +153,17 @@ async function tightenWithMerchantCardWash(input: {
   verdict: TwzrdGateDecision;
   priceUsdc?: number;
   cfg: ResolvedTwzrdGateConfig;
+  /**
+   * Whether a card OUTAGE on this path may refuse under `failOpen: false`.
+   *
+   * True only on the reputation-scored path, where the gate claims a verdict and
+   * "could not evaluate" is the failure `failOpen` exists to decide. False on the
+   * unsupported-network `observe` path: there the operator has already said
+   * "allow what you cannot score" for a chain that gets no trust signal at all,
+   * so refusing it on a wash-lookup hiccup is over-refusal, not fail-closed
+   * safety (`strict` blocks that path before intel is ever called).
+   */
+  failClosedOnOutage: boolean;
 }): Promise<{
   approved: boolean;
   reason: string;
@@ -150,12 +177,30 @@ async function tightenWithMerchantCardWash(input: {
   let verdict = input.verdict;
 
   if (input.cfg.refuseWashFlagged && input.seller) {
-    const mcard = await fetchMerchantCard(input.seller, {
+    const lookup = await fetchMerchantCardResult(input.seller, {
       intelBase: input.cfg.intelBase,
       fetch: input.cfg.fetch,
     });
-    if (mcard && typeof mcard.wash_flagged === "boolean") {
-      washFlagged = mcard.wash_flagged;
+    // Only TIGHTENS, like applyWashFlaggedPolicy below: an outage may refuse a
+    // payment that was otherwise going through, but must never relabel a
+    // payment already refused for a more specific reason (`input.approved`) —
+    // the caller needs to see WHY it was blocked, and a denied payment is
+    // denied either way.
+    if (!lookup.reachable && !input.cfg.failOpen && input.failClosedOnOutage && input.approved) {
+      // Outage, and the caller did not opt into failOpen. Refuse before the
+      // signer, and say which of the two unknowns this was.
+      console.warn(
+        `[twzrd-x402-gate] payment BLOCKED: merchant_card unreachable (fail-closed) — ${lookup.error}. Set TWZRD_FAIL_OPEN=true to allow payments when the gate is down.`,
+      );
+      return {
+        approved: false,
+        reason: `twzrd_card_unreachable_fail_closed (${lookup.error})`,
+        verdict: "block",
+        washFlagged: null,
+      };
+    }
+    if (lookup.card && typeof lookup.card.wash_flagged === "boolean") {
+      washFlagged = lookup.card.wash_flagged;
     }
   }
 
@@ -250,6 +295,9 @@ export async function twzrdApprovePayment(
       verdict: "unknown",
       priceUsdc: context.priceUsdc,
       cfg,
+      // observe on an unscored chain: a wash_flagged=true payTo still refuses,
+      // but a card OUTAGE keeps the observe allow. See failClosedOnOutage.
+      failClosedOnOutage: false,
     });
     unsupportedLog(wash.approved ? "allow" : "block");
     return {
@@ -288,7 +336,9 @@ export async function twzrdApprovePayment(
     }
 
     // Trustless step 3: free merchant_card wash refuse (default on).
-    // Only tightens; fail-open when card is unreachable (washFlagged=null).
+    // Only tightens. A card that ANSWERS with no wash signal fails open
+    // (washFlagged stays null — never invented); a card that is UNREACHABLE is
+    // decided by failOpen, fail-closed by default.
     const wash = await tightenWithMerchantCardWash({
       seller: card.seller_wallet ?? context.sellerWallet ?? context.payTo,
       approved: result.approved,
@@ -296,6 +346,9 @@ export async function twzrdApprovePayment(
       verdict: result.verdict,
       priceUsdc: context.priceUsdc,
       cfg,
+      // Scored path: the gate claims a verdict here, so a card outage is the
+      // "could not evaluate" that failOpen:false is documented to refuse.
+      failClosedOnOutage: true,
     });
 
     return {

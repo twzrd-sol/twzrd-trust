@@ -273,8 +273,10 @@ Canonical path for every agent that spends USDC on Solana x402:
 | 4 | Pay (or refuse) | resource price | Only if steps 1–2 approved (and any opt-in paid escalate did not block). |
 
 **Fail-open (no invent):**
-- Preflight HTTP/network error → default fail-closed in gate 0.2+ (`TWZRD_FAIL_OPEN=true` restores legacy allow-on-outage).
-- Merchant card unreachable / non-2xx / missing `wash_flagged` → `washFlagged=null` → **do not refuse on wash** (preflight decision stands).
+- Preflight HTTP/network error → default fail-closed (`TWZRD_FAIL_OPEN=true` restores legacy allow-on-outage).
+- Merchant card **outage** on a reputation-scored path (5xx, 429, thrown fetch, non-JSON 200) → same `failOpen` switch; default refuses with `twzrd_card_unreachable_fail_closed`. This is tighten-only: an already-blocked payment keeps its more specific reason.
+- Merchant card **reachable** with no `wash_flagged` (including 4xx, or 200 + `insufficient_evidence`) → `washFlagged=null` → **do not refuse on wash**.
+- Unscored-network `observe`: a card outage keeps the observe allow; `wash_flagged: true` still refuses.
 - Only a successful card with `wash_flagged: true` triggers wash refuse or soft cap.
 
 **Wash policy (exact):**
@@ -561,7 +563,7 @@ Default **ON**. Disable with `TWZRD_AUTO_GATE=0` (env, deploy-time kill switch) 
 What happens on every HTTP 402 the raw fetch returns:
 1. Reads the Solana-network entry from `accepts[]` (falls back to first entry) to get the seller wallet.
 2. Calls `POST /v1/intel/preflight` — free, no auth. `decision=block` (or score floor) throws — `payWrap`'s client never signs.
-3. Calls `GET /v1/intel/merchant_card/{payTo}` — free, no auth. `wash_flagged: true` refuses by default (only tightens step 2; fail-open if the card is unreachable — no invent).
+3. Calls `GET /v1/intel/merchant_card/{payTo}` — free, no auth. `wash_flagged: true` refuses by default (only tightens step 2). A reachable card with no wash signal fails open (no invent). A card outage on the scored path honours `failOpen` (default fail-closed).
 4. Otherwise returns the 402 to `payWrap`'s client, which pays normally.
 
 Non-402 responses pass through unchanged.
@@ -656,7 +658,8 @@ What the guard does on HTTP 402:
 1. Reads the Solana-network entry from `accepts[]` (falls back to first entry) to get the seller wallet.
 2. Free `POST /v1/intel/preflight` — `decision=block` / score floor deny.
 3. Free `GET /v1/intel/merchant_card/{payTo}` — `wash_flagged:true` **refuses by default**
-   (`reason: twzrd_wash_flagged`). Fail-open if the card is unreachable (no invent).
+   (`reason: twzrd_wash_flagged`). Reachable + no signal fails open (no invent). A card
+   outage on the scored path honours `failOpen` (default fail-closed).
 4. If approved: returns the original 402 for the x402 client to pay.
 
 Opt out of wash refuse: `withTwzrdGuard(fetch, { refuseWashFlagged: false })` or

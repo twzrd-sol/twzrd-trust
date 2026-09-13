@@ -211,6 +211,16 @@ async function run() {
     { decision: "unavailable", reason_code: "INTEL_UNAVAILABLE" },
   );
   assert.deepEqual(
+    decisionFromApproval({
+      verdict: "block",
+      approved: false,
+      reason: "twzrd_card_unreachable_fail_closed (http_503)",
+      failOpen: false,
+    }),
+    { decision: "unavailable", reason_code: "INTEL_UNAVAILABLE" },
+    "merchant_card outage is no-verdict, not INTEL_BLOCK",
+  );
+  assert.deepEqual(
     decisionFromApproval({ verdict: "unknown", approved: true, reason: "network_not_scored", reputationScored: false }),
     { decision: "unavailable", reason_code: "NETWORK_NOT_SCORED" },
   );

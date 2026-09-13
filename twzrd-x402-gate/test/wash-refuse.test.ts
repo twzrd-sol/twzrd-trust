@@ -159,16 +159,31 @@ async function run() {
   assert.equal(clean.approved, true, "clean merchant allows");
   assert.equal(clean.washFlagged, false);
 
-  const failOpenCard = await twzrdApprovePayment(
+  const failClosedCard = await twzrdApprovePayment(
     { payTo: "GAP", priceUsdc: 0.5 },
     resolveConfig({
+      failOpen: false,
       fetch: routedFetch({
         preflightCard: allowCard,
         merchantCard: null, // throws
       }),
     }),
   );
-  assert.equal(failOpenCard.approved, true, "merchant_card outage fail-opens");
+  assert.equal(failClosedCard.approved, false, "merchant_card outage fail-closes by default");
+  assert.match(failClosedCard.reason, /^twzrd_card_unreachable_fail_closed/);
+  assert.equal(failClosedCard.washFlagged, null);
+
+  const failOpenCard = await twzrdApprovePayment(
+    { payTo: "GAP", priceUsdc: 0.5 },
+    resolveConfig({
+      failOpen: true,
+      fetch: routedFetch({
+        preflightCard: allowCard,
+        merchantCard: null,
+      }),
+    }),
+  );
+  assert.equal(failOpenCard.approved, true, "failOpen=true still allows on card outage");
   assert.equal(failOpenCard.washFlagged, null);
 
   const optOut = await twzrdApprovePayment(

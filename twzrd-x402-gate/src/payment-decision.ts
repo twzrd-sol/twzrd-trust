@@ -404,8 +404,9 @@ export async function paymentDecisionRecordFromToken(
  * Classify a ReadinessCard-path approval (policy.ts twzrdApprovePayment) for
  * the record. This is where `unavailable` is separated from `block`: the gate
  * reports an unreachable preflight as `verdict:"block", reason:"twzrd_fail_closed (…)"`
- * (fail-closed) or `verdict:"warn", reason:"twzrd_fail_open"` (fail-open).
- * Both are the SAME fact for a relying party — no verdict was produced — and
+ * (fail-closed) or `verdict:"warn", reason:"twzrd_fail_open"` (fail-open), and a
+ * merchant_card outage as `twzrd_card_unreachable_fail_closed (…)`.
+ * Those are the SAME fact for a relying party — no verdict was produced — and
  * the record says so. An unscored network (`verdict:"unknown"`) is likewise
  * unavailable, never block or allow.
  */
@@ -414,7 +415,11 @@ export function decisionFromApproval(
     Partial<Pick<TwzrdApprovalResult, "failOpen" | "washFlagged" | "reputationScored">>,
 ): { decision: PaymentDecisionRecordDecision; reason_code: PaymentDecisionReasonCode } {
   const reason = String(result.reason ?? "");
-  if (result.failOpen === true || /^twzrd_fail_(?:closed|open)\b/.test(reason)) {
+  if (
+    result.failOpen === true ||
+    /^twzrd_fail_(?:closed|open)\b/.test(reason) ||
+    /^twzrd_card_unreachable_fail_closed\b/.test(reason)
+  ) {
     return { decision: "unavailable", reason_code: "INTEL_UNAVAILABLE" };
   }
   // A wash refuse is a real verdict even on an unscored network (Base wash

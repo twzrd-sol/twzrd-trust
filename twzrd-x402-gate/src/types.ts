@@ -57,8 +57,10 @@ export type TwzrdGateConfig = {
   /**
    * After free preflight, also GET free merchant_card for payTo and refuse
    * when wash_flagged=true. Default: true (trustless step 3 open default).
-   * Fail-open if the card is unreachable — never invent wash. Opt out with
-   * refuseWashFlagged:false or TWZRD_REFUSE_WASH_FLAGGED=0.
+   * A reachable card with no wash_flagged fails open (never invent). An
+   * unreachable card (5xx/429/network/bad JSON) on the scored path honours
+   * failOpen (default fail-closed). 4xx is a service answer, not an outage.
+   * Opt out of wash refuse with refuseWashFlagged:false or TWZRD_REFUSE_WASH_FLAGGED=0.
    */
   refuseWashFlagged?: boolean;
   /**
