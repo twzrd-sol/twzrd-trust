@@ -25,6 +25,7 @@ import assert from "node:assert/strict";
 import { resolveConfig } from "../src/config.js";
 import { twzrdApprovePayment } from "../src/policy.js";
 import { createTwzrdBeforePaymentHook } from "../src/x402-client-hook.js";
+import { wrapFetchWithTwzrdGate } from "../src/wrap-fetch.js";
 
 const PAYTO = "7G73PLhKvAPBGTzG5ESAE4coE7QrVeTTKfhTxQZbyGgC";
 
@@ -312,6 +313,32 @@ async function run() {
     assert.equal(signed, 0, "signer_invocation_count stays 0");
   }
   console.log("ok  createTwzrdBeforePaymentHook aborts on card 503 before sign (failOpen=false)");
+
+  // --- 9. wrapFetch (the other public 402 seat): same outage must throw
+  //        before the caller can attach payment. clawrouter-contract only
+  //        covers preflight block/allow and failOpen:true. ---
+  {
+    const merchant402: typeof fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          accepts: [{ payTo: PAYTO, network: "solana", maxAmountRequired: "1000" }],
+        }),
+        { status: 402, headers: { "content-type": "application/json" } },
+      )) as unknown as typeof fetch;
+    const gated = wrapFetchWithTwzrdGate(
+      merchant402,
+      resolveConfig({
+        refuseWashFlagged: true,
+        failOpen: false,
+        fetch: cardFailingFetch("http503"),
+      }),
+    );
+    await assert.rejects(
+      () => gated("https://merchant.example/paid"),
+      /twzrd_card_unreachable_fail_closed/,
+    );
+  }
+  console.log("ok  wrapFetch throws on card 503 before the caller can pay (failOpen=false)");
 
   console.log("card-unreachable-failopen.test.ts: ALL PASSED");
 }
