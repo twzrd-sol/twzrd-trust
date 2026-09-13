@@ -48,7 +48,8 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
       ? new Set([...overrides.blockDecisions].map((s) => s.trim()).filter(Boolean))
       : parseBlockDecisions(process.env.TWZRD_BLOCK_DECISIONS);
 
-  // Default false (fail-closed): block and log loudly on preflight outage.
+  // Default false (fail-closed): block and log loudly on preflight outage,
+  // and on merchant_card outage on the reputation-scored path.
   // Opt in to legacy fail-open with TWZRD_FAIL_OPEN=true or TWZRD_FAIL_OPEN=1.
   const failOpen =
     overrides?.failOpen ??

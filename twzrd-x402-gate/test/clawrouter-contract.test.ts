@@ -54,7 +54,17 @@ async function withMockProxy(fn: (base: string) => Promise<void>): Promise<void>
 
 const preflight = (card: unknown): typeof fetch =>
   (async (url: unknown) => {
-    assert.ok(String(url).endsWith("/v1/intel/preflight"), "gate must hit the free preflight endpoint");
+    const u = String(url);
+    // Wash tighten always GETs merchant_card after preflight. A reachable
+    // no-signal card must not be mistaken for an outage, or an allow decision
+    // gets relabelled twzrd_card_unreachable_fail_closed.
+    if (u.includes("/v1/intel/merchant_card/")) {
+      return new Response(JSON.stringify({ merchant: PAYTO }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    assert.ok(u.includes("/v1/intel/preflight"), "gate must hit the free preflight endpoint");
     return new Response(JSON.stringify({ readiness_card: card }), {
       status: 200,
       headers: { "content-type": "application/json" },

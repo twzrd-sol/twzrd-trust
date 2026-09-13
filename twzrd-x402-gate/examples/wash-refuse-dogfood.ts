@@ -4,7 +4,8 @@
  * Cases:
  *   1. wash_flagged pay_to → refuse (twzrd_wash_flagged) or already preflight-blocked
  *   2. clean / non-wash pay_to → approved when preflight allows
- *   3. merchant_card unreachable → fail-open on wash (preflight decision stands)
+ *   3. null wash signal still no-invent; scored-path card outage fail-closes
+ *      (`twzrd_card_unreachable_fail_closed`) unless failOpen=true
  *
  * Run from package root:
  *   npx tsx examples/wash-refuse-dogfood.ts
@@ -155,7 +156,7 @@ async function caseCleanAllow(payTo: string): Promise<Row> {
 }
 
 async function caseCardUnreachable(): Promise<Row> {
-  // Pure policy: null wash signal must not refuse a prior approve.
+  // Pure policy: a missing wash signal must not invent a flag or refuse.
   const wash = applyWashFlaggedPolicy({
     approved: true,
     reason: "twzrd_allow",
@@ -163,21 +164,46 @@ async function caseCardUnreachable(): Promise<Row> {
     refuseWashFlagged: true,
     priceUsdc: 0.5,
   });
-  if (wash.approved && wash.washFlagged === null && wash.reason === "twzrd_allow") {
-    // Also exercise fetchMerchantCard fail-open against a dead base.
-    const dead = await fetchMerchantCard("4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE", {
-      intelBase: "https://127.0.0.1:1",
-      fetch: globalThis.fetch,
-    });
-    if (dead !== null) {
-      return fail("card_unreachable", `expected null from dead base, got ${JSON.stringify(dead)}`);
+  if (!(wash.approved && wash.washFlagged === null && wash.reason === "twzrd_allow")) {
+    return fail("card_unreachable", `no-invent broken: ${JSON.stringify(wash)}`);
+  }
+  const dead = await fetchMerchantCard("4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE", {
+    intelBase: "https://127.0.0.1:1",
+    fetch: globalThis.fetch,
+  });
+  if (dead !== null) {
+    return fail("card_unreachable", `expected null from dead base, got ${JSON.stringify(dead)}`);
+  }
+  // Scored path + card outage honours failOpen (default refuse).
+  const intel: typeof fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/v1/intel/preflight")) {
+      return new Response(
+        JSON.stringify({
+          readiness_card: { decision: "allow", trust_score: 80, can_spend: true },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
     }
-    return pass(
+    throw new Error("ECONNREFUSED");
+  }) as typeof fetch;
+  const closed = await twzrdApprovePayment(
+    { payTo: DEFAULT_CLEAN, priceUsdc: 0.05, agentIntent: "wash_dogfood_outage" },
+    resolveConfig({ failOpen: false, fetch: intel }),
+  );
+  if (
+    closed.approved ||
+    !/^twzrd_card_unreachable_fail_closed/.test(closed.reason ?? "")
+  ) {
+    return fail(
       "card_unreachable",
-      "washFlagged=null keeps prior approve; fetchMerchantCard dead base → null",
+      `expected scored-path fail-closed, got approved=${closed.approved} reason=${closed.reason}`,
     );
   }
-  return fail("card_unreachable", `policy fail-open broken: ${JSON.stringify(wash)}`);
+  return pass(
+    "card_unreachable",
+    "washFlagged=null keeps prior approve; fetch null on dead base; scored outage fail-closes",
+  );
 }
 
 async function main() {

@@ -2,8 +2,9 @@
 
 Refuses payment to a wash-flagged merchant **before your wallet signs**. Free intel, no
 API key, no signup, no config — every `TWZRD_*` env var is an optional override. If intel
-is unreachable the gate never *invents* a wash flag (the wash check fails open); a failed
-preflight blocks the payment by default (`TWZRD_FAIL_OPEN=true` to allow).
+is unreachable the gate never *invents* a wash flag. A failed preflight, or a merchant_card
+outage on a scored path, blocks by default (`TWZRD_FAIL_OPEN=true` to allow). A reachable
+card with no wash signal still proceeds.
 
 **Pin:** `twzrd-x402-gate@0.9.7` + stock PayAI client `x402-solana@3.0.0` (official
 `beforePayment` seat). `@x402/core` Path E remains supported; refuse script is fallback.

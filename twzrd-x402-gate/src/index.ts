@@ -25,6 +25,8 @@ export {
 export type { TwzrdGateDecision } from "./types.js";
 export {
   fetchMerchantCard,
+  fetchMerchantCardResult,
+  type MerchantCardLookup,
   applyWashFlaggedPolicy,
   type TwzrdMerchantCard,
   type WashPolicyInput,
