@@ -1,9 +1,11 @@
 /**
- * Cold-start — pure. No network. Live 402s live in test/live/cold-start.test.ts.
+ * Cold-start — pure. No network: fetch and DNS resolution are always mocked
+ * or injected. Live 402s live in test/live/cold-start.test.ts.
  * Run: npx tsx --test test/cold-start.test.ts
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 
 import {
   DEFAULT_COLD_START_DIET,
@@ -15,8 +17,10 @@ import {
   isForbiddenPayTo,
   isForbiddenUrl,
   parseArgs,
+  runColdStart,
   type ColdStartHostRow,
 } from "../src/cold-start.js";
+import { tempDir } from "./helpers/tmpdir.js";
 
 function row(partial: Partial<ColdStartHostRow> & Pick<ColdStartHostRow, "status" | "reason" | "resource_url">): ColdStartHostRow {
   return {
@@ -134,4 +138,104 @@ test("buildPolicy de-dupes host+payTo and only keeps allowlisted rows", () => {
   });
   assert.equal(policy.hosts.length, 1);
   assert.equal(policy.hosts[0]?.pay_to, "PayToA");
+});
+
+test("runColdStart forbids a diet URL that is a private IP literal, with zero fetch calls", async (t) => {
+  const dir = tempDir("cold-start-ssrf-literal-");
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("must not fetch a forbidden literal target");
+  });
+  const { transcript } = await runColdStart(
+    parseArgs([
+      "--diet-url",
+      "https://169.254.169.254/latest/meta-data",
+      "--no-hop",
+      "--policy-out",
+      join(dir, "policy.json"),
+    ]),
+  );
+  const diet = transcript.hosts.find((h) => h.role === "diet");
+  assert.equal(diet?.status, "forbidden");
+  assert.equal(diet?.reason, "forbidden_private_resolution");
+  assert.equal(fetchMock.mock.callCount(), 0, "a private literal is never fetched");
+});
+
+test("runColdStart never probes a hop candidate that DNS-resolves to a private address", async (t) => {
+  const dir = tempDir("cold-start-ssrf-hop-");
+  const hopUrl = "https://rebinder.example/product";
+  let hopProbed = false;
+  t.mock.method(globalThis, "fetch", async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/v1/intel/resources")) {
+      return Response.json({
+        resources: [
+          {
+            resource_url: hopUrl,
+            pay_to: "HopSeller11111111111111111111111111111111",
+            live_402: true,
+          },
+        ],
+      });
+    }
+    if (url === hopUrl) {
+      hopProbed = true;
+      throw new Error("must not probe a hop candidate once resolution is forbidden");
+    }
+    return new Response("", { status: 404 });
+  });
+  const { transcript } = await runColdStart(
+    parseArgs(["--policy-out", join(dir, "policy.json")]),
+    {
+      resolveHost: async (host) =>
+        host === "rebinder.example"
+          ? [{ address: "10.0.0.9", family: 4 }]
+          : [{ address: "93.184.216.34", family: 4 }],
+    },
+  );
+  // Same fate as the pre-existing isForbiddenUrl hop filter: skipped, not scored.
+  // No other listing exists, so the hop bucket reports no eligible candidate.
+  const hop = transcript.hosts.find((h) => h.role === "hop");
+  assert.equal(hop?.status, "no_eligible_hop");
+  assert.equal(hopProbed, false, "the rebinding target must never be fetched");
+});
+
+test("runColdStart skips a private-resolving hop candidate and still attempts the next listing", async (t) => {
+  const dir = tempDir("cold-start-ssrf-hop-next-");
+  const poisonedUrl = "https://rebinder.example/product";
+  const safeUrl = "https://safe-seller.example/product";
+  let poisonedProbed = false;
+  let safeProbed = false;
+  t.mock.method(globalThis, "fetch", async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/v1/intel/resources")) {
+      return Response.json({
+        resources: [
+          { resource_url: poisonedUrl, pay_to: "PoisonedSeller111111111111111111111111111", live_402: true },
+          { resource_url: safeUrl, pay_to: "SafeSeller1111111111111111111111111111111", live_402: true },
+        ],
+      });
+    }
+    if (url === poisonedUrl) {
+      poisonedProbed = true;
+      throw new Error("must not probe a hop candidate once resolution is forbidden");
+    }
+    if (url === safeUrl) {
+      safeProbed = true;
+      return new Response("", { status: 404 });
+    }
+    return new Response("", { status: 404 });
+  });
+  await runColdStart(
+    parseArgs(["--policy-out", join(dir, "policy.json")]),
+    {
+      resolveHost: async (host) =>
+        host === "rebinder.example"
+          ? [{ address: "10.0.0.9", family: 4 }]
+          : [{ address: "93.184.216.34", family: 4 }],
+    },
+  );
+  // The private-resolving listing is skipped (never fetched); the loop still
+  // reaches and probes the next listing rather than stopping at the first one.
+  assert.equal(poisonedProbed, false);
+  assert.equal(safeProbed, true, "the loop moves on to the next listing");
 });

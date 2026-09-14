@@ -19,6 +19,7 @@ import {
   pickRequirements,
   priceUsdcFromAmountMicro,
 } from "./payto.js";
+import { hasForbiddenResolution, type HostResolver } from "./ssrf.js";
 import type { X402PaymentRequirements } from "./types.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -368,8 +369,14 @@ export function buildPolicy(input: {
   };
 }
 
+export type ColdStartDeps = {
+  /** Injectable for tests; defaults to a real DNS lookup. Never used to skip the check. */
+  resolveHost?: HostResolver;
+};
+
 export async function runColdStart(
   args: ColdStartArgs,
+  deps: ColdStartDeps = {},
 ): Promise<{ transcript: ColdStartTranscript; policy: ColdStartPolicy; exitCode: 0 | 1 }> {
   const fetchBound = withTimeout(globalThis.fetch);
   const exportedAt = new Date().toISOString();
@@ -378,6 +385,12 @@ export async function runColdStart(
   async function consider(url: string, role: "diet" | "hop"): Promise<ColdStartHostRow> {
     if (isForbiddenUrl(url)) {
       return hostRow(role, url, { status: "forbidden", reason: "forbidden_twzrd_or_loopback" });
+    }
+    // Directory-listed hop candidates (and any diet URL) are third-party-controlled
+    // hostnames: block private/loopback/link-local literals and DNS-rebound targets
+    // before the real probe fetch, not just the twzrd/loopback hostname strings above.
+    if (await hasForbiddenResolution(url, deps.resolveHost)) {
+      return hostRow(role, url, { status: "forbidden", reason: "forbidden_private_resolution" });
     }
     try {
       const probed = await probeUnpaid402(url, fetchBound);
