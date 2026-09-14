@@ -35,7 +35,7 @@ the live clean fixture is wash-flagged.
 ## 1. Install (published package)
 
 ```bash
-npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.8 x402-solana@3.0.0
 ```
 
 ## 2. First call — nothing to configure
@@ -141,7 +141,7 @@ Two independent external implementations have already reproduced it.
 
 | Thing | Where |
 |---|---|
-| This SDK on npm | `twzrd-x402-gate@0.9.7` (named export `twzrd`; pin matches `twzrd-x402-gate/package.json`) |
+| This SDK on npm | `twzrd-x402-gate@0.9.8` (named export `twzrd`; pin matches `twzrd-x402-gate/package.json`) |
 | Implementation + tests | [`twzrd-x402-gate/`](./twzrd-x402-gate/) in this repo |
 | External review map, mainnet ground truth | [REVIEW.md](./REVIEW.md) |
 | The 7-day integration milestone | [MILESTONE.md](./MILESTONE.md) |

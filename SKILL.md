@@ -23,7 +23,7 @@ homepage: https://intel.twzrd.xyz
 metadata:
   version: "1.13.24"
   canonical_url: https://intel.twzrd.xyz/skill.md
-  gate_npm: twzrd-x402-gate@0.9.7
+  gate_npm: twzrd-x402-gate@0.9.8
   x402_solana_npm: x402-solana@3.0.0
   # Floor, not an exact pin: a receipt verifier should track the newest
   # signature-checking code, and an exact pin goes stale on every publish.
@@ -105,7 +105,7 @@ curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 # 2) PRIMARY seat — stock PayAI client beforePayment (x402-solana@3.0.0).
 #    Gate runs AFTER requirement selection, BEFORE signTransaction. Do not only
 #    summarize RUN_THIS_NOW — seat the gate on a signer path.
-npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.8 x402-solana@3.0.0
 # createX402Client({ wallet, network: "solana",
 #   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })
 # Cold-start a foreign 402 diet + default-deny policy (0 USDC, not a TWZRD bazaar):
@@ -116,7 +116,7 @@ npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0
 # npm run x402-solana-before-payment-proof --workspace=twzrd-x402-gate
 
 # 2b) Published-package CLI smoke — owned refuse dogfood
-# npm install twzrd-x402-gate@0.9.7
+# npm install twzrd-x402-gate@0.9.8
 # npx twzrd-gate-eval-refuse
 
 # 3) OPTIONAL Path A (paid intel, $0.05 V7). Not the $0.001 clearance SKU. Does not enforce.
@@ -169,7 +169,7 @@ exist. Correct install is `clawhub install` or `npx clawhub install` above.
 **Primary (stock PayAI `x402-solana@3.0.0`):**
 
 ```bash
-npm install twzrd-x402-gate@0.9.7 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.8 x402-solana@3.0.0
 ```
 
 ```ts
@@ -192,7 +192,7 @@ const client = createX402Client({
 **Fallback CLI only** (agents that only run a script and stop do not clear W1):
 
 ```bash
-npm install twzrd-x402-gate@0.9.7 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+npm install twzrd-x402-gate@0.9.8 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 npx twzrd-cold-start
 node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```

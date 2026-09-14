@@ -90,11 +90,13 @@ field.
 
 ## 4. Challenge normalization (`challenge_hash`)
 
-`challenge_hash` is the **resource-bind v1 leaf** the gate already computes and
-stamps (`twzrd-x402-gate/src/resource-bind.ts`, `resourceBindLeafHash`). It is
-deliberately *not* a second normalization: a relying party holding an evidence
-bundle (`bind.leaf_hash`) or a settled Solana transaction carrying the `rb1:`
-memo already holds this exact value and can join the three artifacts.
+`challenge_hash` is the **resource-bind leaf the gate actually stamped** —
+v1 (`resourceBindLeafHash`) when no `decision_id` is bound, v2
+(`resourceBindLeafHashV2`) when `decision_id` is set. It is deliberately *not*
+a second normalization: a relying party holding an evidence bundle
+(`bind.leaf_hash`) or a settled Solana transaction carrying the matching
+`rb1:` / `rb2:` memo already holds this exact value and can join the three
+artifacts. See [resource-bind-v2-spec.md](./resource-bind-v2-spec.md).
 
 Given the selected `accepts[]` entry **R** of a 402 response, all values taken
 **as served** (strings, no trimming, no case folding):
@@ -154,6 +156,20 @@ A relying party that holds the challenge recomputes `challenge_hash` and also
 checks `merchant.origin === new URL(resource).origin`,
 `merchant.pay_to === payTo`, `scheme === R.scheme`, and
 `network === CAIP-2(R.network)`.
+
+### 4.2 Bind-v2 / `rb2:` (`decision_id`)
+
+When the issuer supplies `decision_id` (1..=128 UTF-8; the gate
+`DecisionToken.decisionId`), `challenge_hash` is the resource-bind **v2** leaf:
+same six offer fields and `requirements_hash` as §4, plus `schema_version: 2`,
+required `decision_id`, and `preflight_id` only when it is a non-negative
+integer (omit, do not null). Domain is `twzrd:x402-resource-binding:v2`.
+The on-chain memo is `rb2:` + base64url(32) — still 47 bytes, under the
+ExactSvm 48-byte CU cap. A record issued without `decision_id` stays on the
+v1 leaf / `rb1:` memo. One binding, not two: do not add a parallel decision
+memo. Verifiers that recompute `challenge_hash` from a challenge MUST be
+given the same `decision_id` / `preflight_id` the issuer used, or the check
+fails closed.
 
 ### 4.1 `network` (CAIP-2)
 
@@ -323,7 +339,8 @@ than mint a record its own verifier would reject.
 |---|---|
 | `DecisionToken` (`twzrd-decision-v1`) | Internal source. Same signer. The record projects its verdict, primary reason code, `decisionId` (→ `evidence_id`) and `expiresAt`. The token additionally binds the full `PaymentIntent` and is what the wallet checks before signing; the record is what leaves the process. |
 | `twzrd.evidence_bundle.v1` | Richer internal export (requirements, signer invocations, redactions). `bundle.bind.leaf_hash === record.challenge_hash` for the same offer. |
-| resource-bind v1 / `rb1:` memo | Same leaf. A settled transaction carrying `rb1:base64url(challenge_hash)` is the same challenge this record decided. |
+| resource-bind v1 / `rb1:` memo | Same leaf when no `decision_id` was bound. A settled transaction carrying `rb1:base64url(challenge_hash)` is the same challenge this record decided. |
+| resource-bind v2 / `rb2:` memo | Same leaf when `decision_id` was bound. `rb2:base64url(challenge_hash)` commits the payer signature to the offer **and** that decision id. |
 | AO-Receipt V6 (`receipt-v6-spec.md`) | Different product (reputation attestation from TWZRD's key). This record is not a score and is not signed by TWZRD; it is signed by the operator that made the decision. |
 
 ## 10. Out of scope for v1

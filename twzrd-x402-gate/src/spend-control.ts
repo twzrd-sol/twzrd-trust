@@ -26,6 +26,7 @@ import {
   resourceBindMemo,
   stampResourceBind,
   type ResourceBindReq,
+  type ResourceBindSchema,
 } from "./resource-bind.js";
 import { evaluateResourceBindLegsFromSvmTx } from "./resource-bind-tx.js";
 import { resourceUrlFromPaymentRequired } from "./x402-client-hook.js";
@@ -35,6 +36,15 @@ export type SpendControlOptions = {
   maxSpend?: string;
   allowNetworks?: string[];
   requireOfferBinding?: boolean;
+  /**
+   * Opt-in. Fail closed (signerInvocations=0, pay() not called) when no
+   * decision_id is available. Default off so existing offer-only binds stay v1.
+   */
+  requireDecisionBind?: boolean;
+  /** Gate DecisionToken.decisionId. Also accepted on the preflight card. */
+  decisionId?: string;
+  /** Server-issued preflight_id. Also accepted on the preflight card. */
+  preflightId?: number;
   fetch?: typeof fetch;
   pay?: (args: {
     url: string;
@@ -55,7 +65,11 @@ export type SpendControlOptions = {
     leafHash: string;
     memo: string;
   }) => Promise<{ transactionBase64?: string }>;
-  preflight?: (payTo: string, priceUsdc: number) => Promise<{ decision?: string }>;
+  preflight?: (payTo: string, priceUsdc: number) => Promise<{
+    decision?: string;
+    preflight_id?: number;
+    decisionId?: string;
+  }>;
   ledger?: SpendLedger;
   /** Path for #2183 file ledger when `ledger` is omitted. */
   ledgerFile?: string;
@@ -269,14 +283,28 @@ export async function spendControlSafeFetch(
   try {
     let verdict: "allow" | "warn" | "block" = "allow";
     const price = priceUsdcFromAmountMicro(amountMicro) ?? 0;
+    let decisionId = typeof opts.decisionId === "string" && opts.decisionId.length > 0
+      ? opts.decisionId : undefined;
+    let preflightId = typeof opts.preflightId === "number" ? opts.preflightId : undefined;
     if (opts.preflight) {
       const card = await opts.preflight(payTo, price);
       if (card.decision === "block") return { verdict: "block", reason: "intel_block", signerInvocations: 0 };
       if (card.decision === "warn") verdict = "warn";
+      if (typeof card.decisionId === "string" && card.decisionId.length > 0) {
+        decisionId = card.decisionId;
+      }
+      if (typeof card.preflight_id === "number") preflightId = card.preflight_id;
+    }
+    if (opts.requireDecisionBind && !decisionId) {
+      return { verdict: "block", reason: "decision_bind_required", signerInvocations: 0 };
     }
     let stamped = null as ReturnType<typeof stampResourceBind> | null;
     if (opts.requireOfferBinding) {
-      stamped = stampResourceBind(selected as ResourceBindReq, body);
+      stamped = stampResourceBind(
+        selected as ResourceBindReq,
+        body,
+        decisionId ? { decision_id: decisionId, preflight_id: preflightId } : undefined,
+      );
     }
     let response = res;
     let txb64: string | undefined;
@@ -292,9 +320,10 @@ export async function spendControlSafeFetch(
       if (!leaf_hash || !opts.composeBoundTransaction) {
         return refuseNoCompose();
       }
+      const schema: ResourceBindSchema = decisionId ? 2 : 1;
       const composed = await opts.composeBoundTransaction({
         url, paymentRequired: offer, selected, leafHash: leaf_hash,
-        memo: resourceBindMemo(leaf_hash),
+        memo: resourceBindMemo(leaf_hash, schema),
       });
       txb64 = composed.transactionBase64;
       if (!txb64) {

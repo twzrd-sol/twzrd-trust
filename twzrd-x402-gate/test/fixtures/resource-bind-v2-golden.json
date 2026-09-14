@@ -1,0 +1,15 @@
+{
+  "schema": "twzrd.resource_bind.v2.golden",
+  "decision_id": "decision-test-1",
+  "preflight_id": 42,
+  "req": {
+    "payTo": "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "amount": "1000",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "resource": "https://merchant.example/paid?b=2&a=1#frag",
+    "scheme": "exact"
+  },
+  "leaf_hash": "2f3d72f7d25ccc0b6513722f59083d1f06b01785ae66956f3db80229283f5899",
+  "memo": "rb2:Lz1y99JczAtlE3IvWQg9HwawF4WuZpVvPbgCKSg_WJk"
+}
