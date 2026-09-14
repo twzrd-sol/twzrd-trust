@@ -104,14 +104,16 @@ const client = createX402Client({
 One path. Install `twzrd-x402-gate@0.9.8`. Free preflight does not enforce; AutoGate on the pay path does.
 
 1. **Install the gate** — `npm i twzrd-x402-gate@0.9.8` then `installTwzrdAutoGate`
-2. **Directory** — `GET /v1/intel/resources` (or `listDirectoryCallables`) — bazaars list; TWZRD sits beside
-3. **Preflight** — free ReadinessCard + merchant_card wash refuse
-4. **Pay only when policy allows** — blocks have `signerInvocations === 0`
-5. **Clearance ($0.001)** — `quickCheck` + portable `twzrd.payment_decision.v1` (`npx twzrd-payment-decision --verify`)
-6. **Evidence bundle** — `exportEvidenceBundle` / `npx twzrd-evidence-bundle`
-7. **Optional Path A** — $0.05 V7 intel receipt. Not the primary SKU.
+2. **Cold-start (optional)** — `npx twzrd-cold-start` writes a default-deny `policy.json` from a pinned foreign 402 diet (0 USDC; not a TWZRD bazaar)
+3. **Directory** — `GET /v1/intel/resources` (or `listDirectoryCallables`) — bazaars list; TWZRD sits beside
+4. **Preflight** — free ReadinessCard + merchant_card wash refuse
+5. **Pay only when policy allows** — blocks have `signerInvocations === 0`
+6. **Clearance ($0.001)** — `quickCheck` + portable `twzrd.payment_decision.v1` (`npx twzrd-payment-decision --verify`)
+7. **Evidence bundle** — `exportEvidenceBundle` / `npx twzrd-evidence-bundle`
+8. **Optional Path A** — $0.05 V7 intel receipt. Not the primary SKU.
 
 Refuse-first demo (0 USDC): `npx tsx twzrd-x402-gate/examples/commerce-kit.ts`  
+Cold-start diet (0 USDC): `npx twzrd-cold-start`  
 Walkthrough: [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 
 ## Default Protection Sequence

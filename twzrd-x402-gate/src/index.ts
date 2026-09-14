@@ -375,6 +375,18 @@ export {
 // Worker-side bounty preflight (zero spend): board parsers, break-even math, and
 // the per-row proceed/refuse decision behind bin/twzrd-bounty-preflight.js.
 export {
+  AUTOGATE_INSTALL_SNIPPET,
+  COLD_START_POLICY_SCHEMA,
+  COLD_START_TRANSCRIPT_SCHEMA,
+  DEFAULT_COLD_START_DIET,
+  runColdStart,
+  type ColdStartArgs,
+  type ColdStartHostRow,
+  type ColdStartHostStatus,
+  type ColdStartPolicy,
+  type ColdStartTranscript,
+} from "./cold-start.js";
+export {
   BOUNTY_PREFLIGHT_SCHEMA,
   breakEvenWinProb,
   buildPreflightReport,
