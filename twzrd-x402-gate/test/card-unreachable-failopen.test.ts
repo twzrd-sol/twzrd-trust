@@ -249,8 +249,11 @@ async function run() {
   //        wallet-keyed and chain-neutral -- which is what keeps this narrow. ---
   {
     const base = "0x3803A19280DeeFe533D177C4A169412BD341101b";
+    // Polygon, not Base: Base is scored now, so it no longer takes the
+    // unscored-observe path this case exists to pin. On Base a preflight
+    // outage is a fail-closed refusal, which network.test.ts pins.
     const r = await twzrdApprovePayment(
-      { payTo: base, chain: "eip155:8453", priceUsdc: 0.01 },
+      { payTo: base, chain: "eip155:137", priceUsdc: 0.01 },
       resolveConfig({
         unsupportedNetworkMode: "observe",
         refuseWashFlagged: true,
@@ -264,7 +267,7 @@ async function run() {
 
     // ...but a wash_flagged=true seller on the same unscored path still refuses.
     const flagged = await twzrdApprovePayment(
-      { payTo: base, chain: "eip155:8453", priceUsdc: 0.01 },
+      { payTo: base, chain: "eip155:137", priceUsdc: 0.01 },
       resolveConfig({
         unsupportedNetworkMode: "observe",
         refuseWashFlagged: true,

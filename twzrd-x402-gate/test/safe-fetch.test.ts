@@ -173,7 +173,11 @@ async function run() {
       },
     });
     assert.equal(r.phase, "blocked");
-    assert.equal(r.approval?.verdict, "unknown");
+    // Base is scored now, so this no longer blocks as an unscored "unknown".
+    // The mock answers every request with the same 402, so the preflight is
+    // effectively unreachable and the fail-closed default blocks. What matters
+    // is unchanged: blocked, and the payer never ran.
+    assert.equal(r.approval?.verdict, "block");
     assert.equal(payerCalls, 0);
   }
 

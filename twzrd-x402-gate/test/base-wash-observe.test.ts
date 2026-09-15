@@ -82,7 +82,9 @@ function fakeX402Client() {
 }
 
 async function run() {
-  // --- policy: same Solana wash payTo on Base observe must refuse ---
+  // --- policy: same Solana wash payTo on Base must still refuse ---
+  // Base is scored now, so the preflight runs and returns a clean card; the
+  // wash tighten is what refuses. The refusal is the property under test.
   {
     const hits: FetchHits = { preflight: 0, merchantCard: 0, other: 0 };
     const r = await twzrdApprovePayment(
@@ -101,13 +103,13 @@ async function run() {
         }),
       }),
     );
-    assert.equal(hits.preflight, 0, "Base observe must not invent Solana preflight");
+    assert.equal(hits.preflight, 1, "Base is scored, so it consults its own corpus");
     assert.equal(hits.merchantCard, 1, "Base observe must still GET merchant_card");
     assert.equal(r.approved, false, "wash_flagged on Base must refuse");
     assert.equal(r.reason, "twzrd_wash_flagged");
     assert.equal(r.washFlagged, true);
     assert.equal(r.verdict, "block");
-    assert.equal(r.reputationScored, false);
+    assert.equal(r.reputationScored, true);
     assert.equal(r.policyAction, "block");
   }
 
@@ -129,13 +131,13 @@ async function run() {
         }),
       }),
     );
-    assert.equal(hits.preflight, 0);
+    assert.equal(hits.preflight, 1, "Base is scored");
     assert.equal(r.approved, false);
     assert.equal(r.reason, "twzrd_wash_flagged");
-    assert.equal(r.reputationScored, false);
+    assert.equal(r.reputationScored, true);
   }
 
-  // --- policy: clean Base payTo still allows (observe, unknown, not scored) ---
+  // --- policy: clean Base payTo still allows, now on a real score ---
   {
     const hits: FetchHits = { preflight: 0, merchantCard: 0, other: 0 };
     const r = await twzrdApprovePayment(
@@ -153,13 +155,15 @@ async function run() {
         }),
       }),
     );
-    assert.equal(hits.preflight, 0);
+    assert.equal(hits.preflight, 1, "Base is scored");
     assert.equal(hits.merchantCard, 1);
-    assert.equal(r.approved, true, "clean Base payTo must still allow under observe");
-    assert.equal(r.verdict, "unknown");
-    assert.equal(r.reason, "network_not_scored");
+    assert.equal(r.approved, true, "a clean, scored Base payTo must still allow");
+    // The mock card is decision=allow/trust_score=80, so the verdict is a real
+    // reputation allow rather than the old unscored "unknown".
+    assert.equal(r.verdict, "allow");
+    assert.equal(r.reason, "twzrd_allow");
     assert.equal(r.washFlagged, false);
-    assert.equal(r.reputationScored, false);
+    assert.equal(r.reputationScored, true);
     assert.equal(r.policyAction, "allow");
   }
 
@@ -179,10 +183,15 @@ async function run() {
     );
     assert.equal(hits.merchantCard, 0, "opt-out must not fetch merchant_card");
     assert.equal(r.approved, true);
-    assert.equal(r.reason, "network_not_scored");
+    // Scored now, so the reason is the card's own allow rather than the old
+    // unscored fallthrough. The property under test is that opting out of the
+    // wash refusal still skips the merchant_card fetch.
+    assert.equal(r.reason, "twzrd_allow");
   }
 
-  // --- policy: strict still blocks Base without needing wash ---
+  // --- policy: strict no longer blocks Base for lack of a corpus ---
+  // Base is scored, so strict mode does not short-circuit it. The mock serves a
+  // clean card, so it is allowed; strict still governs chains with no corpus.
   {
     const hits: FetchHits = { preflight: 0, merchantCard: 0, other: 0 };
     const r = await twzrdApprovePayment(
@@ -193,11 +202,26 @@ async function run() {
         fetch: washRoutedFetch({ washByWallet: {}, hits }),
       }),
     );
-    assert.equal(hits.preflight, 0);
-    assert.equal(hits.merchantCard, 0, "strict blocks before wash");
-    assert.equal(r.approved, false);
-    assert.equal(r.reason, "network_not_scored");
-    assert.equal(r.policyAction, "block");
+    assert.equal(hits.preflight, 1, "Base is scored, so strict consults the corpus");
+    assert.equal(r.approved, true, "a clean scored Base seller is allowed under strict");
+    assert.equal(r.reputationScored, true);
+    assert.equal(r.policyAction, "allow");
+
+    // An unscored chain is what strict mode still blocks outright.
+    const hits2: FetchHits = { preflight: 0, merchantCard: 0, other: 0 };
+    const r2 = await twzrdApprovePayment(
+      { payTo: EVM_CLEAN, chain: "eip155:137" },
+      resolveConfig({
+        unsupportedNetworkMode: "strict",
+        refuseWashFlagged: true,
+        fetch: washRoutedFetch({ washByWallet: {}, hits: hits2 }),
+      }),
+    );
+    assert.equal(hits2.preflight, 0, "no corpus, no preflight");
+    assert.equal(hits2.merchantCard, 0, "strict blocks before wash");
+    assert.equal(r2.approved, false);
+    assert.equal(r2.reason, "network_not_scored");
+    assert.equal(r2.policyAction, "block");
   }
 
   // --- Path E AutoGate: Base wash abort, signer never called ---
@@ -228,7 +252,7 @@ async function run() {
     assert.ok(result && result.abort === true, "Base wash must abort Path E");
     assert.match(result.reason, /twzrd_wash_flagged/);
     assert.equal(signerInvocations, 0, "signer_invocation_count must stay 0");
-    assert.equal(hits.preflight, 0);
+    assert.equal(hits.preflight, 1, "Base is scored");
     assert.equal(hits.merchantCard, 1);
     uninstallTwzrdAutoGate(fake.client);
   }
@@ -259,7 +283,7 @@ async function run() {
     assert.equal(result, undefined, "clean Base must proceed (void), not abort");
     // Harness never invokes a wallet; a proceed is the green-light to sign.
     assert.equal(signerInvocations, 0);
-    assert.equal(hits.preflight, 0);
+    assert.equal(hits.preflight, 1, "Base is scored");
     uninstallTwzrdAutoGate(fake.client);
   }
 
@@ -283,7 +307,7 @@ async function run() {
     );
     assert.ok(result && "abort" in result && result.abort === true);
     assert.match(String(result.reason), /twzrd_wash_flagged/);
-    assert.equal(hits.preflight, 0);
+    assert.equal(hits.preflight, 1, "Base is scored");
   }
 
   console.log("base-wash-observe.test.ts: ALL PASSED");

@@ -157,7 +157,8 @@ async function run() {
     assert.equal((req.extra as { memo?: string } | undefined)?.memo, undefined);
   }
 
-  // 3. Base unscored strict — abort without Solana preflight score
+  // 3. Base is scored, so an unreachable gate aborts fail-closed rather than
+  // aborting for lack of a corpus. The abort itself is what matters.
   {
     const result = await twzrdBeforePaymentCreation(
       {
@@ -168,7 +169,26 @@ async function run() {
       {
         unsupportedNetworkMode: "strict",
         fetch: (async () => {
-          throw new Error("preflight must not run");
+          throw new Error("preflight unreachable");
+        }) as typeof fetch,
+      },
+    );
+    assert.ok(result && "abort" in result && result.abort === true);
+    assert.match(String((result as { reason: string }).reason), /twzrd_fail_closed/);
+  }
+
+  // 3a. A chain with no corpus still aborts for exactly that reason.
+  {
+    const result = await twzrdBeforePaymentCreation(
+      {
+        payTo: "0x3803A19280DeeFe533D177C4A169412BD341101b",
+        network: "eip155:137",
+        amount: "1000",
+      },
+      {
+        unsupportedNetworkMode: "strict",
+        fetch: (async () => {
+          throw new Error("preflight must not run for an unscored chain");
         }) as typeof fetch,
       },
     );
@@ -327,7 +347,9 @@ async function run() {
     const result = await fire({
       selectedRequirements: {
         payTo: "0x3803A19280DeeFe533D177C4A169412BD341101b",
-        network: "eip155:8453",
+        // Polygon, not Base: this case is about a chain with no corpus, and
+        // Base now has one. Using Base here would exercise fail-closed instead.
+        network: "eip155:137",
         amount: "11000000", // 11 USDC > minSpendUsdc -> receipt required
         asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         resource: "https://merchant.example/paid",

@@ -52,6 +52,12 @@ function reqs(amountMicro: string) {
 }
 
 const BASE_PAYTO = "0x3803A19280DeeFe533D177C4A169412BD341101b";
+/** Polygon requirements: recognized, no corpus, never scored. */
+function unscoredReqs(amountMicro: string) {
+  return { ...baseReqs(amountMicro), network: "eip155:137" };
+}
+
+/** Base mainnet requirements: a scored network. */
 function baseReqs(amountMicro: string) {
   return {
     scheme: "exact",
@@ -310,7 +316,7 @@ async function main() {
     }) as unknown as typeof fetch;
     const r = await evaluate_x402_resource(
       "https://merchant.example/paid",
-      baseReqs("11000000"),
+      unscoredReqs("11000000"),
       {
         fetch: (async () => {
           throw new Error("preflight must not run on an unscored network");
@@ -339,7 +345,7 @@ async function main() {
     }) as unknown as typeof fetch;
     const r = await evaluate_x402_resource(
       "https://merchant.example/paid",
-      baseReqs("11000000"),
+      unscoredReqs("11000000"),
       {
         fetch: (async () => {
           throw new Error("preflight must not run on an unscored network");
@@ -362,7 +368,10 @@ async function main() {
       x402Version: 1,
       accepts: [{
         scheme: "exact",
-        network: "eip155:8453",
+        // Polygon: this case pins the unscored-network receipt SKIP, which is
+        // what kept the AutoGate seat from buying Path A. Base is scored now,
+        // so a 3 USDC payment there legitimately requires a receipt.
+        network: "eip155:137",
         payTo: BASE_PAYTO,
         amount: "3000000",
         asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -388,7 +397,7 @@ async function main() {
     });
     const resp = await guarded("https://merchant.example/paid");
     assert.equal(resp.status, 402, "observe still returns the 402");
-    assert.equal(paidCalls, 0, "AutoGate fetch seat must not buy Path A on Base");
+    assert.equal(paidCalls, 0, "AutoGate fetch seat must not buy Path A on an unscored chain");
   }
 
   console.log("receipt-policy.test.ts: ok");
