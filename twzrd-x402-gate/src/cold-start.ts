@@ -8,7 +8,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { existsSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { resolveLineage, type GateAdoptionLineage } from "./adoption-proof.js";
 import { listDirectoryCallables } from "./directory.js";
@@ -232,6 +233,27 @@ export function isForbiddenPayTo(payTo: string | null | undefined): boolean {
   return payTo === REFUSE_FIXTURE_PAYTO;
 }
 
+/** Resolve aliases even when the output file itself does not exist yet. */
+function canonicalOutputPath(path: string): string {
+  const absolute = resolve(path);
+  if (existsSync(absolute)) return realpathSync(absolute);
+  const parent = dirname(absolute);
+  return join(canonicalOutputPath(parent), basename(absolute));
+}
+
+function validateOutputPaths(policyOut: string, out: string | null): void {
+  if (out === null) return;
+  const policyPath = canonicalOutputPath(policyOut);
+  const transcriptPath = canonicalOutputPath(out);
+  let sameFile = policyPath === transcriptPath;
+  if (!sameFile && existsSync(policyPath) && existsSync(transcriptPath)) {
+    const policyStat = statSync(policyPath);
+    const transcriptStat = statSync(transcriptPath);
+    sameFile = policyStat.dev === transcriptStat.dev && policyStat.ino === transcriptStat.ino;
+  }
+  if (sameFile) throw new Error("--out and --policy-out must refer to different files");
+}
+
 export function parseArgs(argv: string[]): ColdStartArgs {
   if (argv.includes("--help") || argv.includes("-h")) {
     throw new HelpError(USAGE);
@@ -264,13 +286,16 @@ export function parseArgs(argv: string[]): ColdStartArgs {
     i += 1;
   }
   const intelRaw = flags.get("--intel-base") ?? process.env.TWZRD_INTEL_BASE ?? DEFAULT_INTEL;
+  const policyOut = flags.get("--policy-out") ?? "policy.json";
+  const out = flags.get("--out") ?? null;
+  validateOutputPaths(policyOut, out);
   return {
     dietUrls: dietUrls.length > 0 ? dietUrls : [...DEFAULT_COLD_START_DIET],
     hop: !switches.has("--no-hop"),
     integration: flags.get("--integration") ?? "demo-cold-start",
     runId: flags.get("--run-id") ?? randomUUID(),
-    policyOut: flags.get("--policy-out") ?? "policy.json",
-    out: flags.get("--out") ?? null,
+    policyOut,
+    out,
     intelBase: httpsUrl("--intel-base", intelRaw).replace(/\/+$/, ""),
     maxPerCallUsdc: flags.has("--max-per-call-usdc")
       ? nonNegative("--max-per-call-usdc", flags.get("--max-per-call-usdc")!)
@@ -346,6 +371,8 @@ export function buildPolicy(input: {
   const seen = new Set<string>();
   for (const row of input.hosts) {
     if (row.status !== "allowlisted" || !row.host || !row.pay_to) continue;
+    if (row.price_usdc == null || !Number.isFinite(row.price_usdc) ||
+        row.price_usdc < 0 || row.price_usdc > input.maxPerCallUsdc) continue;
     const key = `${row.host}|${row.pay_to}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -371,6 +398,7 @@ export function buildPolicy(input: {
 export async function runColdStart(
   args: ColdStartArgs,
 ): Promise<{ transcript: ColdStartTranscript; policy: ColdStartPolicy; exitCode: 0 | 1 }> {
+  validateOutputPaths(args.policyOut, args.out);
   const fetchBound = withTimeout(globalThis.fetch);
   const exportedAt = new Date().toISOString();
   const lineage = resolveLineage(args.integration);
@@ -389,7 +417,10 @@ export async function runColdStart(
           abort: false,
         });
       }
-      const price = priceUsdcFromAmountMicro(probed.amountMicro) ?? null;
+      const parsedPrice = typeof probed.amountMicro === "string" && /^\d+$/.test(probed.amountMicro)
+        ? priceUsdcFromAmountMicro(probed.amountMicro)
+        : undefined;
+      const price = parsedPrice != null && parsedPrice >= 0 ? parsedPrice : null;
       const network = probed.req.network ?? null;
       if (probed.error === "no_payto" || !probed.payTo) {
         return hostRow(role, url, {
@@ -411,6 +442,15 @@ export async function runColdStart(
           http_status: probed.httpStatus,
         });
       }
+      if (price === null) {
+        return hostRow(role, url, {
+          status: "refused",
+          reason: "price_unknown",
+          pay_to: probed.payTo,
+          network,
+          http_status: probed.httpStatus,
+        });
+      }
       const gated = await evaluate_x402_resource(url, probed.req, {
         gateOnCanSpend: false,
         refuseWashFlagged: true,
@@ -423,7 +463,7 @@ export async function runColdStart(
       const approved = gated.approved === true && washFlagged !== true;
       let status: ColdStartHostStatus = "refused";
       if (approved) {
-        status = price != null && price > args.maxPerCallUsdc ? "over_cap" : "allowlisted";
+        status = price > args.maxPerCallUsdc ? "over_cap" : "allowlisted";
       }
       return hostRow(role, url, {
         status,

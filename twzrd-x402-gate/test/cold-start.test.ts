@@ -1,9 +1,12 @@
 /**
- * Cold-start — pure. No network. Live 402s live in test/live/cold-start.test.ts.
+ * Cold-start — offline policy and mocked runner tests. No network.
  * Run: npx tsx --test test/cold-start.test.ts
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, writeFileSync, symlinkSync, linkSync } from "node:fs";
+import { join, relative } from "node:path";
+import { tempDir } from "./helpers/tmpdir.js";
 
 import {
   DEFAULT_COLD_START_DIET,
@@ -15,8 +18,78 @@ import {
   isForbiddenPayTo,
   isForbiddenUrl,
   parseArgs,
+  runColdStart,
   type ColdStartHostRow,
 } from "../src/cold-start.js";
+
+test("runColdStart enforces known prices, including a zero cap", async (t) => {
+  const dir = tempDir("cold-start-cap-");
+  const seller = "https://seller.example/product";
+  let amount: string | undefined;
+  let amountField = "amount";
+  t.mock.method(globalThis, "fetch", async (input: unknown) => {
+    const url = String(input);
+    if (url === seller) return Response.json({ accepts: [{
+      scheme: "exact", network: "solana", payTo: "Seller1111111111111111111111111111111111111",
+      ...(amount === undefined ? {} : { [amountField]: amount }),
+    }] }, { status: 402 });
+    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false });
+    if (url.endsWith("/preflight")) return Response.json({
+      readiness_card: { decision: "allow", trust_score: 90, can_spend: true },
+    });
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+  for (amountField of ["amount", "maxAmountRequired"]) {
+   for (const cap of [0, 0.05]) {
+    for (amount of [undefined, "", " ", "garbage", "Infinity", "-1", "0", "50000", "50001"]) {
+      const { policy, transcript } = await runColdStart(parseArgs([
+        "--diet-url", seller, "--no-hop", "--max-per-call-usdc", String(cap),
+        "--policy-out", join(dir, "policy.json"), "--out", join(dir, "transcript.json"),
+      ]));
+      const valid = amount !== undefined && /^\d+$/.test(amount);
+      const allowed = valid && Number(amount) / 1e6 <= cap;
+      assert.equal(policy.hosts.length, allowed ? 1 : 0, `amount=${amount}, cap=${cap}`);
+      const host = transcript.hosts[0]!;
+      assert.equal(host.status, allowed ? "allowlisted" : valid ? "over_cap" : "refused");
+      if (!valid) {
+        assert.equal(host.reason, "price_unknown");
+        assert.equal(host.approved, false);
+        assert.equal(host.abort, true);
+      }
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, "policy.json"), "utf8")), policy);
+      assert.equal(JSON.parse(readFileSync(join(dir, "transcript.json"), "utf8")).schema, transcript.schema);
+    }
+   }
+  }
+});
+
+test("buildPolicy independently rejects unknown or out-of-cap prices", () => {
+  for (const price of [null, NaN, Infinity, -1, 0.050001]) {
+    const policy = buildPolicy({ maxPerCallUsdc: 0.05, maxPerDayUsdc: 0.5,
+      hosts: [row({ status: "allowlisted", reason: "twzrd_allow", resource_url: "https://seller.example/",
+        host: "seller.example", pay_to: "Seller", price_usdc: price })],
+    });
+    assert.deepEqual(policy.hosts, []);
+  }
+});
+
+test("output collisions reject before fetch or writing existing policy", async (t) => {
+  const dir = tempDir("cold-start-output-");
+  const policy = join(dir, "policy.json");
+  writeFileSync(policy, "preserve existing policy\n");
+  const symlink = join(dir, "symlink.json");
+  const hardlink = join(dir, "hardlink.json");
+  symlinkSync(policy, symlink);
+  linkSync(policy, hardlink);
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("must not probe"); });
+  for (const out of [policy, relative(process.cwd(), policy), symlink, hardlink]) {
+    assert.throws(() => parseArgs(["--policy-out", policy, "--out", out]), /different files/);
+    await assert.rejects(runColdStart({ ...parseArgs([]), policyOut: policy, out }), /different files/);
+    assert.equal(readFileSync(policy, "utf8"), "preserve existing policy\n");
+  }
+  assert.throws(() => parseArgs(["--out", "./policy.json"]), /different files/);
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
 
 function row(partial: Partial<ColdStartHostRow> & Pick<ColdStartHostRow, "status" | "reason" | "resource_url">): ColdStartHostRow {
   return {

@@ -117,7 +117,7 @@ test("live: max_per_call 0 keeps priced 402s off the allowlist", LIVE, async () 
     }
   }
   assert.equal(
-    policy.hosts.every((h) => h.price_usdc == null || h.price_usdc <= 0),
+    policy.hosts.every((h) => h.price_usdc != null && Number.isFinite(h.price_usdc) && h.price_usdc === 0),
     true,
   );
 });
