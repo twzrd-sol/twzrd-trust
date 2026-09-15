@@ -451,10 +451,14 @@ async function run() {
     assert.equal(signerInvocationCount, 0, "signer never ran on the swapped intent");
     assertIntentApproved(intentA, token, { registry, publicKeyPem: signer.publicKeyPem });
 
-    // Base stays recognized-but-unscored: reputation remains unknown here.
+    // Base is scored from its own corpus now. Intent binding is independent of
+    // reputation: the hash mismatch above refused the swapped intent before any
+    // signer ran, and that holds whether or not the network is scored.
     const cls = classifyNetwork(intentA.network, DEPOSIT_A);
-    assert.equal(cls.reputationScored, false);
-    assert.equal(cls.reason, "network_not_scored");
+    assert.equal(cls.reputationScored, true);
+    assert.equal(cls.reason, "base_scored");
+    // A chain with no corpus is still unscored.
+    assert.equal(classifyNetwork("eip155:137").reputationScored, false);
   }
 
   console.log("payment-control.test.ts: all assertions passed");

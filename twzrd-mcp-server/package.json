@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "build": "echo 'twzrd-mcp-server: dist-only mirror; nothing to compile'",
-    "demo": "echo 'twzrd-mcp-server: use hosted https://intel.twzrd.xyz/mcp — this mirror cannot run the local demo' && exit 1",
+    "demo": "echo 'twzrd-mcp-server: use hosted https://intel.twzrd.xyz/mcp \u2014 this mirror cannot run the local demo' && exit 1",
     "test": "echo 'twzrd-mcp-server: tests passed'",
     "typecheck": "echo 'twzrd-mcp-server: typecheck ok'",
     "prepublishOnly": "npm run build"
@@ -46,7 +46,7 @@
     "@x402/svm": "^2.17.0",
     "bs58": "^6.0.0",
     "twzrd-receipt-verifier": "^1.4.0",
-    "twzrd-x402-gate": "0.9.8"
+    "twzrd-x402-gate": "0.9.9"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

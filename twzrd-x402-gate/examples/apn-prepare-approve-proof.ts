@@ -176,18 +176,37 @@ export function createApnFake() {
 
 /* ---------------- the TWZRD seam ---------------- */
 
-/** Injected intel: merchant_card only. Any other call is a violation on an unscored network. */
+/**
+ * Injected intel for the APN fixtures: the Base corpus preflight plus the
+ * merchant_card wash read. Base is a scored network, so the preflight is an
+ * expected call and not a violation; anything else still is.
+ */
 export function routedIntelFetch(washFlagged: boolean, calls: string[]): typeof fetch {
   return (async (input: string | URL | Request) => {
     const url = String(input);
     calls.push(url);
+    if (url.includes("/v1/intel/preflight")) {
+      return new Response(
+        JSON.stringify({
+          readiness_card: {
+            decision: "warn",
+            trust_score: 56,
+            score: 0.56,
+            null_reason: null,
+            can_spend: false,
+            recommended_cap_usdc: 1.0,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
     if (url.includes("/v1/intel/merchant_card/")) {
       const merchant = url.split("/v1/intel/merchant_card/")[1]?.split(/[?/]/)[0] ?? "";
       return new Response(JSON.stringify({ merchant, wash_flagged: washFlagged, in_corpus: true }), {
         status: 200, headers: { "content-type": "application/json" },
       });
     }
-    throw new Error(`unexpected network call on an unscored network: ${url}`);
+    throw new Error(`unexpected intel call: ${url}`);
   }) as unknown as typeof fetch;
 }
 

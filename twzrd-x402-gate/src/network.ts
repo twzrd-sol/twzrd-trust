@@ -1,12 +1,33 @@
 /**
  * Chain-neutral network classification for Path E.
  *
- * Reputation scoring is Solana-deep today. Other networks are *recognized*
- * (we parse them) but not *scored*. Never invent a Base reputation from
- * Solana history or catalog metadata.
+ * Reputation is scored per corpus, never inferred across chains. Two corpora
+ * exist today: Solana, and Base via `twzrd-x402-base-corpus` (x402_base_daily,
+ * built from high-confidence EIP-3009 USDC settlements). A network is scored
+ * only when a corpus actually covers it.
+ *
+ * Every other network — Polygon, Arbitrum, Ethereum mainnet, testnets — stays
+ * recognized but unscored. Never invent a reputation for them from Solana
+ * history, Base history, or catalog metadata.
  */
 
 export type NetworkKind = "solana" | "evm" | "other" | "unknown";
+
+/**
+ * EVM networks TWZRD holds a behavioral corpus for. Base mainnet only: the
+ * corpus is `x402_base_daily`, indexed from Base EIP-3009 USDC settlements,
+ * and it says nothing about any other chain. Widening this list without a
+ * corpus behind it would fabricate exactly the reputation this module exists
+ * to refuse.
+ */
+export const SCORED_EVM_NETWORKS: ReadonlySet<string> = new Set(["eip155:8453"]);
+
+/** Canonical CAIP-2 id for a scored EVM alias, or undefined. */
+export function canonicalEvmNetwork(n: string): string | undefined {
+  const s = n.trim().toLowerCase();
+  if (s === "base" || s === "base-mainnet" || s === "eip155:8453") return "eip155:8453";
+  return undefined;
+}
 
 export type NetworkClass = {
   /** Raw network string from the payment requirement */
@@ -22,11 +43,15 @@ export type NetworkClass = {
 /**
  * Classify an x402 `accepts[].network` value (optional payTo heuristic).
  *
- * Scored today: Solana mainnet (and generic "solana" / mainnet markers).
- * Recognized but unscored: eip155:* (Base, Polygon, Arbitrum, …).
+ * Scored today: Solana mainnet (and generic "solana" / mainnet markers), and
+ * Base mainnet (eip155:8453 / "base"), which has its own corpus.
+ * Recognized but unscored: every other eip155:* chain (Polygon, Arbitrum,
+ * Ethereum) and all testnets.
  *
  * When `network` is omitted (legacy integrators), default to Solana scoring
- * unless `payTo` is a 0x EVM address — never invent Base reputation.
+ * unless `payTo` is a 0x EVM address. A bare EVM address is NOT assumed to be
+ * Base: without an explicit network there is nothing to say which chain it is
+ * on, so it stays unscored.
  */
 export function classifyNetwork(
   network: string | undefined | null,
@@ -82,7 +107,23 @@ export function classifyNetwork(
     };
   }
 
-  // EVM CAIP-2 and common aliases (Base, Polygon, Arbitrum, …).
+  // Base mainnet has its own corpus, so it is scored like Solana is.
+  // Testnets are excluded: base-sepolia is recognized but has no corpus.
+  const canonical =
+    n.includes("sepolia") || n.includes("testnet") || n.includes("devnet")
+      ? undefined
+      : canonicalEvmNetwork(n);
+  if (canonical && SCORED_EVM_NETWORKS.has(canonical)) {
+    return {
+      network: raw,
+      kind: "evm",
+      reputationScored: true,
+      networkSupported: true,
+      reason: "base_scored",
+    };
+  }
+
+  // Every other EVM chain and alias: recognized, no corpus, never scored.
   if (
     n.startsWith("eip155:") ||
     n === "base" ||

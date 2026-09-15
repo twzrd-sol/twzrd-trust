@@ -11,6 +11,19 @@ export type TwzrdReadinessCard = {
   decision?: TwzrdDecision;
   trust_score?: number;
   can_spend?: boolean;
+  /**
+   * Normalized 0..1 score. `null` means the subject was NOT evaluated, which is
+   * not the same as scoring low. When this is null the server states why in
+   * `null_reason`, and `trust_score` carries a floor value that must never be
+   * read as a measurement.
+   */
+  score?: number | null;
+  /** Why `score` is null, e.g. "unknown_subject". Absent when the subject was evaluated. */
+  null_reason?: string | null;
+  /** Server-recommended ceiling for a single spend against this seller, in USDC. */
+  recommended_cap_usdc?: number | null;
+  /** Seller has real non-wash inbound settlements in the corpus. */
+  clean_inbound_history?: boolean;
   proof?: unknown;
   caveats?: string[];
   resource_name?: string;
@@ -149,6 +162,14 @@ export type TwzrdApprovalResult = {
   washFlagged?: boolean | null;
   /** true when wash_flagged but payment allowed under washMaxUsdc */
   washCapped?: boolean;
+  /**
+   * Server-recommended ceiling for a single spend against this seller, in USDC,
+   * when the readiness card carried one. Present on an approval so a caller can
+   * see the bound it was approved under, not only that it was approved.
+   */
+  recommendedCapUsdc?: number;
+  /** true when the price exceeded recommendedCapUsdc and the payment was refused */
+  overRecommendedCap?: boolean;
   /** Raw payment network (CAIP-2 / x402 wire), when known */
   network?: string;
   /** True when the network identifier is recognized by the gate */

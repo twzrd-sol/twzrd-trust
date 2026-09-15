@@ -44,7 +44,9 @@ async function run() {
     assert.equal(f.op.selectedOffer.resolved.assetTransferMethod, "eip3009");
     assert.equal(f.sidecar.offerHash, f.op.selectedOffer.offerHash);
     assert.equal(f.sidecar.operationId, f.op.operationId);
-    assert.equal(f.decision.approval.reputationScored, false, `${f.name}: never claim Solana reputation on Base`);
+    // Base is scored from its own corpus now. What must still hold is that no
+    // score leaks into the sidecar record, asserted below.
+    assert.equal(f.decision.approval.reputationScored, true, `${f.name}: Base is scored from its own corpus`);
     assert.equal(f.sidecar.record.network, BASE);
     assert.equal(f.sidecar.record.merchant.pay_to, f.op.payee);
     assert.equal(f.sidecar.record.merchant.origin, new URL(RESOURCE).origin);
@@ -61,10 +63,13 @@ async function run() {
     assert.equal(A.decision.approval.policyAction, "allow");
     assert.equal(A.decision.approval.washFlagged, false);
     const v = verifyBound(A, signer.publicKeyPem);
-    assert.equal(v.decision, "unavailable");
-    assert.equal(v.reason_code, "NETWORK_NOT_SCORED");
+    // Base is scored from its own corpus now, so the bound record carries a
+    // real verdict instead of "unavailable / NETWORK_NOT_SCORED". The record
+    // still carries no score — asserted in the shared loop above.
+    assert.equal(v.decision, "warn");
     assert.equal(A.intelCalls.filter((u) => u.includes("/v1/intel/merchant_card/")).length, 1);
-    assert.equal(A.intelCalls.length, 1, "only merchant_card may be called on an unscored network");
+    assert.equal(A.intelCalls.filter((u) => u.includes("/v1/intel/preflight")).length, 1);
+    assert.equal(A.intelCalls.length, 2, "exactly the Base preflight and the wash read");
   }
 
   // B. flagged Base merchant: approve never runs, nothing signed, nothing spent.
@@ -79,17 +84,24 @@ async function run() {
     assert.equal(v.decision, "block");
     assert.equal(v.reason_code, "WASH_FLAGGED");
     assert.equal(B.op.payee, FLAGGED_PAYEE);
-    assert.equal(B.intelCalls.length, 1);
+    assert.equal(B.intelCalls.length, 2, "the Base preflight and the wash read; wash still refuses");
   }
 
-  // C. strict / all-local: no network call, no authorization, record still honest.
+  // C. strict on Base: the corpus is consulted rather than the chain refused.
+  //
+  // This fixture used to assert strict mode made no network call and recorded
+  // "unavailable / NETWORK_NOT_SCORED". That was a property of Base having no
+  // corpus, not a property of strict mode. Base is scored now, so strict
+  // consults it and a clean seller is allowed. Strict mode still blocks chains
+  // with no corpus outright, covered in network.test.ts and
+  // base-wash-observe.test.ts, neither of which depends on this APN packet.
   {
-    assert.equal(C.decision.proceed, false);
-    assert.deepEqual(C.counters, { approveCalls: 0, authorizations: 0, broadcasts: 0, spendAtomic: "0" });
-    assert.equal(C.intelCalls.length, 0, "strict mode must not make any network call");
+    assert.equal(C.decision.proceed, true, "a clean, scored Base seller is allowed under strict");
+    assert.equal(C.decision.approval.reputationScored, true);
+    assert.equal(C.decision.approval.policyAction, "allow");
+    assert.equal(C.intelCalls.filter((u) => u.includes("/v1/intel/preflight")).length, 1);
     const v = verifyBound(C, signer.publicKeyPem);
-    assert.equal(v.decision, "unavailable", "an unscored network is never a block in the record");
-    assert.equal(v.reason_code, "NETWORK_NOT_SCORED");
+    assert.notEqual(v.reason_code, "NETWORK_NOT_SCORED", "Base is no longer unscored");
   }
 
   // A record signed by someone else does not verify against this issuer's key.

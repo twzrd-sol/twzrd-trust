@@ -35,6 +35,22 @@ export type TwzrdCardEvaluation = Omit<TwzrdApprovalResult, "decisionId">;
 /**
  * Pure policy — no network. Mirrors scripts/twzrd_gate_agentcash_fetch.sh semantics.
  */
+/**
+ * True when the server says it did not evaluate this subject.
+ *
+ * The preflight answers an unknown seller with `score: null` plus a
+ * `null_reason` such as "unknown_subject", while still returning a floor
+ * `trust_score` (45 today). That floor clears the default `preflightMinScore`
+ * of 40, so reading `trust_score` alone turns "never seen" into "approved".
+ * An unevaluated subject is unknown, and unknown is never approval.
+ */
+export function isUnevaluatedCard(card: TwzrdReadinessCard): boolean {
+  if (typeof card.null_reason === "string" && card.null_reason.trim() !== "") return true;
+  // `score` present-and-null is an explicit not-evaluated marker. Absent
+  // entirely means a server that does not emit the field, which is not a claim.
+  return "score" in card && card.score === null;
+}
+
 export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEvaluation {
   const { card, preflightMinScore, blockDecisions, gateOnCanSpend } = input;
   const decision = card.decision ?? "warn";
@@ -43,6 +59,18 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
   if (blockDecisions.has(decision)) {
     return { approved: false, verdict: decision as TwzrdDecision, score: card.trust_score ?? null, card, reason: `twzrd_decision_${decision}` };
   }
+  // Not evaluated is not a low score. Checked before the numeric threshold,
+  // because the floor trust_score would otherwise clear it.
+  if (isUnevaluatedCard(card)) {
+    return {
+      approved: false,
+      verdict: "unknown",
+      score: null,
+      card,
+      reason: `twzrd_unevaluated_subject_${card.null_reason ?? "score_null"}`,
+    };
+  }
+
   // Decision-only by default: deny on can_spend=false ONLY when the caller
   // explicitly opts in (gateOnCanSpend === true). Matches the documented default
   // (FALSE when omitted) and policy.test.ts. The wrapped integration path
@@ -66,6 +94,10 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
     score: card.trust_score ?? null,
     card,
     reason: decision === "warn" ? "twzrd_warn_allowed" : "twzrd_allow",
+    recommendedCapUsdc:
+      typeof card.recommended_cap_usdc === "number" && Number.isFinite(card.recommended_cap_usdc)
+        ? card.recommended_cap_usdc
+        : undefined,
   };
 }
 
@@ -333,6 +365,32 @@ export async function twzrdApprovePayment(
         upsellUrl: seller ? `/v1/intel/trust/${seller}` : "/v1/intel/trust/unknown",
         priceUsdc: card.full_report_price_usdc ?? 0.05,
       });
+    }
+
+    // The card can carry a per-seller ceiling. Honour it: an approval that
+    // ignores the bound it was given is not the decision the server made.
+    // Applied before the wash tighten so a refusal here is reported as a cap
+    // breach rather than as a wash outcome.
+    if (
+      result.approved &&
+      typeof result.recommendedCapUsdc === "number" &&
+      typeof context.priceUsdc === "number" &&
+      Number.isFinite(context.priceUsdc) &&
+      context.priceUsdc > result.recommendedCapUsdc
+    ) {
+      return {
+        ...result,
+        decisionId,
+        approved: false,
+        verdict: "block",
+        reason: `twzrd_over_recommended_cap_${context.priceUsdc}_gt_${result.recommendedCapUsdc}`,
+        overRecommendedCap: true,
+        preflightId: card.preflight_id,
+        network: netCls.network,
+        networkSupported: true,
+        reputationScored: true,
+        policyAction: "block",
+      };
     }
 
     // Trustless step 3: free merchant_card wash refuse (default on).
