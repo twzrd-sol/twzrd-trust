@@ -7,6 +7,7 @@ import { ExactSvmScheme, SOLANA_MAINNET_CAIP2 } from "@x402/svm";
 import { createKeyPairSignerFromBytes } from "@solana/kit";
 import { createRequire } from "node:module";
 import bs58 from "bs58";
+import { leftoverWashOracle } from "./leftover-wash-oracle.js";
 import { parseCap, selectSolanaExact as pickSolanaExact } from "./select-solana-exact.js";
 import { refuseWashBeforePay } from "./wash-before-pay.js";
 const VERSION = createRequire(import.meta.url)("../package.json").version;
@@ -283,7 +284,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 resource_name: a.resource_name || "MCP",
             };
             if (typeof a.price_usdc === "number" && Number.isFinite(a.price_usdc)) {
-                body.price_usdc = a.price_usdc;
+                const unit = leftoverWashOracle({ caller_price_usdc: a.price_usdc }).unit_price_usdc;
+                if (unit != null)
+                    body.price_usdc = unit;
             }
             return { content: [{ type: "text", text: await api("/v1/intel/preflight", { method: "POST", body }) }] };
         }
