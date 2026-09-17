@@ -1,4 +1,5 @@
 import { applyWashFlaggedPolicy, fetchMerchantCard, } from "twzrd-x402-gate";
+import { leftoverWashOracle, WASH_REFUSE_REASON } from "./leftover-wash-oracle.js";
 export async function refuseWashBeforePay(req) {
     const payTo = typeof req.payTo === "string"
         ? req.payTo
@@ -23,6 +24,7 @@ export async function refuseWashBeforePay(req) {
         refuseWashFlagged: true,
     });
     if (!decision.approved) {
-        throw new Error(`[twzrd] ${decision.reason} payTo=${payTo}`);
+        const wash = leftoverWashOracle({ wash_flagged: true });
+        throw new Error(`[twzrd] ${decision.reason || wash.reason || WASH_REFUSE_REASON} payTo=${payTo}`);
     }
 }

@@ -11,6 +11,7 @@
     "dist/index.js",
     "dist/select-solana-exact.js",
     "dist/wash-before-pay.js",
+    "dist/leftover-wash-oracle.js",
     "examples/agent-drop-in.mjs",
     "README.md"
   ],
