@@ -6,13 +6,13 @@ is unreachable the gate never *invents* a wash flag. A failed preflight, or a me
 outage on a scored path, blocks by default (`TWZRD_FAIL_OPEN=true` to allow). A reachable
 card with no wash signal still proceeds.
 
-**Pin:** `twzrd-x402-gate@0.9.8` + stock PayAI client `x402-solana@3.0.0` (official
+**Pin:** `twzrd-x402-gate@0.9.9` + stock PayAI client `x402-solana@3.0.0` (official
 `beforePayment` seat). `@x402/core` Path E remains supported; refuse script is fallback.
 
 ## 1. Stock PayAI client (default seat — copy-paste)
 
 ```bash
-npm install twzrd-x402-gate@0.9.8 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.9 x402-solana@3.0.0
 ```
 
 > **ESM-only.** The package ships `import` conditions only — a CommonJS
@@ -37,7 +37,7 @@ Then: `await client.fetch("https://merchant.example/paid");`
 ## 1b. Official `@x402/core` client (Path E)
 
 ```bash
-npm install twzrd-x402-gate@0.9.8 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.9.9 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
