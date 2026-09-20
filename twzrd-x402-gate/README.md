@@ -793,7 +793,7 @@ const result = await evaluate_x402_resource(url, requirements, {
   x402Fetch: myPayingFetch,
   onReceipt: (receipt, tx) => storeCredential(receipt),
 });
-// result.receipt — twzrd_receipt (V6 + ERC-8004 reputation_credential)
+// result.receipt — twzrd_receipt (V7 + ERC-8004 reputation_credential)
 // result.receiptTx — on-chain settlement tx
 // result.receiptFeeCaptured — true when fee landed
 ```
