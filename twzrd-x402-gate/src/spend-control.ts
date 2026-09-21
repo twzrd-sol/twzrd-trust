@@ -107,6 +107,7 @@ export async function verifyOfferBindingAfterPay(args: {
   payTo: string;
   asset: string;
   amountRaw: string;
+  scheme?: string;
 }): Promise<OfferBindingCheck> {
   const leaf_hash = args.leafHash ?? null;
   if (!args.transactionBase64) {
@@ -131,6 +132,7 @@ export async function verifyOfferBindingAfterPay(args: {
     pay_to: args.payTo,
     asset: args.asset,
     amount_raw: args.amountRaw,
+    scheme: String(args.scheme ?? ""),
   });
   const receipt: OfferBindingCheck["receipt"] = {
     strength: d.strength,
@@ -335,6 +337,7 @@ export async function spendControlSafeFetch(
         payTo,
         asset: String(selected.asset ?? ""),
         amountRaw: String(amountMicro),
+        scheme: String(selected.scheme ?? ""),
       });
       const receipt = checked.receipt;
       if (checked.verdict === "block") {

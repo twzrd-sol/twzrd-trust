@@ -13,9 +13,44 @@ export const MEMO_PROGRAM_ADDRESS = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr
 const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
+export type ResourceBindAmountScheme = "exact" | "upto";
+
 export type ResourceBindLeafFields = {
-  leaf_hash: string; pay_to: string; asset: string; amount_raw: string; payer?: string;
+  leaf_hash: string;
+  pay_to: string;
+  asset: string;
+  amount_raw: string;
+  scheme?: string; // optional under Compat A
+  payer?: string;
 };
+
+export function normalizeResourceBindScheme(
+  scheme: unknown,
+): ResourceBindAmountScheme | "unknown" | "missing" {
+  if (scheme == null) return "missing";
+  const s = String(scheme).trim().toLowerCase();
+  if (s === "") return "missing";
+  if (s === "exact" || s === "upto") return s;
+  return "unknown";
+}
+
+export function transferAmountMatchesLeaf(
+  trAmount: string,
+  leaf: Pick<ResourceBindLeafFields, "amount_raw" | "scheme">,
+): boolean {
+  const scheme = normalizeResourceBindScheme(leaf.scheme);
+  let paid: bigint, cap: bigint;
+  try {
+    paid = BigInt(trAmount);
+    cap = BigInt(leaf.amount_raw);
+  } catch {
+    return false;
+  }
+  if (scheme === "upto") return paid <= cap; // includes 0
+  if (scheme === "exact" || scheme === "missing") return paid === cap;
+  return false; // unknown
+}
+
 export type SvmTransferLegs = {
   mint: string; dest: string; authority: string; amount: string; tokenProgram: string;
 };
@@ -91,9 +126,10 @@ export async function evaluateResourceBindLegsFromSvmTx(
   const tx_memo = pickBindMemo(o.memos);
   const tr = o.transfer;
   if (!tr) return refuse(leaf.leaf_hash, "no TransferChecked in tx");
-  let amountOk = false;
-  try { amountOk = BigInt(tr.amount) === BigInt(leaf.amount_raw); } catch { amountOk = false; }
-  if (tr.mint !== leaf.asset || !amountOk) {
+  if (normalizeResourceBindScheme(leaf.scheme) === "unknown") {
+    return refuse(leaf.leaf_hash, "scheme unknown");
+  }
+  if (tr.mint !== leaf.asset || !transferAmountMatchesLeaf(tr.amount, leaf)) {
     return refuse(leaf.leaf_hash, "transfer mint/amount mismatch vs leaf");
   }
   if (leaf.payer && tr.authority !== leaf.payer) {

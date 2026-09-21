@@ -155,7 +155,10 @@ export {
   extractSvmTransferLegs,
   evaluateResourceBindFromSvmTx,
   evaluateResourceBindLegsFromSvmTx,
+  normalizeResourceBindScheme,
+  transferAmountMatchesLeaf,
   MEMO_PROGRAM_ADDRESS as RESOURCE_BIND_MEMO_PROGRAM,
+  type ResourceBindAmountScheme,
   type ResourceBindLeafFields,
   type SvmTransferLegs,
 } from "./resource-bind-tx.js";
