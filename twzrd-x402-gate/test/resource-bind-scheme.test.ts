@@ -123,19 +123,24 @@ async function composeXfer(opts: { amount: bigint; memo?: string }): Promise<str
   const lifetime = {
     blockhash: kit.blockhash("11111111111111111111111111111111"), lastValidBlockHeight: 0n,
   };
-  const ixs = [xfer];
-  if (opts.memo) {
-    ixs.push({
-      programAddress: kit.address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
-      accounts: [],
-      data: new TextEncoder().encode(opts.memo),
-    });
-  }
-  return kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
+  const msg = kit.pipe(
     kit.createTransactionMessage({ version: 0 }),
     (m) => kit.setTransactionMessageFeePayer(owner, m),
     (m) => kit.setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
-    (m) => kit.appendTransactionMessageInstructions(ixs, m),
+  );
+  if (opts.memo) {
+    return kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
+      msg,
+      (m) => kit.appendTransactionMessageInstructions([xfer, {
+        programAddress: kit.address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+        accounts: [],
+        data: new TextEncoder().encode(opts.memo),
+      }], m),
+    )));
+  }
+  return kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
+    msg,
+    (m) => kit.appendTransactionMessageInstruction(xfer, m),
   )));
 }
 
