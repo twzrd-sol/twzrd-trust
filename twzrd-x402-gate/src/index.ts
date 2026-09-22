@@ -384,6 +384,7 @@ export {
   DEFAULT_COLD_START_DIET,
   runColdStart,
   type ColdStartArgs,
+  type ColdStartDeps,
   type ColdStartHostRow,
   type ColdStartHostStatus,
   type ColdStartPolicy,
