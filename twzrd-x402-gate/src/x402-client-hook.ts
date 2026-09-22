@@ -10,6 +10,7 @@
  * @see https://docs.x402.org/advanced-concepts/lifecycle-hooks
  */
 
+import { wrapX402ClientEchoAttempt } from "./attempt-echo.js";
 import { resolveBuyerPathADefaults } from "./buyer-defaults.js";
 import { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
 import { priceUsdcFromAmountMicro } from "./payto.js";
@@ -185,7 +186,7 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
     decision?: PaymentDecision;
     /**
      * Refuse-transcript field: decimal USDC still available under the budget
-     * that blocked (POLICY_MAX_AMOUNT / monthly ceiling). Null/absent when
+     * that blocked (POLICY_MAX_AMOUNT / daily / monthly ceiling). Null/absent when
      * the refuse was not budget-related.
      */
     budget_remaining_usdc?: string | null;
@@ -656,6 +657,8 @@ export function installTwzrdX402ClientHook(
   // Resolve Payment Control signer once at install (fail fast). Body is ONLY
   // the shared evaluator — never inline a second preflight/PC path here.
   client.onBeforePaymentCreation(createTwzrdPayKitBeforePaymentHook(options));
+  // Funnel join is not a gate: echo even when the caller only wanted the hook.
+  wrapX402ClientEchoAttempt(client);
   return client;
 }
 

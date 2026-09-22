@@ -1,3 +1,4 @@
+import { wrapFetchEchoTwzrdAttempt } from "./attempt-echo.js";
 import type { ResolvedTwzrdGateConfig } from "./config.js";
 import {
   paymentRequiredFromResponse,
@@ -25,8 +26,9 @@ export function wrapFetchWithTwzrdGate(
   innerFetch: typeof fetch,
   config?: ResolvedTwzrdGateConfig,
 ): typeof fetch {
+  const echoing = wrapFetchEchoTwzrdAttempt(innerFetch);
   return async (input: FetchInput, init?: FetchInit): Promise<Response> => {
-    const resp = await innerFetch(input, init);
+    const resp = await echoing(input, init);
     if (resp.status !== 402) return resp;
 
     // AUDIT FIX: header (v2) before body — the same precedence the payer uses.

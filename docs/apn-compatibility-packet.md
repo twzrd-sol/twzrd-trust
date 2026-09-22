@@ -28,7 +28,7 @@ does not abort. The portable `twzrd.payment_decision.v1` sidecar is issued
 from that approval and stored next to APN's receipt, joined on `offerHash` /
 operation id.
 
-Pin: `twzrd-x402-gate@0.9.9`. That record is the **$0.001** clearance SKU.
+Pin: `twzrd-x402-gate@0.9.10`. That record is the **$0.001** clearance SKU.
 Path A $0.05 V7 intel is not this packet.
 
 ## What the three fixtures prove

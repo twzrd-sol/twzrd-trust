@@ -22,9 +22,10 @@
  * (Phase 3 ships it) degrades to posted:false silently.
  *
  * Kill switches: TWZRD_DELIVERY_CAPTURE=0|false, or deliveryCapture:false in
- * SafeFetchOptions. Server-side settlement verification, internal-wallet
- * scrub, and per-tx dedupe are Phase 3 concerns — a client-side bool is
- * never trusted alone.
+ * SafeFetchOptions. Server-side ledger verification of settlement_tx is
+ * `aop_bind_settlement` (finalized getTransaction, USDC to declared payTo).
+ * Internal-wallet scrub and per-tx dedupe remain ingest concerns — a
+ * client-side bool is never trusted alone.
  */
 
 import type { ResolvedTwzrdGateConfig } from "./config.js";
