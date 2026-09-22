@@ -62,6 +62,18 @@ there is nothing to "serve". After the **root** install, run commands from
   proof; it can exit 2 when the live clean fixture is wash-flagged. Do not use
   it as the first demo.
 
+**Fork relationship with wzrd-final.** `wzrd-final/packages/twzrd-x402-gate` is an
+intentional **fork** of this package, not a mirror or a lagging copy — wzrd-final
+commit `b5b8c183` ("port twzrd-trust 0.9.9, keep paying-fetch fork (#2799)") says so
+explicitly: "packages/twzrd-x402-gate is a fork, not a lagging copy." The fork
+periodically overlays the latest `twzrd-trust` release and then keeps diverging with
+fork-only files. In practice, a public npm publish of `twzrd-x402-gate` has sometimes
+originated from that fork's content via a manual `npm publish`, not through
+wzrd-final's own `x402-gate-publish.yml` (workflow_dispatch-only, and it hadn't run
+since 2026-09-07) — that is exactly what happened with the 0.9.10 release, ported
+back into this repo via PR #129. If a future agent needs to re-sync divergence
+between the two packages, start from that PR.
+
 ### Non-obvious gotchas
 
 - The `bin/` CLIs (e.g. `gate-eval-refuse`) load from `dist/`, so **`npm run build`
