@@ -15,7 +15,7 @@ pay path enforces. Blocks have `signerInvocations === 0`.
 
 This document is the product. Install remains `twzrd-x402-gate@0.9.10`.
 
-## The six steps
+## The steps
 
 ### 0. Cold-start a buyer diet (0 USDC)
 

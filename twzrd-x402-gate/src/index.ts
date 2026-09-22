@@ -165,7 +165,10 @@ export {
   extractSvmTransferLegs,
   evaluateResourceBindFromSvmTx,
   evaluateResourceBindLegsFromSvmTx,
+  normalizeResourceBindScheme,
+  transferAmountMatchesLeaf,
   MEMO_PROGRAM_ADDRESS as RESOURCE_BIND_MEMO_PROGRAM,
+  type ResourceBindAmountScheme,
   type ResourceBindLeafFields,
   type SvmTransferLegs,
 } from "./resource-bind-tx.js";
@@ -391,6 +394,7 @@ export {
   DEFAULT_COLD_START_DIET,
   runColdStart,
   type ColdStartArgs,
+  type ColdStartDeps,
   type ColdStartHostRow,
   type ColdStartHostStatus,
   type ColdStartPolicy,

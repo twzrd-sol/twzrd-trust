@@ -346,6 +346,92 @@ async function run() {
   assert.equal(rb2NoId.reason, "decision_bind_required");
   assert.equal(rb2NoId.signerInvocations, 0);
   assert.equal(rb2PayCalls, 0);
+
+  // Compat A inherit: selected.scheme "upto" allows paid < cap; unknown blocks
+  // before pay(); omit/exact still refuse underpay (no bare <=).
+  const xferUnder = token.getTransferCheckedInstruction({
+    source: ata, mint, destination: ata, authority: owner, amount: 1n, decimals: 6,
+  });
+  const composeUnder = async ({ memo }: { memo: string }) => {
+    const both = kit.getBase64EncodedWireTransaction(kit.compileTransaction(kit.pipe(
+      kit.createTransactionMessage({ version: 0 }),
+      (m) => kit.setTransactionMessageFeePayer(owner, m),
+      (m) => kit.setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
+      (m) => kit.appendTransactionMessageInstructions([xferUnder, {
+        programAddress: kit.address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+        accounts: [], data: new TextEncoder().encode(memo),
+      }], m),
+    )));
+    return { transactionBase64: both };
+  };
+
+  bindPayCalls = 0;
+  const exactUnder = await twzrd.safeFetch(resource, {
+    fetch: fetch402(body402({ payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint, scheme: "exact" })),
+    requireOfferBinding: true,
+    composeBoundTransaction: composeUnder,
+    pay: async () => { bindPayCalls += 1; return { response: new Response("x") }; },
+  });
+  assert.equal(exactUnder.verdict, "block");
+  assert.equal(exactUnder.reason, "bind_mismatch");
+  assert.equal(exactUnder.signerInvocations, 0);
+  assert.equal(bindPayCalls, 0);
+
+  bindPayCalls = 0;
+  const uptoUnder = await twzrd.safeFetch(resource, {
+    fetch: fetch402(body402({ payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint, scheme: "upto" })),
+    requireOfferBinding: true,
+    composeBoundTransaction: composeUnder,
+    pay: async () => { bindPayCalls += 1; return { response: new Response("ok") }; },
+  });
+  assert.equal(uptoUnder.verdict, "allow");
+  assert.equal(uptoUnder.receipt?.strength, "hard");
+  assert.equal(uptoUnder.signerInvocations, 1);
+  assert.equal(bindPayCalls, 1);
+
+  bindPayCalls = 0;
+  const unknownScheme = await twzrd.safeFetch(resource, {
+    fetch: fetch402(body402({
+      payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint, scheme: "batch-settlement",
+    })),
+    requireOfferBinding: true,
+    composeBoundTransaction: composeUnder,
+    pay: async () => { bindPayCalls += 1; return { response: new Response("x") }; },
+  });
+  assert.equal(unknownScheme.verdict, "block");
+  assert.equal(unknownScheme.reason, "bind_mismatch");
+  assert.equal(unknownScheme.signerInvocations, 0);
+  assert.equal(bindPayCalls, 0);
+
+  const uptoReq = {
+    scheme: "upto", network: "solana", payTo: FIX.expectedTokenPayer,
+    amount: "50000", asset: FIX.mint, resource,
+  };
+  const afterPayUpto = await verifyOfferBindingAfterPay({
+    transactionBase64: (await composeUnder({ memo: resourceBindMemo(resourceBindLeafHash(uptoReq)) })).transactionBase64,
+    leafHash: resourceBindLeafHash(uptoReq),
+    payTo: FIX.expectedTokenPayer,
+    asset: FIX.mint,
+    amountRaw: "50000",
+    scheme: "upto",
+  });
+  assert.equal(afterPayUpto.verdict, "allow");
+  assert.equal(afterPayUpto.receipt.strength, "hard");
+
+  const omitReq = {
+    scheme: "exact", network: "solana", payTo: FIX.expectedTokenPayer,
+    amount: "50000", asset: FIX.mint, resource,
+  };
+  const afterPayOmitScheme = await verifyOfferBindingAfterPay({
+    transactionBase64: (await composeUnder({ memo: resourceBindMemo(resourceBindLeafHash(omitReq)) })).transactionBase64,
+    leafHash: resourceBindLeafHash(omitReq),
+    payTo: FIX.expectedTokenPayer,
+    asset: FIX.mint,
+    amountRaw: "50000",
+  });
+  assert.equal(afterPayOmitScheme.verdict, "block");
+  assert.equal(afterPayOmitScheme.receipt.strength, "refuse");
+
   console.log("spend-control.test.ts: ALL PASSED");
 }
 await run();

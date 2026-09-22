@@ -20,6 +20,7 @@ import {
   pickRequirements,
   priceUsdcFromAmountMicro,
 } from "./payto.js";
+import { hasForbiddenResolution, type HostResolver } from "./ssrf.js";
 import type { X402PaymentRequirements } from "./types.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -146,8 +147,12 @@ export type ColdStartTranscript = {
   policy_path: string | null;
   exportedAt: string;
   notExternalRunProof: string[];
-  /** True when at least one diet host was scored (allowlisted|refused|over_cap). */
+  /** True when at least one diet or hop host was scored (allowlisted|refused|over_cap). */
   ok: boolean;
+  /** Non-null when writing --policy-out failed; the transcript is still returned. */
+  policy_write_error: string | null;
+  /** Non-null when writing --out failed; the transcript is still returned. */
+  transcript_write_error: string | null;
 };
 
 export type ColdStartArgs = {
@@ -252,6 +257,27 @@ function validateOutputPaths(policyOut: string, out: string | null): void {
     sameFile = policyStat.dev === transcriptStat.dev && policyStat.ino === transcriptStat.ino;
   }
   if (sameFile) throw new Error("--out and --policy-out must refer to different files");
+}
+
+/**
+ * Write an output artifact without letting a bad path (empty string, missing
+ * parent directory, permissions) throw away an already-completed probe
+ * transcript. On failure, the error is returned (never thrown) and the
+ * content that would have been written is dumped to stderr as a fallback so
+ * it is not silently lost.
+ */
+function writeOutputFile(path: string, content: string, label: string): string | null {
+  try {
+    writeFileSync(path, content);
+    return null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `twzrd-cold-start: failed to write ${label} to ${JSON.stringify(path)}: ${message}`,
+    );
+    console.error(content);
+    return message;
+  }
 }
 
 export function parseArgs(argv: string[]): ColdStartArgs {
@@ -395,8 +421,14 @@ export function buildPolicy(input: {
   };
 }
 
+export type ColdStartDeps = {
+  /** Injectable for tests; defaults to a real DNS lookup. Never used to skip the check. */
+  resolveHost?: HostResolver;
+};
+
 export async function runColdStart(
   args: ColdStartArgs,
+  deps: ColdStartDeps = {},
 ): Promise<{ transcript: ColdStartTranscript; policy: ColdStartPolicy; exitCode: 0 | 1 }> {
   validateOutputPaths(args.policyOut, args.out);
   const fetchBound = withTimeout(globalThis.fetch);
@@ -406,6 +438,12 @@ export async function runColdStart(
   async function consider(url: string, role: "diet" | "hop"): Promise<ColdStartHostRow> {
     if (isForbiddenUrl(url)) {
       return hostRow(role, url, { status: "forbidden", reason: "forbidden_twzrd_or_loopback" });
+    }
+    // Directory-listed hop candidates (and any diet URL) are third-party-controlled
+    // hostnames: block private/loopback/link-local literals and DNS-rebound targets
+    // before the real probe fetch, not just the twzrd/loopback hostname strings above.
+    if (await hasForbiddenResolution(url, deps.resolveHost)) {
+      return hostRow(role, url, { status: "forbidden", reason: "forbidden_private_resolution" });
     }
     try {
       const probed = await probeUnpaid402(url, fetchBound);
@@ -460,14 +498,23 @@ export async function runColdStart(
         attribution: { integration: args.integration, runId: args.runId },
       });
       const washFlagged = gated.washFlagged ?? null;
+      // evaluate_x402_resource may itself approve a wash-flagged seller under a
+      // configured TWZRD_WASH_MAX_USDC cap (reason "twzrd_wash_capped_..."), but
+      // cold-start's own policy is to always refuse wash_flagged. Overriding
+      // approved without also rewriting the reason would leave a row where
+      // status is "refused" yet the reason text asserts the payment was allowed.
+      const washOverridden = gated.approved === true && washFlagged === true;
       const approved = gated.approved === true && washFlagged !== true;
       let status: ColdStartHostStatus = "refused";
       if (approved) {
         status = price > args.maxPerCallUsdc ? "over_cap" : "allowlisted";
       }
+      const reason = washOverridden
+        ? `cold_start_wash_flagged_refused (gate approved with: ${gated.reason})`
+        : gated.reason;
       return hostRow(role, url, {
         status,
-        reason: gated.reason,
+        reason,
         pay_to: probed.payTo,
         network,
         price_usdc: price,
@@ -516,6 +563,15 @@ export async function runColdStart(
         if (row.status === "not_402" || row.status === "no_payto" || row.status === "forbidden") {
           continue;
         }
+        // The listing-level dedup above only catches a duplicate payTo when the
+        // directory entry itself carries one; a listing with a null/missing
+        // payTo (legitimate per directory.ts) skips that check even when its
+        // live-resolved wallet turns out to duplicate one already scored. Catch
+        // that here, after the real probe resolved it, rather than recording
+        // (and consuming the single hop slot on) a redundant policy entry.
+        if (row.pay_to && havePayTo.has(row.pay_to)) {
+          continue;
+        }
         rows.push(row);
         hopped = true;
         break;
@@ -547,9 +603,18 @@ export async function runColdStart(
     maxPerDayUsdc: args.maxPerDayUsdc,
     hosts: rows,
   });
-  writeFileSync(args.policyOut, `${JSON.stringify(policy, null, 2)}\n`);
+  const policyWriteError = writeOutputFile(
+    args.policyOut,
+    `${JSON.stringify(policy, null, 2)}\n`,
+    "policy",
+  );
 
-  const ok = rows.some((r) => r.role === "diet" && SCORED.has(r.status));
+  // A caller of the exported API (runColdStart/ColdStartArgs) can pass an
+  // empty dietUrls, bypassing the CLI's DEFAULT_COLD_START_DIET backfill; ok
+  // must also credit a successful hop-scored host, not diet rows alone.
+  const ok = rows.some(
+    (r) => (r.role === "diet" || r.role === "hop") && SCORED.has(r.status),
+  );
   const transcript: ColdStartTranscript = {
     schema: COLD_START_TRANSCRIPT_SCHEMA,
     package: "twzrd-x402-gate",
@@ -571,14 +636,22 @@ export async function runColdStart(
     hosts: rows,
     allowlisted_count: policy.hosts.length,
     policy,
-    policy_path: args.policyOut,
+    policy_path: policyWriteError ? null : args.policyOut,
     exportedAt,
     notExternalRunProof: [...NOT_EXTERNAL],
     ok,
+    policy_write_error: policyWriteError,
+    transcript_write_error: null,
   };
 
   if (args.out) {
-    writeFileSync(args.out, `${JSON.stringify(transcript, null, 2)}\n`);
+    // The written file cannot include the outcome of its own write, but the
+    // returned in-memory transcript is patched below so a caller still sees it.
+    transcript.transcript_write_error = writeOutputFile(
+      args.out,
+      `${JSON.stringify(transcript, null, 2)}\n`,
+      "transcript",
+    );
   }
 
   return { transcript, policy, exitCode: ok ? 0 : 1 };
