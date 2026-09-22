@@ -25,7 +25,7 @@ import { fromMicroUsd, intentHash, toMicroUsd, type PaymentIntent } from "./inte
 
 export const POLICY_VERSION = "twzrd-pc-v1";
 
-/** Agent-facing budget refuse code (maps POLICY_MAX_AMOUNT / monthly ceiling). */
+/** Agent-facing budget refuse code (maps POLICY_MAX_AMOUNT / daily / monthly ceilings). */
 export const TWZRD_BUDGET_EXCEEDED = "twzrd_budget_exceeded";
 
 /* ------------------------------------------------------------------ */
@@ -50,6 +50,8 @@ export type SpendPolicy = {
   allowedNetworks?: string[];
   allowedAssets?: string[];
   maxAmountUsd?: string;
+  /** Global cumulative ceiling over a rolling 24h, all counterparties (needs a ledger). */
+  dailyCeilingUsd?: string;
   blocklist?: string[];
   allowlist?: string[];
 };
@@ -143,6 +145,7 @@ export type EvaluateIntentOptions = {
 };
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Authorization-safe URL scope match for mandate.resourceAllow.
@@ -213,6 +216,15 @@ export async function evaluateIntent(
       blockBudget("MANDATE_MONTHLY_CEILING", remaining);
     }
   };
+  const dailyCeilingCheck = () => {
+    if (policy?.dailyCeilingUsd === undefined || !options.ledger) return;
+    const spent = options.ledger.spentMicro("policy:global", DAY_MS, now);
+    const ceiling = toMicroUsd(policy.dailyCeilingUsd);
+    if (spent + amountMicro > ceiling) {
+      const remaining = ceiling > spent ? ceiling - spent : 0n;
+      blockBudget("POLICY_DAILY_CEILING", remaining);
+    }
+  };
   const counterpartyCapCheck = () => {
     if (!policy?.newCounterpartyCap || !options.ledger) return;
     const windowMs = policy.newCounterpartyCap.windowHours * 3_600_000;
@@ -273,6 +285,7 @@ export async function evaluateIntent(
       // Remaining headroom for a compliant retry is the per-tx cap itself.
       blockBudget("POLICY_MAX_AMOUNT", toMicroUsd(policy.maxAmountUsd));
     }
+    dailyCeilingCheck();
     if (
       policy.recurringMaxPriceIncreasePct !== undefined &&
       intent.context?.recurring &&
@@ -311,6 +324,7 @@ export async function evaluateIntent(
      read one headroom and both clear the ceiling. No await from here to 4. */
   if (!blocked && options.ledger) {
     mandateCeilingCheck();
+    dailyCeilingCheck();
     counterpartyCapCheck();
   }
 
@@ -320,6 +334,11 @@ export async function evaluateIntent(
   /* 4. Record spend that will be permitted (feeds cumulative/monthly caps) */
   if (!blocked && options.ledger && options.recordSpend !== false) {
     options.ledger.record(`counterparty:${intent.payTo}`, amountMicro, now);
+    // Global scope only when the ceiling is on — ledgers that don't opt in
+    // keep the one-record-per-allow invariant (hook-single-eval guard).
+    if (policy?.dailyCeilingUsd !== undefined) {
+      options.ledger.record("policy:global", amountMicro, now);
+    }
     if (mandate) options.ledger.record(`mandate:${mandate.mandateId}`, amountMicro, now);
   }
 

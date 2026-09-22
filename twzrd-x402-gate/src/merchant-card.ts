@@ -26,6 +26,12 @@ export type TwzrdMerchantCard = {
   provider_reputation_tier?: string | null;
   in_corpus?: boolean;
   catalog_enriched?: boolean;
+  /** ISO-8601 last live settle, or corpus_complete_day T00:00:00Z. Never "now". */
+  observed_at?: string | null;
+  /** True when last settle / Dune snapshot is older than 7 days, or unknown. */
+  stale?: boolean;
+  corpus_complete_day?: string | null;
+  corpus_age_days?: number | null;
   [key: string]: unknown;
 };
 
@@ -39,6 +45,16 @@ export type TwzrdMerchantCard = {
 export type MerchantCardLookup =
   | { reachable: true; card: TwzrdMerchantCard | null }
   | { reachable: false; card: null; error: string };
+
+/** Intel lookup did not complete (5xx/429/bad JSON/throw/timeout). */
+export class MerchantCardUnreachableError extends Error {
+  readonly error: string;
+  constructor(error: string) {
+    super(`twzrd_card_unreachable (${error})`);
+    this.name = "MerchantCardUnreachableError";
+    this.error = error;
+  }
+}
 
 export async function fetchMerchantCardResult(
   wallet: string,

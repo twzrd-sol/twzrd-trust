@@ -9,5 +9,5 @@
   "free_tier": true,
   "clearance_usdc": 0.001,
   "paid_trust_usdc": 0.05,
-  "gate_npm": "twzrd-x402-gate@0.9.9"
+  "gate_npm": "twzrd-x402-gate@0.9.10"
 }

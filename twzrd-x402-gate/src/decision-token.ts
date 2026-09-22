@@ -58,7 +58,7 @@ export type PaymentDecision = {
 
   /**
    * Decimal USDC still available under the budget that blocked this intent
-   * (POLICY_MAX_AMOUNT / MANDATE_MONTHLY_CEILING → reason `twzrd_budget_exceeded`).
+   * (POLICY_MAX_AMOUNT / POLICY_DAILY_CEILING / MANDATE_MONTHLY_CEILING → reason `twzrd_budget_exceeded`).
    * Absent when the block was not budget-related. Signed with the token.
    */
   budgetRemainingUsdc?: string;

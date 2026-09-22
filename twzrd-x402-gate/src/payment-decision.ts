@@ -427,7 +427,7 @@ export function decisionFromApproval(
   if (!result.approved && (result.washFlagged === true || /twzrd_wash_flagged/.test(reason))) {
     return { decision: "block", reason_code: "WASH_FLAGGED" };
   }
-  if (/twzrd_budget_exceeded|POLICY_MAX_AMOUNT|MANDATE_MONTHLY_CEILING|MANDATE_MAX_PER_TX/.test(reason)) {
+  if (/twzrd_budget_exceeded|POLICY_MAX_AMOUNT|POLICY_DAILY_CEILING|MANDATE_MONTHLY_CEILING|MANDATE_MAX_PER_TX/.test(reason)) {
     return { decision: "block", reason_code: "twzrd_budget_exceeded" };
   }
   if (result.verdict === "unknown" || result.reputationScored === false) {

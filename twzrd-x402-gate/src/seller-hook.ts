@@ -26,7 +26,7 @@
  * exact-SVM base64 transaction payload.
  */
 
-import { fetchMerchantCard, type TwzrdMerchantCard } from "./merchant-card.js";
+import { fetchMerchantCardResult } from "./merchant-card.js";
 import type { TwzrdDecision } from "./types.js";
 
 /**
@@ -408,11 +408,13 @@ export function twzrdPayerScreen(opts?: {
   const fetchImpl = opts?.fetch ?? (globalThis.fetch as typeof fetch);
 
   return async function screen(payer: string): Promise<PayerScreen | null> {
-    const card: TwzrdMerchantCard | null = await fetchMerchantCard(payer, {
+    const lookup = await fetchMerchantCardResult(payer, {
       intelBase,
       fetch: fetchImpl,
     });
-    if (!card) return null; // fail-open
+    if (!lookup.reachable) return null; // settle-guard failOpen decides the outage
+    const card = lookup.card;
+    if (!card) return null;
     const washFlagged =
       typeof card.wash_flagged === "boolean" ? card.wash_flagged : null;
     const tier =
