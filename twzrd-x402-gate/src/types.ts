@@ -38,6 +38,19 @@ export type TwzrdReadinessCard = {
    * paid /v1/intel/trust call for verify->act funnel attribution.
    */
   preflight_id?: number;
+  /**
+   * ISO-8601 evidence as-of (seller last-activity, or live index read time).
+   * Null when the subject was never measured. Never wall-clock "now" on
+   * unknown_subject / insufficient_signal / evaluation_failed.
+   */
+  as_of?: string | null;
+  /** ISO-8601 uploaded-corpus complete-day watermark. Not card-build time. */
+  observed_at?: string | null;
+  /** Corpus-age warning (not wash-overlay refuse). */
+  stale?: boolean;
+  /** Uploaded Dune complete day (YYYY-MM-DD). */
+  corpus_complete_day?: string | null;
+  corpus_age_days?: number | null;
 };
 
 export type TwzrdPreflightInput = {

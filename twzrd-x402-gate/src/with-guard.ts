@@ -1,3 +1,4 @@
+import { wrapFetchEchoTwzrdAttempt } from "./attempt-echo.js";
 import { resolveBuyerPathADefaults } from "./buyer-defaults.js";
 import { resolveConfig } from "./config.js";
 import { evaluate_x402_resource, type EvaluateX402Options } from "./evaluate.js";
@@ -64,8 +65,10 @@ export function withTwzrdGuard(
     attribution: opts?.attribution,
   });
 
+  const echoing = wrapFetchEchoTwzrdAttempt(innerFetch);
+
   return async (input: FetchInput, init?: FetchInit): Promise<Response> => {
-    const resp = await innerFetch(input, init);
+    const resp = await echoing(input, init);
     if (resp.status !== 402) return resp;
 
     // AUDIT FIX: header (v2) before body — the same precedence the payer uses.

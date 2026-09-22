@@ -26,6 +26,7 @@ export type { TwzrdGateDecision } from "./types.js";
 export {
   fetchMerchantCard,
   fetchMerchantCardResult,
+  MerchantCardUnreachableError,
   type MerchantCardLookup,
   applyWashFlaggedPolicy,
   type TwzrdMerchantCard,
@@ -34,6 +35,15 @@ export {
 } from "./merchant-card.js";
 export { twzrdOnPaymentRequested } from "./mcp-hook.js";
 export { wrapFetchWithTwzrdGate } from "./wrap-fetch.js";
+export {
+  ATTEMPT_EXTENSION,
+  ATTEMPT_EXTENSION_SCHEMA,
+  twzrdAttemptFromChallenge,
+  stampTwzrdAttemptOnPaymentPayload,
+  stampPaymentSignatureHeader,
+  wrapFetchEchoTwzrdAttempt,
+  wrapX402ClientEchoAttempt,
+} from "./attempt-echo.js";
 export {
   evaluate_x402_resource,
   type EvaluateX402Options,
@@ -409,3 +419,33 @@ export {
   type GateVerdict,
   type PreflightReport,
 } from "./bounty-preflight.js";
+
+/* ── paying client (wash-aware fetch/policy wrappers) ── */
+export {
+  createTwzrdCloudflareX402Approval,
+  type CloudflareX402PaymentRequirements,
+} from "./cloudflare-x402.js";
+export {
+  createTwzrdPayingClient,
+  createTwzrdWashBeforePaymentHook,
+  evaluateWashOnlyBeforePayment,
+  mapWashRequirements,
+  type WashDefaultOptions,
+  type CreateTwzrdPayingClientInput,
+  type CreateTwzrdPayingClientResult,
+  type WashSelectedRequirements,
+  type WashBeforePaymentContext,
+  type WashBeforePaymentResult,
+} from "./wash-default.js";
+export { createTwzrdPayingFetch, TwzrdWashAbortError } from "./paying-fetch.js";
+export type { CreateTwzrdPayingFetchInput } from "./paying-fetch.js";
+export { createTwzrdPolicyFetch, TwzrdPolicyAbortError } from "./policy-fetch.js";
+export type { CreateTwzrdPolicyFetchInput } from "./policy-fetch.js";
+export {
+  HOUSE_PAYER_PREFIXES,
+  HousePayerKeyError,
+  ForeignPayerInputError,
+  assertNotHousePayerKey,
+  requireForeignPayerInput,
+  assertHttpsTarget,
+} from "./foreign-key.js";

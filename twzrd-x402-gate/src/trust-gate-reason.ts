@@ -45,6 +45,7 @@ export function toTrustGateBlockReason(internalReason: string): string {
     core === "twzrd_budget_exceeded" ||
     core.includes("twzrd_budget_exceeded") ||
     core.includes("POLICY_MAX_AMOUNT") ||
+    core.includes("POLICY_DAILY_CEILING") ||
     core.includes("MANDATE_MONTHLY_CEILING") ||
     core.includes("MANDATE_MAX_PER_TX")
   ) {

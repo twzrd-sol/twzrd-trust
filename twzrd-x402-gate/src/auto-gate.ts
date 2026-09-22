@@ -30,6 +30,7 @@
  *     off stays ungated after it is cleared. Rebuild it either way.
  */
 
+import { wrapFetchEchoTwzrdAttempt, wrapX402ClientEchoAttempt } from "./attempt-echo.js";
 import { withTwzrdGuard, type TwzrdGuardOptions } from "./with-guard.js";
 import {
   createTwzrdBeforePaymentHook,
@@ -258,6 +259,8 @@ export function installTwzrdAutoGate(
     // so an env-off install is inert while the switch is set and gates once it
     // clears. Trade-off: a paymentControl misconfig now throws at install even
     // under the kill switch, i.e. fails fast instead of silently passing through.
+    // Echo is not a gate — join-key pass-through stays on when policy is off.
+    wrapX402ClientEchoAttempt(target);
     if (x402Opts?.disabled === true) {
       return target;
     }
@@ -315,13 +318,14 @@ export function installTwzrdAutoGate(
   if (isPayWrap(target)) {
     const fetchOpts = options as InstallAutoGateFetchOptions | undefined;
     const raw = fetchOpts?.rawFetch ?? globalThis.fetch;
+    const echoing = wrapFetchEchoTwzrdAttempt(raw);
     if (isTwzrdAutoGateDisabled(fetchOpts)) {
-      return target(raw);
+      return target(echoing);
     }
     // The payWrap they already supply is a paying fetch. Use it as Path A
     // x402Fetch so the canonical install fires warn+material without a
-    // second argument. payWrap(raw) is unguarded — no recursion into the gate.
-    const x402Fetch = fetchOpts?.x402Fetch ?? target(raw);
+    // second argument. payWrap(echoing) is unguarded — no recursion into the gate.
+    const x402Fetch = fetchOpts?.x402Fetch ?? target(echoing);
     return target(withTwzrdGuard(raw, { ...fetchOpts, x402Fetch }));
   }
 
