@@ -1,7 +1,7 @@
 # TWZRD Security & Trust Assurance
 
-**Applies to:** `twzrd-x402-gate@0.9.12`, TWZRD Agent Intelligence, and V7 trust receipts  
-**Last verified:** 2026-09-12 (properties; install pin is the published 0.9.12 line)  
+**Applies to:** `twzrd-x402-gate@0.9.13`, TWZRD Agent Intelligence, and V7 trust receipts  
+**Last verified:** 2026-09-12 (properties; install pin is the published 0.9.13 line)  
 **Disclosure Policy:** [SECURITY.md](../SECURITY.md)
 
 This document states the security properties TWZRD implements, the evidence an evaluator can independently reproduce, and the explicit trust boundaries of the system.

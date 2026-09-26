@@ -1,5 +1,5 @@
 /**
- * 0.9.12 signer contract. Calls the shipped buyer approval, before-payment
+ * 0.9.13 signer contract. Calls the shipped buyer approval, before-payment
  * hook, and settle guard. Run: npx tsx test/signer-contract-0910.test.ts
  */
 import assert from "node:assert/strict";
@@ -44,8 +44,8 @@ function intelFetch(card: Record<string, unknown>, urls: string[]): typeof fetch
 
 async function run() {
   const pkg = require("../package.json") as { version: string; description: string };
-  assert.equal(pkg.version, "0.9.12");
-  console.log(`version 0.9.12`);
+  assert.equal(pkg.version, "0.9.13");
+  console.log(`version 0.9.13`);
 
   const shipped = ["README.md", "QUICKSTART.md", "src/doctor.ts"];
   for (const rel of shipped) {
@@ -60,7 +60,7 @@ async function run() {
     }
   }
   const compat = readFileSync(join(pkgRoot, "COMPATIBILITY.md"), "utf8");
-  assert.match(compat, /0\.9\.12 is the released identity/);
+  assert.match(compat, /0\.9\.13 is the released identity/);
   assert.doesNotMatch(pkg.description, /Fail-closed by default/);
   assert.match(pkg.description, /not uniformly fail-closed/);
   assert.match(pkg.description, /Base mainnet \(eip155:8453\)/);

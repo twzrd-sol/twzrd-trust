@@ -132,12 +132,12 @@ async function run() {
       "the merchant scope records the one real spend, never a credit");
   }
 
-  /* ---------- 4c. DEFECT #11 (high): a thrown settle un-books a spend that may have landed ---------- */
-  // `ledger.record()` runs only after `await opts.pay()` RESOLVES. A settle that
-  // broadcast on-chain and then failed to return (timeout, dropped socket,
-  // response parse error) leaves the ledger at zero while the funds are gone —
-  // the retry then gets the full cap again. This is the "double-spend by not
-  // counting" half of the retry class.
+  /* ---------- 4c. FIXED (0.9.13): a thrown settle is counted (was DEFECT #11, high) ---------- */
+  // Through 0.9.12, `ledger.record()` ran only after `await opts.pay()` RESOLVED,
+  // so a settle that broadcast and then failed to return (timeout, dropped
+  // socket, response parse error) left the ledger at zero and the retry got the
+  // full cap again. 0.9.13 commits the spend once the signer ran, even if pay()
+  // throws, so the retry sees it.
   {
     const ledger = createMemorySpendLedger();
     let signs = 0;
@@ -151,15 +151,16 @@ async function run() {
     await assert.rejects(() => twzrd.safeFetch(RES, { ...base, fetch: f402("600000") }),
       /settle broadcast/, "the settle error propagates uncaught out of safeFetch");
     assert.equal(signs, 1, "the signer WAS invoked");
-    assert.equal(ledger.spentMicro("agent:a1", YEAR, Date.now()), 0n,
-      "DEFECT: 0.60 USDC signed but 0 recorded against the cap");
+    assert.equal(ledger.spentMicro("agent:a1", YEAR, Date.now()), 600_000n,
+      "0.60 USDC signed (outcome unknown) is recorded against the cap");
 
     const retry = await twzrd.safeFetch(RES, { ...base, fetch: f402("600000") });
-    assert.equal(retry.verdict, "allow",
-      "DEFECT: the retry gets the full cap back — 1.20 USDC signed under a 1.00 cap");
-    assert.equal(signs, 2);
+    assert.equal(retry.verdict, "block",
+      "the retry does not get the cap back: 0.60 + 0.60 would exceed 1.00");
+    assert.equal(retry.reason, "over_cumulative_spend");
+    assert.equal(signs, 1, "the retry never reached the signer");
     assert.equal(ledger.spentMicro("agent:a1", YEAR, Date.now()), 600_000n,
-      "DEFECT: the ledger under-reports actual signed spend by exactly one settle");
+      "the ledger holds the one signed settle, not zero and not two");
   }
 
   /* ---------- 4d. FIXED on main (#61): no payer wired → no budget consumed ---------- */
