@@ -36,12 +36,12 @@ verify receipts yourself: [REVIEW.md](https://github.com/twzrd-sol/twzrd-trust/b
 **Core product (buyer gate):** after the client selects the exact payment requirement and
 **before** payment payload creation / wallet signing — free preflight + merchant_card wash
 refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutral envelope;
-**Solana-deep** reputation only (Base/EVM = explicit `unknown`).
+**Solana mainnet and Base mainnet (`eip155:8453`)** are scored. Other EVM networks do not run the scored preflight.
 
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.9.12 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -80,7 +80,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.9.11
+npm install twzrd-x402-gate@0.9.12
 ```
 
 ```typescript
@@ -125,7 +125,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.9.11
+npm install twzrd-x402-gate@0.9.12
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -297,7 +297,7 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.9.11
+npm install twzrd-x402-gate@0.9.12
 ```
 
 Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
@@ -479,7 +479,7 @@ probe request → TWZRD scores challenge A → (if allowed) AgentCash request �
 
 - Exit `2` = policy blocked (AgentCash never started).
 - Exit `0` = passthrough / dry-run allowed / AgentCash returned success (binding unproven).
-- Base/EVM: explicit `decision=unknown` (see Networks).
+- Base mainnet (`eip155:8453`) is scored, like Solana mainnet. Other EVM networks do not run the scored preflight (see Networks).
 
 ### CLI: `twzrd-bounty-preflight` (worker-side refuse, zero spend)
 
@@ -568,18 +568,18 @@ What happens on every HTTP 402 the raw fetch returns:
 
 Non-402 responses pass through unchanged.
 
-### Networks (Solana-deep, chain-neutral envelope)
+### Networks (Solana mainnet and Base mainnet scored)
 
-The gate **recognizes** multi-chain 402s but only **reputation-scores Solana mainnet**.
+The gate **recognizes** multi-chain 402s. **Solana mainnet and Base mainnet (`eip155:8453`)** run the scored preflight. Other EVM networks do not. `eip155:137` does not run `twzrdPreflight` or the scored preflight.
 
 | Network | Reputation scored? | Default policy (`unsupportedNetworkMode`) |
 |---------|-------------------|-------------------------------------------|
 | Solana mainnet | Yes — free preflight + merchant_card | allow/block from intel |
-| Base / other EVM (`eip155:*`) | **No** Solana preflight | `observe` (default): `decision=unknown`, `policyAction=allow`, telemetry `unsupported_network_seen`. **Wash still runs** — `wash_flagged` refuses before sign. |
-| Base / EVM in `strict` mode | No | `policyAction=block` before sign |
+| Base mainnet (`eip155:8453`, `base`) | Yes — free preflight + merchant_card | allow/block from intel |
+| Other EVM (`eip155:*` except 8453) | **No** scored preflight | `observe` (default): `decision=unknown`, `policyAction=allow`, telemetry `unsupported_network_seen`. **Wash still runs** — `wash_flagged` refuses before sign. |
+| Other EVM in `strict` mode | No | `policyAction=block` before sign |
 
-This is intentional: Base listing abundance ≠ Solana behavioral history. Unsupported is never
-represented as a TWZRD trust `allow`. Set `TWZRD_UNSUPPORTED_NETWORK_MODE=strict` (or
+An unscored network is never represented as a TWZRD trust `allow`. Set `TWZRD_UNSUPPORTED_NETWORK_MODE=strict` (or
 `{ unsupportedNetworkMode: "strict" }`) to hard-block unscored networks.
 
 `requireReceipt` (Path A) follows the same line: `hard` receipts apply to **scored networks

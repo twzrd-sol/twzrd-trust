@@ -1,7 +1,7 @@
 {
   "name": "twzrd-x402-gate",
-  "version": "0.9.11",
-  "description": "Core: buyer-side x402 trust gate. Free TWZRD preflight (ReadinessCard) before signing USDC to any merchant, with optional $0.001 paid trust escalate on warn \u2014 blocking spend on bad intel, no human in the loop. Optional: createTwzrdSettleGuard for resource servers to apply merchant policy on the payer before settle+serve. installTwzrdAutoGate is the canonical default-on entry across fetch payWrap, x402 client (onBeforePaymentCreation), PayAI x402-solana beforePayment (2.1.0+), PayKit onBeforeX402PaymentCreation (Foundation #303), and MPP onChallenge. Fail-closed by default \u2014 set TWZRD_FAIL_OPEN=true for outage allow; kill switch TWZRD_GATE_ENABLED=false or TWZRD_AUTO_GATE=0. Always stamps X-Twzrd-Caller for seat metrics.",
+  "version": "0.9.12",
+  "description": "Released identity 0.9.12. Buyer-side x402 trust gate: free preflight before signing USDC to a merchant. On Solana mainnet and Base mainnet (eip155:8453), a missing payTo is not approved, a buyer preflight outage does not sign unless TWZRD_FAIL_OPEN=true, null_reason unknown_subject does not sign, a price above recommended_cap_usdc does not sign, and disagreeing v1/v2 price or recipient fields are refused. An approved warn whose paying fetch is wired requests /v1/intel/quick and does not request /v1/intel/trust. Other EVM networks do not run the scored preflight. createTwzrdBeforePaymentHook does not read TWZRD_AUTO_GATE or TWZRD_GATE_ENABLED; those switches apply only to installTwzrdAutoGate. createTwzrdSettleGuard stays fail-open by default, so an unavailable gate does not abort. 0.9.12 is not uniformly fail-closed.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
