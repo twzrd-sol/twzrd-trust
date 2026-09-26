@@ -1,6 +1,6 @@
 # P0 STATUS — consumer adjacency pack
 
-Worktree: `/home/twzrd/worktrees/twzrd-trust-p0-consumer`  
+Worktree: `twzrd-trust-p0-consumer` (local)  
 Branch: `p0/consumer-adjacency`  
 Base: `origin/main` @ `33c527e` (Eliza source migration workspace #95)  
 Date: 2026-09-12
