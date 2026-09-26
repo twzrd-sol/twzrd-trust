@@ -264,11 +264,19 @@ export async function spendControlSafeFetch(
   const agentKey = `agent:${opts.agentId ?? "default"}`;
   const merchantKey = `merchant:${payTo}`;
   const mandateKey = `mandate:${opts.mandateId ?? "default"}`;
+  // Idempotent: the success paths record before returning, and the finally
+  // block records again for an ambiguous failure; the ledger must see one entry.
+  let recorded = false;
   const recordSpend = () => {
+    if (recorded) return;
+    recorded = true;
     ledger.record(agentKey, spendMicro, now);
     ledger.record(merchantKey, spendMicro, now);
     ledger.record(mandateKey, spendMicro, now);
   };
+  // Set immediately before the payer runs. From then on the money may have moved,
+  // so a throw from pay() is ambiguous and must be counted, never released (#2446).
+  let signed = false;
   const keys = [agentKey, merchantKey, mandateKey];
   let release = (): void => {};
   if (maxMicro != null) {
@@ -348,6 +356,7 @@ export async function spendControlSafeFetch(
       }
       if (opts.pay) {
         signerInvocations = 1;
+        signed = true;
         const paid = await opts.pay({ url, paymentRequired: offer, selected, transactionBase64: txb64 });
         if (paid.response) response = paid.response;
       }
@@ -356,6 +365,7 @@ export async function spendControlSafeFetch(
     }
     if (opts.pay) {
       signerInvocations = 1;
+      signed = true;
       const paid = await opts.pay({ url, paymentRequired: offer, selected });
       if (paid.response) response = paid.response;
     }
@@ -365,6 +375,10 @@ export async function spendControlSafeFetch(
   } finally {
     // Runs after recordSpend() on the success paths (both synchronous), so
     // there is no instant where neither the record nor the reservation counts.
+    // If pay() threw after the signer ran, the outcome is unknown: commit the
+    // spend (conservative) before dropping the reservation, so the next call
+    // still sees it. Only a path that never reached the signer releases free.
+    if (signed) recordSpend();
     release();
   }
 }

@@ -83,6 +83,6 @@ between the two packages, start from that PR.
   egress; they spend **no** USDC. If egress is blocked these demos fail even
   though unit tests pass.
 - `x402-solana` is an optional peer. Consumers install
-  `twzrd-x402-gate@0.9.12 x402-solana@3.0.0`. This checkout lists `x402-solana`
+  `twzrd-x402-gate@0.9.13 x402-solana@3.0.0`. This checkout lists `x402-solana`
   as a gate **devDependency** so the seat is present after root `npm ci`. It is
   still not required to typecheck, build, or run `gate-eval-refuse`.

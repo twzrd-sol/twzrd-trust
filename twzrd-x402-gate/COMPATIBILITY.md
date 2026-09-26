@@ -1,6 +1,8 @@
 # Compatibility note — twzrd-x402-gate 0.9.3 → 0.9.4
 
-0.9.12 is the released identity of this package. npm dist-tags `latest` and `paying-client-fail-closed` are both 0.9.12.
+0.9.13 is the released identity of this package. npm dist-tags `latest` and `paying-client-fail-closed` are both 0.9.13.
+
+0.9.13 fixes a `twzrd.safeFetch` spend-cap leak present in 0.9.9 through 0.9.12. When your `pay` callback throws after the signer ran (for example a broadcast timeout with an unknown outcome), the spend is now recorded and the error is rethrown. 0.9.9 through 0.9.12 released the reservation instead, so the next call could pay again past `maxSpend`. A refusal that never reached the signer still records nothing. A `pay` callback that knows it never signed should return rather than throw. The ledger may now count a payment that did not land; reconcile it from chain if that matters to you.
 
 0.9.11 refuses an `accepts[]` entry whose v1 and v2 price fields disagree (`maxAmountRequired` vs `amount`), or whose recipient fields disagree (`payTo` vs `pay_to`), on every path: `amount_field_conflict` / `payto_field_conflict`. Previously the package read these with two opposite precedences (v1-first in `payTo`-based paths, v2-first elsewhere), so a decoy in either field could put a payment under a spend cap that the client then paid from the other field. Both fields present and equal (dual-emit) is unchanged. New export: `resolveRequirementFields`. `payToFromRequirements` now also returns `conflict`.
 
@@ -65,11 +67,11 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` and `paying-client-fail-closed` dist-tags: **0.9.12**. `0.10.0` and `0.10.1` are deprecated as
+- `latest` and `paying-client-fail-closed` dist-tags: **0.9.13**. `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.9.12 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.9.13 as the
   maintained line.
 - Until the default-engine question is settled in a future minor, pin the
-  exact version (`twzrd-x402-gate@0.9.12`), not a caret range, if the pre-sign
+  exact version (`twzrd-x402-gate@0.9.13`), not a caret range, if the pre-sign
   semantics of your payment path matter to you.

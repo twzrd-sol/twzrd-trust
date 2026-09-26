@@ -134,14 +134,27 @@ async function run() {
   assert.equal([r1, r2].find((r) => r.verdict === "block")?.reason, "over_cumulative_spend");
   assert.equal(raceLedger.spentMicro("agent:race", WIN, Date.now()), 10000n);
 
-  // A reservation is released when the call exits without recording (pay
-  // throws here), so a failed attempt cannot pin budget after the fact.
+  // 0.9.13: once pay() has been called, a throw is an unknown outcome (the money
+  // may have moved), so the spend is committed and the next call sees it. A pay
+  // callback that knows it never signed should return instead of throwing.
   const leakLedger = createMemorySpendLedger();
   const leakOpts = { fetch: fetch402(), maxSpend: "0.015", ledger: leakLedger, agentId: "leak", mandateId: "leak" };
   await assert.rejects(
     twzrd.safeFetch("https://merchant.example/paid", { ...leakOpts, pay: async () => { throw new Error("signer down"); } }),
   );
-  assert.equal((await twzrd.safeFetch("https://merchant.example/paid", { ...leakOpts, pay })).verdict, "allow");
+  assert.equal(leakLedger.spentMicro("agent:leak", WIN, Date.now()), 10000n, "a throw after the signer ran is counted");
+  const afterThrow = await twzrd.safeFetch("https://merchant.example/paid", { ...leakOpts, pay });
+  assert.equal(afterThrow.verdict, "block");
+  assert.equal(afterThrow.reason, "over_cumulative_spend");
+  // A refusal that never reached the signer still releases its reservation.
+  const refuseLedger = createMemorySpendLedger();
+  const refuseOpts = { fetch: fetch402(), maxSpend: "0.015", ledger: refuseLedger, agentId: "refuse", mandateId: "refuse" };
+  const refused = await twzrd.safeFetch("https://merchant.example/paid", {
+    ...refuseOpts, pay, preflight: async () => ({ decision: "block" as const }),
+  });
+  assert.equal(refused.verdict, "block");
+  assert.equal(refuseLedger.spentMicro("agent:refuse", WIN, Date.now()), 0n, "a refusal before signing records nothing");
+  assert.equal((await twzrd.safeFetch("https://merchant.example/paid", { ...refuseOpts, pay })).verdict, "allow");
 
   // File ledger: one shared instance per path, so two concurrent successful
   // calls append to a single hash chain (a fresh replay must not throw) and

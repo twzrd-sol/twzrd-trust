@@ -302,7 +302,7 @@ function decideAbort(
  * TWZRD and vetoes wash/blocked payers before settlement. Advisory + fail-open
  * by default (`failOpen !== false`): an unavailable gate does not abort.
  * This is not the buyer hook. `twzrdApprovePayment` does not sign on a
- * preflight outage unless `TWZRD_FAIL_OPEN` is set. 0.9.12 is not uniformly
+ * preflight outage unless `TWZRD_FAIL_OPEN` is set. 0.9.13 is not uniformly
  * fail-closed.
  *
  *   const server = new x402ResourceServer(facilitator);
