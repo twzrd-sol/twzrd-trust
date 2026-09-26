@@ -15,8 +15,9 @@
  * failOpen we pass").
  *
  * `fetchMerchantCardResult` reports which of the two happened.
- * `fetchMerchantCard` keeps its original signature and is unchanged for
- * existing callers.
+ * `fetchMerchantCard` still returns null for a reachable card with no wash
+ * signal. An outage throws `MerchantCardUnreachableError` so callers cannot
+ * collapse "intel down" into the no-signal allow path.
  */
 
 export type TwzrdMerchantCard = {
@@ -64,7 +65,7 @@ export async function fetchMerchantCardResult(
   // No wallet to ask about is not an outage — there is nothing to look up.
   if (!w) return { reachable: true, card: null };
   try {
-    const url = `${opts.intelBase.replace(/\/+$/, "")}/v1/intel/merchant_card/${encodeURIComponent(w)}`;
+    const url = `${opts.intelBase.replace(/\/+$/, "")}/v1/intel/merchant_card/${encodeURIComponent(w)}?full=true`;
     const resp = await opts.fetch(url, {
       method: "GET",
       headers: { accept: "application/json" },
@@ -100,12 +101,19 @@ export async function fetchMerchantCardResult(
   }
 }
 
-/** Unchanged signature: null for both an unreachable lookup and no card. */
+/**
+ * Reachable card, or null when intel answered and has no wash object.
+ * Throws {@link MerchantCardUnreachableError} on outage — never null for that.
+ */
 export async function fetchMerchantCard(
   wallet: string,
   opts: { intelBase: string; fetch: typeof fetch },
 ): Promise<TwzrdMerchantCard | null> {
-  return (await fetchMerchantCardResult(wallet, opts)).card;
+  const lookup = await fetchMerchantCardResult(wallet, opts);
+  if (!lookup.reachable) {
+    throw new MerchantCardUnreachableError(lookup.error);
+  }
+  return lookup.card;
 }
 
 export type WashPolicyInput = {

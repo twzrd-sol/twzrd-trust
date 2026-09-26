@@ -150,7 +150,8 @@ async function run() {
   //     lacks this symbol -- that is what makes the red run demonstrate the
   //     behaviour (an outage allowing) instead of a module-resolution error.
   {
-    const { fetchMerchantCardResult } = await import("../src/merchant-card.js");
+    const { fetchMerchantCard, fetchMerchantCardResult, MerchantCardUnreachableError } =
+      await import("../src/merchant-card.js");
     const down = await fetchMerchantCardResult(PAYTO, {
       intelBase: "https://intel.example",
       fetch: cardFailingFetch("http503"),
@@ -174,6 +175,34 @@ async function run() {
     });
     assert.equal(none.reachable, true, "no wallet is not an outage");
     assert.equal(none.card, null);
+
+    await assert.rejects(
+      () =>
+        fetchMerchantCard(PAYTO, {
+          intelBase: "https://intel.example",
+          fetch: cardFailingFetch("http503"),
+        }),
+      (err: unknown) =>
+        err instanceof MerchantCardUnreachableError && err.error === "http_503",
+    );
+    const reachableNull = await fetchMerchantCard(PAYTO, {
+      intelBase: "https://intel.example",
+      fetch: cardNoSignalFetch,
+    });
+    assert.equal(reachableNull?.in_corpus, true, "reachable no-signal still returns the card");
+
+    const seen: string[] = [];
+    await fetchMerchantCardResult(PAYTO, {
+      intelBase: "https://intel.example",
+      fetch: (async (input: string | URL | Request) => {
+        seen.push(String(input));
+        return new Response(JSON.stringify({ in_corpus: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as unknown as typeof fetch,
+    });
+    assert.match(seen[0] ?? "", /[?&]full=true/, "gate reads the full card so corpus freshness is not stripped");
   }
   console.log("ok  fetchMerchantCardResult separates outage from no-signal");
 

@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tempDir } from "./helpers/tmpdir.js";
@@ -522,9 +522,17 @@ async function run() {
     assert.ok(pre.includes('"alg":"ed25519"'), "alg IS covered");
     assert.notEqual(PAYMENT_DECISION_DOMAIN, "twzrd-decision-v1\n", "distinct domain from DecisionToken");
 
-    const schema = JSON.parse(
-      readFileSync(new URL("../../docs/schemas/twzrd.payment_decision.v1.schema.json", import.meta.url), "utf8"),
+    // The package test ships its own copy so it runs in any repo layout (the
+    // wzrd-final fork keeps this package under packages/). Where the canonical
+    // docs/schemas copy exists, the two must not drift.
+    const schemaText = readFileSync(
+      new URL("./fixtures/twzrd.payment_decision.v1.schema.json", import.meta.url), "utf8",
     );
+    const canonical = new URL("../../docs/schemas/twzrd.payment_decision.v1.schema.json", import.meta.url);
+    if (existsSync(canonical)) {
+      assert.equal(schemaText, readFileSync(canonical, "utf8"), "test/fixtures schema drifted from docs/schemas");
+    }
+    const schema = JSON.parse(schemaText);
     assert.equal(schema.title, PAYMENT_DECISION_SCHEMA);
     assert.equal(schema.additionalProperties, false);
     assert.deepEqual(Object.keys(schema.properties).sort(), [...PAYMENT_DECISION_FIELDS].sort());

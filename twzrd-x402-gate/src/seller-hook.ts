@@ -26,7 +26,7 @@
  * exact-SVM base64 transaction payload.
  */
 
-import { fetchMerchantCardResult } from "./merchant-card.js";
+import { fetchMerchantCardResult, type TwzrdMerchantCard } from "./merchant-card.js";
 import type { TwzrdDecision } from "./types.js";
 
 /**

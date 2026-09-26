@@ -323,7 +323,7 @@ export function installTwzrdAutoGate(
       return target(echoing);
     }
     // The payWrap they already supply is a paying fetch. Use it as Path A
-    // x402Fetch so the canonical install fires warn+material without a
+    // x402Fetch so the canonical install fires warn → $0.001 /quick without a
     // second argument. payWrap(echoing) is unguarded — no recursion into the gate.
     const x402Fetch = fetchOpts?.x402Fetch ?? target(echoing);
     return target(withTwzrdGuard(raw, { ...fetchOpts, x402Fetch }));

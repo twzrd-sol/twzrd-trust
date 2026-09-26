@@ -28,10 +28,16 @@ export type TwzrdReadinessCard = {
   caveats?: string[];
   resource_name?: string;
   seller_wallet?: string;
-  /** Live server price for the paid trust receipt (0.05 on current server). */
+  /** Live server price for the optional V7 trust receipt (0.05 on current server). */
   full_report_price_usdc?: number;
-  /** Paid endpoint path to get a full trust receipt, e.g. /v1/intel/trust/{wallet}. */
+  /** Optional V7 receipt path, e.g. /v1/intel/trust/{wallet}. Not the first paid hop. */
   paid_trust_endpoint?: string;
+  /** First paid hop path from worktree intel, e.g. /v1/intel/quick/{wallet}. */
+  paid_teaser?: string;
+  /** First paid hop price (0.001). */
+  paid_teaser_usdc?: number;
+  /** Top-level first-hop alias when the server stamps paid_quick_endpoint. */
+  paid_quick_endpoint?: string;
   /**
    * Server-issued preflight id (top-level `preflight_id` in the preflight response,
    * surfaced onto the card by twzrdPreflight). Echoed as `x-twzrd-preflight-id` on the
@@ -107,7 +113,8 @@ export type TwzrdGateConfig = {
   fetch?: typeof fetch;
   /**
    * Called when decision="warn" or score_basis="default_no_data" (unknown seller).
-   * Use to trigger the paid receipt fetch (0.05 USDC via /v1/intel/trust).
+   * First paid hop is GET /v1/intel/quick/{seller} at $0.001. Optional V7
+   * GET /v1/intel/trust stays autoReceipt / requireReceipt / escalateOnWarn:false.
    * Return value is ignored — this is fire-and-forget for upsell/logging.
    * Example: (ctx) => paidFetch(`https://intel.twzrd.xyz${ctx.upsellUrl}`)
    */
@@ -148,9 +155,9 @@ export type TwzrdApproveContext = {
 export type TwzrdUpsellContext = {
   sellerWallet: string | undefined;
   trustScore: number | null;
-  /** Relative path to the paid trust endpoint, e.g. /v1/intel/trust/{wallet} */
+  /** Relative path to the first paid hop, e.g. /v1/intel/quick/{wallet} */
   upsellUrl: string;
-  /** Actual price read from the server card (0.05 default) */
+  /** First-hop price (0.001). Not the optional $0.05 V7 receipt. */
   priceUsdc: number;
 };
 

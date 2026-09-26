@@ -81,6 +81,7 @@ async function run() {
     const receipt = d.requireReceipt;
     assert.equal(receipt.materialWarnOnly, true);
     assert.equal(receipt.minSpendUsdc, 2.5);
+    assert.equal(receipt.onWarn, false);
     assert.equal(typeof d.escalateOnWarn, "object");
   }
 
@@ -122,7 +123,7 @@ async function run() {
     );
   }
 
-  // evaluate: both flags set — material warn hits $0.05 trust, not $0.001 quick.
+  // evaluate: both flags set — material warn hits $0.001 /quick first, not $0.05 /trust.
   {
     const x402 = payingMock("material");
     const r = await evaluate_x402_resource("https://seller.example/paid", reqs("3000000"), {
@@ -134,6 +135,29 @@ async function run() {
         materialWarnOnly: true,
       },
       escalateOnWarn: { minSpendUsdc: 0 },
+      x402Fetch: x402,
+      refuseWashFlagged: false,
+      preflightMinScore: 0,
+    });
+    assert.equal(x402.calls.length, 1);
+    assert.match(x402.calls[0], /\/v1\/intel\/quick\//);
+    assert.equal(r.receiptRequired, undefined);
+    assert.equal(r.escalated, true);
+    assert.equal(r.approved, true);
+  }
+
+  // evaluate: escalate off — material warn still buys optional V7 /trust.
+  {
+    const x402 = payingMock("v7");
+    const r = await evaluate_x402_resource("https://seller.example/paid", reqs("3000000"), {
+      fetch: preflight("warn"),
+      requireReceipt: {
+        minSpendUsdc: 2.5,
+        onWarn: true,
+        hard: true,
+        materialWarnOnly: true,
+      },
+      escalateOnWarn: false,
       x402Fetch: x402,
       refuseWashFlagged: false,
       preflightMinScore: 0,
@@ -272,7 +296,7 @@ async function run() {
     assert.equal(result, undefined);
   }
 
-  // Hook: x402Fetch + material warn → $0.05 trust.
+  // Hook: x402Fetch + material warn → $0.001 /quick (defaults).
   {
     const x402 = payingMock("hook");
     const result = await evaluateBeforePaymentCreation(
@@ -291,7 +315,7 @@ async function run() {
     );
     assert.equal(result, undefined);
     assert.equal(x402.calls.length, 1);
-    assert.match(x402.calls[0], /\/v1\/intel\/trust\//);
+    assert.match(x402.calls[0], /\/v1\/intel\/quick\//);
   }
 
   console.log("buyer-defaults.test.ts: ok");

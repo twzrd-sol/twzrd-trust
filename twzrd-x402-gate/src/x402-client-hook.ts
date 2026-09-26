@@ -145,8 +145,8 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
   /**
    * x402-capable fetch used to buy Path A when requireReceipt triggers.
    * Not used for free refuse-only installs. When present and flags are
-   * unset, buyer Path A defaults turn on (warn+material → $0.05;
-   * sub-material warn → $0.001). Facilitator settle hooks stay free.
+   * unset, buyer Path A defaults turn on (warn → $0.001 /quick;
+   * material allow → optional V7 $0.05 /trust). Facilitator settle hooks stay free.
    */
   x402Fetch?: typeof fetch;
   /**
@@ -431,7 +431,45 @@ export async function evaluateBeforePaymentCreation(
 
   let receiptFeeCaptured = false;
   let receiptSkipped: "unscored_network" | undefined;
-  if (receiptRequired) {
+  // First paid hop on warn is $0.001 /quick. Skip $0.05 /trust when the
+  // cheap hop already ran (no double settle, no JC9-style bounce).
+  const esc = options.escalateOnWarn;
+  const wantQuick =
+    !!esc &&
+    approval.reputationScored !== false &&
+    typeof options.x402Fetch === "function" &&
+    !!payTo &&
+    approval.verdict === "warn" &&
+    approval.approved &&
+    (priceUsdc ?? 0) >= (esc.minSpendUsdc ?? 0);
+  if (wantQuick && payTo && esc) {
+    const floor = esc.blockBelowScore ?? cfg.preflightMinScore;
+    const quick = await quickCheck(payTo, {
+      intelBase: cfg.intelBase,
+      fetch: cfg.fetch,
+      x402Fetch: options.x402Fetch,
+    });
+    if (quick.available && quick.score !== null && quick.score < floor) {
+      const reason = `[twzrd] twzrd_escalated_warn_block (paid quick score ${quick.score} < ${floor})`;
+      try {
+        options?.onDecision?.({
+          approved: false,
+          reason,
+          verdict: String(approval.verdict),
+          payTo,
+          network: approval.network ?? network,
+          amountMicro,
+          reputationScored: approval.reputationScored,
+          policyAction: "block",
+          intent,
+          decision,
+        });
+      } catch {
+        /* telemetry */
+      }
+      return { abort: true, reason };
+    }
+  } else if (receiptRequired) {
     if (typeof options?.x402Fetch !== "function") {
       const reason =
         "[twzrd] twzrd_receipt_required_missing_x402Fetch (wire x402Fetch for Path A)";
@@ -549,45 +587,6 @@ export async function evaluateBeforePaymentCreation(
     }
   }
 
-  // Sub-material warn: $0.001 re-decide. Skip when Path A already ran.
-  const esc = options.escalateOnWarn;
-  if (
-    !receiptRequired &&
-    esc &&
-    typeof options.x402Fetch === "function" &&
-    payTo &&
-    approval.verdict === "warn" &&
-    approval.approved &&
-    (priceUsdc ?? 0) >= (esc.minSpendUsdc ?? 0)
-  ) {
-    const floor = esc.blockBelowScore ?? cfg.preflightMinScore;
-    const quick = await quickCheck(payTo, {
-      intelBase: cfg.intelBase,
-      fetch: cfg.fetch,
-      x402Fetch: options.x402Fetch,
-    });
-    if (quick.available && quick.score !== null && quick.score < floor) {
-      const reason = `[twzrd] twzrd_escalated_warn_block (paid quick score ${quick.score} < ${floor})`;
-      try {
-        options?.onDecision?.({
-          approved: false,
-          reason,
-          verdict: String(approval.verdict),
-          payTo,
-          network: approval.network ?? network,
-          amountMicro,
-          reputationScored: approval.reputationScored,
-          policyAction: "block",
-          intent,
-          decision,
-        });
-      } catch {
-        /* telemetry */
-      }
-      return { abort: true, reason };
-    }
-  }
-
   const resourceBind = stampResourceBind(selectedRequirements, paymentRequired);
   try {
     options?.onDecision?.({
@@ -601,7 +600,7 @@ export async function evaluateBeforePaymentCreation(
       policyAction: approval.policyAction,
       intent,
       decision,
-      receiptRequired: receiptRequired || undefined,
+      receiptRequired: wantQuick ? undefined : receiptRequired || undefined,
       receiptFeeCaptured: receiptFeeCaptured || undefined,
       receiptSkipped,
       resourceBind,

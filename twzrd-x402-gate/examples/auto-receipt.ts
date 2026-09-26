@@ -2,13 +2,13 @@
 /**
  * TURN ON REVENUE: autoReceipt.
  *
- * The gate's free preflight blocks bad merchants for $0. The ONLY path that earns
- * TWZRD revenue is the paid trust receipt (GET /v1/intel/trust/{seller}, 0.05 USDC
- * over x402). `autoReceipt: true` auto-fetches it after a non-block verdict, so a
- * buyer that already vets sellers also pulls (and pays for) the signed receipt.
+ * The gate's free preflight blocks bad merchants for $0. First paid hop on warn
+ * is GET /v1/intel/quick/{seller} at $0.001. This demo opts into optional V7:
+ * GET /v1/intel/trust/{seller} at $0.05 via `autoReceipt: true`.
  *
  *   ┌── free preflight (block/warn/allow) ── always on, $0
- *   └── autoReceipt:true + x402Fetch ─────── paid receipt, 0.05 USDC -> TWZRD
+ *   ├── escalateOnWarn + x402Fetch ──────── first hop /quick, 0.001 USDC
+ *   └── autoReceipt:true + x402Fetch ────── optional V7 /trust, 0.05 USDC
  *
  * TWO THINGS THE INTEGRATOR SUPPLIES:
  *   1. `autoReceipt: true`        — opt in (default false; it spends the BUYER's USDC).

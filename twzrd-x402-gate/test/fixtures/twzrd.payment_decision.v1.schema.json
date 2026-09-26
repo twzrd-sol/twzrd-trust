@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/schemas/twzrd.payment_decision.v1.schema.json",
+  "title": "twzrd.payment_decision.v1",
+  "description": "Portable public decision receipt for one x402 payment decision. Carries what the agent saw (challenge_hash), what it decided, why (closed reason-code enum), and an opaque evidence id. Offline-verifiable with the issuer's Ed25519 public key. Forbidden by construction: scores, wallet secrets, raw payment authorizations/payloads, amounts, and resource URLs. FROZEN: any field addition is a v2. Normative text: docs/payment-decision-v1-spec.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "challenge_hash",
+    "merchant",
+    "network",
+    "scheme",
+    "decision",
+    "reason_code",
+    "evidence_id",
+    "expires_at",
+    "signature"
+  ],
+  "properties": {
+    "schema": {
+      "const": "twzrd.payment_decision.v1"
+    },
+    "challenge_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "hex sha256 of the normalized 402 challenge (resource-bind v1 leaf). See spec section 4."
+    },
+    "merchant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "pay_to"],
+      "properties": {
+        "origin": {
+          "type": "string",
+          "description": "Bare WHATWG origin of the 402 resource (scheme://host[:port]). Never a path, query, fragment or userinfo."
+        },
+        "pay_to": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "description": "The x402 accepts[].payTo value as served (merchant receiving address)."
+        }
+      }
+    },
+    "network": {
+      "type": "string",
+      "pattern": "^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$",
+      "description": "CAIP-2 chain id, e.g. solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp or eip155:8453."
+    },
+    "scheme": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+      "description": "x402 scheme of the selected requirement, e.g. exact."
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["allow", "block", "warn", "unavailable"],
+      "description": "unavailable = the evaluator produced no verdict. It is a first-class decision and is never represented as block."
+    },
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "INTEL_WARN",
+        "UNKNOWN_UNDER_LIMIT",
+        "UNKNOWN_ABOVE_LIMIT",
+        "MANDATE_EXPIRED",
+        "MANDATE_PURPOSE",
+        "MANDATE_RESOURCE_SCOPE",
+        "MANDATE_PAYEE_BLOCKED",
+        "MANDATE_MAX_PER_TX",
+        "MANDATE_MONTHLY_CEILING",
+        "POLICY_BLOCKLIST",
+        "POLICY_NOT_ALLOWLISTED",
+        "POLICY_NETWORK",
+        "POLICY_ASSET",
+        "POLICY_MAX_AMOUNT",
+        "RECURRING_PRICE_INCREASE",
+        "NEW_COUNTERPARTY_CAP",
+        "WASH_FLAGGED",
+        "INTEL_BLOCK",
+        "twzrd_budget_exceeded",
+        "INTEL_UNAVAILABLE",
+        "INTEL_TIMEOUT",
+        "NETWORK_NOT_SCORED",
+        "EVALUATOR_ERROR"
+      ],
+      "description": "Closed enum. Each code is valid only with the decisions listed in spec section 5; a verifier rejects an incoherent pair."
+    },
+    "evidence_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "description": "Opaque id of the signed evidence behind this record (the issuer's DecisionToken decisionId). Not a URL."
+    },
+    "expires_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$",
+      "description": "RFC 3339 UTC with Z suffix. A verifier rejects the record at or after this instant."
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "key_id", "sig"],
+      "properties": {
+        "alg": { "const": "ed25519" },
+        "key_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+          "description": "Issuer key identifier (DecisionSigner.keyId). Covered by the signature."
+        },
+        "sig": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{86}==$",
+          "description": "base64 of the 64-byte Ed25519 signature over the preimage defined in spec section 6."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "const": "allow" } } },
+      "then": { "properties": { "reason_code": { "enum": ["ALLOW"] } } }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "warn" } } },
+      "then": { "properties": { "reason_code": { "enum": ["INTEL_WARN", "UNKNOWN_UNDER_LIMIT", "UNKNOWN_ABOVE_LIMIT"] } } }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "block" } } },
+      "then": {
+        "properties": {
+          "reason_code": {
+            "enum": [
+              "UNKNOWN_ABOVE_LIMIT",
+              "MANDATE_EXPIRED",
+              "MANDATE_PURPOSE",
+              "MANDATE_RESOURCE_SCOPE",
+              "MANDATE_PAYEE_BLOCKED",
+              "MANDATE_MAX_PER_TX",
+              "MANDATE_MONTHLY_CEILING",
+              "POLICY_BLOCKLIST",
+              "POLICY_NOT_ALLOWLISTED",
+              "POLICY_NETWORK",
+              "POLICY_ASSET",
+              "POLICY_MAX_AMOUNT",
+              "RECURRING_PRICE_INCREASE",
+              "NEW_COUNTERPARTY_CAP",
+              "WASH_FLAGGED",
+              "INTEL_BLOCK",
+              "twzrd_budget_exceeded"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "unavailable" } } },
+      "then": { "properties": { "reason_code": { "enum": ["INTEL_UNAVAILABLE", "INTEL_TIMEOUT", "NETWORK_NOT_SCORED", "EVALUATOR_ERROR"] } } }
+    }
+  ]
+}

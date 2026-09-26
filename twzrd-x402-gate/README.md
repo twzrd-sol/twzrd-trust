@@ -269,7 +269,7 @@ Canonical path for every agent that spends USDC on Solana x402:
 |------|------|------|----------------|
 | 1 | `POST /v1/intel/preflight` | free | `decision=block` → refuse (`twzrd_decision_block`). Score floor / optional `can_spend` also deny. |
 | 2 | `GET /v1/intel/merchant_card/{payTo}` | free | `wash_flagged: true` → refuse by default (`twzrd_wash_flagged`). **Only tightens** step 1. |
-| 3 | Optional paid trust | $0.05 / $0.001 | On `warn` or high-value: `GET /v1/intel/trust/{payTo}` or `quickCheck`. Never required for the free refuse path. |
+| 3 | First paid hop `quickCheck` | $0.001 | On `warn`: `GET /v1/intel/quick/{payTo}`. Optional V7: `GET /v1/intel/trust/{payTo}` at $0.05 (`autoReceipt` / material allow). Never required for the free refuse path. |
 | 4 | Pay (or refuse) | resource price | Only if steps 1–2 approved (and any opt-in paid escalate did not block). |
 
 **Fail-open (no invent):**
@@ -286,7 +286,7 @@ Canonical path for every agent that spends USDC on Solana x402:
 - `wash_flagged=true` + `washMaxUsdc` set + `priceUsdc <= cap` → allow, `washCapped=true`, reason `twzrd_wash_capped_{price}_le_{cap}`.
 - `wash_flagged=true` + price above cap (or price unknown) → refuse with `twzrd_wash_flagged_above_cap_*`.
 
-**Order note:** `onWarnUpsell` (points at paid `/trust`) fires on preflight `warn` **before** the merchant_card wash check. A wash-flagged seller that preflighted as `warn` may still get the upsell hook, then be refused on step 2.
+**Order note:** `onWarnUpsell` (points at first paid hop `GET /v1/intel/quick` $0.001) fires on preflight `warn` **before** the merchant_card wash check. A wash-flagged seller that preflighted as `warn` may still get the upsell hook, then be refused on step 2. Optional V7 `GET /v1/intel/trust` $0.05 stays `autoReceipt` / `requireReceipt` / `escalateOnWarn:false`.
 
 Dogfood (one public live proof path):
 - Free only (wash refuse): `npm run wash-dogfood` → [`examples/wash-refuse-dogfood.ts`](./examples/wash-refuse-dogfood.ts)
@@ -668,12 +668,19 @@ Opt out of wash refuse: `withTwzrdGuard(fetch, { refuseWashFlagged: false })` or
 
 Non-402 responses pass through unchanged.
 
-### Auto-receipt on warn (revenue path)
+### First paid hop on warn (revenue path)
+
+Wiring `x402Fetch` turns on buyer defaults: a proceeding `warn` settles
+`GET /v1/intel/quick/{payTo}` at **$0.001** (escalateOnWarn). That is the first paid hop.
+
+Optional V7 — `autoReceipt` or material-allow `requireReceipt` — buys
+`GET /v1/intel/trust/{payTo}` at $0.05 for a signed credential. Opt out of the
+cheap hop with `escalateOnWarn: false` if the host explicitly wants /trust first.
 
 ```typescript
 const safeFetch = withTwzrdGuard(x402Fetch, {
-  autoReceipt: true,   // on warn or allow, auto-buy the $0.05 TWZRD trust receipt
-  x402Fetch,           // the paying fetch — TWZRD earns the fee on-chain
+  x402Fetch,           // warn → $0.001 /quick first
+  autoReceipt: true,   // optional V7: also buy $0.05 /trust on allow (not after /quick)
   onReceipt: (receipt, tx) => {
     // receipt is a twzrd_receipt (V7 + ERC-8004 reputation_credential)
     console.log("Trust receipt captured:", tx);
@@ -681,9 +688,8 @@ const safeFetch = withTwzrdGuard(x402Fetch, {
 });
 ```
 
-`autoReceipt` is **off by default** — it spends the **buyer's** USDC, so you opt in. When on,
-every warn/allow verdict settles $0.05 USDC to TWZRD and returns a signed V7 trust credential
-for the counterparty before you pay the resource.
+`autoReceipt` is **off by default** — it spends the **buyer's** USDC, so you opt in. When on
+and `/quick` did not already settle, warn/allow can buy the $0.05 V7 credential.
 
 **`x402Fetch` is yours to supply** (this package is dependency-free). Wire the proven
 `@x402/svm` sponsored-feePayer client — the same one `twzrd-mcp-server` uses:
@@ -902,7 +908,7 @@ A 402 whose payment requirements yield **no identifiable seller wallet** (missin
 | `blockDecisions` | `TWZRD_BLOCK_DECISIONS` | `block` | Decisions that throw |
 | `failOpen` | `TWZRD_FAIL_OPEN` | `false` | `true` opts into legacy allow-on-outage; default blocks (fail-closed) |
 | `gateOnCanSpend` | `TWZRD_GATE_ON_CAN_SPEND` | `false` | Also block when `can_spend=false` |
-| `autoReceipt` | — | `false` | Auto-buy $0.05 TWZRD receipt on warn/allow |
+| `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` when `/quick` did not already settle |
 | `x402Fetch` | — | — | x402-capable fetch for `autoReceipt` |
 | `onReceipt` | — | — | Callback after receipt is captured |
 | `disabled` (`installTwzrdAutoGate` only) | `TWZRD_AUTO_GATE=0`/`false` | `false` | Bypass the guard entirely — `payWrap` gets the raw, unguarded fetch |
@@ -997,9 +1003,10 @@ The gate path only ever calls free endpoints — the preflight plus, by default
 (`quickCheck`, `autoReceipt`) is otherwise opt-in, with one documented
 exception (QUICKSTART 3b): on the fetch / payWrap seat, wiring a paying fetch
 auto-enables buyer Path A, so a proceeding `warn` settles the $0.001 quick
-tier ($0.05 at material size) through your wallet with no further flag —
+tier (`GET /v1/intel/quick/{payTo}`) through your wallet with no further flag —
 opt out with `escalateOnWarn: false`, `requireReceipt: false`, or by leaving
-`x402Fetch` unwired. The merchant-facing payment still waits on the free
+`x402Fetch` unwired. Optional V7 `/trust` at $0.05 stays on material allow or
+explicit `autoReceipt`. The merchant-facing payment still waits on the free
 preflight's verdict.
 
 ## License

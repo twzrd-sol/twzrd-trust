@@ -15,8 +15,8 @@
  *   2. Agent hits an x402 resource → gets 402 with seller wallet.
  *   3. Guard runs free TWZRD preflight → most Agentic.Market sellers score warn
  *      (unknown to corpus, default trust_score ~45).
- *   4. On warn + autoReceipt=true: guard auto-fetches paid TWZRD trust receipt
- *      via x402Fetch ($0.05 USDC → TWZRD). Fee captured on-chain.
+ *   4. On warn + x402Fetch: first paid hop is GET /quick $0.001.
+ *      autoReceipt=true buys optional V7 GET /trust $0.05 only when /quick did not.
  *   5. Guard returns original 402 → caller pays the resource.
  *
  * For live receipt capture (step 4), set WZRD_X402_FETCH=live and provide
