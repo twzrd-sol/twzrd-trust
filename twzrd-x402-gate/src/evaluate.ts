@@ -31,12 +31,14 @@ export type EvaluateX402Options = TwzrdGateConfig & {
    */
   autoReceipt?: boolean;
   /**
-   * Host threshold policy for Path A ($0.05 V6). Opt-in.
+   * Host threshold policy for optional V7 Path A ($0.05 /trust). Opt-in.
    * - Free preflight still decides allow|warn|block.
-   * - Path A auto-runs when resource price > minSpendUsdc (default 10) OR
-   *   decision === "warn" (onWarn default true).
+   * - First paid hop on warn is escalateOnWarn ($0.001 /quick) when set.
+   * - This policy auto-runs /trust when resource price > minSpendUsdc
+   *   (default 10) OR decision === "warn" (onWarn default true) — and
+   *   only if the cheap hop did not already settle.
    * - Never on decision === "block" (free refuse stays free).
-   * - hard (default true): deny merchant spend if Path A fails.
+   * - hard (default true): deny merchant spend if /trust fails.
    * Requires x402Fetch.
    */
   requireReceipt?: boolean | RequireReceiptPolicy;
@@ -70,8 +72,9 @@ export type EvaluateX402Options = TwzrdGateConfig & {
    * the paid signal actually gates the spend (unlike autoReceipt, which is upsell-only
    * and never changes the decision). Opt-in; requires x402Fetch. Fail-soft: if the
    * quick tier cannot answer, the base warn decision is preserved. Only tightens
-   * (warn -> maybe block); never loosens a block or allow. Short-circuits the
-   * autoReceipt path for the warn case (no double settle).
+   * (warn -> maybe block); never loosens a block or allow. This is the first
+   * paid hop on warn — it short-circuits autoReceipt / requireReceipt /trust
+   * so the buyer is not bounced onto $0.05. Set false to force V7 /trust.
    */
   escalateOnWarn?: BuyerEscalateOnWarn;
 };
@@ -129,12 +132,11 @@ export type EvaluateX402Result = {
  * Evaluate an x402 resource before the buyer pays:
  *   1. Run free TWZRD preflight on the seller (no auth, no cost).
  *   2. Return decision + trust score.
- *   3. If autoReceipt / requireReceipt triggers and decision !== block:
- *      auto-fetch the paid TWZRD trust receipt via x402Fetch (Path A, $0.05 V6).
- *      With requireReceipt.hard (default), deny spend if Path A fails.
- *   4. Else if escalateOnWarn is set and decision=warn: settle the cheap
- *      $0.001 quick tier and re-decide on the paid score (only when Path A
- *      did not already fire).
+ *   3. If escalateOnWarn is set and decision=warn: settle GET /quick
+ *      $0.001 first and re-decide on the paid score (no double settle).
+ *   4. Else if autoReceipt / requireReceipt triggers and decision !== block:
+ *      auto-fetch optional V7 GET /trust via x402Fetch ($0.05).
+ *      With requireReceipt.hard (default), deny spend if /trust fails.
  *
  * Defaults to gateOnCanSpend=false (decision-only) — the free-tier preflight
  * returns can_spend=false for most unknown sellers, which would block too eagerly
@@ -215,9 +217,9 @@ export async function evaluate_x402_resource(
     policyAction: approval.policyAction,
   };
 
-  // Path A first ($0.05 V6 on material warn/allow). escalateOnWarn ($0.001)
-  // only runs when Path A is not required — otherwise it would steal the
-  // cash SKU. Never on block.
+  // First paid hop is $0.001 GET /quick on warn (escalateOnWarn). Optional
+  // V7 $0.05 GET /trust (requireReceipt / autoReceipt) runs only when the
+  // cheap hop did not already settle. Never on block.
   const receiptPolicy = resolveRequireReceiptPolicy(opts.requireReceipt);
   const receiptRequired = shouldRequirePathAReceipt({
     policy: receiptPolicy,
@@ -234,7 +236,43 @@ export async function evaluate_x402_resource(
   // buy Path A on an unscored rail, and do not treat a missing Base receipt
   // as a hard deny of a policy allow.
   const scoredRail = approval.reputationScored !== false;
-  const attemptReceipt = scoredRail && wantPathA;
+  const esc = opts.escalateOnWarn;
+  const wantQuick =
+    !!esc &&
+    scoredRail &&
+    typeof opts.x402Fetch === "function" &&
+    !!payTo &&
+    decision === "warn" &&
+    base.approved &&
+    (priceUsdc ?? 0) >= (esc.minSpendUsdc ?? 0);
+  if (wantQuick && payTo && esc) {
+    const floor = esc.blockBelowScore ?? config.preflightMinScore;
+    const quick = await quickCheck(payTo, {
+      intelBase: config.intelBase,
+      fetch: config.fetch,
+      x402Fetch: opts.x402Fetch,
+    });
+    if (quick.available && quick.score !== null) {
+      const escApproved = quick.score >= floor;
+      return {
+        ...base,
+        approved: escApproved,
+        trustScore: quick.score,
+        escalated: true,
+        escalatedScore: quick.score,
+        escalatedTier: quick.tier,
+        reason: escApproved
+          ? `twzrd_escalated_warn_allow (paid quick score ${quick.score} >= ${floor})`
+          : `twzrd_escalated_warn_block (paid quick score ${quick.score} < ${floor})`,
+      };
+    }
+    return {
+      ...base,
+      escalated: true,
+      escalatedScore: null,
+    };
+  }
+  const attemptReceipt = scoredRail && wantPathA && !wantQuick;
   if (!scoredRail && wantPathA) {
     base.receiptSkipped = "unscored_network";
   }
@@ -396,46 +434,6 @@ export async function evaluate_x402_resource(
     // Soft policy, or already denied upstream: carry the annotation on `base`
     // so every later return (escalation included) reports it.
     base.logInclusion = annotated;
-  }
-
-  // Cheap re-decide only when Path A did not already fire.
-  if (
-    !receiptRequired &&
-    !attemptReceipt &&
-    opts.escalateOnWarn &&
-    typeof opts.x402Fetch === "function" &&
-    payTo &&
-    decision === "warn" &&
-    base.approved &&
-    (priceUsdc ?? 0) >= (opts.escalateOnWarn.minSpendUsdc ?? 0)
-  ) {
-    const floor = opts.escalateOnWarn.blockBelowScore ?? config.preflightMinScore;
-    const quick = await quickCheck(payTo, {
-      intelBase: config.intelBase,
-      fetch: config.fetch,
-      x402Fetch: opts.x402Fetch,
-    });
-    if (quick.available && quick.score !== null) {
-      const escApproved = quick.score >= floor;
-      return {
-        ...base,
-        approved: escApproved,
-        trustScore: quick.score,
-        escalated: true,
-        escalatedScore: quick.score,
-        escalatedTier: quick.tier,
-        receiptRequired: receiptRequired || undefined,
-        reason: escApproved
-          ? `twzrd_escalated_warn_allow (paid quick score ${quick.score} >= ${floor})`
-          : `twzrd_escalated_warn_block (paid quick score ${quick.score} < ${floor})`,
-      };
-    }
-    return {
-      ...base,
-      escalated: true,
-      escalatedScore: null,
-      receiptRequired: receiptRequired || undefined,
-    };
   }
 
   return { ...base, receiptRequired: receiptRequired || undefined };

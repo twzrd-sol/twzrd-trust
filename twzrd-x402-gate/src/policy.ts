@@ -12,6 +12,7 @@ import {
   logUnsupportedNetwork,
 } from "./network.js";
 import { randomUUID } from "node:crypto";
+import { QUICK_PRICE_USDC } from "./quick.js";
 import type {
   TwzrdApprovalResult,
   TwzrdApproveContext,
@@ -20,6 +21,21 @@ import type {
   TwzrdPreflightInput,
   TwzrdReadinessCard,
 } from "./types.js";
+
+/** First paid hop on warn. Ignore live paid_trust_endpoint ($0.05 V7). */
+function warnUpsellHop(
+  card: TwzrdReadinessCard,
+  seller: string | undefined,
+): { upsellUrl: string; priceUsdc: number } {
+  const teaser = card.paid_teaser ?? card.paid_quick_endpoint;
+  if (typeof teaser === "string" && teaser.includes("/quick")) {
+    return { upsellUrl: teaser, priceUsdc: card.paid_teaser_usdc ?? QUICK_PRICE_USDC };
+  }
+  return {
+    upsellUrl: seller ? `/v1/intel/quick/${seller}` : "/v1/intel/quick/unknown",
+    priceUsdc: card.paid_teaser_usdc ?? QUICK_PRICE_USDC,
+  };
+}
 
 export type PolicyEvaluateInput = {
   card: TwzrdReadinessCard;
@@ -359,11 +375,12 @@ export async function twzrdApprovePayment(
     // Fire upsell hook on warn (unknown/low-corpus seller) — fire-and-forget
     if (result.verdict === "warn" && cfg.onWarnUpsell) {
       const seller = card.seller_wallet ?? context.sellerWallet ?? context.payTo;
+      const hop = warnUpsellHop(card, seller);
       void cfg.onWarnUpsell({
         sellerWallet: seller,
         trustScore: card.trust_score ?? null,
-        upsellUrl: seller ? `/v1/intel/trust/${seller}` : "/v1/intel/trust/unknown",
-        priceUsdc: card.full_report_price_usdc ?? 0.05,
+        upsellUrl: hop.upsellUrl,
+        priceUsdc: hop.priceUsdc,
       });
     }
 

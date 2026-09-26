@@ -152,6 +152,7 @@ async function run() {
     const guarded = withTwzrdGuard(resourceFetch, {
       fetch: preflight({ decision: "warn", trust_score: 45 }),
       autoReceipt: true,
+      escalateOnWarn: false, // this file pins optional V7 /trust, not the /quick first hop
       x402Fetch: x402,
     });
     const resp = await guarded("https://seller.example/paid");

@@ -144,6 +144,49 @@ async function run() {
   assert.equal(noPayToFailOpen.reason, "twzrd_unidentifiable_payment_recipient");
   assert.equal(preflightCalled, false, "still never reaches the network");
 
+  // --- onWarnUpsell first paid hop is /quick $0.001 (ignore live /trust $0.05 card fields) ---
+  const hops: Array<{ upsellUrl: string; priceUsdc: number }> = [];
+  const warnUpsell = await twzrdApprovePayment(
+    { payTo: "SELLER" },
+    resolveConfig({
+      refuseWashFlagged: false,
+      fetch: okFetch({
+        decision: "warn",
+        trust_score: 45,
+        can_spend: false,
+        full_report_price_usdc: 0.05,
+        paid_trust_endpoint: "/v1/intel/trust/SELLER",
+      }),
+      onWarnUpsell: (ctx) => {
+        hops.push({ upsellUrl: ctx.upsellUrl, priceUsdc: ctx.priceUsdc });
+      },
+    }),
+  );
+  assert.equal(warnUpsell.approved, true, "warn still approves");
+  assert.equal(hops.length, 1, "onWarnUpsell fires once");
+  assert.equal(hops[0].upsellUrl, "/v1/intel/quick/SELLER", "upsellUrl leads /quick not /trust");
+  assert.equal(hops[0].priceUsdc, 0.001, "first hop is $0.001 not $0.05");
+
+  const teaserHops: Array<{ upsellUrl: string; priceUsdc: number }> = [];
+  await twzrdApprovePayment(
+    { payTo: "SELLER" },
+    resolveConfig({
+      refuseWashFlagged: false,
+      fetch: okFetch({
+        decision: "warn",
+        trust_score: 45,
+        paid_teaser: "/v1/intel/quick/SELLER",
+        paid_teaser_usdc: 0.001,
+        paid_trust_endpoint: "/v1/intel/trust/SELLER",
+      }),
+      onWarnUpsell: (ctx) => {
+        teaserHops.push({ upsellUrl: ctx.upsellUrl, priceUsdc: ctx.priceUsdc });
+      },
+    }),
+  );
+  assert.equal(teaserHops[0]?.upsellUrl, "/v1/intel/quick/SELLER");
+  assert.equal(teaserHops[0]?.priceUsdc, 0.001);
+
   console.log("policy.test.ts: ALL PASSED");
 }
 

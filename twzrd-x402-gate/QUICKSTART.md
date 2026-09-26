@@ -147,9 +147,10 @@ createTwzrdBeforePaymentHook({
 
 ## 3b. Turn on Path A (buyer cash, not the rail)
 
-Refuse stays free until you wire a paying fetch. Then warn + material amount
-buys the $0.05 V6 (or $0.001 quick below $2.50). Facilitator settle hooks stay
-free.
+Refuse stays free until you wire a paying fetch. Then a proceeding `warn`
+settles the first paid hop: `GET /v1/intel/quick/{payTo}` at $0.001. Optional
+V7 `$0.05` `/trust` stays on material allow or explicit `autoReceipt`.
+Facilitator settle hooks stay free.
 
 ```typescript
 import { wrapFetchWithPayment } from "@x402/svm";

@@ -8,6 +8,7 @@ import { resolveConfig } from "../src/config.js";
 import {
   applyWashFlaggedPolicy,
   fetchMerchantCard,
+  MerchantCardUnreachableError,
 } from "../src/merchant-card.js";
 import { twzrdApprovePayment } from "../src/policy.js";
 
@@ -121,14 +122,19 @@ async function run() {
     "only tightens — never loosens a prior deny",
   );
 
-  // --- fetchMerchantCard fail-open ---
-  const nullCard = await fetchMerchantCard("ABC", {
-    intelBase: "https://intel.twzrd.xyz",
-    fetch: (async () => {
-      throw new Error("down");
-    }) as unknown as typeof fetch,
-  });
-  assert.equal(nullCard, null);
+  // --- fetchMerchantCard preserves outage (does not collapse to null) ---
+  await assert.rejects(
+    () =>
+      fetchMerchantCard("ABC", {
+        intelBase: "https://intel.twzrd.xyz",
+        fetch: (async () => {
+          throw new Error("down");
+        }) as unknown as typeof fetch,
+      }),
+    (err: unknown) =>
+      err instanceof MerchantCardUnreachableError &&
+      /fetch_failed/.test((err as MerchantCardUnreachableError).error),
+  );
 
   // --- approvePayment integration ---
   const allowCard = { decision: "allow", trust_score: 80, can_spend: true };

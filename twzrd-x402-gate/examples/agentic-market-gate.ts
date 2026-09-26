@@ -63,6 +63,8 @@ async function main() {
                 can_spend: false,
                 full_report_price_usdc: 0.05,
                 paid_trust_endpoint: `/v1/intel/trust/${DEMO_SELLER}`,
+                paid_teaser: `/v1/intel/quick/${DEMO_SELLER}`,
+                paid_teaser_usdc: 0.001,
               },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -79,7 +81,7 @@ async function main() {
     onWarnUpsell: (ctx) => {
       console.log(
         `[upsell] warn seller ${ctx.sellerWallet ?? "unknown"} — ` +
-          `get receipt: https://intel.twzrd.xyz${ctx.upsellUrl} ($${ctx.priceUsdc} USDC)`,
+          `first paid hop: https://intel.twzrd.xyz${ctx.upsellUrl} ($${ctx.priceUsdc} USDC)`,
       );
     },
   });

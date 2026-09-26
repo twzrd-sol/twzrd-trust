@@ -283,6 +283,7 @@ async function run() {
       gateOnCanSpend: false,
       refuseWashFlagged: false,
       requireReceipt: true, // onWarn default true -> receiptRequired on decision=warn
+      escalateOnWarn: false, // keep this case on V7 /trust identity headers
       fetch: (async () =>
         new Response(
           JSON.stringify({
@@ -360,6 +361,22 @@ async function run() {
     assert.equal(last?.approved, true);
     assert.equal(last?.receiptRequired, true);
     assert.equal(last?.receiptSkipped, "unscored_network");
+  }
+
+  {
+    const hooked = {
+      onBeforePaymentCreation() {
+        return hooked;
+      },
+      async createPaymentPayload(_pr: unknown) {
+        return { x402Version: 2, payload: {} };
+      },
+    };
+    installTwzrdX402ClientHook(hooked as unknown as X402ClientLike, { refuseWashFlagged: false });
+    const payload = (await hooked.createPaymentPayload({
+      extensions: { twzrd_attempt: { schema: "twzrd.attempt.v1", attempt_key: "join-k" } },
+    })) as unknown as { extensions: { twzrd_attempt: { attempt_key: string } } };
+    assert.equal(payload.extensions.twzrd_attempt.attempt_key, "join-k");
   }
 
   console.log("x402-client-hook.test.ts: ALL PASSED");
