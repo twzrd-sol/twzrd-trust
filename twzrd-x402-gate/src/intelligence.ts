@@ -51,8 +51,8 @@ const HAS_EVIDENCE = ["provider_reputation"];
 export function counterpartyKnownFromApproval(
   approval: TwzrdApprovalResult,
 ): boolean | undefined {
-  // Unscored network (Base/EVM, Stripe deposit addresses): no reputation ran at
-  // all, so we know nothing about the recipient. Never imply otherwise.
+  // Unscored network (EVM other than Base mainnet, Stripe deposit addresses):
+  // no reputation ran at all, so we know nothing about the recipient. Never imply otherwise.
   if (approval.reputationScored !== true) return undefined;
 
   const caveats = approval.card?.caveats;

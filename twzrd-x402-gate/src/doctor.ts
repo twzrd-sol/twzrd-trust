@@ -46,7 +46,7 @@ const HOSTS: Host[] = [
     id: "solana-agent-kit",
     label: "Solana Agent Kit (SolanaAgentKit)",
     deps: ["solana-agent-kit"],
-    install: "npm install twzrd-x402-gate",
+    install: "npm install twzrd-x402-gate@0.9.11",
     snippet: `import { SolanaAgentKit } from "solana-agent-kit";
 import { twzrdBeforeSign } from "twzrd-x402-gate";
 
@@ -63,7 +63,7 @@ const agent = new SolanaAgentKit(wallet, rpcUrl, {
     id: "pay-kit",
     label: "Solana PayKit (createPayKitClient)",
     deps: ["@solana/pay-kit"],
-    install: "npm install twzrd-x402-gate @solana/pay-kit",
+    install: "npm install twzrd-x402-gate@0.9.11 @solana/pay-kit",
     snippet: `import { createPayKitClient } from "@solana/pay-kit";
 import { createTwzrdPayKitBeforePaymentHook } from "twzrd-x402-gate";
 
@@ -86,7 +86,7 @@ const client = await createPayKitClient({
     id: "x402-client",
     label: "official x402 client (@x402/core)",
     deps: ["@x402/core", "@x402/fetch", "@x402/svm"],
-    install: "npm install twzrd-x402-gate @x402/core @x402/fetch @x402/svm",
+    install: "npm install twzrd-x402-gate@0.9.11 @x402/core @x402/fetch @x402/svm",
     snippet: `import { x402Client } from "@x402/core/client";
 import { installTwzrdAutoGate } from "twzrd-x402-gate";
 
@@ -98,7 +98,7 @@ installTwzrdAutoGate(client, { refuseWashFlagged: true });`,
     id: "elizaos",
     label: "elizaOS agent runtime",
     deps: ["@elizaos/core", "elizaos"],
-    install: "npm install twzrd-x402-gate",
+    install: "npm install twzrd-x402-gate@0.9.11",
     snippet: `import { installTwzrdAutoGate } from "twzrd-x402-gate";
 
 // Gate the payment client your plugin hands to the runtime, not the runtime
@@ -109,7 +109,7 @@ installTwzrdAutoGate(paymentClient, { refuseWashFlagged: true });`,
     id: "goat",
     label: "GOAT SDK",
     deps: ["@goat-sdk/core"],
-    install: "npm install twzrd-x402-gate",
+    install: "npm install twzrd-x402-gate@0.9.11",
     snippet: `import { installTwzrdAutoGate } from "twzrd-x402-gate";
 
 installTwzrdAutoGate(walletClient, { refuseWashFlagged: true });`,
@@ -118,7 +118,7 @@ installTwzrdAutoGate(walletClient, { refuseWashFlagged: true });`,
     id: "raw-fetch",
     label: "raw fetch + x402 payer",
     deps: ["x402-fetch", "x402"],
-    install: "npm install twzrd-x402-gate",
+    install: "npm install twzrd-x402-gate@0.9.11",
     snippet: `import { installTwzrdAutoGate } from "twzrd-x402-gate";
 
 // Wraps fetch: a refused payment never reaches the payer.

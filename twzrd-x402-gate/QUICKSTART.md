@@ -73,9 +73,11 @@ const client = await createPayKitClient({
 Equivalent: `onBeforeX402PaymentCreation: installTwzrdAutoGate("pay-kit", { refuseWashFlagged: true })`.
 The hook is the official `@x402/core` context shape (same evaluator as Path E).
 `@solana/pay-kit` is optional — this package does not hard-depend on it.
-The factory itself does not read `TWZRD_AUTO_GATE`; use the AutoGate seat if you
-want the env kill switch re-read per call. You cannot `installTwzrdAutoGate(client)`
-after `createPayKitClient` — PayKit only accepts the hook at construction.
+`createTwzrdPayKitBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or
+`TWZRD_GATE_ENABLED`. `installTwzrdAutoGate("pay-kit", opts)` is the seat that
+reads that kill switch per call and then calls the factory. You cannot
+`installTwzrdAutoGate(client)` after `createPayKitClient` — PayKit only accepts
+the hook at construction.
 
 ## 1d. Cold-start a foreign diet (0 USDC)
 
@@ -170,7 +172,7 @@ payWrap as `x402Fetch`.
 
 | Knob | Effect |
 |------|--------|
-| `TWZRD_AUTO_GATE=0` | Kill switch — gate fully off, payments proceed unguarded. Read per call on the x402-client / x402-solana / pay-kit / MPP seats; the fetch (payWrap) seat resolves it once when the fetch is composed, in both directions — rebuild the fetch to change it. |
+| `TWZRD_AUTO_GATE=0` | Kill switch for `installTwzrdAutoGate` only — that seat proceeds unguarded. `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`, so a direct call still aborts a bad payment. `installTwzrdAutoGate` reads the switch per call on the x402-client / x402-solana / pay-kit / MPP seats before it calls the factory. The fetch (payWrap) seat resolves it once when the fetch is composed — rebuild the fetch to change it. |
 | `refuseWashFlagged: false` | Stop refusing wash-flagged merchants (default `true`) |
 | `gateOnCanSpend: true` | Opt-in hard cap: also block when `can_spend=false` (default `false`) |
 
@@ -178,9 +180,9 @@ Everything else (thresholds, wash caps, fail posture, settle guard): [README](./
 
 ## What this will NOT do
 
-- **No Base/EVM reputation.** Non-Solana networks get an explicit `unknown`
-  (observed; no Solana preflight) unless you set
-  `TWZRD_UNSUPPORTED_NETWORK_MODE=strict`. Observe is not a wash bypass —
-  `wash_flagged` still refuses before sign.
+- **Base mainnet is scored.** Solana mainnet and Base mainnet (`eip155:8453`)
+  run the scored preflight. Other EVM networks do not: they get an explicit
+  `unknown` unless you set `TWZRD_UNSUPPORTED_NETWORK_MODE=strict`. Observe is
+  not a wash bypass — `wash_flagged` still refuses before sign.
 - **No delivery guarantee.** It screens the merchant before you pay, nothing after.
 - **Not a wallet.** It never holds keys or signs — it only decides if your signer runs.

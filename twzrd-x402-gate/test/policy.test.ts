@@ -100,7 +100,7 @@ async function run() {
     (await twzrdApprovePayment({ payTo: "S" }, resolveConfig({ fetch: okFetch({ decision: "block", trust_score: 5 }) }))).approved,
     false,
   );
-  // --- fail-open (default) when preflight throws ---
+  // --- fail-open only when the caller sets failOpen: true and preflight throws ---
   const fo = await twzrdApprovePayment({ payTo: "S" }, resolveConfig({ failOpen: true, fetch: throwFetch }));
   assert.equal(fo.approved, true);
   assert.equal(fo.failOpen, true);
@@ -115,9 +115,9 @@ async function run() {
   assert.match(fc.reason, /twzrd_fail_closed/, "failOpen=false: reason marks the fail-closed path");
 
   // --- malformed/unidentifiable payTo fails closed, unconditionally ---
-  // A 402 whose payment requirements yield no seller wallet is not "an unknown
-  // seller" (which proceeds by default at warn/score~45) - it's evidence there is
-  // nothing to evaluate. Must block WITHOUT ever calling the preflight fetch, and
+  // A 402 whose payment requirements yield no seller wallet is not an
+  // unknown_subject card. Missing payTo does not sign. null_reason
+  // unknown_subject on a scored network does not sign either. Must block WITHOUT ever calling the preflight fetch, and
   // regardless of failOpen (failOpen is about gate *unavailability*, not a missing
   // recipient).
   let preflightCalled = false;

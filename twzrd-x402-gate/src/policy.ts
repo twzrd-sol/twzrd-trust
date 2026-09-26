@@ -73,11 +73,14 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
   const score = card.trust_score ?? 0;
 
   if (blockDecisions.has(decision)) {
+    // decision "block" returns twzrd_decision_block. That string is not "block"
+    // and it is not twzrd_fail_closed.
     return { approved: false, verdict: decision as TwzrdDecision, score: card.trust_score ?? null, card, reason: `twzrd_decision_${decision}` };
   }
   // Not evaluated is not a low score. Checked before the numeric threshold,
   // because the floor trust_score would otherwise clear it.
   if (isUnevaluatedCard(card)) {
+    // null_reason unknown_subject returns twzrd_unevaluated_subject_unknown_subject.
     return {
       approved: false,
       verdict: "unknown",
@@ -282,12 +285,13 @@ export async function twzrdApprovePayment(
   const cfg = config ?? resolveConfig();
   const decisionId = randomUUID();
 
-  // Fail closed on an unidentifiable recipient — a 402 whose payment requirements
-  // don't yield a seller wallet is not "an unknown seller" (which the free-tier
-  // preflight already treats as a proceeding `warn`); it's evidence the gate has
-  // nothing to evaluate at all. This is independent of failOpen: failOpen is about
-  // the TWZRD *service* being unreachable, not about the caller failing to supply
-  // who they're paying.
+  // Missing payTo is not approved. The reason is
+  // twzrd_unidentifiable_payment_recipient, not twzrd_missing_payTo.
+  // That is not an unknown_subject card: on Solana mainnet and Base mainnet,
+  // null_reason unknown_subject is also not approved (isUnevaluatedCard),
+  // even when trust_score is the floor 45.
+  // failOpen is only the buyer preflight outage switch. Unset, that outage
+  // does not sign. It does not approve a missing payTo.
   if (!(context.sellerWallet ?? context.payTo)) {
     return {
       decisionId,
@@ -299,10 +303,10 @@ export async function twzrdApprovePayment(
     };
   }
 
-  // Path E: classify network before any Solana reputation call.
-  // Base/EVM → explicit unknown (never a fabricated score). Solana → full preflight.
-  // Observe is "don't claim Solana reputation", not "skip wash". Wash is
-  // wallet-keyed; a wash_flagged payTo on Base must still refuse-before-sign.
+  // Classify before the scored preflight. Solana mainnet and Base mainnet
+  // (eip155:8453) are scored. Other EVM networks are not: they do not run
+  // twzrdPreflight. Observe still runs wash. A wash_flagged payTo on an
+  // unscored network still refuses before sign.
   const netCls = classifyNetwork(context.chain, context.payTo ?? context.sellerWallet);
   if (!netCls.reputationScored) {
     const undecided = decideUnsupportedNetwork(netCls, cfg.unsupportedNetworkMode);
@@ -395,6 +399,7 @@ export async function twzrdApprovePayment(
       Number.isFinite(context.priceUsdc) &&
       context.priceUsdc > result.recommendedCapUsdc
     ) {
+      // Reason starts with twzrd_over_recommended_cap_.
       return {
         ...result,
         decisionId,
@@ -441,6 +446,11 @@ export async function twzrdApprovePayment(
       policyAction: wash.approved ? "allow" : "block",
     };
   } catch (err) {
+    // Buyer outage, TWZRD_FAIL_OPEN unset: twzrdApprovePayment returns
+    // approved false, reason twzrd_fail_closed, and the wallet does not sign.
+    // That reason is not twzrd_preflight_fetch_error.
+    // This is not createTwzrdSettleGuard. An omitted settle failOpen returns
+    // without abort.
     if (!cfg.failOpen) {
       const msg = String((err as Error)?.message ?? err).slice(0, 120);
       console.warn(`[twzrd-x402-gate] payment BLOCKED: gate unreachable (fail-closed) — ${msg}. Set TWZRD_FAIL_OPEN=true to allow payments when the gate is down.`);

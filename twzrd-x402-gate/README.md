@@ -36,12 +36,12 @@ verify receipts yourself: [REVIEW.md](https://github.com/twzrd-sol/twzrd-trust/b
 **Core product (buyer gate):** after the client selects the exact payment requirement and
 **before** payment payload creation / wallet signing — free preflight + merchant_card wash
 refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutral envelope;
-**Solana-deep** reputation only (Base/EVM = explicit `unknown`).
+**Solana mainnet and Base mainnet (`eip155:8453`)** are scored. Other EVM networks do not run the scored preflight.
 
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.9.11 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -261,7 +261,7 @@ const payingFetch = installTwzrdAutoGate((guarded) =>
 );
 ```
 
-## Buyer flow (trustless, fail-open) — locked sequence
+## Buyer flow — locked sequence
 
 Canonical path for every agent that spends USDC on Solana x402:
 
@@ -269,7 +269,7 @@ Canonical path for every agent that spends USDC on Solana x402:
 |------|------|------|----------------|
 | 1 | `POST /v1/intel/preflight` | free | `decision=block` → refuse (`twzrd_decision_block`). Score floor / optional `can_spend` also deny. |
 | 2 | `GET /v1/intel/merchant_card/{payTo}` | free | `wash_flagged: true` → refuse by default (`twzrd_wash_flagged`). **Only tightens** step 1. |
-| 3 | First paid hop `quickCheck` | $0.001 | On `warn`: `GET /v1/intel/quick/{payTo}`. Optional V7: `GET /v1/intel/trust/{payTo}` at $0.05 (`autoReceipt` / material allow). Never required for the free refuse path. |
+| 3 | First paid hop `quickCheck` | $0.001 | On an approved `warn` with `x402Fetch` wired: `GET /v1/intel/quick/{payTo}` only. That hop does not request `GET /v1/intel/trust/{payTo}`. `/trust` at $0.05 is a separate allow-path receipt, not the warn hop. |
 | 4 | Pay (or refuse) | resource price | Only if steps 1–2 approved (and any opt-in paid escalate did not block). |
 
 **Fail-open (no invent):**
@@ -479,7 +479,7 @@ probe request → TWZRD scores challenge A → (if allowed) AgentCash request �
 
 - Exit `2` = policy blocked (AgentCash never started).
 - Exit `0` = passthrough / dry-run allowed / AgentCash returned success (binding unproven).
-- Base/EVM: explicit `decision=unknown` (see Networks).
+- Base mainnet (`eip155:8453`) is scored, like Solana mainnet. Other EVM networks do not run the scored preflight (see Networks).
 
 ### CLI: `twzrd-bounty-preflight` (worker-side refuse, zero spend)
 
@@ -502,9 +502,10 @@ npx twzrd-bounty-preflight --board https://clawtasks.com/api/bounties?status=ope
 ```
 
 Refuse reasons, in order: `gate_block` / `gate_wash_flagged` (TWZRD refused the
-payee), `gate_unscored` (the payee's rail is outside the behavioral corpus, today
-any non-Solana payTo; the gate's "allow" there is a policy pass-through, never a
-trust allow; opt in with `--allow-unscored-payee`, wash still refuses),
+payee), `gate_unscored` (the payee's rail is outside the scored corpus — Solana
+mainnet and Base mainnet (`eip155:8453`) are scored; other rails are not; the
+gate's "allow" there is a policy pass-through, never a trust allow; opt in with
+`--allow-unscored-payee`, wash still refuses),
 `payout_network_unsupported` / `payout_network_unknown`, `attempt_cost_over_max`
 (attempt fee + board entry fee + stake vs the ceiling), `below_break_even` /
 `assumed_win_prob_missing` (your declared win probability vs
@@ -527,9 +528,9 @@ Canonical entry point (design: `docs/strategy/install-autogate-design.md`). One 
 | `installTwzrdAutoGate("mpp", opts)` | MPP `onChallenge` (returns handler) |
 
 Aliases: `installTwzrdX402ClientHook`, `createTwzrdMppOnChallenge` remain; docs prefer AutoGate.
-Kill switch: `TWZRD_GATE_ENABLED=false` or `TWZRD_AUTO_GATE=0`. Uninstall x402 installs with `uninstallTwzrdAutoGate(client)`.
-The env switch is read **per call** on the x402-client, x402-solana, pay-kit and MPP seats, so flipping it moves an already-installed
-gate in both directions. The **fetch / payWrap** seat is the exception: it resolves the switch once, when the fetch is composed,
+Kill switch: `TWZRD_GATE_ENABLED=false` or `TWZRD_AUTO_GATE=0` applies to `installTwzrdAutoGate` only. `createTwzrdBeforePaymentHook` does not read those variables. Uninstall x402 installs with `uninstallTwzrdAutoGate(client)`.
+`installTwzrdAutoGate` reads that switch **per call** on the x402-client, x402-solana, pay-kit and MPP seats before it calls the factory, so flipping it moves an already-installed
+AutoGate seat in both directions. The **fetch / payWrap** seat is the exception: it resolves the switch once, when the fetch is composed,
 so a fetch built while the switch was off stays ungated after you clear it — rebuild the fetch. `options.disabled: true` is a
 permanent install-time opt-out everywhere and no env change revives it.
 
@@ -556,9 +557,11 @@ Any x402 client that composes over an underlying `fetch` works the same way — 
 whatever `payWrap` your client's API expects (agentcash, ClawRouter, PayAI, a custom
 `@x402/svm` scheme, etc.).
 
-Default **ON**. Disable with `TWZRD_AUTO_GATE=0` (env, deploy-time kill switch) or
-`{ disabled: true }` (per-call, e.g. in tests) — the raw fetch is handed straight to
-`payWrap`, unguarded.
+This `installTwzrdAutoGate(payWrap)` seat is default **ON**. Disable that seat with
+`TWZRD_AUTO_GATE=0` or `TWZRD_GATE_ENABLED=false`, or with `{ disabled: true }`
+(install option, for example in tests) — the raw fetch is handed straight to
+`payWrap`, unguarded. `createTwzrdBeforePaymentHook` does not read those
+variables. Setting them does not stop that factory from aborting a bad payment.
 
 What happens on every HTTP 402 the raw fetch returns:
 1. Reads the Solana-network entry from `accepts[]` (falls back to first entry) to get the seller wallet.
@@ -568,18 +571,18 @@ What happens on every HTTP 402 the raw fetch returns:
 
 Non-402 responses pass through unchanged.
 
-### Networks (Solana-deep, chain-neutral envelope)
+### Networks (Solana mainnet and Base mainnet scored)
 
-The gate **recognizes** multi-chain 402s but only **reputation-scores Solana mainnet**.
+The gate **recognizes** multi-chain 402s. **Solana mainnet and Base mainnet (`eip155:8453`)** run the scored preflight. Other EVM networks do not. `eip155:137` does not run `twzrdPreflight` or the scored preflight.
 
 | Network | Reputation scored? | Default policy (`unsupportedNetworkMode`) |
 |---------|-------------------|-------------------------------------------|
 | Solana mainnet | Yes — free preflight + merchant_card | allow/block from intel |
-| Base / other EVM (`eip155:*`) | **No** Solana preflight | `observe` (default): `decision=unknown`, `policyAction=allow`, telemetry `unsupported_network_seen`. **Wash still runs** — `wash_flagged` refuses before sign. |
-| Base / EVM in `strict` mode | No | `policyAction=block` before sign |
+| Base mainnet (`eip155:8453`, `base`) | Yes — free preflight + merchant_card | allow/block from intel |
+| Other EVM (`eip155:*` except 8453) | **No** scored preflight | `observe` (default): `decision=unknown`, `policyAction=allow`, telemetry `unsupported_network_seen`. **Wash still runs** — `wash_flagged` refuses before sign. |
+| Other EVM in `strict` mode | No | `policyAction=block` before sign |
 
-This is intentional: Base listing abundance ≠ Solana behavioral history. Unsupported is never
-represented as a TWZRD trust `allow`. Set `TWZRD_UNSUPPORTED_NETWORK_MODE=strict` (or
+An unscored network is never represented as a TWZRD trust `allow`. Set `TWZRD_UNSUPPORTED_NETWORK_MODE=strict` (or
 `{ unsupportedNetworkMode: "strict" }`) to hard-block unscored networks.
 
 `requireReceipt` (Path A) follows the same line: `hard` receipts apply to **scored networks
@@ -708,7 +711,7 @@ is the next step.
 
 The reputation ladder has three rungs: **free** preflight (`allow/warn/block`), **$0.001**
 `quickCheck` (tier + score, no receipt), **$0.05** `autoReceipt` (full intel + signed V7
-receipt). When the free preflight is inconclusive (`warn` / unknown seller) and you want a
+receipt). When an evaluated `warn` is inconclusive and you want a
 cheap *paid* confirmation before committing — without paying 50× for the portable receipt —
 use `quickCheck`:
 
@@ -727,10 +730,12 @@ allow/warn/block decision stays the free preflight's job.
 
 ### Autonomous risk-escalation — `escalateOnWarn` (pay-to-confirm on warn)
 
-The free preflight leaves an unknown/uncertain seller at `warn`, which **proceeds** by
-default. `escalateOnWarn` closes the loop autonomously: on a proceeding `warn`, the guard
-settles the cheap **$0.001** quick tier and **re-decides on the paid score** — below the
-floor the payment is **blocked**, at/above it proceeds. The paid call fires from your
+An evaluated `warn` (no `null_reason`, score present) **proceeds** by default. A card
+with `null_reason: unknown_subject` does not sign on Solana mainnet or Base mainnet, so
+this hop does not run for it. `escalateOnWarn` closes the loop on a proceeding `warn`:
+the guard settles the cheap **$0.001** `GET /v1/intel/quick/{payTo}` and **re-decides on
+the paid score** — below the floor the payment is **blocked**, at/above it proceeds. That
+hop does not request `GET /v1/intel/trust/`. The paid call fires from your
 agent's own risk policy (no human), and the paid signal actually gates the spend (unlike
 `autoReceipt`, which is upsell-only and never changes the decision).
 
@@ -887,17 +892,19 @@ const gatedFetch = wrapFetchWithTwzrdGate(fetch, resolveConfig());
 
 A payment is **blocked** when:
 1. `decision ∈ blockDecisions` (default: `["block"]`)
-2. `trust_score < preflightMinScore` (default: `40`)
+2. `trust_score < preflightMinScore` (default: `40`), after an evaluated card. `null_reason: unknown_subject` (or `score: null`) is not a low score: on Solana mainnet and Base mainnet it does not sign, even when `trust_score` is the floor 45.
 3. `can_spend === false` — **only** when `gateOnCanSpend: true` (default `false`, opt-in)
+4. the price is above `recommended_cap_usdc` when the card was otherwise approved
 
-`warn` is allowed unless overridden. Preflight network failure **fails closed** by default (a preflight outage blocks the payment, so an intel hiccup never silently approves a spend); set `failOpen: true` / `TWZRD_FAIL_OPEN=true` to opt into legacy allow-on-outage.
+`null_reason: unknown_subject` returns reason `twzrd_unevaluated_subject_unknown_subject`. A price above `recommended_cap_usdc` returns a reason that starts with `twzrd_over_recommended_cap_`. A direct `createTwzrdBeforePaymentHook` abort of a block card returns reason `twzrd_decision_block`. That reason string is not `block` and is not `twzrd_fail_closed`. A missing `payTo` returns reason `twzrd_unidentifiable_payment_recipient` from `twzrdApprovePayment`. That reason is not `twzrd_missing_payTo`. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns reason `twzrd_fail_closed`. That reason is not `twzrd_preflight_fetch_error`.
 
-A 402 whose payment requirements yield **no identifiable seller wallet** (missing/empty `payTo`, or an unparseable `accepts[]`) is a different case from "unknown seller" — it always **blocks** with `reason: twzrd_unidentifiable_payment_recipient`, without ever calling the preflight network. This is unconditional (not affected by `failOpen`): `failOpen` governs what happens when the TWZRD *service* is unreachable, not what happens when the caller can't say who they're paying.
+An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.9.11 is not uniformly fail-closed.
+
+A 402 whose payment requirements yield **no identifiable seller wallet** (missing/empty `payTo`, or an unparseable `accepts[]`) is a different case from "unknown seller" — it always **blocks** with `reason: twzrd_unidentifiable_payment_recipient`, without ever calling the preflight network. The wallet does not sign. This is unconditional (not affected by buyer `failOpen`): that switch governs a buyer preflight outage, not a missing payTo. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort.
 
 > **`can_spend` note:** the free preflight returns `can_spend=false` for most sellers
-> not yet in the TWZRD corpus, including legitimate ones. The default is decision-only
-> gating so unknown sellers on platforms like Agentic.Market are not blocked by default.
-> Set `gateOnCanSpend: true` for strict mode.
+> not yet in the TWZRD corpus, including legitimate ones. `can_spend: false` alone does not block (`gateOnCanSpend` defaults false). That is separate from `null_reason: unknown_subject`, which does not sign on a scored network.
+> Set `gateOnCanSpend: true` to also block on `can_spend: false`.
 
 ## Config
 
@@ -906,7 +913,7 @@ A 402 whose payment requirements yield **no identifiable seller wallet** (missin
 | `intelBase` | `TWZRD_INTEL_BASE` | `https://intel.twzrd.xyz` | Preflight API base |
 | `preflightMinScore` | `TWZRD_PREFLIGHT_MIN_SCORE` | `40` | Block below this score |
 | `blockDecisions` | `TWZRD_BLOCK_DECISIONS` | `block` | Decisions that throw |
-| `failOpen` | `TWZRD_FAIL_OPEN` | `false` | `true` opts into legacy allow-on-outage; default blocks (fail-closed) |
+| `failOpen` (buyer preflight only) | `TWZRD_FAIL_OPEN` | `false` | Buyer outage only: default does not sign. `createTwzrdSettleGuard` omitted `failOpen` is the other default — a thrown screen returns without abort |
 | `gateOnCanSpend` | `TWZRD_GATE_ON_CAN_SPEND` | `false` | Also block when `can_spend=false` |
 | `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` when `/quick` did not already settle |
 | `x402Fetch` | — | — | x402-capable fetch for `autoReceipt` |

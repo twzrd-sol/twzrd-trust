@@ -11,7 +11,8 @@ export type ResolvedTwzrdGateConfig = {
   /** Soft cap USDC when wash_flagged; null = hard refuse */
   washMaxUsdc: number | null;
   /**
-   * Unscored-network policy (Base/EVM/…). Default observe.
+   * Policy for networks that are not scored. Solana mainnet and Base mainnet
+   * (`eip155:8453`) are scored. Other EVM networks are not. Default observe.
    * @see UnsupportedNetworkMode in network.ts
    */
   unsupportedNetworkMode: "observe" | "strict";
@@ -56,12 +57,9 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     (process.env.TWZRD_FAIL_OPEN === "true" ||
       process.env.TWZRD_FAIL_OPEN === "1");
 
-  // Default false (decision-only): an unknown seller (warn / can_spend=false,
-  // which is EVERY not-yet-seen merchant at score 45) is NOT blocked by default —
-  // only an explicit decision=block (a real wash/sybil flag) blocks. This matches
-  // the sister package @wzrd_sol/plugin-trustgate and the preflight's own
-  // warn-not-block intent, and keeps the gate usable for discovery. Opt in to
-  // strict can_spend gating with TWZRD_GATE_ON_CAN_SPEND=true or =1.
+  // Default false: can_spend false alone does not block. null_reason
+  // unknown_subject is refused earlier by isUnevaluatedCard and is not this
+  // knob. Opt in to strict can_spend gating with TWZRD_GATE_ON_CAN_SPEND=true or =1.
   const gateOnCanSpend =
     overrides?.gateOnCanSpend ??
     (process.env.TWZRD_GATE_ON_CAN_SPEND === "true" ||
@@ -82,9 +80,11 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     if (Number.isFinite(n) && n >= 0) washMaxUsdc = n;
   }
 
-  // Default observe: Base/EVM skip Solana preflight and are marked
-  // decision=unknown (policy allow ≠ reputation allow). Wash still runs —
-  // wash_flagged refuses before sign. Strict blocks unscored networks outright.
+  // Default observe for unscored networks. Solana mainnet and Base mainnet
+  // are scored, so they run the preflight. Other EVM networks skip that
+  // preflight and are marked decision=unknown (policy allow ≠ reputation
+  // allow). Wash still runs — wash_flagged refuses before sign. Strict blocks
+  // unscored networks outright.
   const envMode = (process.env.TWZRD_UNSUPPORTED_NETWORK_MODE ?? "").trim().toLowerCase();
   const unsupportedNetworkMode: "observe" | "strict" =
     overrides?.unsupportedNetworkMode ??
