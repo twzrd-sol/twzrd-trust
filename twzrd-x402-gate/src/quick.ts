@@ -6,9 +6,10 @@
  *   $0.001 GET  /v1/intel/quick/{seller}      -> seller wash risk + wallet reputation  <-- this file
  *   $0.05  GET  /v1/intel/trust/{seller}      -> full intel + signed V6 receipt (autoReceipt)
  *
- * Use `quickCheck` when the free preflight is inconclusive (warn / unknown seller)
- * and you want a cheap PAID confirmation of tier+score before committing — without
- * paying 50x for the full portable receipt. It settles $0.001 USDC to TWZRD via the
+ * Use `quickCheck` for an evaluated warn you choose to confirm. The
+ * before-payment hook aborts `null_reason: unknown_subject` before this hop,
+ * and that hop requests `/v1/intel/quick/` rather than `/v1/intel/trust/`.
+ * It settles $0.001 USDC to TWZRD via the
  * caller-supplied x402Fetch (same BYO-wallet seam as autoReceipt; @x402/svm etc.).
  *
  * FAIL-SOFT: this is an enrichment, not a gate — it NEVER throws. Any gap (no

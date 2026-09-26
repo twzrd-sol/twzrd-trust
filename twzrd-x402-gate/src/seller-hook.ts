@@ -88,7 +88,8 @@ export type SettleGuardOptions = {
   getPayer?: GetPayerFn;
   /**
    * Which screen outcomes abort settlement. Default: block + wash-flagged abort;
-   * warn is allowed (matches the buyer gate's "gate only on block/wash" default).
+   * an evaluated payer warn is allowed. The buyer hook still refuses
+   * `null_reason: unknown_subject` on a scored network.
    */
   abortOn?: { block?: boolean; warn?: boolean; washFlagged?: boolean };
   /**
@@ -299,7 +300,10 @@ function decideAbort(
 /**
  * Create an x402 `onBeforeSettle(hook)` that screens the incoming PAYER against
  * TWZRD and vetoes wash/blocked payers before settlement. Advisory + fail-open
- * by default (with a hard timeout around screening).
+ * by default (`failOpen !== false`): an unavailable gate does not abort.
+ * This is not the buyer hook. `twzrdApprovePayment` does not sign on a
+ * preflight outage unless `TWZRD_FAIL_OPEN` is set. 0.9.12 is not uniformly
+ * fail-closed.
  *
  *   const server = new x402ResourceServer(facilitator);
  *   server.onBeforeSettle(createTwzrdSettleGuard({ screen: twzrdPayerScreen() }));
@@ -308,6 +312,8 @@ export function createTwzrdSettleGuard(
   opts: SettleGuardOptions,
 ): (ctx: SettleGuardContext) => Promise<SettleGuardResult> {
   const abortOn = { ...DEFAULT_ABORT_ON, ...(opts.abortOn ?? {}) };
+  // Omitted failOpen is fail-open. A thrown screen returns without abort.
+  // Abort on a thrown screen requires failOpen: false.
   const failOpen = opts.failOpen !== false;
   const getPayer = opts.getPayer ?? defaultExtractPayer;
   const timeoutMs =

@@ -138,9 +138,9 @@ export type EvaluateX402Result = {
  *      auto-fetch optional V7 GET /trust via x402Fetch ($0.05).
  *      With requireReceipt.hard (default), deny spend if /trust fails.
  *
- * Defaults to gateOnCanSpend=false (decision-only) — the free-tier preflight
- * returns can_spend=false for most unknown sellers, which would block too eagerly
- * on platforms like Agentic.Market where sellers are not yet in the corpus.
+ * Defaults to gateOnCanSpend=false — `can_spend: false` alone does not block.
+ * A `null_reason: unknown_subject` card is refused before that knob and does
+ * not sign on Solana mainnet or Base mainnet.
  */
 export async function evaluate_x402_resource(
   resourceUrl: string,
@@ -152,8 +152,7 @@ export async function evaluate_x402_resource(
     preflightMinScore: opts.preflightMinScore,
     blockDecisions: opts.blockDecisions,
     failOpen: opts.failOpen,
-    // Decision-only gate: unknown sellers score warn (~45), not block.
-    // Gating on can_spend would block every Agentic.Market seller not in corpus.
+    // can_spend false alone does not block. unknown_subject is refused earlier.
     gateOnCanSpend: opts.gateOnCanSpend,
     refuseWashFlagged: opts.refuseWashFlagged,
     washMaxUsdc: opts.washMaxUsdc,

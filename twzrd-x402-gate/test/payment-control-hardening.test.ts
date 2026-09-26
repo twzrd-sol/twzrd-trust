@@ -180,7 +180,7 @@ async function run() {
       undefined,
     );
 
-    // Unscored network (Base/EVM, Stripe deposit addresses): no reputation ran,
+    // Unscored network (EVM other than Base mainnet, Stripe deposit addresses): no reputation ran,
     // so the recipient is unknown-to-us — never `false`, never `true`.
     assert.equal(
       counterpartyKnownFromApproval(

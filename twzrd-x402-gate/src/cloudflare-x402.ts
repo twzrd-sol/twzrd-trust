@@ -6,9 +6,9 @@
  * payload. This adapter turns that callback into the same TWZRD decision used
  * by the generic MCP hook.
  *
- * This is an approval boundary, not a claim that Base has TWZRD behavioral
- * reputation. Base/EVM stays `decision=unknown`: observe permits it and strict
- * refuses it before the Cloudflare client pays.
+ * This is an approval boundary. Solana mainnet and Base mainnet (`eip155:8453`)
+ * run the scored preflight. Other EVM networks stay `decision=unknown`: observe
+ * permits them and strict refuses them before the Cloudflare client pays.
  */
 
 import { resolveConfig } from "./config.js";

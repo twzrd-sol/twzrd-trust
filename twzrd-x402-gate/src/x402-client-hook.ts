@@ -781,6 +781,12 @@ export function mapX402SolanaRequirements(
  *
  * Same security semantic as `installTwzrdX402ClientHook` /
  * `evaluateBeforePaymentCreation` — shared evaluator, refuse/wash/can_spend.
+ * This factory does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`.
+ * Those switches apply only to `installTwzrdAutoGate`. An approved warn
+ * whose paying fetch is wired requests `/v1/intel/quick/` and does not
+ * request `/v1/intel/trust/`.
+ * A direct call that aborts a block card returns reason `twzrd_decision_block`.
+ * That reason string is not `block` and is not `twzrd_fail_closed`.
  *
  * @example
  * ```ts
