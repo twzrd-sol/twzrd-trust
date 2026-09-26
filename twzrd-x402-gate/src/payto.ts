@@ -64,14 +64,69 @@ export function pickRequirements(
   return (solanaMainnet ?? solanaAny ?? list[0] ?? {}) as X402PaymentRequirements;
 }
 
+/**
+ * x402 v1 prices an offer with `maxAmountRequired`, v2 with `amount`, and a
+ * client pays the field of ITS OWN version (@x402/svm exact v2 builds the
+ * transfer from `requirements.amount`). The seller controls both fields and
+ * `x402Version`, so an entry carrying both with different values has no single
+ * price: a gate that caps one field approves what the client pays from the
+ * other. Such an entry is refused, never resolved by precedence - this package
+ * had both precedences at once (v1-first here, v2-first in resource-bind,
+ * wash-default, payment-decision, intent-adapters, x402-client-hook).
+ * Both present and equal (dual-emit, e.g. TWZRD's own 402s) is fine.
+ * Same rule for `payTo` / `pay_to`.
+ */
+export const AMOUNT_FIELD_CONFLICT = "amount_field_conflict";
+export const PAYTO_FIELD_CONFLICT = "payto_field_conflict";
+export type RequirementFieldConflict =
+  | typeof AMOUNT_FIELD_CONFLICT
+  | typeof PAYTO_FIELD_CONFLICT;
+
+function resolvePair(a: unknown, b: unknown): { value?: string; conflict: boolean } {
+  const hasA = a != null;
+  const hasB = b != null;
+  if (hasA && hasB) {
+    return String(a) === String(b)
+      ? { value: String(a), conflict: false }
+      : { conflict: true };
+  }
+  if (hasA) return { value: String(a), conflict: false };
+  if (hasB) return { value: String(b), conflict: false };
+  return { conflict: false };
+}
+
+/**
+ * The one reader of an accepts[] entry's recipient and price. A conflicted
+ * field comes back undefined AND `conflict` is set; callers must refuse on
+ * `conflict` explicitly - some paths fail OPEN on a merely missing field.
+ */
+export function resolveRequirementFields(req: unknown): {
+  payTo: string | undefined;
+  amount: string | undefined;
+  conflict: RequirementFieldConflict | undefined;
+} {
+  const r = (req ?? {}) as Record<string, unknown>;
+  const amt = resolvePair(r.amount, r.maxAmountRequired);
+  const pay = resolvePair(r.payTo, r.pay_to);
+  return {
+    payTo: pay.value,
+    amount: amt.value,
+    conflict: amt.conflict
+      ? AMOUNT_FIELD_CONFLICT
+      : pay.conflict
+        ? PAYTO_FIELD_CONFLICT
+        : undefined,
+  };
+}
+
 export function payToFromRequirements(req: X402PaymentRequirements): {
   payTo: string | undefined;
   amountMicro: string | undefined;
   resource: string | undefined;
+  conflict: RequirementFieldConflict | undefined;
 } {
-  const payTo = req.payTo ?? req.pay_to;
-  const amountMicro = req.maxAmountRequired ?? req.amount;
-  return { payTo, amountMicro, resource: req.resource };
+  const f = resolveRequirementFields(req);
+  return { payTo: f.payTo, amountMicro: f.amount, resource: req.resource, conflict: f.conflict };
 }
 
 export function priceUsdcFromAmountMicro(

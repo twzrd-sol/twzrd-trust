@@ -11,6 +11,7 @@
 import type { PaymentIntent } from "./intent.js";
 import type { Mandate } from "./policy-runtime.js";
 import type { X402SelectedRequirements } from "./x402-client-hook.js";
+import { resolveRequirementFields } from "./payto.js";
 
 /* ------------------------------------------------------------------ */
 /* x402                                                                */
@@ -53,8 +54,10 @@ export function x402RequirementsToIntent(
   req: X402SelectedRequirements,
   ctx?: X402IntentContext,
 ): PaymentIntent {
-  const payTo = req.payTo ?? req.pay_to;
-  const amountUnits = req.amount ?? req.maxAmountRequired;
+  const fields = resolveRequirementFields(req);
+  if (fields.conflict) throw new Error(`[twzrd] x402 requirement ${fields.conflict}`);
+  const payTo = fields.payTo;
+  const amountUnits = fields.amount;
   if (!payTo) throw new Error("[twzrd] x402 requirement missing payTo");
   if (!amountUnits) throw new Error("[twzrd] x402 requirement missing amount");
   return {

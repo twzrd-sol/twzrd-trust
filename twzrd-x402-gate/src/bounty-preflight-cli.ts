@@ -128,8 +128,9 @@ export async function runBountyPreflight(
   else {
     const challenge = await paymentRequiredFromResponse(paidRes);
     const req = pickRequirements(challenge?.accepts);
-    const { payTo, amountMicro } = payToFromRequirements(req);
-    if (!payTo) gate = UNGATED("paid_endpoint_no_payto");
+    const { payTo, amountMicro, conflict } = payToFromRequirements(req);
+    if (conflict) gate = UNGATED(`paid_endpoint_${conflict}`);
+    else if (!payTo) gate = UNGATED("paid_endpoint_no_payto");
     else {
       const result = await evaluate(args.paidEndpoint, req, { gateOnCanSpend: false, refuseWashFlagged: true, failOpen: false, fetch: fetchBound });
       gate = {

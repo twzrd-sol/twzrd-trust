@@ -42,8 +42,12 @@ export async function twzrdOnPaymentRequested(
   const toolName = real.toolName ?? legacy.context?.toolName;
 
   const first: X402PaymentRequirements = pickRequirements(accepts);
-  const { payTo, amountMicro, resource } = payToFromRequirements(first);
+  const { payTo, amountMicro, resource, conflict } = payToFromRequirements(first);
   const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+  if (conflict) {
+    console.warn("[twzrd] blocked x402 payment:", conflict, { resource });
+    return false;
+  }
 
   const chain = first.network ?? undefined;
   try {

@@ -242,8 +242,11 @@ export async function spendControlSafeFetch(
     const envUrl = resourceUrlFromPaymentRequired(body);
     if (envUrl) selected.resource = envUrl;
   }
-  const { payTo, amountMicro, resource } = payToFromRequirements(selected as never);
+  const { payTo, amountMicro, resource, conflict } = payToFromRequirements(selected as never);
   const network = selected.network as string | undefined;
+  if (conflict) {
+    return { verdict: "block", reason: conflict, signerInvocations: 0 };
+  }
   if (!payTo || amountMicro == null) {
     return { verdict: "block", reason: "no_payable_requirement", signerInvocations: 0 };
   }

@@ -160,8 +160,19 @@ export async function evaluate_x402_resource(
     attribution: opts.attribution,
   });
 
-  const { payTo, amountMicro, resource } = payToFromRequirements(paymentRequirements);
+  const { payTo, amountMicro, resource, conflict } = payToFromRequirements(paymentRequirements);
   const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+  if (conflict) {
+    return {
+      decision: "block",
+      trustScore: null,
+      approved: false,
+      reason: conflict,
+      washFlagged: null,
+      card: {} as TwzrdReadinessCard,
+      policyAction: "block",
+    };
+  }
 
   const approval = await twzrdApprovePayment(
     {

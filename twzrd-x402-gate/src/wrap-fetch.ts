@@ -39,9 +39,12 @@ export function wrapFetchWithTwzrdGate(
     }
 
     const first = pickRequirements(body.accepts as Array<Record<string, unknown>> | undefined);
-    const { payTo, resource, amountMicro } = payToFromRequirements(first);
+    const { payTo, resource, amountMicro, conflict } = payToFromRequirements(first);
     const url = requestUrl(input);
     const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+    if (conflict) {
+      throw new Error(`[twzrd] payment blocked: ${conflict} url=${url}`);
+    }
 
     const { approved, reason } = await twzrdApprovePayment(
       {
