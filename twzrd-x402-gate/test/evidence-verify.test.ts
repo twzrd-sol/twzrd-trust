@@ -37,7 +37,7 @@ async function run() {
     ["jwt", { note: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N" }],
     ["bearer_token", { h: "Bearer sk_live_abcdefghijklmnop" }],
     ["env_assignment", { note: "TWZRD_API_KEY=abc123" }],
-    ["home_path", { note: "/home/twzrd/wzrd-final/x" }],
+    ["home_path", { note: "/home/alice/wzrd-final/x" }],
     ["long_hex", { note: "a".repeat(64) }],
     ["evm_address", { note: "0x3803A1a1b2C3d4E5f60718293A4b5C6d7E8f9012" }],
     ["base58_pubkey", { innocuous: "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk" }],
@@ -247,7 +247,7 @@ async function run() {
 
   // A bundle that fails ANY of the three layers must not report ok.
   assert.equal(verifyEvidenceBundle(refusedButSigned).ok, false);
-  assert.equal(verifyEvidenceBundle({ ...full, leaked: "/home/twzrd/.ssh/id_ed25519" }).ok, false);
+  assert.equal(verifyEvidenceBundle({ ...full, leaked: "/home/alice/.ssh/id_ed25519" }).ok, false);
 
   console.log("evidence-verify.test.ts: ALL PASSED (9 sections)");
 }

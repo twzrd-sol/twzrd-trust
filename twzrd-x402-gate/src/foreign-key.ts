@@ -1,12 +1,17 @@
 import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve, sep } from "node:path";
 
-/** House dogfood wallets. A Path A "foreign" pay must not load these. */
-export const HOUSE_PAYER_PREFIXES = [
-  "/home/twzrd/security/wallets/x402-reader/",
-  "/home/twzrd/security/wallets/outbid/",
-  "/home/twzrd/security/wallets/outbid-token/",
-] as const;
+/**
+ * House dogfood wallets. A Path A "foreign" pay must not load these.
+ * Resolved against the current home directory so no account name is baked
+ * into the published package.
+ */
+export const HOUSE_PAYER_PREFIXES: readonly string[] = [
+  "security/wallets/x402-reader",
+  "security/wallets/outbid",
+  "security/wallets/outbid-token",
+].map((rel) => join(homedir(), rel) + sep);
 
 export class HousePayerKeyError extends Error {
   override name = "HousePayerKeyError";
