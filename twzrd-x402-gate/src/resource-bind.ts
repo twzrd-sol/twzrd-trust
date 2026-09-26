@@ -16,6 +16,7 @@
  */
 import { createHash } from "node:crypto";
 import { canonicalJson } from "./intent.js";
+import { resolveRequirementFields } from "./payto.js";
 
 export const RESOURCE_BIND_DOMAIN = "twzrd:x402-resource-binding:v1";
 export const RESOURCE_BIND_DOMAIN_V2 = "twzrd:x402-resource-binding:v2";
@@ -123,14 +124,18 @@ export function rawReqFromPaymentRequired(
   if (!paymentRequired || typeof paymentRequired !== "object") return null;
   const pr = paymentRequired as Record<string, unknown>;
   const accepts = Array.isArray(pr.accepts) ? pr.accepts : [];
-  const selPay = selected.payTo ?? selected.pay_to;
-  const selAmt = selected.amount ?? selected.maxAmountRequired;
+  const sel = resolveRequirementFields(selected);
+  if (sel.conflict) return null;
+  const selPay = sel.payTo;
+  const selAmt = sel.amount;
   const selAsset = selected.asset;
   for (const a of accepts) {
     if (!a || typeof a !== "object") continue;
     const acc = a as ResourceBindReq;
-    const pay = acc.payTo ?? acc.pay_to;
-    const amt = acc.amount ?? acc.maxAmountRequired;
+    const af = resolveRequirementFields(acc);
+    if (af.conflict) continue;
+    const pay = af.payTo;
+    const amt = af.amount;
     if (pay !== selPay) continue;
     if (selAmt != null && amt != null && String(amt) !== String(selAmt)) continue;
     if (selAsset && acc.asset && acc.asset !== selAsset) continue;
@@ -144,8 +149,9 @@ export function rawReqFromPaymentRequired(
 function offerProjection(req: ResourceBindReq): {
   amount: string; payTo: string; raw: string; requirements_hash: string;
 } {
-  const amount = req.amount ?? req.maxAmountRequired ?? "";
-  const payTo = req.payTo ?? req.pay_to ?? "";
+  const f = resolveRequirementFields(req);
+  const amount = f.amount ?? "";
+  const payTo = f.payTo ?? "";
   const raw = req.resource ?? "";
   return {
     amount, payTo, raw,
@@ -226,7 +232,9 @@ export function stampResourceBind(
     || rawInvoiceByResource.get(String(req.resource || ""));
   const hashSrc = rawReqFromPaymentRequired(cached ?? paymentRequired, req) ?? req;
   if (!hashSrc.resource && req.resource) hashSrc.resource = req.resource;
-  if (!(hashSrc.payTo ?? hashSrc.pay_to) || !(hashSrc.amount ?? hashSrc.maxAmountRequired) || !hashSrc.resource) {
+  const hf = resolveRequirementFields(hashSrc);
+  if (hf.conflict) return refuse(hf.conflict);
+  if (!hf.payTo || !hf.amount || !hashSrc.resource) {
     return refuse("missing payTo/amount/resource");
   }
   const decision_id = typeof bind?.decision_id === "string" && bind.decision_id.length > 0

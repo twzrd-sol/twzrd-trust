@@ -293,7 +293,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
   }
 
   const first = pickRequirements(body.accepts as Array<Record<string, unknown>> | undefined);
-  const { payTo, amountMicro, resource } = payToFromRequirements(first);
+  const { payTo, amountMicro, resource, conflict } = payToFromRequirements(first);
   const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
   const network = first.network;
   const netCls = classifyNetwork(network, payTo);
@@ -315,6 +315,24 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
     asset: typeof first.asset === "string" ? first.asset : undefined,
     resource: resource ?? opts.url,
   };
+
+  if (conflict) {
+    emit(opts, eventOrder, conflict);
+    return {
+      ok: false,
+      phase: "blocked",
+      initialStatus: 402,
+      eventOrder,
+      error: conflict,
+      network,
+      amountMicro,
+      priceUsdc,
+      requirementScored,
+      requirementScoredMatchesRequirementSigned: false,
+      targetRequestCount: 1,
+      cliSecurityClassification: "advisory_precheck",
+    };
+  }
 
   if (!payTo) {
     emit(opts, eventOrder, "malformed_402_no_payto");

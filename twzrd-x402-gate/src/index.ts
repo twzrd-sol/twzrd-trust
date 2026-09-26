@@ -12,7 +12,16 @@ export {
   twzrdApprovePayment,
   type PolicyEvaluateInput,
 } from "./policy.js";
-export { payToFromRequirements, priceUsdcFromAmountMicro, pickRequirements, TWZRD_FEE_PAYER } from "./payto.js";
+export {
+  payToFromRequirements,
+  priceUsdcFromAmountMicro,
+  pickRequirements,
+  resolveRequirementFields,
+  AMOUNT_FIELD_CONFLICT,
+  PAYTO_FIELD_CONFLICT,
+  TWZRD_FEE_PAYER,
+} from "./payto.js";
+export type { RequirementFieldConflict } from "./payto.js";
 export {
   classifyNetwork,
   decideUnsupportedNetwork,

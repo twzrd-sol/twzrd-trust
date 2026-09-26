@@ -19,6 +19,7 @@ import {
   paymentRequiredFromResponse,
   pickRequirements,
   priceUsdcFromAmountMicro,
+  type RequirementFieldConflict,
 } from "./payto.js";
 import { hasForbiddenResolution, type HostResolver } from "./ssrf.js";
 import type { X402PaymentRequirements } from "./types.js";
@@ -373,7 +374,7 @@ async function probeUnpaid402(
   req: X402PaymentRequirements;
   payTo: string | undefined;
   amountMicro: string | undefined;
-  error: "not_402" | "no_payto" | null;
+  error: "not_402" | "no_payto" | RequirementFieldConflict | null;
 }> {
   const resp = await fetchImpl(url, { headers: { accept: "application/json" } });
   if (resp.status !== 402) {
@@ -381,7 +382,10 @@ async function probeUnpaid402(
   }
   const challenge = await paymentRequiredFromResponse(resp);
   const req = pickRequirements(challenge?.accepts);
-  const { payTo, amountMicro } = payToFromRequirements(req);
+  const { payTo, amountMicro, conflict } = payToFromRequirements(req);
+  if (conflict) {
+    return { httpStatus: 402, req, payTo, amountMicro, error: conflict };
+  }
   if (!payTo) {
     return { httpStatus: 402, req, payTo: undefined, amountMicro, error: "no_payto" };
   }

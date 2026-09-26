@@ -44,6 +44,7 @@ import {
   type ResourceBindReq,
 } from "./resource-bind.js";
 import type { TwzrdApprovalResult } from "./types.js";
+import { resolveRequirementFields } from "./payto.js";
 
 export const PAYMENT_DECISION_SCHEMA = "twzrd.payment_decision.v1" as const;
 /** Domain prefix of the signed preimage. Distinct from DecisionToken's
@@ -192,8 +193,12 @@ const FORBIDDEN_KEY_RE =
  * network or scheme — an under-specified challenge cannot be committed to.
  */
 function assertChallengeComplete(challenge: ResourceBindReq, label: string): void {
-  const payTo = challenge.payTo ?? challenge.pay_to;
-  const amount = challenge.amount ?? challenge.maxAmountRequired;
+  const fields = resolveRequirementFields(challenge);
+  if (fields.conflict) {
+    throw new Error(`[twzrd] ${label}: ${fields.conflict}; refusing to commit to an ambiguous challenge`);
+  }
+  const payTo = fields.payTo;
+  const amount = fields.amount;
   const missing: string[] = [];
   if (!isNonEmpty(payTo)) missing.push("payTo");
   if (!isNonEmpty(amount)) missing.push("amount");
@@ -217,7 +222,12 @@ export function challengeHashV1(challenge: ResourceBindReq): string {
 
 /** origin + payTo. The resource URL itself never leaves this function. */
 export function merchantFromChallenge(challenge: ResourceBindReq): PaymentDecisionMerchant {
-  const payTo = challenge.payTo ?? challenge.pay_to;
+  // Not left to call order: both callers happen to hash (and so validate) first.
+  const fields = resolveRequirementFields(challenge);
+  if (fields.conflict) {
+    throw new Error(`[twzrd] merchantFromChallenge: ${fields.conflict}`);
+  }
+  const payTo = fields.payTo;
   if (!isNonEmpty(payTo)) throw new Error("[twzrd] merchantFromChallenge: challenge has no payTo");
   if (!isNonEmpty(challenge.resource)) {
     throw new Error("[twzrd] merchantFromChallenge: challenge has no resource URL");

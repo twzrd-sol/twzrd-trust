@@ -22,7 +22,7 @@ import {
   type MerchantCardLookup,
   type TwzrdMerchantCard,
 } from "./merchant-card.js";
-import { priceUsdcFromAmountMicro } from "./payto.js";
+import { priceUsdcFromAmountMicro, resolveRequirementFields } from "./payto.js";
 import { CLIENT_VERSION } from "./version.js";
 
 const PARTIAL_WASH_CONFIDENCE = new Set([
@@ -153,12 +153,9 @@ export function mapWashRequirements(
   requirements: WashSelectedRequirements & Record<string, unknown>,
   context?: WashBeforePaymentContext,
 ): WashSelectedRequirements {
-  const payTo =
-    (requirements.payTo as string | undefined) ??
-    (requirements.pay_to as string | undefined);
-  const amount =
-    (requirements.amount as string | undefined) ??
-    (requirements.maxAmountRequired as string | undefined);
+  const fields = resolveRequirementFields(requirements);
+  const payTo = fields.payTo;
+  const amount = fields.amount;
   const reqResource = requirements.resource;
   const resourceFromReq =
     typeof reqResource === "string"
@@ -168,6 +165,21 @@ export function mapWashRequirements(
     resourceFromReq ??
     flattenDeclaredResource(context?.declaredResource) ??
     context?.requestUrl;
+  // A conflicted entry keeps its RAW fields. Collapsing them into one value
+  // here used to launder the conflict: every check downstream saw a clean,
+  // consistent entry while the client paid from the original.
+  if (fields.conflict) {
+    return {
+      payTo: requirements.payTo as string | undefined,
+      pay_to: requirements.pay_to as string | undefined,
+      network: requirements.network as string | undefined,
+      amount: requirements.amount as string | undefined,
+      maxAmountRequired: requirements.maxAmountRequired as string | undefined,
+      asset: requirements.asset as string | undefined,
+      resource,
+      scheme: requirements.scheme as string | undefined,
+    };
+  }
   return {
     payTo,
     pay_to: payTo,
@@ -265,8 +277,9 @@ export async function evaluateWashOnlyBeforePayment(
   selected: WashSelectedRequirements,
   options?: WashDefaultOptions,
 ): Promise<WashBeforePaymentResult> {
-  const payTo = selected.payTo ?? selected.pay_to;
-  const amountMicro = selected.amount ?? selected.maxAmountRequired;
+  const fields = resolveRequirementFields(selected);
+  const payTo = fields.payTo;
+  const amountMicro = fields.amount;
   const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
 
   const emit = (detail: {
@@ -281,6 +294,14 @@ export async function evaluateWashOnlyBeforePayment(
       /* never break payment path */
     }
   };
+
+  // Before the no-payTo skip below, which fails OPEN: a conflicted entry is
+  // adversarial by construction, not merely unidentified.
+  if (fields.conflict) {
+    const reason = `[twzrd] ${fields.conflict}`;
+    emit({ approved: false, reason: fields.conflict, washFlagged: null });
+    return { abort: true, reason };
+  }
 
   if (!payTo || !String(payTo).trim()) {
     emit({

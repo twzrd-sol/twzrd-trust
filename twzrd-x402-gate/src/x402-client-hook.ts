@@ -13,7 +13,7 @@
 import { wrapX402ClientEchoAttempt } from "./attempt-echo.js";
 import { resolveBuyerPathADefaults } from "./buyer-defaults.js";
 import { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
-import { priceUsdcFromAmountMicro } from "./payto.js";
+import { priceUsdcFromAmountMicro, resolveRequirementFields } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 import { quickCheck } from "./quick.js";
 import { CLIENT_VERSION } from "./version.js";
@@ -267,11 +267,30 @@ export async function evaluateBeforePaymentCreation(
 ): Promise<BeforePaymentCreationResult> {
   options = resolveBuyerPathADefaults(options ?? {});
   const cfg: ResolvedTwzrdGateConfig = resolveConfig(options);
-  const payTo = selectedRequirements.payTo ?? selectedRequirements.pay_to;
-  const amountMicro =
-    selectedRequirements.amount ?? selectedRequirements.maxAmountRequired;
+  const fields = resolveRequirementFields(selectedRequirements);
+  const payTo = fields.payTo;
+  const amountMicro = fields.amount;
   const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
   const network = selectedRequirements.network;
+  // Unconditional: without paymentControl a merely missing amount proceeds on a
+  // preflight allow (documented below), so a conflict must not reach that path.
+  if (fields.conflict) {
+    const reason = `[twzrd] ${fields.conflict}`;
+    try {
+      options.onDecision?.({
+        approved: false,
+        reason,
+        verdict: "block",
+        payTo,
+        network,
+        amountMicro,
+        policyAction: "block",
+      });
+    } catch {
+      /* telemetry */
+    }
+    return { abort: true, reason };
+  }
 
   const approval = await twzrdApprovePayment(
     {
@@ -714,12 +733,9 @@ export function mapX402SolanaRequirements(
   requirements: X402SelectedRequirements & Record<string, unknown>,
   context?: X402SolanaBeforePaymentContext,
 ): X402SelectedRequirements {
-  const payTo =
-    (requirements.payTo as string | undefined) ??
-    (requirements.pay_to as string | undefined);
-  const amount =
-    (requirements.amount as string | undefined) ??
-    (requirements.maxAmountRequired as string | undefined);
+  const fields = resolveRequirementFields(requirements);
+  const payTo = fields.payTo;
+  const amount = fields.amount;
   const reqResource = requirements.resource;
   const resourceFromReq =
     typeof reqResource === "string"
@@ -729,6 +745,21 @@ export function mapX402SolanaRequirements(
     resourceFromReq ??
     flattenDeclaredResource(context?.declaredResource) ??
     context?.requestUrl;
+  // A conflicted entry keeps its RAW fields. Collapsing them into one value
+  // here used to launder the conflict: every check downstream saw a clean,
+  // consistent entry while the client paid from the original.
+  if (fields.conflict) {
+    return {
+      payTo: requirements.payTo as string | undefined,
+      pay_to: requirements.pay_to as string | undefined,
+      network: requirements.network as string | undefined,
+      amount: requirements.amount as string | undefined,
+      maxAmountRequired: requirements.maxAmountRequired as string | undefined,
+      asset: requirements.asset as string | undefined,
+      resource,
+      scheme: requirements.scheme as string | undefined,
+    };
+  }
   return {
     payTo,
     pay_to: payTo,
