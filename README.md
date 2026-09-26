@@ -137,7 +137,7 @@ curl -s -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 
 | Package | Pin | Description |
 |---|---|---|
-| `twzrd-x402-gate` | **@0.9.8** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
+| `twzrd-x402-gate` | **@0.9.12** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V5/V6/V7 receipts |
 | `twzrd-mcp-server` | **@0.5.4** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
