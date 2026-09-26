@@ -1,7 +1,7 @@
 /**
  * Consumer-agent adjacency router for Muse / Instinct / OpenClaw-class agents.
  *
- * Solana x402 accepts → TWZRD preflight path (gate 0.9.5 / skill check) before sign.
+ * Solana x402 accepts → TWZRD preflight path (skill check) before sign.
  * Stripe / Link / Tempo / MPP-only → hand off; do NOT run Solana wash on those rails.
  * Empty or template payTo → refuse.
  *

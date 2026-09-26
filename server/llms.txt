@@ -17,15 +17,15 @@
 
 Install the gate in your x402 client so a `block` verdict refuses the payment
 before your wallet ever signs - the refusal itself is the product working.
-Primary seat: `twzrd-x402-gate@0.9.10` + `x402-solana@3.0.0`. Hook runs after
+Primary seat: `twzrd-x402-gate@0.9.12` + `x402-solana@3.0.0`. Hook runs after
 requirement selection, before `signTransaction`. Path B success = refuse
 transcript (`signer_invocation_count=0`), not `day0.gate_evals` or free_card_hits.
 
 ```bash
-npm install twzrd-x402-gate@0.9.10 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.9.12 x402-solana@3.0.0
 # Prove refuse-before-sign. The gate's OPTIONAL peers are not auto-installed by
 # npm, so on a cold machine run the full line first:
-#   npm install twzrd-x402-gate@0.9.10 x402-solana@3.0.0 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+#   npm install twzrd-x402-gate@0.9.12 x402-solana@3.0.0 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 # npx twzrd-cold-start   # foreign 402 diet + default-deny policy.json (0 USDC)
 #
