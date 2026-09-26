@@ -11,15 +11,20 @@
  *   5. PayKit seat         — onBeforeX402PaymentCreation on createPayKitClient
  *                           (Foundation pay-kit #303; optional / duck-typed)
  *
- * Default ON. Kill switch (any):
+ * Default ON for this installer. The kill switch is read only by
+ * installTwzrdAutoGate, not by createTwzrdBeforePaymentHook:
  *   TWZRD_AUTO_GATE=0|false
  *   TWZRD_GATE_ENABLED=0|false
  *   options.disabled: true
  *
  * Kill-switch timing, which differs by kind and is deliberate:
- *   - The ENV switches are re-read PER CALL on the MPP, x402-solana,
- *     pay-kit and x402-client adapters, so flipping one takes effect on
- *     already-installed hooks. It is a running switch, not only a deploy-time one.
+ *   - installTwzrdAutoGate re-reads the ENV switches PER CALL on the MPP,
+ *     x402-solana, pay-kit and x402-client seats, then either skips or calls
+ *     the underlying factory. createTwzrdBeforePaymentHook itself does not
+ *     read TWZRD_AUTO_GATE or TWZRD_GATE_ENABLED. Setting those variables
+ *     does not stop a direct call to that factory from aborting a bad payment.
+ *     Flipping the switch takes effect on an already-installed AutoGate seat.
+ *     It is a running switch for that installer, not only a deploy-time one.
  *   - `options.disabled: true` is an install-time opt-out and is permanent for
  *     that install: nothing is constructed and no later env change revives it.
  *   - EXCEPTION, adapter 1: the fetch / payWrap adapter still resolves the
@@ -209,9 +214,9 @@ export function installTwzrdAutoGate(
       ): Promise<string | undefined> => helpers.createCredential();
     }
     // AUDIT FIX: the env kill switch used to be read ONCE here, so a hook built
-    // before TWZRD_AUTO_GATE=0 kept gating forever while the x402-client adapter
-    // honoured the same variable per call. Re-read it per call so one documented
-    // switch means the same thing on every adapter.
+    // before TWZRD_AUTO_GATE=0 kept gating forever while the x402-client seat
+    // honoured the same variable per call. This installer re-reads it per call.
+    // The inner factory does not read TWZRD_AUTO_GATE or TWZRD_GATE_ENABLED.
     const gated = createTwzrdMppOnChallenge(mppOpts);
     return async (
       challenge: MppChallenge,
@@ -226,7 +231,9 @@ export function installTwzrdAutoGate(
     if (solOpts?.disabled === true) {
       return async () => undefined;
     }
-    // AUDIT FIX: same as the MPP seat — the env kill switch is re-read per call.
+    // AUDIT FIX: same as the MPP seat — installTwzrdAutoGate re-reads the env
+    // per call, then calls createTwzrdBeforePaymentHook. That factory does not
+    // read TWZRD_AUTO_GATE or TWZRD_GATE_ENABLED.
     const gated = createTwzrdBeforePaymentHook(solOpts);
     return async (
       requirements: X402SelectedRequirements & Record<string, unknown>,
@@ -337,7 +344,8 @@ export function installTwzrdAutoGate(
 /**
  * Disable a prior installTwzrdAutoGate on an x402 client (soft uninstall).
  * Fetch compositions cannot be uninstalled — rebuild with disabled:true instead.
- * Process-wide kill: TWZRD_GATE_ENABLED=false or TWZRD_AUTO_GATE=0.
+ * AutoGate kill switch (this installer only): TWZRD_GATE_ENABLED=false or
+ * TWZRD_AUTO_GATE=0. createTwzrdBeforePaymentHook does not read those variables.
  */
 export function uninstallTwzrdAutoGate(client: X402ClientLike): void {
   const states = clientInstalls.get(client as object);

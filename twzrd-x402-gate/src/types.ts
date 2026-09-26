@@ -2,7 +2,8 @@ export type TwzrdDecision = "allow" | "warn" | "block";
 
 /**
  * Extended decision used when the payment network is recognized but not scored
- * (e.g. Base/EVM). Distinct from reputation "allow" — never claim TWZRD intel
+ * (Polygon, Arbitrum, Ethereum, testnets — not Base mainnet `eip155:8453`).
+ * Distinct from reputation "allow" — never claim TWZRD intel
  * approved an unscored chain payment.
  */
 export type TwzrdGateDecision = TwzrdDecision | "unknown";
@@ -102,8 +103,10 @@ export type TwzrdGateConfig = {
    */
   washMaxUsdc?: number;
   /**
-   * How to handle payments on networks TWZRD does not reputation-score (Base/EVM/…).
-   * - observe (default): skip Solana preflight, emit decision=unknown + telemetry.
+   * How to handle payments on networks TWZRD does not reputation-score.
+   * Solana mainnet and Base mainnet (`eip155:8453`) are scored and do not use
+   * this mode. Other EVM networks do not run the scored preflight.
+   * - observe (default): skip scored preflight, emit decision=unknown + telemetry.
    *   Does **not** skip merchant_card wash — wash_flagged still refuses before sign.
    * - strict: block before signing (policy_action=block), no intel calls
    * Env: TWZRD_UNSUPPORTED_NETWORK_MODE=observe|strict
@@ -112,7 +115,8 @@ export type TwzrdGateConfig = {
   /** Custom fetch (for tests or non-Node runtimes). Default: global fetch */
   fetch?: typeof fetch;
   /**
-   * Called when decision="warn" or score_basis="default_no_data" (unknown seller).
+   * Called when an evaluated decision="warn" proceeds. `null_reason: unknown_subject`
+   * does not reach this callback on a scored network.
    * First paid hop is GET /v1/intel/quick/{seller} at $0.001. Optional V7
    * GET /v1/intel/trust stays autoReceipt / requireReceipt / escalateOnWarn:false.
    * Return value is ignored — this is fire-and-forget for upsell/logging.

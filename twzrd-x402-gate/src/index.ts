@@ -378,7 +378,8 @@ export {
   type TwzrdIntelligenceOptions,
 } from "./intelligence.js";
 // Optional resource-server settle guard (merchant policy on the payer).
-// Core product remains the buyer gate. Attaches to onBeforeSettle; advisory + fail-open.
+// Buyer preflight outage is fail-closed unless TWZRD_FAIL_OPEN is set.
+// createTwzrdSettleGuard (onBeforeSettle) stays fail-open by default. 0.9.12 is not uniformly fail-closed.
 export {
   createTwzrdSettleGuard,
   defaultExtractPayer,
