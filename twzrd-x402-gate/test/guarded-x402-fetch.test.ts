@@ -18,7 +18,7 @@ function challenge(amount: string, payTo = SELLER, asset = USDC): PaymentRequire
 }
 
 function clientFor(onSign: () => void) {
-  const client = x402Client.fromConfig({ schemes: [], spendControls: false });
+  const client = x402Client.fromConfig({ schemes: [] });
   const scheme: SchemeNetworkClient = {
     scheme: "exact",
     async createPaymentPayload() {
