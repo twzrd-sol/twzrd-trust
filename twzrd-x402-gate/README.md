@@ -218,6 +218,8 @@ official x402 client receives 402
 
 No AgentCash. No marketplace. No second probe. No TWZRD custody.
 
+> **Note on `@x402/core` Defaults:** `@x402/core` >= 2.23.0 evaluates default spend controls *before* invoking TWZRD hooks. Calls breaching `core` defaults or referencing unrecognized assets abort before the gate preflight or callbacks execute. Use `setSpendControls(false)` or `x402Client.fromConfig` if core spend limits should be deferred entirely to TWZRD.
+
 ### PayKit (`@solana/pay-kit`)
 
 Foundation [pay-kit#303](https://github.com/solana-foundation/pay-kit/pull/303)
