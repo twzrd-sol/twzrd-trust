@@ -18,7 +18,10 @@ function challenge(amount: string, payTo = SELLER, asset = USDC): PaymentRequire
 }
 
 function clientFor(onSign: () => void) {
-  const client = x402Client.fromConfig({ schemes: [] });
+  // Keep this compatible with x402/core releases whose public config type
+  // predates spendControls while disabling the newer default in local tests.
+  const config = { schemes: [], spendControls: false as const };
+  const client = x402Client.fromConfig(config);
   const scheme: SchemeNetworkClient = {
     scheme: "exact",
     async createPaymentPayload() {
@@ -116,6 +119,40 @@ async function main() {
       const firstError = await first;
       assert.match(String((firstError as Error).message), /fake-signer-stop/);
       assert.equal(gateCalls, 1);
+      assert.equal(signs, 1);
+      process.env.TWZRD_GATE_ENABLED = "false";
+    }
+
+    // A TWZRD hook refusal releases its pending reservation and does not
+    // commit the amount to the rolling spend ledger.
+    {
+      delete process.env.TWZRD_GATE_ENABLED;
+      let signs = 0;
+      let gateCalls = 0;
+      const client = clientFor(() => signs++);
+      createGuardedX402Fetch({
+        client,
+        hourlyBudgetCap: "0.03",
+        twzrd: {
+          gateOnCanSpend: true,
+          refuseWashFlagged: false,
+          fetch: (async () => {
+            gateCalls++;
+            const blocked = gateCalls === 1;
+            return new Response(JSON.stringify({
+              readiness_card: {
+                decision: blocked ? "block" : "allow",
+                can_spend: !blocked,
+                trust_score: blocked ? 1 : 90,
+                seller_wallet: SELLER,
+              },
+            }), { status: 200, headers: { "content-type": "application/json" } });
+          }) as typeof fetch,
+        },
+      });
+      await assert.rejects(fire(client, challenge("30000")), /twzrd_decision_block|twzrd_can_spend_false/);
+      await assert.rejects(fire(client, challenge("30000")), /fake-signer-stop/);
+      assert.equal(gateCalls, 2);
       assert.equal(signs, 1);
       process.env.TWZRD_GATE_ENABLED = "false";
     }
