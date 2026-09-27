@@ -31,6 +31,7 @@ import assert from "node:assert/strict";
 import { x402Version } from "@x402/core";
 import type { PaymentRequired, SchemeNetworkClient } from "@x402/core/types";
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
+import { findDefaultAsset } from "@x402/svm";
 
 import { installTwzrdX402ClientHook } from "../src/x402-client-hook.js";
 
@@ -72,6 +73,9 @@ function fakeScheme(
 ): SchemeNetworkClient {
   return {
     scheme: "exact",
+    // Same default-asset lookup the real ExactSvmScheme exposes; @x402/core >=2.23
+    // spend controls refuse requirements whose asset no scheme recognizes.
+    findDefaultAsset,
     async createPaymentPayload(_version: number, requirements: { payTo?: string; amount?: string; network?: string }) {
       onCall({
         payTo: requirements.payTo,
