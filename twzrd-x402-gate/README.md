@@ -571,6 +571,51 @@ What happens on every HTTP 402 the raw fetch returns:
 
 Non-402 responses pass through unchanged.
 
+### One-line x402 fetch with local spend limits
+
+`createGuardedX402Fetch` combines a configured `@x402/core` client with the
+existing TWZRD pre-sign evaluator and local recipient / spend rules. Register
+the payment schemes and wallet signer on the client first; the helper returns
+the paying fetch, so the request can use the normal x402 402 flow:
+
+```typescript
+import { x402Client } from "@x402/core/client";
+import { createGuardedX402Fetch } from "twzrd-x402-gate";
+
+const client = new x402Client();
+// Register the x402 payment schemes and wallet signer on `client` here.
+
+const guardedFetch = createGuardedX402Fetch({
+  client,
+  maxPricePerCall: "0.05",
+  hourlyBudgetCap: "2.00",
+  allowedRecipients: ["0x1234567890abcdef1234567890abcdef12345678"],
+});
+
+const response = await guardedFetch("https://api.example.com/paid-resource");
+```
+
+The local checks run against the x402 client's selected payment requirement,
+then TWZRD's existing `@x402/core` pre-sign evaluator runs before the client
+creates the payment signature. The caps are decimal USDC values compared with
+the selected requirement's six-decimal atomic amount. When a spend cap is
+enabled, the helper accepts only canonical USDC on Solana mainnet/devnet and
+Base mainnet/Sepolia; unsupported tokens and networks fail closed. EVM
+recipient matching is case-insensitive; Solana base58 matching is
+case-sensitive. Supplying an empty `allowedRecipients` array denies every
+recipient.
+
+The hourly ledger is in memory for the lifetime of this returned fetch and is
+shared by concurrent calls through it. Spend is reserved while TWZRD evaluates
+the challenge and recorded before the pre-sign hook returns, so a later signer
+failure still consumes the budget. It resets when the process restarts. The
+existing `TWZRD_AUTO_GATE=0` / `TWZRD_GATE_ENABLED=false` switches disable the
+remote TWZRD evaluation only; local caps and the recipient allowlist remain on.
+The helper expects a configured x402 client because a bare `signer.pay()` method
+does not define a standard x402 challenge-to-payment contract. A separate paid
+Path A fetch cannot be passed through `twzrd.x402Fetch`: it has a different
+signer and cannot share this fetch's local ledger.
+
 ### Networks (Solana mainnet and Base mainnet scored)
 
 The gate **recognizes** multi-chain 402s. **Solana mainnet and Base mainnet (`eip155:8453`)** run the scored preflight. Other EVM networks do not. `eip155:137` does not run `twzrdPreflight` or the scored preflight.

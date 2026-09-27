@@ -141,6 +141,10 @@ export {
   type X402SolanaBeforePaymentContext,
 } from "./x402-client-hook.js";
 export {
+  createGuardedX402Fetch,
+  type GuardedX402FetchOptions,
+} from "./guarded-x402-fetch.js";
+export {
   RESOURCE_BIND_DOMAIN,
   RESOURCE_BIND_DOMAIN_V2,
   RESOURCE_BIND_EXTRA_KEY,
