@@ -59,8 +59,9 @@ const addr = (fill: number) => getAddressDecoder().decode(new Uint8Array(32).fil
 export const BUYER = addr(1);
 export const SELLER_ALLOW = addr(3);
 export const SELLER_REFUSE = addr(4);
-/** USDC mainnet mint, used as a well-known asset id; nothing is read from chain. */
-export const ASSET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+/** USDC devnet mint, matching the fixtures' devnet network so @x402/core (>=2.23) spend controls
+ *  recognize it as a default asset and the TWZRD hook is what decides. Nothing is read from chain. */
+export const ASSET = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const MINT_DECIMALS = 6;
 /** 82-byte SPL mint account the fixture RPC serves for ASSET. */
 const MINT_ACCOUNT_B64 = getBase64Decoder().decode(

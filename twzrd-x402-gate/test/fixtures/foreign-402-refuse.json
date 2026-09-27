@@ -6,7 +6,7 @@
     {
       "scheme": "exact",
       "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-      "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "asset": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
       "amount": "2500",
       "payTo": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
       "maxTimeoutSeconds": 60,
