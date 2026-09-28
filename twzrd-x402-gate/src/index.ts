@@ -142,6 +142,7 @@ export {
 } from "./x402-client-hook.js";
 export {
   createGuardedX402Fetch,
+  explainCoreSpendControls,
   type GuardedX402FetchOptions,
 } from "./guarded-x402-fetch.js";
 export {

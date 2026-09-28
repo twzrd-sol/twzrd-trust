@@ -14,7 +14,8 @@ const guardedClients = new WeakSet<object>();
 const USDC_ASSETS: Record<string, ReadonlySet<string>> = {
   solana: new Set([
     "epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v", // mainnet USDC
-    "gh9zwemdlj8dsckntktqpbnwlnnbjuszag9vp2kgtkjr", // devnet USDC
+    "4zmmc9srt5ri5x14gagxhahii3gnpaeerypjgzjdncdu", // devnet USDC (Circle; the @x402/svm default)
+    "gh9zwemdlj8dsckntktqpbnwlnnbjuszag9vp2kgtkjr", // devnet USDC (spl-token-faucet)
   ]),
   "eip155:8453": new Set([
     "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Base USDC
@@ -191,13 +192,46 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   const getPayingFetch = (): Promise<typeof fetch> => {
     if (payingFetch) return Promise.resolve(payingFetch);
     if (!initializing) {
-      initializing = import("@x402/fetch").then(({ wrapFetchWithPayment }) => {
-        payingFetch = wrapFetchWithPayment(fetchImpl, options.client as never);
-        return payingFetch;
-      });
+      initializing = import("@x402/fetch").then(
+        ({ wrapFetchWithPayment }) => {
+          payingFetch = wrapFetchWithPayment(fetchImpl, options.client as never);
+          return payingFetch;
+        },
+        (cause: unknown) => {
+          initializing = undefined;
+          throw new Error(
+            "[twzrd-x402-gate] createGuardedX402Fetch needs @x402/fetch, an optional peer dependency " +
+              "npm does not install for you. Run: npm install @x402/fetch @x402/core and your scheme " +
+              "package (@x402/svm for Solana, @x402/evm for Base).",
+            { cause },
+          );
+        },
+      );
     }
     return initializing;
   };
 
-  return async (input, init) => (await getPayingFetch())(input, init);
+  return async (input, init) => {
+    const paying = await getPayingFetch();
+    try {
+      return await paying(input, init);
+    } catch (error) {
+      throw explainCoreSpendControls(error);
+    }
+  };
+}
+
+const CORE_SPEND_CONTROLS_HINT =
+  "[twzrd-x402-gate] @x402/core refused this payment with its own default spend controls " +
+  "(recognized assets only, $1 per payment) before the TWZRD checks ran. To let " +
+  "maxPricePerCall / hourlyBudgetCap / allowedRecipients govern instead, disable or widen core's " +
+  "controls on the client you pass in: client.setSpendControls(false), or build it with " +
+  "x402Client.fromConfig({ ..., spendControls: { maxAmountPerPayment: ..., allowedAssets: [...] } }). " +
+  "Note: new x402Client({ spendControls: false }) does NOT disable them.";
+
+/** Rewrap @x402/core's spend-control refusal so the caller learns how to fix it. */
+export function explainCoreSpendControls(error: unknown): unknown {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (!/spendControls/.test(message)) return error;
+  return new Error(`${CORE_SPEND_CONTROLS_HINT} Original: ${message}`, { cause: error });
 }

@@ -133,7 +133,9 @@ const KNOWN_CLUSTERS = new Set([
 const USD_PEGGED_ASSETS: Record<string, number> = {
   // USDC mainnet
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 6,
-  // USDC devnet
+  // USDC devnet (Circle; the @x402/svm default)
+  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU": 6,
+  // USDC devnet (spl-token-faucet)
   Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr: 6,
   // USDT mainnet
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 6,
