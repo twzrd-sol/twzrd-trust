@@ -20,6 +20,8 @@ const SOURCES = [
   "src/x402-client-hook.ts",
   "src/guarded-x402-fetch.ts",
   "src/spend-control.ts",
+  "src/all-offers.ts",
+  "src/cloudflare-base.ts",
 ];
 
 // Classification labels that share the `reason` field but never refuse.

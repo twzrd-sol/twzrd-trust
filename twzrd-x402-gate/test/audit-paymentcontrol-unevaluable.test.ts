@@ -96,7 +96,9 @@ async function run() {
     }) as (r: Record<string, unknown>) => Promise<BeforePaymentCreationResult>;
     const r = await hook({ payTo: SELLER, network: SOL, amount: "", resource: "https://m.example/p" });
     assert.ok(r && "abort" in r, 'amount="" with paymentControl configured proceeded to sign');
-    assert.match(r.reason, /payment_control_unevaluable/);
+    // 0.11.2: a present-but-malformed amount ("") is refused as amount_malformed
+    // on every seat, before Payment Control runs; still no signature.
+    assert.match(r.reason, /amount_malformed|payment_control_unevaluable/);
     const last = seen.at(-1);
     assert.equal(last?.approved, false, "onDecision claimed approval for an unevaluable payment");
   }

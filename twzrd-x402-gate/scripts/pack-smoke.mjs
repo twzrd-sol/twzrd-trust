@@ -43,6 +43,16 @@ try {
     }
   }
 
+  // No packed file may carry the unsafe surface, even unreachable by specifier
+  // (0.11.1 shipped dist/unsafe.js; 0.11.2 removed it).
+  const unsafeFile = listing.split("\n").find((l) => /\/unsafe\.(js|d\.ts)(\.map)?$/.test(l.trimEnd()));
+  if (unsafeFile) throw new Error(`pack-smoke: tarball ships an unsafe module: ${unsafeFile.trim()}`);
+  // The published CHANGELOG must date the version it ships.
+  const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+  if (new RegExp(`^## ${pkg.version.replace(/\./g, "\\.")} .*unreleased`, "m").test(changelog)) {
+    throw new Error(`pack-smoke: CHANGELOG still says ${pkg.version} is unreleased`);
+  }
+
   const consumer = join(temp, "consumer");
   run("mkdir", ["-p", consumer], temp);
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));

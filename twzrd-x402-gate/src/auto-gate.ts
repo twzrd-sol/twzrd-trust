@@ -1,7 +1,7 @@
 /**
  * installTwzrdAutoGate — canonical default trust checkpoint entry point.
  *
- * Design: docs/strategy/install-autogate-design.md (#1586).
+ * Design notes live with the TWZRD intel service.
  *
  * One name across five adapters:
  *   1. Fetch / payWrap     — guard raw fetch, then hand to x402 payer

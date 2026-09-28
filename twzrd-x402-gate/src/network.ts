@@ -29,6 +29,44 @@ export function canonicalEvmNetwork(n: string): string | undefined {
   return undefined;
 }
 
+const SOLANA_MAINNET_GENESIS = "5eykt4usfv8p8njdtrepy1vzqkqzkvdp";
+const SOLANA_DEVNET_GENESIS = "etwtrabzayq6imfeykouru166vu2xqa1";
+const SOLANA_TESTNET_GENESIS = "4uhcvjyu9pjkvqys88urdiswhxscky3z";
+
+export type SolanaCluster = "mainnet" | "devnet" | "testnet";
+
+/**
+ * The one reading of "which Solana cluster is this requirement on", shared by
+ * classifyNetwork and the USDC table (payto.ts) so they cannot disagree.
+ *
+ * A missing or empty network with a base58 payTo is mainnet (legacy
+ * integrators, same default classifyNetwork has always applied). Devnet and
+ * testnet are matched by keyword or by their CAIP-2 genesis id; mainnet by
+ * "solana", "mainnet-beta", "solana:mainnet" or the mainnet genesis id.
+ * Returns undefined for anything that is not Solana.
+ */
+export function solanaCluster(
+  network: string | undefined | null,
+  payTo?: string | null,
+): SolanaCluster | undefined {
+  const raw = network == null ? "" : String(network).trim().toLowerCase();
+  if (!raw) {
+    const pt = payTo == null ? "" : String(payTo).trim();
+    if (!pt || /^0x[a-fA-F0-9]{40}$/.test(pt)) return undefined;
+    return "mainnet";
+  }
+  if (raw.includes("devnet") || raw.includes(SOLANA_DEVNET_GENESIS)) return "devnet";
+  if (raw.includes("testnet") || raw.includes("localnet") || raw.includes(SOLANA_TESTNET_GENESIS)) return "testnet";
+  if (
+    raw.includes("solana") ||
+    raw.includes(SOLANA_MAINNET_GENESIS.slice(0, 6)) ||
+    raw === "mainnet-beta"
+  ) {
+    return "mainnet";
+  }
+  return undefined;
+}
+
 export type NetworkClass = {
   /** Raw network string from the payment requirement */
   network: string | undefined;
@@ -81,14 +119,16 @@ export function classifyNetwork(
   }
   const n = raw.toLowerCase();
 
-  // Solana mainnet CAIP-2 genesis, bare "solana", or mainnet keyword.
-  const isSolana =
-    n.includes("solana") ||
-    n.includes("5eykt4") || // mainnet genesis prefix in CAIP-2
-    n === "solana:mainnet" ||
-    n === "mainnet-beta";
-  if (isSolana) {
-    // Devnet/testnet: recognized, not scored (no production corpus).
+  // Solana: mainnet CAIP-2 genesis, bare "solana", mainnet keywords, or a
+  // devnet/testnet id (including the bare CAIP-2 genesis ids).
+  const cluster = solanaCluster(raw);
+  if (cluster) {
+    // Devnet/testnet named by keyword: recognized, not scored (no production
+    // corpus). A devnet/testnet named only by its CAIP-2 genesis id stays
+    // scored, as it always has: devnet integration harnesses (including this
+    // package's signer-counted proofs) rely on it reaching the preflight.
+    // The USDC table reads the cluster, not this flag, so devnet mints are
+    // still matched as devnet.
     if (n.includes("devnet") || n.includes("testnet") || n.includes("localnet")) {
       return {
         network: raw,

@@ -8,6 +8,8 @@ export type ResolvedTwzrdGateConfig = {
   gateOnCanSpend: boolean;
   /** Default false: an unevaluated seller is allowed up to the card's recommended cap. */
   refuseUnevaluated: boolean;
+  /** Deadline for each intel call (preflight, merchant card, paid receipts), ms. Default 2000. */
+  intelTimeoutMs: number;
   /** Default true: refuse when free merchant_card.wash_flagged */
   refuseWashFlagged: boolean;
   /** Soft cap USDC when wash_flagged; null = hard refuse */
@@ -32,6 +34,26 @@ function parseBlockDecisions(raw: string | undefined): Set<string> {
       .map((s) => s.trim())
       .filter(Boolean),
   );
+}
+
+/**
+ * Opt-in strict knobs (refuseUnevaluated, gateOnCanSpend) read any common
+ * truthy spelling as on: true, 1, "true", "1", "yes", "on" in any case.
+ * A typo must not silently leave strict mode off (0.11.2).
+ */
+const TRUTHY = new Set(["true", "1", "yes", "on"]);
+function strictFlag(override: unknown, env: string | undefined): boolean {
+  const v = override !== undefined && override !== null ? override : env;
+  if (v === true || v === 1) return true;
+  if (typeof v === "string") return TRUTHY.has(v.trim().toLowerCase());
+  return false;
+}
+
+const DEFAULT_INTEL_TIMEOUT_MS = 2000;
+function intelTimeout(override: unknown, env: string | undefined): number {
+  const raw = override ?? env;
+  const n = typeof raw === "number" ? raw : raw == null || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_INTEL_TIMEOUT_MS;
 }
 
 export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateConfig {
@@ -61,20 +83,14 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
 
   // Default false: can_spend false alone does not block. null_reason
   // unknown_subject is handled earlier (refuseUnevaluated) and is not this
-  // knob. Opt in to strict can_spend gating with TWZRD_GATE_ON_CAN_SPEND=true or =1.
-  const gateOnCanSpend =
-    overrides?.gateOnCanSpend ??
-    (process.env.TWZRD_GATE_ON_CAN_SPEND === "true" ||
-      process.env.TWZRD_GATE_ON_CAN_SPEND === "1");
+  // knob. Opt in to strict can_spend gating with TWZRD_GATE_ON_CAN_SPEND (true/1/yes/on, any case).
+  const gateOnCanSpend = strictFlag(overrides?.gateOnCanSpend, process.env.TWZRD_GATE_ON_CAN_SPEND);
 
   // Default false (0.11.0+): a seller the server never evaluated is allowed up to
   // the card's recommended_cap_usdc, and refused above it or when no cap is given.
   // Opt in to refusing every unevaluated seller with refuseUnevaluated:true or
-  // TWZRD_REFUSE_UNEVALUATED=true|1.
-  const refuseUnevaluated =
-    overrides?.refuseUnevaluated ??
-    (process.env.TWZRD_REFUSE_UNEVALUATED === "true" ||
-      process.env.TWZRD_REFUSE_UNEVALUATED === "1");
+  // TWZRD_REFUSE_UNEVALUATED (true/1/yes/on, any case).
+  const refuseUnevaluated = strictFlag(overrides?.refuseUnevaluated, process.env.TWZRD_REFUSE_UNEVALUATED);
 
   // Default true: free merchant_card.wash_flagged → refuse pay (trustless step 3).
   // Opt out: refuseWashFlagged:false or TWZRD_REFUSE_WASH_FLAGGED=0|false.
@@ -126,6 +142,7 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     failOpen,
     gateOnCanSpend,
     refuseUnevaluated,
+    intelTimeoutMs: intelTimeout(overrides?.intelTimeoutMs, process.env.TWZRD_INTEL_TIMEOUT_MS),
     refuseWashFlagged,
     washMaxUsdc,
     unsupportedNetworkMode,

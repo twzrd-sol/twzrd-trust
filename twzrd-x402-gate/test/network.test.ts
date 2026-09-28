@@ -289,7 +289,9 @@ async function run() {
     const gated = wrapFetchWithTwzrdGate(dual, cfg);
     const resp = await gated("https://merchant.example/dual");
     assert.equal(resp.status, 402);
-    assert.equal(preflightHits, 1, "Solana accept preferred and scored");
+    // 0.11.2: the payer, not the wrapper, picks the entry it pays, so every
+    // distinct offer is scored (one free preflight each).
+    assert.equal(preflightHits, 2, "every offer scored");
   }
 
   // --- auto-gate: strict Base never signs ---

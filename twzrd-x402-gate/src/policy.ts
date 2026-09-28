@@ -13,6 +13,7 @@ import {
   logUnsupportedNetwork,
 } from "./network.js";
 import { randomUUID } from "node:crypto";
+import { withDeadline } from "./deadline.js";
 import { QUICK_PRICE_USDC } from "./quick.js";
 import type {
   TwzrdApprovalResult,
@@ -240,17 +241,22 @@ export async function twzrdPreflight(
     // Prefer explicit integration as caller when provided (e.g. partner name).
     headers["X-Twzrd-Caller"] = `${cfg.attribution.integration}@${CLIENT_VERSION}`;
   }
-  const resp = await cfg.fetch(`${cfg.intelBase}/v1/intel/preflight`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(input),
+  // Bounded: a hung intel is an outage, decided by failOpen like any other
+  // (0.11.2). Before this a stalled preflight held the payment indefinitely.
+  const data = await withDeadline(cfg.intelTimeoutMs, "[twzrd] preflight", async (signal) => {
+    const resp = await cfg.fetch(`${cfg.intelBase}/v1/intel/preflight`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(input),
+      signal,
+    });
+    if (!resp.ok) {
+      throw new Error(`[twzrd] preflight HTTP ${resp.status}`);
+    }
+    return (await resp.json()) as {
+      readiness_card?: TwzrdReadinessCard;
+    } & TwzrdReadinessCard;
   });
-  if (!resp.ok) {
-    throw new Error(`[twzrd] preflight HTTP ${resp.status}`);
-  }
-  const data = (await resp.json()) as {
-    readiness_card?: TwzrdReadinessCard;
-  } & TwzrdReadinessCard;
   const card = data.readiness_card ?? data;
   // Surface the server-issued preflight_id (a sibling of readiness_card) onto the card so
   // the verify->act funnel link can be echoed on the paid /v1/intel/trust call.
@@ -303,8 +309,10 @@ async function tightenWithMerchantCardWash(input: {
   verdict: TwzrdGateDecision;
   washFlagged: boolean | null;
   washCapped?: boolean;
+  cardUnreachable?: boolean;
 }> {
   let washFlagged: boolean | null = null;
+  let cardUnreachable = false;
   let approved = input.approved;
   let reason = input.reason;
   let verdict = input.verdict;
@@ -313,6 +321,7 @@ async function tightenWithMerchantCardWash(input: {
     const lookup = await fetchMerchantCardResult(input.seller, {
       intelBase: input.cfg.intelBase,
       fetch: input.cfg.fetch,
+      timeoutMs: input.cfg.intelTimeoutMs,
     });
     // Only TIGHTENS, like applyWashFlaggedPolicy below: an outage may refuse a
     // payment that was otherwise going through, but must never relabel a
@@ -331,6 +340,14 @@ async function tightenWithMerchantCardWash(input: {
         verdict: "block",
         washFlagged: null,
       };
+    }
+    if (!lookup.reachable && approved) {
+      // failOpen allowed an outage through: say so, so the result and the logs
+      // show the wash check did not run (0.11.2; this used to be silent).
+      console.warn(
+        `[twzrd-x402-gate] merchant_card unreachable (fail-open) — ${lookup.error}. Wash check skipped.`,
+      );
+      cardUnreachable = true;
     }
     if (lookup.card && typeof lookup.card.wash_flagged === "boolean") {
       washFlagged = lookup.card.wash_flagged;
@@ -357,6 +374,7 @@ async function tightenWithMerchantCardWash(input: {
     verdict,
     washFlagged,
     washCapped: wash.washCapped,
+    ...(cardUnreachable ? { cardUnreachable: true } : {}),
   };
 }
 
@@ -382,6 +400,24 @@ export async function twzrdApprovePayment(
       score: null,
       card: {},
       reason: "twzrd_unidentifiable_payment_recipient",
+    };
+  }
+
+  // A computed price that is negative or not finite has no safe reading: a
+  // negative number clears every `price > cap` comparison. Refused before
+  // intel (0.11.2). Undefined stays "price unknown", handled per policy below.
+  if (
+    typeof context.priceUsdc === "number" &&
+    (!Number.isFinite(context.priceUsdc) || context.priceUsdc < 0)
+  ) {
+    return {
+      decisionId,
+      approved: false,
+      verdict: "block",
+      score: null,
+      card: {},
+      reason: "twzrd_invalid_price",
+      policyAction: "block",
     };
   }
 
@@ -443,6 +479,7 @@ export async function twzrdApprovePayment(
       reason: wash.reason,
       washFlagged: wash.washFlagged,
       washCapped: wash.washCapped,
+      ...(wash.cardUnreachable ? { cardUnreachable: true } : {}),
       network: undecided.network,
       networkSupported: undecided.networkSupported,
       reputationScored: false,
@@ -456,7 +493,14 @@ export async function twzrdApprovePayment(
   // at amount 100000 reads as $0.10 while it moves 0.001 of that token. Refused
   // before intel, and not an outage, so failOpen does not apply. Scored networks
   // only: an unscored network's observe policy never priced anything (0.11.1).
-  if (context.asset && !isUsdcRequirement({ network: context.chain ?? netCls.network, asset: context.asset })) {
+  if (
+    context.asset &&
+    !isUsdcRequirement({
+      network: context.chain ?? netCls.network,
+      asset: context.asset,
+      payTo: context.payTo ?? context.sellerWallet,
+    })
+  ) {
     return {
       decisionId,
       approved: false,
@@ -482,15 +526,26 @@ export async function twzrdApprovePayment(
       priceUsdc: context.priceUsdc,
     });
     // Fire upsell hook on warn (unknown/low-corpus seller) — fire-and-forget
-    if (result.verdict === "warn" && cfg.onWarnUpsell) {
+    // Not for an unevaluated seller: there is no paid score for it either, so
+    // the upsell hop buys nothing (the same rule as the /quick escalation).
+    if (result.verdict === "warn" && result.unevaluated !== true && cfg.onWarnUpsell) {
       const seller = card.seller_wallet ?? context.sellerWallet ?? context.payTo;
       const hop = warnUpsellHop(card, seller);
-      void cfg.onWarnUpsell({
-        sellerWallet: seller,
-        trustScore: card.trust_score ?? null,
-        upsellUrl: hop.upsellUrl,
-        priceUsdc: hop.priceUsdc,
-      });
+      // Telemetry never changes the decision or crashes the host: a sync throw
+      // must not reach the outage catch below, and a rejection must not go
+      // unhandled (0.11.2).
+      try {
+        Promise.resolve(
+          cfg.onWarnUpsell({
+            sellerWallet: seller,
+            trustScore: card.trust_score ?? null,
+            upsellUrl: hop.upsellUrl,
+            priceUsdc: hop.priceUsdc,
+          }),
+        ).catch(() => {});
+      } catch {
+        /* telemetry */
+      }
     }
 
     // The card can carry a per-seller ceiling. Honour it: an approval that
@@ -545,6 +600,7 @@ export async function twzrdApprovePayment(
       preflightId: card.preflight_id,
       washFlagged: wash.washFlagged,
       washCapped: wash.washCapped,
+      ...(wash.cardUnreachable ? { cardUnreachable: true } : {}),
       network: netCls.network,
       networkSupported: true,
       reputationScored: true,

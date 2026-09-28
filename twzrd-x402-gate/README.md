@@ -41,7 +41,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.11.1 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.11.2 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -80,7 +80,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.11.1
+npm install twzrd-x402-gate@0.11.2
 ```
 
 ```typescript
@@ -125,7 +125,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.11.1
+npm install twzrd-x402-gate@0.11.2
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -299,7 +299,7 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.11.1
+npm install twzrd-x402-gate@0.11.2
 ```
 
 Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
@@ -348,9 +348,9 @@ assertIntentApproved(intentBeingSigned, token, {
 // throws MISSING_VERIFIER_KEY | BAD_SIGNATURE | INTENT_HASH_MISMATCH |
 //        DECISION_EXPIRED | DECISION_NOT_ALLOW | DECISION_REPLAYED
 //        -> the signer is never invoked
-// In-process matching without a key is unsafeAssertIntentApprovedWithoutSignature,
-// exported only from the "twzrd-x402-gate/unsafe" subpath — never the root:
-//   import { unsafeAssertIntentApprovedWithoutSignature } from "twzrd-x402-gate/unsafe";
+// There is no published way to match an intent without verifying the decision
+// signature: the old "twzrd-x402-gate/unsafe" subpath was removed in 0.9.4 and
+// its module in 0.11.2. Always verify with a key.
 ```
 
 - `PaymentIntent` v1 (frozen): protocol `x402 | ap2 | ucp | mpp | direct` +
@@ -960,7 +960,7 @@ An approval here carries `unevaluated: true` and `score: null`, never a trust sc
 
 A price above `recommended_cap_usdc` returns a reason that starts with `twzrd_over_recommended_cap_`. A direct `createTwzrdBeforePaymentHook` abort of a block card returns reason `twzrd_decision_block`. That reason string is not `block` and is not `twzrd_fail_closed`. A missing `payTo` returns reason `twzrd_unidentifiable_payment_recipient` from `twzrdApprovePayment`. That reason is not `twzrd_missing_payTo`. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns reason `twzrd_fail_closed`. That reason is not `twzrd_preflight_fetch_error`.
 
-An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.11.1 is not uniformly fail-closed.
+An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.11.2 is not uniformly fail-closed.
 
 A 402 whose payment requirements yield **no identifiable seller wallet** (missing/empty `payTo`, or an unparseable `accepts[]`) is a different case from "unknown seller" — it always **blocks** with `reason: twzrd_unidentifiable_payment_recipient`, without ever calling the preflight network. The wallet does not sign. This is unconditional (not affected by buyer `failOpen`): that switch governs a buyer preflight outage, not a missing payTo. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort.
 
@@ -984,6 +984,7 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | Reason | When | Default |
 |---|---|---|
 | `twzrd_unidentifiable_payment_recipient` | The requirement names no `payTo`. Intel is not called. | always |
+| `twzrd_invalid_price` | A caller passed a `priceUsdc` that is negative or not finite. Intel is not called. | always (0.11.2+) |
 | `twzrd_non_usdc_asset` | On Solana or Base, the requirement names an asset that is not USDC on that network. Intel is not called; `failOpen` does not apply. | always (0.11.1+) |
 | `network_not_scored`, `network_missing` | The network is not scored (not Solana or Base mainnet). | refused only with `unsupportedNetworkMode: "strict"`; the default `observe` allows |
 | `twzrd_decision_<decision>` | Intel's card decision is in `blockDecisions`. | `twzrd_decision_block` |
@@ -996,8 +997,8 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | `twzrd_over_recommended_cap_<price>_gt_<cap>` | An evaluated seller, and the price is above the card's `recommended_cap_usdc`. | always |
 | `twzrd_wash_flagged` | The free merchant card says `wash_flagged: true`. | on (`refuseWashFlagged` defaults true on every entry point) |
 | `twzrd_wash_flagged_above_cap_<price>_gt_<cap>`, `twzrd_wash_flagged_above_cap_unknown_price_max_<cap>` | Wash-flagged, `washMaxUsdc` is set, and the price is above it or unknown. | only with `washMaxUsdc` |
-| `twzrd_fail_closed (<error>)` | The preflight did not answer (non-2xx, non-JSON, network error). | fail-closed unless `failOpen` |
-| `twzrd_card_unreachable_fail_closed (<error>)` | The merchant card did not answer (5xx, 429, non-JSON, network error). A 4xx is an answer, not an outage. | fail-closed unless `failOpen` |
+| `twzrd_fail_closed (<error>)` | The preflight did not answer (non-2xx, non-JSON, network error, or no answer within `intelTimeoutMs`). | fail-closed unless `failOpen` |
+| `twzrd_card_unreachable_fail_closed (<error>)` | The merchant card did not answer (5xx, 429, non-JSON, network error, or no answer within `intelTimeoutMs`). A 4xx is an answer, not an outage. With `failOpen` the payment is allowed and the result carries `cardUnreachable: true` (the wash check did not run). | fail-closed unless `failOpen` |
 
 Approval reasons, for `onDecision` consumers: `twzrd_allow`, `twzrd_warn_allowed`,
 `twzrd_unevaluated_within_cap_<price>_le_<cap>`, `twzrd_wash_capped_<price>_le_<cap>`,
@@ -1007,13 +1008,39 @@ Approval reasons, for `onDecision` consumers: `twzrd_allow`, `twzrd_warn_allowed
 
 | Reason | When |
 |---|---|
-| `amount_field_conflict`, `payto_field_conflict` | The requirement's v1 and v2 price fields (`maxAmountRequired` / `amount`) or recipient fields (`payTo` / `pay_to`) disagree. |
+| `amount_field_conflict`, `payto_field_conflict` | The requirement's v1 and v2 price fields (`maxAmountRequired` / `amount`) or recipient fields (`payTo` / `pay_to`) disagree. Two spellings of the same 0x address are one recipient. |
+| `amount_malformed` | The amount is present but is not an ASCII base-unit integer (a sign, decimal point, exponent, whitespace or non-ASCII digit). Refused before intel on every entry point (0.11.2+); `twzrd.safeFetch` reports it as `malformed_amount`. |
 | `payment_control_unevaluable: missing <field>` | Payment Control is on and the requirement has no amount or `payTo`. |
 | `payment_control_block:<reason codes>` | Payment Control (`paymentControl` option) refused the intent. |
 | `twzrd_escalated_warn_block (paid quick score <score> < <floor>)` | `escalateOnWarn` bought the $0.001 `/quick` score and it is below the floor. |
 | `twzrd_receipt_required_missing_x402Fetch` | `requireReceipt` needs a paid receipt and no `x402Fetch` is wired. |
 | `twzrd_receipt_required_failed (HTTP <status>)`, `twzrd_receipt_required_error (<error>)` | The required paid receipt could not be bought. |
 | `aborted_before_payment: signal already aborted` | The caller's abort signal fired before the hook ran. |
+
+### Fetch wrappers and the MCP hook
+
+`withTwzrdGuard`, `wrapFetchWithTwzrdGate`, `installTwzrdAutoGate(payWrap)` and
+`twzrdOnPaymentRequested` see the whole 402 but not which `accepts[]` entry the
+paying client will choose, so every distinct entry must pass the buyer approval
+(one free preflight each; paid hops run once, for the preferred entry). The
+first refusal is reported with that entry's `payTo` (0.11.2+).
+
+| Reason | When |
+|---|---|
+| `too_many_payment_options` | The 402 lists more than 8 distinct offers. |
+
+### `./cloudflare-base` (edge Worker seat)
+
+`withTwzrdBasePreflight` and `createTwzrdCloudflareBaseApproval` apply the same
+rules to the Base USDC entry, restated in the module so it imports nothing:
+`twzrd_unidentifiable_payment_recipient`, `amount_field_conflict`,
+`amount_malformed`, `twzrd_non_usdc_asset`, `invalid_base_offer` (before
+intel; `failOpen` never signs these), then `twzrd_decision_block`, `twzrd_wash_flagged`,
+`twzrd_unevaluated_subject_*`, `twzrd_unevaluated_no_cap_*`,
+`twzrd_unevaluated_over_cap_*`, `twzrd_score_*_below_*` and
+`twzrd_over_recommended_cap_*`. The price comes from the entry's own `amount`;
+the `priceUsdc` option is ignored for the decision. Before 0.11.2 this seat
+signed on any non-block verdict.
 
 ### `createGuardedX402Fetch` local caps
 
@@ -1055,7 +1082,8 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `blockDecisions` | `TWZRD_BLOCK_DECISIONS` | `block` | Decisions that throw |
 | `failOpen` (buyer preflight only) | `TWZRD_FAIL_OPEN` | `false` | Buyer outage only: default does not sign. `createTwzrdSettleGuard` omitted `failOpen` is the other default — a thrown screen returns without abort |
 | `gateOnCanSpend` | `TWZRD_GATE_ON_CAN_SPEND` | `false` | Also block when `can_spend=false` |
-| `refuseUnevaluated` | `TWZRD_REFUSE_UNEVALUATED` | `false` | Refuse every seller intel has not evaluated, instead of allowing it up to the card's `recommended_cap_usdc` |
+| `refuseUnevaluated` | `TWZRD_REFUSE_UNEVALUATED` | `false` | Refuse every seller intel has not evaluated, instead of allowing it up to the card's `recommended_cap_usdc`. `true`, `1`, `"yes"`, `"on"` in any case turn it on. |
+| `intelTimeoutMs` | `TWZRD_INTEL_TIMEOUT_MS` | `2000` | Deadline for each free intel call (preflight, merchant card). A miss is an outage, decided by `failOpen`. Paid hops are not cut off mid-payment. |
 | `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` when `/quick` did not already settle |
 | `x402Fetch` | — | — | x402-capable fetch for `autoReceipt` |
 | `onReceipt` | — | — | Callback after receipt is captured |

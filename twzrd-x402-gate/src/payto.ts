@@ -1,3 +1,4 @@
+import { solanaCluster, type SolanaCluster } from "./network.js";
 import type { X402PaymentRequiredBody, X402PaymentRequirements } from "./types.js";
 
 /**
@@ -38,7 +39,9 @@ export function pickRequirements(
   accepts?: Array<Record<string, unknown>>,
   opts?: { preferFeePayer?: string },
 ): X402PaymentRequirements {
-  const list = accepts ?? [];
+  // A seller controls this array: anything that is not a list of objects is
+  // no offer at all, never a TypeError out of the gate.
+  const list = offerObjects(accepts);
   const isSolana = (e: Record<string, unknown>) =>
     String(e.network ?? "").toLowerCase().includes("solana");
   // Prefer mainnet: bare "solana", "mainnet" substring, or CAIP-2 with mainnet genesis prefix.
@@ -78,15 +81,49 @@ export function pickRequirements(
  */
 export const AMOUNT_FIELD_CONFLICT = "amount_field_conflict";
 export const PAYTO_FIELD_CONFLICT = "payto_field_conflict";
+/**
+ * An amount that is present but is not an ASCII base-unit integer. Schemes
+ * build the transfer from this string (x402-solana: BigInt(amount); spl-token
+ * encodes a u64), so a sign, decimal point, exponent, whitespace or non-ASCII
+ * digit has no safe reading. Refused on every entry point before intel (0.11.2).
+ */
+export const AMOUNT_MALFORMED = "amount_malformed";
 export type RequirementFieldConflict =
   | typeof AMOUNT_FIELD_CONFLICT
-  | typeof PAYTO_FIELD_CONFLICT;
+  | typeof PAYTO_FIELD_CONFLICT
+  | typeof AMOUNT_MALFORMED;
 
-function resolvePair(a: unknown, b: unknown): { value?: string; conflict: boolean } {
+const BASE_UNIT_AMOUNT = /^[0-9]+$/;
+
+/** True for an ASCII base-unit integer string: digits only, no sign or spaces. */
+export function isBaseUnitAmount(amount: unknown): amount is string {
+  return typeof amount === "string" && BASE_UNIT_AMOUNT.test(amount);
+}
+
+/** Entries of a seller-supplied accepts value that are plain objects. */
+export function offerObjects(accepts: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(accepts)) return [];
+  return accepts.filter(
+    (e): e is Record<string, unknown> => e !== null && typeof e === "object" && !Array.isArray(e),
+  );
+}
+
+function sameRecipient(a: string, b: string): boolean {
+  // EVM addresses are case-insensitive (EIP-55 case is a checksum only);
+  // Solana base58 is case-sensitive.
+  if (a.startsWith("0x") && b.startsWith("0x")) return a.toLowerCase() === b.toLowerCase();
+  return a === b;
+}
+
+function resolvePair(
+  a: unknown,
+  b: unknown,
+  same: (x: string, y: string) => boolean = (x, y) => x === y,
+): { value?: string; conflict: boolean } {
   const hasA = a != null;
   const hasB = b != null;
   if (hasA && hasB) {
-    return String(a) === String(b)
+    return same(String(a), String(b))
       ? { value: String(a), conflict: false }
       : { conflict: true };
   }
@@ -107,15 +144,18 @@ export function resolveRequirementFields(req: unknown): {
 } {
   const r = (req ?? {}) as Record<string, unknown>;
   const amt = resolvePair(r.amount, r.maxAmountRequired);
-  const pay = resolvePair(r.payTo, r.pay_to);
+  const pay = resolvePair(r.payTo, r.pay_to, sameRecipient);
+  const malformed = amt.value !== undefined && !isBaseUnitAmount(amt.value);
   return {
     payTo: pay.value,
-    amount: amt.value,
+    amount: malformed ? undefined : amt.value,
     conflict: amt.conflict
       ? AMOUNT_FIELD_CONFLICT
-      : pay.conflict
-        ? PAYTO_FIELD_CONFLICT
-        : undefined,
+      : malformed
+        ? AMOUNT_MALFORMED
+        : pay.conflict
+          ? PAYTO_FIELD_CONFLICT
+          : undefined,
   };
 }
 
@@ -129,16 +169,20 @@ export function payToFromRequirements(req: X402PaymentRequirements): {
   return { payTo: f.payTo, amountMicro: f.amount, resource: req.resource, conflict: f.conflict };
 }
 
-const USDC_ASSETS: Record<string, ReadonlySet<string>> = {
-  // Mints are per cluster: a devnet mint address named on mainnet is some other
-  // token, so it must not be priced against a USDC cap there.
-  "solana-mainnet": new Set([
-    "epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v", // mainnet USDC
+// Solana mints are base58 and case-sensitive: stored and compared exactly.
+// EVM contracts are hex: stored lowercase and compared case-insensitively.
+const SOLANA_USDC: Record<SolanaCluster, ReadonlySet<string>> = {
+  mainnet: new Set([
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // mainnet USDC
   ]),
-  "solana-devnet": new Set([
-    "4zmmc9srt5ri5x14gagxhahii3gnpaeerypjgzjdncdu", // devnet USDC (Circle; the @x402/svm default)
-    "gh9zwemdlj8dsckntktqpbnwlnnbjuszag9vp2kgtkjr", // devnet USDC (spl-token-faucet)
+  // A devnet mint named on mainnet is some other token, and vice versa.
+  devnet: new Set([
+    "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", // devnet USDC (Circle; the @x402/svm default)
+    "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr", // devnet USDC (spl-token-faucet)
   ]),
+  testnet: new Set(),
+};
+const EVM_USDC: Record<string, ReadonlySet<string>> = {
   "eip155:8453": new Set([
     "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Base USDC
   ]),
@@ -147,36 +191,44 @@ const USDC_ASSETS: Record<string, ReadonlySet<string>> = {
   ]),
 };
 
-/**
- * True when the requirement names a USDC mint/contract on its own network.
- * Unknown networks and any other asset are false. Exported so every path
- * prices a requirement the same way (0.11.1).
- */
-export function isUsdcRequirement(requirement: Record<string, unknown>): boolean {
-  const table = usdcTableFor(requirement.network);
-  if (!table) return false;
-  return table.has(String(requirement.asset ?? "").toLowerCase());
+function evmUsdcTable(networkRaw: unknown): ReadonlySet<string> | undefined {
+  const network = String(networkRaw ?? "").trim().toLowerCase();
+  if (network === "base" || network === "base-mainnet" || network === "eip155:8453") {
+    return EVM_USDC["eip155:8453"];
+  }
+  if (network === "base-sepolia" || network === "eip155:84532") {
+    return EVM_USDC["eip155:84532"];
+  }
+  return undefined;
+}
+
+/** True when the network has a USDC set the gate knows (Solana clusters, Base, Base Sepolia). */
+function hasUsdcTable(requirement: { network?: unknown; payTo?: unknown; pay_to?: unknown }): boolean {
+  return (
+    solanaCluster(requirement.network as string | undefined, recipientOf(requirement)) !== undefined ||
+    evmUsdcTable(requirement.network) !== undefined
+  );
+}
+
+function recipientOf(requirement: { payTo?: unknown; pay_to?: unknown }): string | undefined {
+  const p = requirement.payTo ?? requirement.pay_to;
+  return typeof p === "string" ? p : undefined;
 }
 
 /**
- * The USDC set for a network the gate knows (Solana clusters, Base, Base
- * Sepolia), or undefined for any other network.
+ * True when the requirement names a USDC mint/contract on its own network.
+ * Unknown networks and any other asset are false. The Solana cluster comes
+ * from solanaCluster (network.ts), the same reading classifyNetwork uses, so
+ * a missing network with a base58 payTo, "mainnet-beta" or a bare genesis id
+ * resolve to the mainnet mint (0.11.2).
  */
-function usdcTableFor(networkRaw: unknown): ReadonlySet<string> | undefined {
-  const network = String(networkRaw ?? "").toLowerCase();
-  if (network === "solana-devnet" || network === "solana:etwtrabzayq6imfeykouru166vu2xqa1") {
-    return USDC_ASSETS["solana-devnet"];
-  }
-  if (network === "solana" || network.startsWith("solana")) {
-    return USDC_ASSETS["solana-mainnet"];
-  }
-  if (network === "base" || network === "base-mainnet" || network === "eip155:8453") {
-    return USDC_ASSETS["eip155:8453"];
-  }
-  if (network === "base-sepolia" || network === "eip155:84532") {
-    return USDC_ASSETS["eip155:84532"];
-  }
-  return undefined;
+export function isUsdcRequirement(requirement: Record<string, unknown>): boolean {
+  const asset = String(requirement.asset ?? "").trim();
+  if (!asset) return false;
+  const cluster = solanaCluster(requirement.network as string | undefined, recipientOf(requirement));
+  if (cluster) return SOLANA_USDC[cluster].has(asset);
+  const evm = evmUsdcTable(requirement.network);
+  return evm ? evm.has(asset.toLowerCase()) : false;
 }
 
 /** The requirement's named asset, or undefined when none is named. */
@@ -187,29 +239,28 @@ export function requirementAsset(req: unknown): string | undefined {
 
 export function priceUsdcFromAmountMicro(
   amountMicro: string | undefined,
-  requirement?: { network?: unknown; asset?: unknown },
+  requirement?: { network?: unknown; asset?: unknown; payTo?: unknown; pay_to?: unknown },
 ): number | undefined {
-  if (amountMicro == null || amountMicro === "") return undefined;
+  // Only an ASCII base-unit integer has a price. A sign, decimal point,
+  // exponent or non-ASCII digit has no safe reading (0.11.2).
+  if (!isBaseUnitAmount(amountMicro)) return undefined;
   // `amount` is in the named asset's base units. Dividing by 1e6 is only a USD
   // price when that asset is USDC (6 decimals, ~$1). A requirement that names
-  // any other asset has no known USD price: returning amount/1e6 let a seller
-  // name an 8-decimal mint and have a real 0.001-token transfer read as $0.10,
-  // inside the unevaluated-seller cap (0.11.1). No asset named keeps the old
-  // reading, because the x402 schemes default an unnamed asset to USDC. Only
-  // networks with a known USDC set are checked; other (unscored) networks keep
-  // the old best-effort reading, since nothing there is capped in USDC.
+  // any other asset on a network with a known USDC set has no USD price here
+  // (0.11.1). With no asset named the old reading stays: neither x402-solana
+  // nor @x402/svm can build a transfer without a mint, so such a payment fails
+  // before signing anyway. Networks with no USDC set keep the best-effort
+  // reading; nothing on them is capped in USDC by the approval policy.
   if (
     requirement &&
     typeof requirement.asset === "string" &&
     requirement.asset.trim() !== "" &&
-    usdcTableFor(requirement.network) !== undefined &&
+    hasUsdcTable(requirement) &&
     !isUsdcRequirement(requirement as Record<string, unknown>)
   ) {
     return undefined;
   }
-  const n = Number(amountMicro);
-  if (!Number.isFinite(n)) return undefined;
-  return n / 1_000_000;
+  return Number(amountMicro) / 1_000_000;
 }
 
 /**

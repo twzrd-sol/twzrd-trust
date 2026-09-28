@@ -28,7 +28,59 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## 0.11.1 — unreleased (security fix)
+## 0.11.2 — 2026-09-28 (security fix)
+
+Fixes from a line-by-line audit of the published 0.11.1. Every change adds a
+refusal or makes an existing one reliable; none loosens one.
+
+- **Malformed amounts are refused on every entry point** (`amount_malformed`,
+  before intel). An amount must be an ASCII base-unit integer: no sign, decimal
+  point, exponent, whitespace or non-ASCII digit. Signing schemes build the
+  transfer from this string, so there is no safe reading of anything else.
+  `twzrd.safeFetch` keeps reporting it as `malformed_amount`. A computed
+  `priceUsdc` that is negative or not finite is refused as `twzrd_invalid_price`.
+- **Fetch wrappers and the MCP hook check every offer.** `withTwzrdGuard`,
+  `wrapFetchWithTwzrdGate`, `installTwzrdAutoGate(payWrap)` and
+  `twzrdOnPaymentRequested` scored one `accepts[]` entry while the paying client
+  could choose another. Every distinct entry now gets the free approval (one
+  preflight each; paid hops run once), and more than 8 distinct offers are
+  refused (`too_many_payment_options`). The x402 client hooks already scored
+  the selected entry and are unchanged.
+- **`./cloudflare-base` applies the package's signing rules** to the Base USDC
+  entry: asset, amount, block, wash, never-evaluated cap, score floor and
+  recommended cap. It used to sign on any non-block verdict. The price is read
+  from the entry's own `amount`; the `priceUsdc` option no longer affects the
+  decision. New options `preflightMinScore` and `refuseUnevaluated`.
+- **Genuine USDC is no longer refused as `twzrd_non_usdc_asset`** when the 402
+  omits the network or names Solana mainnet as `mainnet-beta` or by its bare
+  genesis id. One Solana cluster reading (`solanaCluster`) now serves both the
+  network classifier and the USDC table; `solana:devnet` uses the devnet mints.
+  Solana mints are compared exactly (base58 is case-sensitive).
+- **Intel calls have a deadline.** New option `intelTimeoutMs` (env
+  `TWZRD_INTEL_TIMEOUT_MS`, default 2000). A free preflight or merchant-card call
+  that misses it is an outage, decided by `failOpen` as before. Paid hops are
+  not cut off mid-payment.
+- **Callbacks cannot change a decision.** A throwing or rejecting `onWarnUpsell`
+  no longer crashes the host or turns into `twzrd_fail_open`; a throwing
+  `onReceipt` no longer turns a paid receipt into a deny.
+- A merchant-card outage allowed under `failOpen` is marked
+  (`cardUnreachable: true` and a warning) instead of looking like a clean card.
+- No paid `/trust` receipt and no `onWarnUpsell` for a seller intel has never
+  evaluated (the same rule as the `/quick` hop since 0.11.0).
+- `refuseUnevaluated` and `gateOnCanSpend` accept `true`, `1`, `"true"`,
+  `"yes"`, `"on"` in any case; a typo no longer leaves strict mode silently off.
+- A non-list `accepts` or a null entry is no offer, never a TypeError.
+- Two spellings of the same 0x address in `payTo` / `pay_to` are one recipient.
+- `createTwzrdPayingFetch` and `createTwzrdPolicyFetch` name the missing
+  `@x402/fetch` peer instead of throwing a bare module error.
+- The unreachable `dist/unsafe.js` is no longer shipped, and the README no
+  longer documents a `twzrd-x402-gate/unsafe` import. LICENSE ships in the
+  package.
+
+Deliberately unchanged: a Solana devnet payment named only by its CAIP-2 id is
+still scored (integration harnesses rely on it reaching the preflight).
+
+## 0.11.1 — 2026-09-28 (security fix)
 
 **A requirement that names an asset other than USDC is refused on Solana and Base.**
 
@@ -51,8 +103,10 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
   micro-USDC, so another asset was counted in the wrong units.
 - New exports: `isUsdcRequirement`, `requirementAsset`. `TwzrdApproveContext` gains
   `asset`.
-- Unchanged: a requirement that names no asset (x402 schemes default it to USDC), USDC
-  itself, and unscored networks (their observe policy never priced anything).
+- Unchanged: a requirement that names no asset, USDC itself, and unscored networks.
+  (Corrected in 0.11.2: the schemes do not default an unnamed asset to USDC.
+  x402-solana refuses a requirement with no mint and @x402/svm fetches the mint
+  before building the transfer, so an unnamed asset fails before signing.)
 - Who was exposed: clients on `@x402/core` ≥2.23 with default spend controls already
   refused an unrecognised asset before any TWZRD hook ran. The exposure was the PayAI
   `x402-solana` path, clients with spend controls turned off, and older core.
