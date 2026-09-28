@@ -229,6 +229,48 @@ async function main() {
     assert.equal(r.signerInvocations, 0, "CRITICAL: a no_subject block must never reach the signer");
   }
 
+  // E. A seller intel never evaluated (the card live intel serves for a new wallet):
+  //    0.11.0 follows the card's cap. Within it the payment signs once; above it,
+  //    with no cap, or with refuseUnevaluated: true, nothing is signed.
+  {
+    const unknown = (cap?: number) => ({
+      decision: "warn",
+      can_spend: true,
+      trust_score: 45,
+      score: null,
+      null_reason: "unknown_subject",
+      seller_wallet: SELLER_CLEAN,
+      ...(cap === undefined ? {} : { recommended_cap_usdc: cap }),
+    });
+
+    const within = await run({ payTo: SELLER_CLEAN, card: unknown(0.01) });
+    show("E1 unknown seller, $0.001 within a $0.01 cap", within);
+    assertWire(within, SELLER_CLEAN);
+    assert.equal(within.decisions[0]?.approved, true, `decisions: ${JSON.stringify(within.decisions)}`);
+    assert.match(String(within.decisions[0]?.reason), /twzrd_unevaluated_within_cap_0\.001_le_0\.01/);
+    assert.equal(within.signerInvocations, 1, "an unevaluated seller within its cap is signed exactly once");
+    assert.equal(within.merchantPaid, 1);
+    assert.equal(within.status, 200);
+
+    const over = await run({ payTo: SELLER_CLEAN, card: unknown(0.0005) });
+    show("E2 unknown seller, $0.001 over a $0.0005 cap", over);
+    assert.equal(over.decisions[0]?.approved, false);
+    assert.match(String(over.decisions[0]?.reason), /twzrd_unevaluated_over_cap_/);
+    assert.equal(over.signerInvocations, 0, "CRITICAL: an unevaluated seller over its cap must never reach the signer");
+
+    const noCap = await run({ payTo: SELLER_CLEAN, card: unknown() });
+    show("E3 unknown seller, card carries no cap", noCap);
+    assert.equal(noCap.decisions[0]?.approved, false);
+    assert.match(String(noCap.decisions[0]?.reason), /twzrd_unevaluated_no_cap_unknown_subject/);
+    assert.equal(noCap.signerInvocations, 0, "CRITICAL: an unevaluated seller with no cap must never reach the signer");
+
+    const strict = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: { refuseUnevaluated: true } });
+    show("E4 unknown seller, refuseUnevaluated: true", strict);
+    assert.equal(strict.decisions[0]?.approved, false);
+    assert.match(String(strict.decisions[0]?.reason), /twzrd_unevaluated_subject_unknown_subject/);
+    assert.equal(strict.signerInvocations, 0, "CRITICAL: refuseUnevaluated must refuse before the signer");
+  }
+
   // D. Bypass: twzrd.disabled skips the intel call entirely but local caps still bind.
   {
     const refused = await run({ payTo: SELLER_CLEAN, card: {}, twzrd: { disabled: true }, maxPricePerCall: "0.0005" });
@@ -258,7 +300,7 @@ async function main() {
     }
   }
 
-  console.log("preflight-plumbing: OK (A allow signs once; B, B2, C, C2 and D1 refuse with 0 signer calls; D bypasses intel but keeps caps)");
+  console.log("preflight-plumbing: OK (A and E1 sign once; B, B2, C, C2, E2-E4 and D1 refuse with 0 signer calls; D bypasses intel but keeps caps)");
 }
 
 main().catch((e) => {

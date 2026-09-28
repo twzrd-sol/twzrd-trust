@@ -523,7 +523,7 @@ async function run() {
     assert.notEqual(PAYMENT_DECISION_DOMAIN, "twzrd-decision-v1\n", "distinct domain from DecisionToken");
 
     // The package test ships its own copy so it runs in any repo layout (the
-    // wzrd-final fork keeps this package under packages/). Where the canonical
+    // monorepo fork keeps this package under packages/). Where the canonical
     // docs/schemas copy exists, the two must not drift.
     const schemaText = readFileSync(
       new URL("./fixtures/twzrd.payment_decision.v1.schema.json", import.meta.url), "utf8",

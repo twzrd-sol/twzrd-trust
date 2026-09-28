@@ -43,6 +43,14 @@ export type PolicyEvaluateInput = {
   blockDecisions: Set<string>;
   /** Deny on can_spend=false. Default FALSE when omitted (decision-only gating). */
   gateOnCanSpend?: boolean;
+  /**
+   * Refuse every unevaluated seller (the 0.9.9–0.9.16 behaviour). Default FALSE
+   * when omitted: an unevaluated seller is allowed up to the card's
+   * recommended_cap_usdc when `priceUsdc` is known and within it.
+   */
+  refuseUnevaluated?: boolean;
+  /** Price of this payment in USDC. Required to allow an unevaluated seller. */
+  priceUsdc?: number;
 };
 
 /** Pure card evaluation has no request lifecycle, therefore no decision ID. */
@@ -58,7 +66,9 @@ export type TwzrdCardEvaluation = Omit<TwzrdApprovalResult, "decisionId">;
  * `null_reason` such as "unknown_subject", while still returning a floor
  * `trust_score` (45 today). That floor clears the default `preflightMinScore`
  * of 40, so reading `trust_score` alone turns "never seen" into "approved".
- * An unevaluated subject is unknown, and unknown is never approval.
+ * An unevaluated subject is never scored as if it were evaluated: it gets no
+ * trust score, and it is only allowed up to the card's own
+ * `recommended_cap_usdc` (see evaluateReadinessCard).
  */
 export function isUnevaluatedCard(card: TwzrdReadinessCard): boolean {
   if (typeof card.null_reason === "string" && card.null_reason.trim() !== "") return true;
@@ -68,7 +78,7 @@ export function isUnevaluatedCard(card: TwzrdReadinessCard): boolean {
 }
 
 export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEvaluation {
-  const { card, preflightMinScore, blockDecisions, gateOnCanSpend } = input;
+  const { card, preflightMinScore, blockDecisions, gateOnCanSpend, refuseUnevaluated } = input;
   const decision = card.decision ?? "warn";
   const score = card.trust_score ?? 0;
 
@@ -78,16 +88,13 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
     return { approved: false, verdict: decision as TwzrdDecision, score: card.trust_score ?? null, card, reason: `twzrd_decision_${decision}` };
   }
   // Not evaluated is not a low score. Checked before the numeric threshold,
-  // because the floor trust_score would otherwise clear it.
+  // because the floor trust_score would otherwise clear it, and a card that
+  // omits trust_score would otherwise read as score 0.
   if (isUnevaluatedCard(card)) {
-    // null_reason unknown_subject returns twzrd_unevaluated_subject_unknown_subject.
-    return {
-      approved: false,
-      verdict: "unknown",
-      score: null,
-      card,
-      reason: `twzrd_unevaluated_subject_${card.null_reason ?? "score_null"}`,
-    };
+    return evaluateUnevaluatedCard(card, decision, input.priceUsdc, {
+      refuseUnevaluated: refuseUnevaluated === true,
+      gateOnCanSpend: gateOnCanSpend === true,
+    });
   }
 
   // Decision-only by default: deny on can_spend=false ONLY when the caller
@@ -117,6 +124,80 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
       typeof card.recommended_cap_usdc === "number" && Number.isFinite(card.recommended_cap_usdc)
         ? card.recommended_cap_usdc
         : undefined,
+  };
+}
+
+/**
+ * A seller the server has not evaluated (0.11.0+).
+ *
+ * The server still answers with a decision and, for a seller it has never
+ * seen, a per-seller ceiling (`recommended_cap_usdc`, $0.01 on live intel as of
+ * 2026-09-28). Refusing every such seller stopped agents from paying anyone new,
+ * including when the server itself said "warn, within cap". So by default the
+ * gate follows the server: allow at or under the cap, refuse above it. Every
+ * case where the bound cannot be checked still refuses:
+ *
+ *   refuseUnevaluated: true         -> twzrd_unevaluated_subject_<null_reason>
+ *   decision not allow / warn       -> twzrd_unevaluated_subject_<null_reason>
+ *   can_spend false + gateOnCanSpend -> twzrd_can_spend_false
+ *   no finite recommended_cap_usdc  -> twzrd_unevaluated_no_cap_<null_reason>
+ *   price unknown                   -> twzrd_unevaluated_unknown_price_<null_reason>
+ *   price above the cap             -> twzrd_unevaluated_over_cap_<price>_gt_<cap>
+ *   price at or under the cap       -> approved, twzrd_unevaluated_within_cap_<price>_le_<cap>
+ *
+ * The approval carries `unevaluated: true`, `verdict: "warn"` and `score: null`:
+ * 45 is a floor, not a score. The wash tighten still runs after this, so a
+ * wash-flagged unevaluated seller is refused.
+ */
+function evaluateUnevaluatedCard(
+  card: TwzrdReadinessCard,
+  decision: string,
+  priceUsdc: number | undefined,
+  opts: { refuseUnevaluated: boolean; gateOnCanSpend: boolean },
+): TwzrdCardEvaluation {
+  const nullReason = card.null_reason ?? "score_null";
+  const refuse = (reason: string, extra?: Partial<TwzrdCardEvaluation>): TwzrdCardEvaluation => ({
+    approved: false,
+    verdict: "unknown",
+    score: null,
+    card,
+    reason,
+    unevaluated: true,
+    ...extra,
+  });
+
+  // null_reason unknown_subject returns twzrd_unevaluated_subject_unknown_subject.
+  if (opts.refuseUnevaluated) return refuse(`twzrd_unevaluated_subject_${nullReason}`);
+  if (decision !== "allow" && decision !== "warn") {
+    return refuse(`twzrd_unevaluated_subject_${nullReason}`);
+  }
+  if (opts.gateOnCanSpend && card.can_spend === false) return refuse("twzrd_can_spend_false");
+
+  const cap =
+    typeof card.recommended_cap_usdc === "number" &&
+    Number.isFinite(card.recommended_cap_usdc) &&
+    card.recommended_cap_usdc >= 0
+      ? card.recommended_cap_usdc
+      : null;
+  if (cap === null) return refuse(`twzrd_unevaluated_no_cap_${nullReason}`);
+
+  const price =
+    typeof priceUsdc === "number" && Number.isFinite(priceUsdc) ? priceUsdc : null;
+  if (price === null) return refuse(`twzrd_unevaluated_unknown_price_${nullReason}`);
+  if (price > cap) {
+    return refuse(`twzrd_unevaluated_over_cap_${price}_gt_${cap}`, {
+      overRecommendedCap: true,
+      recommendedCapUsdc: cap,
+    });
+  }
+  return {
+    approved: true,
+    verdict: "warn",
+    score: null,
+    card,
+    reason: `twzrd_unevaluated_within_cap_${price}_le_${cap}`,
+    recommendedCapUsdc: cap,
+    unevaluated: true,
   };
 }
 
@@ -375,6 +456,8 @@ export async function twzrdApprovePayment(
       preflightMinScore: cfg.preflightMinScore,
       blockDecisions: cfg.blockDecisions,
       gateOnCanSpend: cfg.gateOnCanSpend,
+      refuseUnevaluated: cfg.refuseUnevaluated,
+      priceUsdc: context.priceUsdc,
     });
     // Fire upsell hook on warn (unknown/low-corpus seller) — fire-and-forget
     if (result.verdict === "warn" && cfg.onWarnUpsell) {

@@ -7,8 +7,9 @@
  *   $0.05  GET  /v1/intel/trust/{seller}      -> full intel + signed V6 receipt (autoReceipt)
  *
  * Use `quickCheck` for an evaluated warn you choose to confirm. The
- * before-payment hook aborts `null_reason: unknown_subject` before this hop,
- * and that hop requests `/v1/intel/quick/` rather than `/v1/intel/trust/`.
+ * before-payment hook never runs this hop for a `null_reason: unknown_subject`
+ * card (there is no paid score for it either), and the hop requests
+ * `/v1/intel/quick/` rather than `/v1/intel/trust/`.
  * It settles $0.001 USDC to TWZRD via the
  * caller-supplied x402Fetch (same BYO-wallet seam as autoReceipt; @x402/svm etc.).
  *

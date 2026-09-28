@@ -3,7 +3,7 @@
  * Not the AgentCash CLI adapter (`./safe-fetch`, advisory_precheck).
  * maxSpend is both the per-call cap and the cumulative budget checked
  * against agent, merchant, and mandate keys (same number).
- * Durable spend uses wzrd-final #2183 `sharedFileSpendLedger` (hash-chained
+ * Durable spend uses `sharedFileSpendLedger` (hash-chained
  * JSONL) via `ledger`, `ledgerFile`, or TWZRD_SPEND_LEDGER_FILE — not a
  * second ledger type. The default is one process-scoped in-memory ledger;
  * use `ledgerFile` for restart-safe cumulative enforcement.

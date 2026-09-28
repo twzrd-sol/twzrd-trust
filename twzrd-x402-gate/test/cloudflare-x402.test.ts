@@ -51,7 +51,7 @@ async function run() {
   // reputation is invented: the card returned here is the Base card. The
   // merchant_card wash brake still runs on top, and an outage on that brake
   // is decided by failOpen — fail-closed by default (see
-  // test/card-unreachable-failopen.test.ts, #2845 / 0.9.10): a merchant_card
+  // test/card-unreachable-failopen.test.ts, 0.9.10): a merchant_card
   // outage must never collapse into a silent allow regardless of what the
   // Base preflight itself said.
   {

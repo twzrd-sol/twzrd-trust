@@ -41,7 +41,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.9.16 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.11.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -80,7 +80,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.9.16
+npm install twzrd-x402-gate@0.11.0
 ```
 
 ```typescript
@@ -125,7 +125,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.9.16
+npm install twzrd-x402-gate@0.11.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -299,7 +299,7 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.9.16
+npm install twzrd-x402-gate@0.11.0
 ```
 
 Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
@@ -778,8 +778,9 @@ allow/warn/block decision stays the free preflight's job.
 ### Autonomous risk-escalation — `escalateOnWarn` (pay-to-confirm on warn)
 
 An evaluated `warn` (no `null_reason`, score present) **proceeds** by default. A card
-with `null_reason: unknown_subject` does not sign on Solana mainnet or Base mainnet, so
-this hop does not run for it. `escalateOnWarn` closes the loop on a proceeding `warn`:
+with `null_reason: unknown_subject` is allowed only up to its `recommended_cap_usdc`
+(see [Policy](#policy)), and this hop never runs for it: there is no paid score for a
+seller intel has never seen either, so the $0.001 would buy nothing. `escalateOnWarn` closes the loop on a proceeding `warn`:
 the guard settles the cheap **$0.001** `GET /v1/intel/quick/{payTo}` and **re-decides on
 the paid score** — below the floor the payment is **blocked**, at/above it proceeds. That
 hop does not request `GET /v1/intel/trust/`. The paid call fires from your
@@ -939,18 +940,31 @@ const gatedFetch = wrapFetchWithTwzrdGate(fetch, resolveConfig());
 
 A payment is **blocked** when:
 1. `decision ∈ blockDecisions` (default: `["block"]`)
-2. `trust_score < preflightMinScore` (default: `40`), after an evaluated card. `null_reason: unknown_subject` (or `score: null`) is not a low score: on Solana mainnet and Base mainnet it does not sign, even when `trust_score` is the floor 45.
+2. `trust_score < preflightMinScore` (default: `40`), after an evaluated card. `null_reason: unknown_subject` (or `score: null`) is not a low score: see *Unevaluated sellers* below.
 3. `can_spend === false` — **only** when `gateOnCanSpend: true` (default `false`, opt-in)
 4. the price is above `recommended_cap_usdc` when the card was otherwise approved
 
-`null_reason: unknown_subject` returns reason `twzrd_unevaluated_subject_unknown_subject`. A price above `recommended_cap_usdc` returns a reason that starts with `twzrd_over_recommended_cap_`. A direct `createTwzrdBeforePaymentHook` abort of a block card returns reason `twzrd_decision_block`. That reason string is not `block` and is not `twzrd_fail_closed`. A missing `payTo` returns reason `twzrd_unidentifiable_payment_recipient` from `twzrdApprovePayment`. That reason is not `twzrd_missing_payTo`. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns reason `twzrd_fail_closed`. That reason is not `twzrd_preflight_fetch_error`.
+**Unevaluated sellers (0.11.0+).** Live intel answers a seller it has never evaluated with `null_reason: unknown_subject`, `score: null`, a floor `trust_score` of 45, `decision: "warn"` and a per-seller `recommended_cap_usdc` ($0.01 today). The gate follows that card instead of refusing every new seller:
 
-An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.9.16 is not uniformly fail-closed.
+| Case | Result | Reason |
+|---|---|---|
+| price at or under `recommended_cap_usdc` | signs | `twzrd_unevaluated_within_cap_<price>_le_<cap>` |
+| price above the cap | does not sign | `twzrd_unevaluated_over_cap_<price>_gt_<cap>` |
+| card carries no finite cap | does not sign | `twzrd_unevaluated_no_cap_<null_reason>` |
+| price unknown | does not sign | `twzrd_unevaluated_unknown_price_<null_reason>` |
+| decision other than `allow` / `warn` | does not sign | `twzrd_unevaluated_subject_<null_reason>` |
+| `refuseUnevaluated: true` | does not sign | `twzrd_unevaluated_subject_<null_reason>` |
+
+An approval here carries `unevaluated: true` and `score: null`, never a trust score. The free wash check still runs after it, so a wash-flagged unevaluated seller does not sign. `refuseUnevaluated: true` (or `TWZRD_REFUSE_UNEVALUATED=1`) restores the 0.9.9–0.9.16 behaviour: `null_reason: unknown_subject` returns reason `twzrd_unevaluated_subject_unknown_subject` and nothing unevaluated signs.
+
+A price above `recommended_cap_usdc` returns a reason that starts with `twzrd_over_recommended_cap_`. A direct `createTwzrdBeforePaymentHook` abort of a block card returns reason `twzrd_decision_block`. That reason string is not `block` and is not `twzrd_fail_closed`. A missing `payTo` returns reason `twzrd_unidentifiable_payment_recipient` from `twzrdApprovePayment`. That reason is not `twzrd_missing_payTo`. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns reason `twzrd_fail_closed`. That reason is not `twzrd_preflight_fetch_error`.
+
+An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.11.0 is not uniformly fail-closed.
 
 A 402 whose payment requirements yield **no identifiable seller wallet** (missing/empty `payTo`, or an unparseable `accepts[]`) is a different case from "unknown seller" — it always **blocks** with `reason: twzrd_unidentifiable_payment_recipient`, without ever calling the preflight network. The wallet does not sign. This is unconditional (not affected by buyer `failOpen`): that switch governs a buyer preflight outage, not a missing payTo. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort.
 
 > **`can_spend` note:** the free preflight returns `can_spend=false` for most sellers
-> not yet in the TWZRD corpus, including legitimate ones. `can_spend: false` alone does not block (`gateOnCanSpend` defaults false). That is separate from `null_reason: unknown_subject`, which does not sign on a scored network.
+> not yet in the TWZRD corpus, including legitimate ones. `can_spend: false` alone does not block (`gateOnCanSpend` defaults false). That is separate from `null_reason: unknown_subject`, which signs only within its card's cap.
 > Set `gateOnCanSpend: true` to also block on `can_spend: false`.
 
 ## Config
@@ -962,6 +976,7 @@ A 402 whose payment requirements yield **no identifiable seller wallet** (missin
 | `blockDecisions` | `TWZRD_BLOCK_DECISIONS` | `block` | Decisions that throw |
 | `failOpen` (buyer preflight only) | `TWZRD_FAIL_OPEN` | `false` | Buyer outage only: default does not sign. `createTwzrdSettleGuard` omitted `failOpen` is the other default — a thrown screen returns without abort |
 | `gateOnCanSpend` | `TWZRD_GATE_ON_CAN_SPEND` | `false` | Also block when `can_spend=false` |
+| `refuseUnevaluated` | `TWZRD_REFUSE_UNEVALUATED` | `false` | Refuse every seller intel has not evaluated, instead of allowing it up to the card's `recommended_cap_usdc` |
 | `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` when `/quick` did not already settle |
 | `x402Fetch` | — | — | x402-capable fetch for `autoReceipt` |
 | `onReceipt` | — | — | Callback after receipt is captured |

@@ -139,8 +139,9 @@ export type EvaluateX402Result = {
  *      With requireReceipt.hard (default), deny spend if /trust fails.
  *
  * Defaults to gateOnCanSpend=false — `can_spend: false` alone does not block.
- * A `null_reason: unknown_subject` card is refused before that knob and does
- * not sign on Solana mainnet or Base mainnet.
+ * A `null_reason: unknown_subject` card is allowed only up to its
+ * `recommended_cap_usdc` (refused with `refuseUnevaluated: true`), and never
+ * triggers the paid quick hop, which cannot score a seller intel never saw.
  */
 export async function evaluate_x402_resource(
   resourceUrl: string,
@@ -152,8 +153,9 @@ export async function evaluate_x402_resource(
     preflightMinScore: opts.preflightMinScore,
     blockDecisions: opts.blockDecisions,
     failOpen: opts.failOpen,
-    // can_spend false alone does not block. unknown_subject is refused earlier.
+    // can_spend false alone does not block. unknown_subject is decided earlier.
     gateOnCanSpend: opts.gateOnCanSpend,
+    refuseUnevaluated: opts.refuseUnevaluated,
     refuseWashFlagged: opts.refuseWashFlagged,
     washMaxUsdc: opts.washMaxUsdc,
     unsupportedNetworkMode: opts.unsupportedNetworkMode,
@@ -243,6 +245,9 @@ export async function evaluate_x402_resource(
     !!payTo &&
     decision === "warn" &&
     base.approved &&
+    // An unevaluated seller has no paid score either: /quick would settle $0.001
+    // and could not change the decision. Its bound is the card's cap.
+    approval.unevaluated !== true &&
     (priceUsdc ?? 0) >= (esc.minSpendUsdc ?? 0);
   if (wantQuick && payTo && esc) {
     const floor = esc.blockBelowScore ?? config.preflightMinScore;
