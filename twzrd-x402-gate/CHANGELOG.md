@@ -41,6 +41,10 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
   `true` restores the 0.9.9–0.9.16 behaviour: every unevaluated seller is refused with
   `twzrd_unevaluated_subject_<null_reason>`. The bounty preflight CLI sets it, so bounty
   payees are still refused when unevaluated.
+- Direct callers of the exported `evaluateReadinessCard` must pass `priceUsdc` to get
+  an approval for an unevaluated card. Without it the reason is now
+  `twzrd_unevaluated_unknown_price_<null_reason>` (was
+  `twzrd_unevaluated_subject_<null_reason>`); `approved` is still `false`.
 - The $0.001 `/quick` escalation (`escalateOnWarn`) no longer runs for an unevaluated
   seller: intel has no paid score for it either, so the hop spent money without being
   able to change the decision.
@@ -78,22 +82,50 @@ Unchanged in 0.11.0: attribution headers. Every preflight still sends
 - `safeFetch` counts a `pay()` that throws after the signer ran against the budget,
   instead of releasing it.
 
-## 0.9.10 – 0.9.12 — 2026-09-20 to 2026-09-26
+Entries below were reconstructed on 2026-09-28 by diffing the published tarballs, so
+each change is listed under the first version that actually contains it. Several of
+them changed allow/refuse or paid behaviour in a patch release; 0.11.0's policy exists
+because of that.
 
-- Source ported and reconciled between the two trees the gate was developed in.
+## 0.9.12 — 2026-09-26 (paid behaviour change in a patch release)
+
+- Buyer Path A defaults changed. With `x402Fetch` wired and the flags unset, a `warn`
+  now takes the $0.001 `/quick` hop at any price; before, a `warn` at $2.50 or more
+  bought the $0.05 receipt. `requireReceipt` default `onWarn` went from `true` to
+  `false`.
+
+## 0.9.11 — 2026-09-26 (behaviour change in a patch release)
+
+- An `accepts[]` entry whose v1 and v2 price fields (`maxAmountRequired` / `amount`)
+  or recipient fields (`payTo` / `pay_to`) disagree is refused on every path
+  (`amount_field_conflict` / `payto_field_conflict`). New export
+  `resolveRequirementFields`.
+
+## 0.9.10 — 2026-09-20 (behaviour change in a patch release)
+
+- The wash engine no longer hardcodes allow on an intel outage (timeout, 5xx, 429,
+  throw, bad JSON). New modules: `attempt-echo`, `cloudflare-x402`, `foreign-key`,
+  `paying-fetch`, `policy-fetch`, `wash-default`. See `COMPATIBILITY.md`.
 
 ## 0.9.9 — 2026-09-15 (behaviour change in a patch release)
 
 - Base mainnet (`eip155:8453`) is scored instead of abstaining.
-- **A seller intel never evaluated is refused** (`twzrd_unevaluated_subject_*`). This
-  changed allow/refuse outcomes in a patch release; 0.11.0 reverses the default.
+- **A seller intel never evaluated is refused** (`twzrd_unevaluated_subject_*`). Every
+  new seller was refused before signing. 0.11.0 reverses the default.
 
-## 0.9.7 – 0.9.8 — 2026-09-12 to 2026-09-13 (behaviour change in a patch release)
+## 0.9.8 — 2026-09-13 (behaviour change in a patch release)
 
 - A merchant-card outage obeys `failOpen` instead of silently allowing. Before this, a
   card lookup that failed was treated as "no wash signal" and allowed the payment even
   with `failOpen: false`.
-- `evaluateIntent` ledger race closed.
+
+## 0.9.7 — 2026-09-12
+
+- `evaluateIntent` re-checks the mandate ceiling and new-counterparty cap in the same
+  step that records the spend, so two concurrent intents can no longer both clear one
+  ceiling.
+- `safeFetch` hands the payer only the offer the gate approved (`accepts: [selected]`),
+  not the whole `accepts[]`.
 
 ## 0.9.4 – 0.9.6 — 2026-09-07 to 2026-09-12
 
