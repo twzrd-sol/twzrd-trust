@@ -1,6 +1,8 @@
 # Compatibility note — twzrd-x402-gate 0.9.3 → 0.9.4
 
-0.11.0 is the released identity of this package. npm dist-tags `latest` and `paying-client-fail-closed` are both 0.11.0.
+0.11.1 is the released identity of this package. npm dist-tags `latest` and `paying-client-fail-closed` are both 0.11.1.
+
+0.11.1 is a security fix: on Solana and Base, a payment requirement that names an asset other than USDC is refused before intel (`twzrd_non_usdc_asset`; `non_usdc_asset` from `twzrd.safeFetch`). The gate prices every cap in USDC and used to read any asset's `amount` as micro-USDC, so a seller naming an 8-decimal mint could pass a $0.10 cap while moving a far larger value. A requirement naming USDC, or no asset, is unchanged. See `CHANGELOG.md`.
 
 0.11.0 changes one default: a seller intel has never evaluated (`null_reason: unknown_subject`, `score: null`) is allowed up to the card's own `recommended_cap_usdc` instead of refused outright. Above the cap, with no cap on the card, or with an unknown price it is still refused, and the free wash check still runs. `refuseUnevaluated: true` (or `TWZRD_REFUSE_UNEVALUATED=1`) keeps the 0.9.9–0.9.16 behaviour. The $0.001 `/quick` escalation no longer runs for an unevaluated seller. See `CHANGELOG.md`, including why this is 0.11.0 and not 0.10.0.
 
@@ -71,12 +73,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` and `paying-client-fail-closed` dist-tags: **0.11.0**. `0.10.0` and `0.10.1` are deprecated as
+- `latest` and `paying-client-fail-closed` dist-tags: **0.11.1**. `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.11.0 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.11.1 as the
   maintained line.
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy. Pin the exact version (`twzrd-x402-gate@0.11.0`) if you want
+  new refusal policy. Pin the exact version (`twzrd-x402-gate@0.11.1`) if you want
   no change at all.

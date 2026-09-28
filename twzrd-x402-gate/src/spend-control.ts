@@ -254,6 +254,11 @@ export async function spendControlSafeFetch(
   if (!/^\d+$/.test(String(amountMicro))) {
     return { verdict: "block", reason: "malformed_amount", signerInvocations: 0 };
   }
+  // The budget counts `amount` as micro-USDC. Any other named asset is in its own
+  // base units, so an 8-decimal mint would be counted ~100x low (0.11.1).
+  if (priceUsdcFromAmountMicro(String(amountMicro), selected) === undefined) {
+    return { verdict: "block", reason: "non_usdc_asset", signerInvocations: 0 };
+  }
   const spendMicro = BigInt(String(amountMicro));
   const maxMicro = opts.maxSpend != null ? toMicroUsd(opts.maxSpend) : undefined;
   if (maxMicro != null && spendMicro > maxMicro) {
@@ -295,7 +300,7 @@ export async function spendControlSafeFetch(
   const offer = { ...body, accepts: [selected] };
   try {
     let verdict: "allow" | "warn" | "block" = "allow";
-    const price = priceUsdcFromAmountMicro(amountMicro) ?? 0;
+    const price = priceUsdcFromAmountMicro(amountMicro, selected) ?? 0;
     let decisionId = typeof opts.decisionId === "string" && opts.decisionId.length > 0
       ? opts.decisionId : undefined;
     let preflightId = typeof opts.preflightId === "number" ? opts.preflightId : undefined;

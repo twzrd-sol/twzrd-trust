@@ -9,7 +9,9 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
   within one minor (`^0.11.0` never resolves to 0.12.0), so nobody gets a new refusal
   policy without choosing it.
 - **Patch releases** (0.x.y) carry fixes that do not change any allow/refuse outcome
-  for a well-formed card, plus docs, types and tests.
+  for a well-formed card, plus docs, types and tests. A patch may add a refusal to
+  close a security defect, so that `^0.x.0` installs pick the fix up; a patch never
+  loosens one.
 - The package is published from this repository only, by the `publish` workflow with an
   `expected_version` input, with npm provenance.
 
@@ -26,7 +28,37 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## 0.11.0 — unreleased
+## 0.11.1 — unreleased (security fix)
+
+**A requirement that names an asset other than USDC is refused on Solana and Base.**
+
+- `amount` is in the named asset's base units, but every price the gate computed was
+  `amount / 1e6`, i.e. it assumed USDC. A seller could name another mint (for example
+  one with 8 decimals) at `amount: "100000"`: the gate read $0.10, inside the 0.11.0
+  unevaluated-seller cap and inside an evaluated seller's cap, while the signed
+  transfer moved 0.001 of that token. Intel's own cap was computed from the same
+  number, because the preflight is not told the asset.
+- `twzrdApprovePayment` now refuses, before intel, when the requirement names an asset
+  that is not USDC on a scored network (Solana mainnet, Base mainnet):
+  `twzrd_non_usdc_asset`. It is not an outage, so `failOpen` does not apply. Every
+  adapter passes the asset through: the x402 client hook (`createTwzrdBeforePaymentHook`,
+  AutoGate, PayKit), `evaluate_x402_resource`, `withTwzrdGuard`, `wrapFetchWithTwzrdGate`,
+  the MCP hook, `safeFetch` and the Payment Control intelligence provider.
+- `priceUsdcFromAmountMicro(amount, requirement)` returns `undefined` for a non-USDC
+  asset on a network with a known USDC set (Solana clusters, Base, Base Sepolia).
+  Other networks keep the old reading. A devnet USDC mint named on mainnet is not USDC.
+- `twzrd.safeFetch` refuses a non-USDC asset with `non_usdc_asset`: its budget counts
+  micro-USDC, so another asset was counted in the wrong units.
+- New exports: `isUsdcRequirement`, `requirementAsset`. `TwzrdApproveContext` gains
+  `asset`.
+- Unchanged: a requirement that names no asset (x402 schemes default it to USDC), USDC
+  itself, and unscored networks (their observe policy never priced anything).
+- Who was exposed: clients on `@x402/core` ≥2.23 with default spend controls already
+  refused an unrecognised asset before any TWZRD hook ran. The exposure was the PayAI
+  `x402-solana` path, clients with spend controls turned off, and older core.
+  0.11.0 widened it from evaluated sellers to any never-seen seller.
+
+## 0.11.0 — 2026-09-28
 
 **Behaviour change: unevaluated sellers follow the card's cap.**
 

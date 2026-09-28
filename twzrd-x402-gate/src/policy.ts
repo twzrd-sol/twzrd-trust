@@ -5,6 +5,7 @@ import {
   fetchMerchantCard,
   fetchMerchantCardResult,
 } from "./merchant-card.js";
+import { isUsdcRequirement } from "./payto.js";
 import {
   amountBucket,
   classifyNetwork,
@@ -446,6 +447,27 @@ export async function twzrdApprovePayment(
       networkSupported: undecided.networkSupported,
       reputationScored: false,
       policyAction: wash.approved ? "allow" : "block",
+    };
+  }
+
+  // A USDC gate that cannot price the asset has nothing to evaluate. Every cap
+  // here (recommended_cap_usdc, washMaxUsdc, the unevaluated-seller ceiling) is
+  // in USDC, and `amount` is in the named asset's base units: an 8-decimal mint
+  // at amount 100000 reads as $0.10 while it moves 0.001 of that token. Refused
+  // before intel, and not an outage, so failOpen does not apply. Scored networks
+  // only: an unscored network's observe policy never priced anything (0.11.1).
+  if (context.asset && !isUsdcRequirement({ network: context.chain ?? netCls.network, asset: context.asset })) {
+    return {
+      decisionId,
+      approved: false,
+      verdict: "block",
+      score: null,
+      card: {},
+      reason: "twzrd_non_usdc_asset",
+      network: netCls.network,
+      networkSupported: true,
+      reputationScored: true,
+      policyAction: "block",
     };
   }
 

@@ -162,6 +162,13 @@ export type TwzrdApproveContext = {
   agentIntent?: string;
   /** Chain context for the payment ("solana", "base", etc.). Pass-through to preflight. */
   chain?: string;
+  /**
+   * The asset the payment requirement names (mint or token contract). On a
+   * scored network, a named asset that is not USDC on that network is refused
+   * with `twzrd_non_usdc_asset` before intel is called: the gate prices every
+   * cap in USDC and cannot price anything else (0.11.1). Omit when unknown.
+   */
+  asset?: string;
 };
 
 export type TwzrdUpsellContext = {

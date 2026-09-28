@@ -139,7 +139,7 @@ export async function runBountyPreflight(
         reason: result.reason,
         payTo,
         network: req.network ?? null,
-        priceUsdc: priceUsdcFromAmountMicro(amountMicro) ?? null,
+        priceUsdc: priceUsdcFromAmountMicro(amountMicro, req) ?? null,
         reputationScored: result.reputationScored ?? null,
         policyAction: result.policyAction ?? null,
       };

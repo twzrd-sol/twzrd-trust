@@ -1,6 +1,6 @@
 import { resolveConfig } from "./config.js";
 import { twzrdApprovePayment } from "./policy.js";
-import { payToFromRequirements, priceUsdcFromAmountMicro } from "./payto.js";
+import { payToFromRequirements, priceUsdcFromAmountMicro, requirementAsset } from "./payto.js";
 import { quickCheck, type TwzrdTier } from "./quick.js";
 import { CLIENT_VERSION } from "./version.js";
 import {
@@ -164,7 +164,7 @@ export async function evaluate_x402_resource(
   });
 
   const { payTo, amountMicro, resource, conflict } = payToFromRequirements(paymentRequirements);
-  const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+  const priceUsdc = priceUsdcFromAmountMicro(amountMicro, paymentRequirements);
   if (conflict) {
     return {
       decision: "block",
@@ -186,6 +186,7 @@ export async function evaluate_x402_resource(
       // Evaluate the exact network on the requirement the pay client will use
       // (pickRequirements prefers Solana when dual-listed).
       chain: paymentRequirements.network,
+      asset: requirementAsset(paymentRequirements),
     },
     // resolveConfig already embeds refuseWashFlagged / washMaxUsdc
     config,

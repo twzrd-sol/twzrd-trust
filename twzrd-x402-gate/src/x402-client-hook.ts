@@ -13,7 +13,7 @@
 import { wrapX402ClientEchoAttempt } from "./attempt-echo.js";
 import { resolveBuyerPathADefaults } from "./buyer-defaults.js";
 import { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
-import { priceUsdcFromAmountMicro, resolveRequirementFields } from "./payto.js";
+import { priceUsdcFromAmountMicro, requirementAsset, resolveRequirementFields } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 import { quickCheck } from "./quick.js";
 import { CLIENT_VERSION } from "./version.js";
@@ -270,7 +270,7 @@ export async function evaluateBeforePaymentCreation(
   const fields = resolveRequirementFields(selectedRequirements);
   const payTo = fields.payTo;
   const amountMicro = fields.amount;
-  const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+  const priceUsdc = priceUsdcFromAmountMicro(amountMicro, selectedRequirements);
   const network = selectedRequirements.network;
   // Unconditional: without paymentControl a merely missing amount proceeds on a
   // preflight allow (documented below), so a conflict must not reach that path.
@@ -299,6 +299,7 @@ export async function evaluateBeforePaymentCreation(
       priceUsdc,
       agentIntent: "x402_onBeforePaymentCreation",
       chain: network,
+      asset: requirementAsset(selectedRequirements),
     },
     cfg,
   );

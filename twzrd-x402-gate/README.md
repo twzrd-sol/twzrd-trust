@@ -41,7 +41,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.11.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.11.1 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -80,7 +80,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.11.0
+npm install twzrd-x402-gate@0.11.1
 ```
 
 ```typescript
@@ -125,7 +125,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.11.0
+npm install twzrd-x402-gate@0.11.1
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -299,7 +299,7 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.11.0
+npm install twzrd-x402-gate@0.11.1
 ```
 
 Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
@@ -943,6 +943,7 @@ A payment is **blocked** when:
 2. `trust_score < preflightMinScore` (default: `40`), after an evaluated card. `null_reason: unknown_subject` (or `score: null`) is not a low score: see *Unevaluated sellers* below.
 3. `can_spend === false` — **only** when `gateOnCanSpend: true` (default `false`, opt-in)
 4. the price is above `recommended_cap_usdc` when the card was otherwise approved
+5. on Solana or Base, the requirement names an asset that is not USDC on that network (`twzrd_non_usdc_asset`, 0.11.1+). Every cap is in USDC, and `amount` is in the named asset's base units, so any other asset cannot be priced. A requirement that names no asset is read as USDC.
 
 **Unevaluated sellers (0.11.0+).** Live intel answers a seller it has never evaluated with `null_reason: unknown_subject`, `score: null`, a floor `trust_score` of 45, `decision: "warn"` and a `recommended_cap_usdc`. For that floor score live intel's ceiling is $0.10, and the card reports the lower of $0.10 and the requested price (2026-09-28). The gate follows that card instead of refusing every new seller, so a never-seen seller can be paid up to $0.10 per call:
 
@@ -959,7 +960,7 @@ An approval here carries `unevaluated: true` and `score: null`, never a trust sc
 
 A price above `recommended_cap_usdc` returns a reason that starts with `twzrd_over_recommended_cap_`. A direct `createTwzrdBeforePaymentHook` abort of a block card returns reason `twzrd_decision_block`. That reason string is not `block` and is not `twzrd_fail_closed`. A missing `payTo` returns reason `twzrd_unidentifiable_payment_recipient` from `twzrdApprovePayment`. That reason is not `twzrd_missing_payTo`. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns reason `twzrd_fail_closed`. That reason is not `twzrd_preflight_fetch_error`.
 
-An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.11.0 is not uniformly fail-closed.
+An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.11.1 is not uniformly fail-closed.
 
 A 402 whose payment requirements yield **no identifiable seller wallet** (missing/empty `payTo`, or an unparseable `accepts[]`) is a different case from "unknown seller" — it always **blocks** with `reason: twzrd_unidentifiable_payment_recipient`, without ever calling the preflight network. The wallet does not sign. This is unconditional (not affected by buyer `failOpen`): that switch governs a buyer preflight outage, not a missing payTo. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort.
 

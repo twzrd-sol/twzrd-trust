@@ -5,6 +5,7 @@ import {
   payToFromRequirements,
   pickRequirements,
   priceUsdcFromAmountMicro,
+  requirementAsset,
 } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 import type { X402PaymentRequiredBody, X402PaymentRequirements } from "./types.js";
@@ -41,7 +42,7 @@ export function wrapFetchWithTwzrdGate(
     const first = pickRequirements(body.accepts as Array<Record<string, unknown>> | undefined);
     const { payTo, resource, amountMicro, conflict } = payToFromRequirements(first);
     const url = requestUrl(input);
-    const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+    const priceUsdc = priceUsdcFromAmountMicro(amountMicro, first);
     if (conflict) {
       throw new Error(`[twzrd] payment blocked: ${conflict} url=${url}`);
     }
@@ -53,6 +54,7 @@ export function wrapFetchWithTwzrdGate(
         priceUsdc,
         agentIntent: "wrapFetch_402_gate",
         chain: first.network,
+        asset: requirementAsset(first),
       },
       config,
     );

@@ -280,7 +280,7 @@ export async function evaluateWashOnlyBeforePayment(
   const fields = resolveRequirementFields(selected);
   const payTo = fields.payTo;
   const amountMicro = fields.amount;
-  const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+  const priceUsdc = priceUsdcFromAmountMicro(amountMicro, selected);
 
   const emit = (detail: {
     approved: boolean;

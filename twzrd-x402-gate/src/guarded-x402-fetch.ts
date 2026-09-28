@@ -1,6 +1,6 @@
 import { isTwzrdAutoGateDisabled } from "./auto-gate.js";
 import { toMicroUsd } from "./intent.js";
-import { resolveRequirementFields } from "./payto.js";
+import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
 import {
   createTwzrdPayKitBeforePaymentHook,
   type BeforePaymentCreationContext,
@@ -11,23 +11,6 @@ import {
 
 const HOUR_MS = 60 * 60 * 1000;
 const guardedClients = new WeakSet<object>();
-const USDC_ASSETS: Record<string, ReadonlySet<string>> = {
-  // Mints are per cluster: a devnet mint address named on mainnet is some other
-  // token, so it must not be priced against a USDC cap there.
-  "solana-mainnet": new Set([
-    "epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v", // mainnet USDC
-  ]),
-  "solana-devnet": new Set([
-    "4zmmc9srt5ri5x14gagxhahii3gnpaeerypjgzjdncdu", // devnet USDC (Circle; the @x402/svm default)
-    "gh9zwemdlj8dsckntktqpbnwlnnbjuszag9vp2kgtkjr", // devnet USDC (spl-token-faucet)
-  ]),
-  "eip155:8453": new Set([
-    "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Base USDC
-  ]),
-  "eip155:84532": new Set([
-    "0x036cbd53842c5426634e7929541ec2318f3dcf7e", // Base Sepolia test USDC
-  ]),
-};
 
 export type GuardedX402FetchOptions = {
   /** Configured x402 client with its payment schemes and wallet signer. */
@@ -66,23 +49,6 @@ function recipientMatches(payTo: string, allowed: readonly string[]): boolean {
   );
 }
 
-function isUsdcRequirement(requirement: Record<string, unknown>): boolean {
-  const network = String(requirement.network ?? "").toLowerCase();
-  const asset = String(requirement.asset ?? "").toLowerCase();
-  if (network === "solana-devnet" || network === "solana:etwtrabzayq6imfeykouru166vu2xqa1") {
-    return USDC_ASSETS["solana-devnet"].has(asset);
-  }
-  if (network === "solana" || network.startsWith("solana")) {
-    return USDC_ASSETS["solana-mainnet"].has(asset);
-  }
-  if (network === "base" || network === "base-mainnet" || network === "eip155:8453") {
-    return USDC_ASSETS["eip155:8453"].has(asset);
-  }
-  if (network === "base-sepolia" || network === "eip155:84532") {
-    return USDC_ASSETS["eip155:84532"].has(asset);
-  }
-  return false;
-}
 
 function abort(reason: string): BeforePaymentCreationResult {
   return { abort: true, reason: `[twzrd-guarded-fetch] ${reason}` };

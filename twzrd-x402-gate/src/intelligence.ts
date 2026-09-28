@@ -134,6 +134,7 @@ export function createTwzrdIntelligenceProvider(
         priceUsdc: intentAmountToPriceUsd(intent.amount),
         agentIntent: `${intent.protocol}_payment_control`,
         chain: intent.network,
+        asset: intent.asset || undefined,
       },
       cfg,
     );

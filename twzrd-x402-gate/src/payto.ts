@@ -129,10 +129,84 @@ export function payToFromRequirements(req: X402PaymentRequirements): {
   return { payTo: f.payTo, amountMicro: f.amount, resource: req.resource, conflict: f.conflict };
 }
 
+const USDC_ASSETS: Record<string, ReadonlySet<string>> = {
+  // Mints are per cluster: a devnet mint address named on mainnet is some other
+  // token, so it must not be priced against a USDC cap there.
+  "solana-mainnet": new Set([
+    "epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v", // mainnet USDC
+  ]),
+  "solana-devnet": new Set([
+    "4zmmc9srt5ri5x14gagxhahii3gnpaeerypjgzjdncdu", // devnet USDC (Circle; the @x402/svm default)
+    "gh9zwemdlj8dsckntktqpbnwlnnbjuszag9vp2kgtkjr", // devnet USDC (spl-token-faucet)
+  ]),
+  "eip155:8453": new Set([
+    "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Base USDC
+  ]),
+  "eip155:84532": new Set([
+    "0x036cbd53842c5426634e7929541ec2318f3dcf7e", // Base Sepolia test USDC
+  ]),
+};
+
+/**
+ * True when the requirement names a USDC mint/contract on its own network.
+ * Unknown networks and any other asset are false. Exported so every path
+ * prices a requirement the same way (0.11.1).
+ */
+export function isUsdcRequirement(requirement: Record<string, unknown>): boolean {
+  const table = usdcTableFor(requirement.network);
+  if (!table) return false;
+  return table.has(String(requirement.asset ?? "").toLowerCase());
+}
+
+/**
+ * The USDC set for a network the gate knows (Solana clusters, Base, Base
+ * Sepolia), or undefined for any other network.
+ */
+function usdcTableFor(networkRaw: unknown): ReadonlySet<string> | undefined {
+  const network = String(networkRaw ?? "").toLowerCase();
+  if (network === "solana-devnet" || network === "solana:etwtrabzayq6imfeykouru166vu2xqa1") {
+    return USDC_ASSETS["solana-devnet"];
+  }
+  if (network === "solana" || network.startsWith("solana")) {
+    return USDC_ASSETS["solana-mainnet"];
+  }
+  if (network === "base" || network === "base-mainnet" || network === "eip155:8453") {
+    return USDC_ASSETS["eip155:8453"];
+  }
+  if (network === "base-sepolia" || network === "eip155:84532") {
+    return USDC_ASSETS["eip155:84532"];
+  }
+  return undefined;
+}
+
+/** The requirement's named asset, or undefined when none is named. */
+export function requirementAsset(req: unknown): string | undefined {
+  const a = (req as { asset?: unknown } | null | undefined)?.asset;
+  return typeof a === "string" && a.trim() !== "" ? a : undefined;
+}
+
 export function priceUsdcFromAmountMicro(
   amountMicro: string | undefined,
+  requirement?: { network?: unknown; asset?: unknown },
 ): number | undefined {
   if (amountMicro == null || amountMicro === "") return undefined;
+  // `amount` is in the named asset's base units. Dividing by 1e6 is only a USD
+  // price when that asset is USDC (6 decimals, ~$1). A requirement that names
+  // any other asset has no known USD price: returning amount/1e6 let a seller
+  // name an 8-decimal mint and have a real 0.001-token transfer read as $0.10,
+  // inside the unevaluated-seller cap (0.11.1). No asset named keeps the old
+  // reading, because the x402 schemes default an unnamed asset to USDC. Only
+  // networks with a known USDC set are checked; other (unscored) networks keep
+  // the old best-effort reading, since nothing there is capped in USDC.
+  if (
+    requirement &&
+    typeof requirement.asset === "string" &&
+    requirement.asset.trim() !== "" &&
+    usdcTableFor(requirement.network) !== undefined &&
+    !isUsdcRequirement(requirement as Record<string, unknown>)
+  ) {
+    return undefined;
+  }
   const n = Number(amountMicro);
   if (!Number.isFinite(n)) return undefined;
   return n / 1_000_000;
