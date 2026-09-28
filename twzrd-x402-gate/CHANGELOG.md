@@ -28,7 +28,7 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## 0.11.2 — unreleased (security fix)
+## 0.11.2 — 2026-09-28 (security fix)
 
 Fixes from a line-by-line audit of the published 0.11.1. Every change adds a
 refusal or makes an existing one reliable; none loosens one.
