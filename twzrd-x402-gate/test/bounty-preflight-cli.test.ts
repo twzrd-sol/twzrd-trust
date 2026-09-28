@@ -73,6 +73,9 @@ test("run: reads the board, reads the 402 payTo header-first, gates it, and deci
     assert.equal(opts.gateOnCanSpend, false);
     assert.equal(opts.refuseWashFlagged, true);
     assert.equal(opts.failOpen, false);
+    // 0.11.0 allows an unevaluated seller within its cap by default; a bounty
+    // payee is still refused when intel has never evaluated it.
+    assert.equal(opts.refuseUnevaluated, true);
     return allowGate(url, req, opts);
   };
   const { report, exitCode } = await runBountyPreflight(parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "0.2", "--attempt-cost-usd", "0.02"]), { fetch: fakeFetch(), evaluate, now: () => "2026-09-10T00:00:00.000Z" });

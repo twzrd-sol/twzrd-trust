@@ -52,6 +52,8 @@ export type SafeFetchOptions = {
   unsupportedNetworkMode?: "observe" | "strict";
   failOpen?: boolean;
   refuseWashFlagged?: boolean;
+  /** Refuse every unevaluated seller instead of allowing up to its cap. See TwzrdGateConfig. */
+  refuseUnevaluated?: boolean;
   preflightMinScore?: number;
   intelBase?: string;
   /** If true, stop after preflight; never invoke AgentCash */
@@ -358,6 +360,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
     unsupportedNetworkMode: opts.unsupportedNetworkMode,
     failOpen: opts.failOpen,
     refuseWashFlagged: opts.refuseWashFlagged,
+    refuseUnevaluated: opts.refuseUnevaluated,
     preflightMinScore: opts.preflightMinScore,
     fetch: fetchFn,
   });

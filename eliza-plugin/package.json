@@ -24,7 +24,7 @@
     "bs58": "^5.0.0",
     "tweetnacl": "^1.0.3",
     "twzrd-receipt-verifier": "^1.4.0",
-    "twzrd-x402-gate": "^0.9.5"
+    "twzrd-x402-gate": "^0.9.5 || ^0.11.0"
   },
   "peerDependencies": {
     "@elizaos/core": "^1.0.0"

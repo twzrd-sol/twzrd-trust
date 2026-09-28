@@ -441,6 +441,9 @@ export async function evaluateBeforePaymentCreation(
     !!payTo &&
     approval.verdict === "warn" &&
     approval.approved &&
+    // An unevaluated seller has no paid score either: /quick would settle $0.001
+    // and could not change the decision. Its bound is the card's cap.
+    approval.unevaluated !== true &&
     (priceUsdc ?? 0) >= (esc.minSpendUsdc ?? 0);
   if (wantQuick && payTo && esc) {
     const floor = esc.blockBelowScore ?? cfg.preflightMinScore;

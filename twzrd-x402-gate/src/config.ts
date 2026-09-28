@@ -6,6 +6,8 @@ export type ResolvedTwzrdGateConfig = {
   blockDecisions: Set<string>;
   failOpen: boolean;
   gateOnCanSpend: boolean;
+  /** Default false: an unevaluated seller is allowed up to the card's recommended cap. */
+  refuseUnevaluated: boolean;
   /** Default true: refuse when free merchant_card.wash_flagged */
   refuseWashFlagged: boolean;
   /** Soft cap USDC when wash_flagged; null = hard refuse */
@@ -58,12 +60,21 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
       process.env.TWZRD_FAIL_OPEN === "1");
 
   // Default false: can_spend false alone does not block. null_reason
-  // unknown_subject is refused earlier by isUnevaluatedCard and is not this
+  // unknown_subject is handled earlier (refuseUnevaluated) and is not this
   // knob. Opt in to strict can_spend gating with TWZRD_GATE_ON_CAN_SPEND=true or =1.
   const gateOnCanSpend =
     overrides?.gateOnCanSpend ??
     (process.env.TWZRD_GATE_ON_CAN_SPEND === "true" ||
       process.env.TWZRD_GATE_ON_CAN_SPEND === "1");
+
+  // Default false (0.11.0+): a seller the server never evaluated is allowed up to
+  // the card's recommended_cap_usdc, and refused above it or when no cap is given.
+  // Opt in to refusing every unevaluated seller with refuseUnevaluated:true or
+  // TWZRD_REFUSE_UNEVALUATED=true|1.
+  const refuseUnevaluated =
+    overrides?.refuseUnevaluated ??
+    (process.env.TWZRD_REFUSE_UNEVALUATED === "true" ||
+      process.env.TWZRD_REFUSE_UNEVALUATED === "1");
 
   // Default true: free merchant_card.wash_flagged → refuse pay (trustless step 3).
   // Opt out: refuseWashFlagged:false or TWZRD_REFUSE_WASH_FLAGGED=0|false.
@@ -114,6 +125,7 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     blockDecisions,
     failOpen,
     gateOnCanSpend,
+    refuseUnevaluated,
     refuseWashFlagged,
     washMaxUsdc,
     unsupportedNetworkMode,

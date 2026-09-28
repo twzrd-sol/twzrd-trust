@@ -1,5 +1,5 @@
 /**
- * 0.9.16 signer contract. Calls the shipped buyer approval, before-payment
+ * 0.11.0 signer contract. Calls the shipped buyer approval, before-payment
  * hook, and settle guard. Run: npx tsx test/signer-contract-0910.test.ts
  */
 import assert from "node:assert/strict";
@@ -44,8 +44,8 @@ function intelFetch(card: Record<string, unknown>, urls: string[]): typeof fetch
 
 async function run() {
   const pkg = require("../package.json") as { version: string; description: string };
-  assert.equal(pkg.version, "0.9.16");
-  console.log(`version 0.9.16`);
+  assert.equal(pkg.version, "0.11.0");
+  console.log(`version 0.11.0`);
 
   const shipped = ["README.md", "QUICKSTART.md", "src/doctor.ts"];
   for (const rel of shipped) {
@@ -60,7 +60,7 @@ async function run() {
     }
   }
   const compat = readFileSync(join(pkgRoot, "COMPATIBILITY.md"), "utf8");
-  assert.match(compat, /0\.9\.16 is the released identity/);
+  assert.match(compat, /0\.11\.0 is the released identity/);
   assert.doesNotMatch(pkg.description, /Fail-closed by default/);
   assert.match(pkg.description, /not uniformly fail-closed/);
   assert.match(pkg.description, /Base mainnet \(eip155:8453\)/);
@@ -83,6 +83,9 @@ async function run() {
   );
   assert.match(readme, /`eip155:137` does not run `twzrdPreflight` or the scored preflight/);
   assert.match(readme, /returns reason `twzrd_unevaluated_subject_unknown_subject`/);
+  assert.match(readme, /`twzrd_unevaluated_within_cap_<price>_le_<cap>`/);
+  assert.match(readme, /`twzrd_unevaluated_no_cap_<null_reason>`/);
+  assert.match(readme, /\| `refuseUnevaluated` \| `TWZRD_REFUSE_UNEVALUATED` \| `false` \|/);
   assert.match(readme, /starts with `twzrd_over_recommended_cap_`/);
   assert.match(readme, /returns reason `twzrd_decision_block`/);
   assert.match(readme, /That reason string is not `block` and is not `twzrd_fail_closed`/);
@@ -143,31 +146,43 @@ async function run() {
     assert.match(outage.reason, /twzrd_fail_closed/);
     console.log("default buyer outage not approved");
 
+    // 0.11.0: an unevaluated seller follows the card's own cap. At or under it
+    // the hook does not abort; above it, with no cap, or with
+    // refuseUnevaluated: true, it aborts before the signer.
+    const unknownCard = (cap: number | undefined) => ({
+      decision: "warn",
+      trust_score: 45,
+      score: null,
+      null_reason: "unknown_subject",
+      can_spend: true,
+      seller_wallet: SELLER,
+      ...(cap === undefined ? {} : { recommended_cap_usdc: cap }),
+    });
+    const unknownHook = (cap: number | undefined, extra: { refuseUnevaluated?: boolean } = {}) =>
+      createTwzrdBeforePaymentHook({ fetch: intelFetch(unknownCard(cap), []), ...extra });
+    const req = (network: string, amount: string) => ({
+      payTo: SELLER,
+      network,
+      amount,
+      resource: "https://merchant.example/paid",
+    });
     for (const network of [SOL, BASE]) {
-      const hook = createTwzrdBeforePaymentHook({
-        fetch: intelFetch(
-          {
-            decision: "warn",
-            trust_score: 45,
-            score: null,
-            null_reason: "unknown_subject",
-            can_spend: true,
-            seller_wallet: SELLER,
-            recommended_cap_usdc: 0.01,
-          },
-          [],
-        ),
-      });
-      const result = await hook({
-        payTo: SELLER,
-        network,
-        amount: "10000",
-        resource: "https://merchant.example/paid",
-      });
-      assert.ok(result && result.abort === true, network);
-      assert.match(String(result.reason), /unknown_subject/);
+      const within = await unknownHook(0.01)(req(network, "10000"));
+      assert.ok(!within || within.abort !== true, `${network} within cap must not abort`);
+
+      const over = await unknownHook(0.01)(req(network, "20000"));
+      assert.ok(over && over.abort === true, network);
+      assert.match(String(over.reason), /twzrd_unevaluated_over_cap_0\.02_gt_0\.01/);
+
+      const noCap = await unknownHook(undefined)(req(network, "10000"));
+      assert.ok(noCap && noCap.abort === true, network);
+      assert.match(String(noCap.reason), /twzrd_unevaluated_no_cap_unknown_subject/);
+
+      const strict = await unknownHook(0.01, { refuseUnevaluated: true })(req(network, "10000"));
+      assert.ok(strict && strict.abort === true, network);
+      assert.match(String(strict.reason), /twzrd_unevaluated_subject_unknown_subject/);
     }
-    console.log("unknown_subject not signed on a scored network");
+    console.log("unknown_subject signs only within its cap on a scored network");
 
     const over = await twzrdApprovePayment(
       { payTo: SELLER, chain: SOL, priceUsdc: 2.5 },

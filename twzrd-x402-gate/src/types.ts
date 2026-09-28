@@ -88,6 +88,14 @@ export type TwzrdGateConfig = {
    */
   gateOnCanSpend?: boolean;
   /**
+   * A seller the server has never evaluated (`null_reason` set, or `score: null`)
+   * is allowed up to the card's own `recommended_cap_usdc` by default (0.11.0+).
+   * A card with no finite cap, or a price above it, is still refused. Set true to
+   * refuse every unevaluated seller, which was the 0.9.9–0.9.16 default.
+   * Env: TWZRD_REFUSE_UNEVALUATED=1|true.
+   */
+  refuseUnevaluated?: boolean;
+  /**
    * After free preflight, also GET free merchant_card for payTo and refuse
    * when wash_flagged=true. Default: true (trustless step 3 open default).
    * A reachable card with no wash_flagged fails open (never invent). An
@@ -192,6 +200,12 @@ export type TwzrdApprovalResult = {
    * see the bound it was approved under, not only that it was approved.
    */
   recommendedCapUsdc?: number;
+  /**
+   * true when the server had not evaluated this seller (`null_reason` set, or
+   * `score: null`). An approval with this flag was allowed only because the
+   * price was at or under the card's recommended cap.
+   */
+  unevaluated?: boolean;
   /** true when the price exceeded recommendedCapUsdc and the payment was refused */
   overRecommendedCap?: boolean;
   /** Raw payment network (CAIP-2 / x402 wire), when known */

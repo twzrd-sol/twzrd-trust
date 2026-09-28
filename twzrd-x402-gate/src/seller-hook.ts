@@ -88,8 +88,8 @@ export type SettleGuardOptions = {
   getPayer?: GetPayerFn;
   /**
    * Which screen outcomes abort settlement. Default: block + wash-flagged abort;
-   * an evaluated payer warn is allowed. The buyer hook still refuses
-   * `null_reason: unknown_subject` on a scored network.
+   * an evaluated payer warn is allowed. On the buyer hook, a
+   * `null_reason: unknown_subject` seller is allowed only up to its card's cap.
    */
   abortOn?: { block?: boolean; warn?: boolean; washFlagged?: boolean };
   /**
