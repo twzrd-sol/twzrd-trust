@@ -460,7 +460,7 @@ export async function runColdStart(
         });
       }
       const parsedPrice = typeof probed.amountMicro === "string" && /^\d+$/.test(probed.amountMicro)
-        ? priceUsdcFromAmountMicro(probed.amountMicro)
+        ? priceUsdcFromAmountMicro(probed.amountMicro, probed.req)
         : undefined;
       const price = parsedPrice != null && parsedPrice >= 0 ? parsedPrice : null;
       const network = probed.req.network ?? null;

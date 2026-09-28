@@ -37,7 +37,7 @@ async function withMockProxy(fn: (base: string) => Promise<void>): Promise<void>
             maxAmountRequired: "3000",
             resource: `https://blockrun.ai${req.url}`,
             payTo: PAYTO,
-            asset: "USDC",
+            asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
           },
         ],
       }),

@@ -15,6 +15,8 @@ export {
 export {
   payToFromRequirements,
   priceUsdcFromAmountMicro,
+  isUsdcRequirement,
+  requirementAsset,
   pickRequirements,
   resolveRequirementFields,
   AMOUNT_FIELD_CONFLICT,

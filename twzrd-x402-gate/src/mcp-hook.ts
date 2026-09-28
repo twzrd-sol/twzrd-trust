@@ -1,5 +1,5 @@
 import type { ResolvedTwzrdGateConfig } from "./config.js";
-import { payToFromRequirements, priceUsdcFromAmountMicro, pickRequirements } from "./payto.js";
+import { payToFromRequirements, priceUsdcFromAmountMicro, pickRequirements, requirementAsset } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 import type {
   X402McpPaymentRequest,
@@ -43,7 +43,7 @@ export async function twzrdOnPaymentRequested(
 
   const first: X402PaymentRequirements = pickRequirements(accepts);
   const { payTo, amountMicro, resource, conflict } = payToFromRequirements(first);
-  const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+  const priceUsdc = priceUsdcFromAmountMicro(amountMicro, first);
   if (conflict) {
     console.warn("[twzrd] blocked x402 payment:", conflict, { resource });
     return false;
@@ -61,6 +61,7 @@ export async function twzrdOnPaymentRequested(
         buyerWallet: legacy.context?.buyerWallet,
         agentIntent: "x402_mcp_onPaymentRequested",
         chain,
+        asset: requirementAsset(first),
       },
       config,
     );

@@ -37,6 +37,7 @@ import {
   payToFromRequirements,
   pickRequirements,
   priceUsdcFromAmountMicro,
+  requirementAsset,
 } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
 import type { TwzrdApprovalResult, X402PaymentRequiredBody } from "./types.js";
@@ -296,7 +297,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
 
   const first = pickRequirements(body.accepts as Array<Record<string, unknown>> | undefined);
   const { payTo, amountMicro, resource, conflict } = payToFromRequirements(first);
-  const priceUsdc = priceUsdcFromAmountMicro(amountMicro);
+  const priceUsdc = priceUsdcFromAmountMicro(amountMicro, first);
   const network = first.network;
   const netCls = classifyNetwork(network, payTo);
 
@@ -378,6 +379,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
       priceUsdc,
       agentIntent: "twzrd_safe_fetch",
       chain: network,
+      asset: requirementAsset(first),
     },
     cfg,
   );
