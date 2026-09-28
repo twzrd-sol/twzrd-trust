@@ -968,6 +968,84 @@ A 402 whose payment requirements yield **no identifiable seller wallet** (missin
 > not yet in the TWZRD corpus, including legitimate ones. `can_spend: false` alone does not block (`gateOnCanSpend` defaults false). That is separate from `null_reason: unknown_subject`, which signs only within its card's cap.
 > Set `gateOnCanSpend: true` to also block on `can_spend: false`.
 
+## Refusals
+
+Every reason the gate returns, by entry point. A refusal means the wallet was not asked
+to sign (`signerInvocations = 0`). `test/readme-refusal-codes.test.ts` fails if a reason
+string in the source is missing here, so this table cannot drift from the code.
+`<...>` marks a value filled in at runtime.
+
+### Buyer approval (`twzrdApprovePayment`, used by every buyer entry point)
+
+On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`,
+`createTwzrdPayKitBeforePaymentHook`, `createGuardedX402Fetch`) the abort reason is
+`[twzrd] <reason> payTo=<payTo> network=<network>`.
+
+| Reason | When | Default |
+|---|---|---|
+| `twzrd_unidentifiable_payment_recipient` | The requirement names no `payTo`. Intel is not called. | always |
+| `twzrd_non_usdc_asset` | On Solana or Base, the requirement names an asset that is not USDC on that network. Intel is not called; `failOpen` does not apply. | always (0.11.1+) |
+| `network_not_scored`, `network_missing` | The network is not scored (not Solana or Base mainnet). | refused only with `unsupportedNetworkMode: "strict"`; the default `observe` allows |
+| `twzrd_decision_<decision>` | Intel's card decision is in `blockDecisions`. | `twzrd_decision_block` |
+| `twzrd_unevaluated_subject_<null_reason>` | Intel has never evaluated the seller, and `refuseUnevaluated` is set or the decision is not `allow`/`warn`. | strict mode off |
+| `twzrd_unevaluated_no_cap_<null_reason>` | Never evaluated, and the card has no finite `recommended_cap_usdc`. | always |
+| `twzrd_unevaluated_unknown_price_<null_reason>` | Never evaluated, and the price is unknown. | always |
+| `twzrd_unevaluated_over_cap_<price>_gt_<cap>` | Never evaluated, and the price is above the card's cap (live: min($0.10, price)). | always |
+| `twzrd_can_spend_false` | The card says `can_spend: false`. | only with `gateOnCanSpend: true` |
+| `twzrd_score_<score>_below_<min>` | An evaluated seller scores below `preflightMinScore`. | min 40 |
+| `twzrd_over_recommended_cap_<price>_gt_<cap>` | An evaluated seller, and the price is above the card's `recommended_cap_usdc`. | always |
+| `twzrd_wash_flagged` | The free merchant card says `wash_flagged: true`. | on (`refuseWashFlagged` defaults true on every entry point) |
+| `twzrd_wash_flagged_above_cap_<price>_gt_<cap>`, `twzrd_wash_flagged_above_cap_unknown_price_max_<cap>` | Wash-flagged, `washMaxUsdc` is set, and the price is above it or unknown. | only with `washMaxUsdc` |
+| `twzrd_fail_closed (<error>)` | The preflight did not answer (non-2xx, non-JSON, network error). | fail-closed unless `failOpen` |
+| `twzrd_card_unreachable_fail_closed (<error>)` | The merchant card did not answer (5xx, 429, non-JSON, network error). A 4xx is an answer, not an outage. | fail-closed unless `failOpen` |
+
+Approval reasons, for `onDecision` consumers: `twzrd_allow`, `twzrd_warn_allowed`,
+`twzrd_unevaluated_within_cap_<price>_le_<cap>`, `twzrd_wash_capped_<price>_le_<cap>`,
+`twzrd_fail_open` (an outage allowed because `failOpen` is set).
+
+### x402 client hook only
+
+| Reason | When |
+|---|---|
+| `amount_field_conflict`, `payto_field_conflict` | The requirement's v1 and v2 price fields (`maxAmountRequired` / `amount`) or recipient fields (`payTo` / `pay_to`) disagree. |
+| `payment_control_unevaluable: missing <field>` | Payment Control is on and the requirement has no amount or `payTo`. |
+| `payment_control_block:<reason codes>` | Payment Control (`paymentControl` option) refused the intent. |
+| `twzrd_escalated_warn_block (paid quick score <score> < <floor>)` | `escalateOnWarn` bought the $0.001 `/quick` score and it is below the floor. |
+| `twzrd_receipt_required_missing_x402Fetch` | `requireReceipt` needs a paid receipt and no `x402Fetch` is wired. |
+| `twzrd_receipt_required_failed (HTTP <status>)`, `twzrd_receipt_required_error (<error>)` | The required paid receipt could not be bought. |
+| `aborted_before_payment: signal already aborted` | The caller's abort signal fired before the hook ran. |
+
+### `createGuardedX402Fetch` local caps
+
+Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approval above.
+
+| Reason | When |
+|---|---|
+| `price_cap_exceeded` | The price is above `maxPricePerCall`. |
+| `hourly_budget_exceeded` | The payment would take spend in the last hour above `hourlyBudgetCap`. |
+| `amount_field_conflict`, `payto_field_conflict` | As in the client hook table. |
+| `recipient_missing` | `allowedRecipients` is set and the requirement names no recipient. |
+| `unauthorized_recipient` | `allowedRecipients` is set and `payTo` is not in it. |
+| `amount_missing_or_malformed` | A spend rule is set and the amount is not a base-unit integer. |
+| `unsupported_or_non_usdc_asset` | A spend rule is set and the asset is not USDC on that network. |
+
+### `twzrd.safeFetch` verdicts
+
+`{ verdict: "block", reason }`:
+
+| Reason | When |
+|---|---|
+| `unparseable_402` | The 402 has no readable payment requirements. |
+| `network_not_allowed` | No offer is on an `allowNetworks` network. |
+| `amount_field_conflict`, `payto_field_conflict` | As above. |
+| `no_payable_requirement` | No offer names both a recipient and an amount. |
+| `malformed_amount` | The amount is not a base-unit integer. |
+| `non_usdc_asset` | On Solana or Base, the offer names an asset that is not USDC (the budget counts micro-USDC). |
+| `over_max_spend`, `over_cumulative_spend` | The payment, or the running total, would pass `maxSpend`. |
+| `intel_block` | The injected preflight answered `block`. |
+| `decision_bind_required` | A signed decision is required and none was bound. |
+| `bind_required_no_compose`, `bind_required_no_settlement`, `bind_required_no_leaf_hash`, `bind_mismatch` | A resource bind was required and could not be built or did not match. |
+
 ## Config
 
 | Option | Env | Default | Description |
