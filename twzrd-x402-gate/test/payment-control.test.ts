@@ -20,7 +20,7 @@ import {
   TwzrdIntentBindingError,
   verifyDecisionSignature,
 } from "../src/decision-token.js";
-import { unsafeAssertIntentApprovedWithoutSignature } from "../src/unsafe.js";
+import { unsafeAssertIntentApprovedWithoutSignature } from "../src/decision-token.js";
 import {
   createMemorySpendLedger,
   evaluateIntent,

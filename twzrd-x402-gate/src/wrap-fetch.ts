@@ -1,14 +1,8 @@
 import { wrapFetchEchoTwzrdAttempt } from "./attempt-echo.js";
 import type { ResolvedTwzrdGateConfig } from "./config.js";
-import {
-  paymentRequiredFromResponse,
-  payToFromRequirements,
-  pickRequirements,
-  priceUsdcFromAmountMicro,
-  requirementAsset,
-} from "./payto.js";
-import { twzrdApprovePayment } from "./policy.js";
-import type { X402PaymentRequiredBody, X402PaymentRequirements } from "./types.js";
+import { distinctOffers, firstRefusedOffer } from "./all-offers.js";
+import { paymentRequiredFromResponse } from "./payto.js";
+import type { X402PaymentRequiredBody } from "./types.js";
 
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
@@ -39,28 +33,21 @@ export function wrapFetchWithTwzrdGate(
       return resp;
     }
 
-    const first = pickRequirements(body.accepts as Array<Record<string, unknown>> | undefined);
-    const { payTo, resource, amountMicro, conflict } = payToFromRequirements(first);
+    // The payer picks which accepts[] entry it pays, so every distinct entry
+    // must pass (0.11.2). The approval is free; no paid hops here.
     const url = requestUrl(input);
-    const priceUsdc = priceUsdcFromAmountMicro(amountMicro, first);
-    if (conflict) {
-      throw new Error(`[twzrd] payment blocked: ${conflict} url=${url}`);
+    const offers = distinctOffers(body.accepts);
+    if (offers.length === 0) {
+      // No offer at all: nothing identifiable to pay.
+      throw new Error(`[twzrd] payment blocked: twzrd_unidentifiable_payment_recipient url=${url}`);
     }
-
-    const { approved, reason } = await twzrdApprovePayment(
-      {
-        resourceUrl: resource ?? url,
-        payTo,
-        priceUsdc,
-        agentIntent: "wrapFetch_402_gate",
-        chain: first.network,
-        asset: requirementAsset(first),
-      },
+    const refused = await firstRefusedOffer(offers, {
       config,
-    );
-
-    if (!approved) {
-      throw new Error(`[twzrd] payment blocked: ${reason} payTo=${payTo} url=${url}`);
+      resourceUrl: url,
+      agentIntent: "wrapFetch_402_gate",
+    });
+    if (refused) {
+      throw new Error(`[twzrd] payment blocked: ${refused.reason} payTo=${refused.payTo} url=${url}`);
     }
     return resp;
   };

@@ -71,7 +71,7 @@ export type SpendControlOptions = {
     decisionId?: string;
   }>;
   ledger?: SpendLedger;
-  /** Path for #2183 file ledger when `ledger` is omitted. */
+  /** Path for the hash-chained file ledger when `ledger` is omitted. */
   ledgerFile?: string;
   agentId?: string;
   mandateId?: string;
@@ -245,7 +245,9 @@ export async function spendControlSafeFetch(
   const { payTo, amountMicro, resource, conflict } = payToFromRequirements(selected as never);
   const network = selected.network as string | undefined;
   if (conflict) {
-    return { verdict: "block", reason: conflict, signerInvocations: 0 };
+    // safeFetch has always reported a bad amount as malformed_amount; keep it.
+    const reason = conflict === "amount_malformed" ? "malformed_amount" : conflict;
+    return { verdict: "block", reason, signerInvocations: 0 };
   }
   if (!payTo || amountMicro == null) {
     return { verdict: "block", reason: "no_payable_requirement", signerInvocations: 0 };
@@ -280,7 +282,7 @@ export async function spendControlSafeFetch(
     ledger.record(mandateKey, spendMicro, now);
   };
   // Set immediately before the payer runs. From then on the money may have moved,
-  // so a throw from pay() is ambiguous and must be counted, never released (#2446).
+  // so a throw from pay() is ambiguous and must be counted, never released.
   let signed = false;
   const keys = [agentKey, merchantKey, mandateKey];
   let release = (): void => {};

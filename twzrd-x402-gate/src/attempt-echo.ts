@@ -1,7 +1,7 @@
 /**
  * Funnel join-key pass-through for paying clients.
  *
- * Server 402s (PR #2819) emit `extensions.twzrd_attempt` on PAYMENT-REQUIRED.
+ * TWZRD intel 402s emit `extensions.twzrd_attempt` on PAYMENT-REQUIRED.
  * `@x402/fetch` / `@x402/core` createPaymentPayload drops unknown extensions,
  * so every paid retry lands as a new singleton in `x402_funnel_events`.
  *

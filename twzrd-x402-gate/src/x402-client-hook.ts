@@ -424,11 +424,15 @@ export async function evaluateBeforePaymentCreation(
     approval.verdict === "block"
       ? approval.verdict
       : String(approval.verdict);
-  const receiptRequired = shouldRequirePathAReceipt({
-    policy: receiptPolicy,
-    decision: freeDecision,
-    priceUsdc,
-  });
+  // No paid receipt for a seller intel has never evaluated: there is no paid
+  // score for it either, the same rule as the /quick hop below (0.11.2).
+  const receiptRequired =
+    approval.unevaluated !== true &&
+    shouldRequirePathAReceipt({
+      policy: receiptPolicy,
+      decision: freeDecision,
+      priceUsdc,
+    });
 
   let receiptFeeCaptured = false;
   let receiptSkipped: "unscored_network" | undefined;

@@ -1,11 +1,6 @@
 import type { ResolvedTwzrdGateConfig } from "./config.js";
-import { payToFromRequirements, priceUsdcFromAmountMicro, pickRequirements, requirementAsset } from "./payto.js";
-import { twzrdApprovePayment } from "./policy.js";
-import type {
-  X402McpPaymentRequest,
-  X402McpPaymentRequestedContext,
-  X402PaymentRequirements,
-} from "./types.js";
+import { distinctOffers, firstRefusedOffer } from "./all-offers.js";
+import type { X402McpPaymentRequest, X402McpPaymentRequestedContext } from "./types.js";
 
 /**
  * x402 MCP client hook. Wire as `onPaymentRequested` on the @x402/mcp client
@@ -41,40 +36,27 @@ export async function twzrdOnPaymentRequested(
     | undefined;
   const toolName = real.toolName ?? legacy.context?.toolName;
 
-  const first: X402PaymentRequirements = pickRequirements(accepts);
-  const { payTo, amountMicro, resource, conflict } = payToFromRequirements(first);
-  const priceUsdc = priceUsdcFromAmountMicro(amountMicro, first);
-  if (conflict) {
-    console.warn("[twzrd] blocked x402 payment:", conflict, { resource });
-    return false;
-  }
-
-  const chain = first.network ?? undefined;
+  // @x402/mcp pays whichever entry its client selects, so every distinct
+  // entry must pass; all-or-nothing is the only shape a boolean hook has (0.11.2).
+  const offers = distinctOffers(accepts);
   try {
-    const { approved, card, reason } = await twzrdApprovePayment(
-      {
-        resourceUrl: legacy.context?.resource ?? resource,
-        resourceName: toolName,
-        sellerWallet: legacy.context?.sellerWallet,
-        payTo,
-        priceUsdc,
-        buyerWallet: legacy.context?.buyerWallet,
-        agentIntent: "x402_mcp_onPaymentRequested",
-        chain,
-        asset: requirementAsset(first),
-      },
-      config,
-    );
-
-    if (!approved) {
-      console.warn("[twzrd] blocked x402 payment:", reason, {
-        payTo,
-        resource,
-        decision: card.decision,
-        trust_score: card.trust_score,
-      });
+    if (offers.length === 0) {
+      console.warn("[twzrd] blocked x402 payment: twzrd_unidentifiable_payment_recipient");
+      return false;
     }
-    return approved;
+    const refused = await firstRefusedOffer(offers, {
+      config,
+      resourceUrl: legacy.context?.resource,
+      agentIntent: "x402_mcp_onPaymentRequested",
+    });
+    if (refused) {
+      console.warn("[twzrd] blocked x402 payment:", refused.reason, {
+        payTo: refused.payTo,
+        tool: toolName,
+      });
+      return false;
+    }
+    return true;
   } catch {
     if (!config?.failOpen) return false;
     return true; // fail-open fallback

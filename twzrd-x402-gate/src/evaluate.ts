@@ -223,11 +223,14 @@ export async function evaluate_x402_resource(
   // V7 $0.05 GET /trust (requireReceipt / autoReceipt) runs only when the
   // cheap hop did not already settle. Never on block.
   const receiptPolicy = resolveRequireReceiptPolicy(opts.requireReceipt);
-  const receiptRequired = shouldRequirePathAReceipt({
-    policy: receiptPolicy,
-    decision,
-    priceUsdc,
-  });
+  // No paid receipt for a seller intel has never evaluated (0.11.2).
+  const receiptRequired =
+    approval.unevaluated !== true &&
+    shouldRequirePathAReceipt({
+      policy: receiptPolicy,
+      decision,
+      priceUsdc,
+    });
   const wantPathA = shouldAttemptPathAReceipt({
     autoReceipt: opts.autoReceipt,
     requireReceipt: opts.requireReceipt,
@@ -323,7 +326,12 @@ export async function evaluate_x402_resource(
             ? preimage.settlement_tx
             : undefined);
         const feeCaptured = !!tx || body.charged === true;
-        if (opts.onReceipt) opts.onReceipt(receipt, tx);
+        // A consumer callback must not turn a paid receipt into a deny (0.11.2).
+        try {
+          if (opts.onReceipt) opts.onReceipt(receipt, tx);
+        } catch {
+          /* telemetry */
+        }
 
         // The receipt was paid for and is returned either way; what
         // requireLogInclusion decides is whether it may COUNT as trust.

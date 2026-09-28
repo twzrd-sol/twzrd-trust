@@ -1,3 +1,4 @@
+import { withDeadline } from "./deadline.js";
 /**
  * Free merchant card client — wash refuse default for buyer agents.
  *
@@ -19,6 +20,12 @@
  * signal. An outage throws `MerchantCardUnreachableError` so callers cannot
  * collapse "intel down" into the no-signal allow path.
  */
+
+/** fetch with an AbortSignal bound in, unless the caller already set one. */
+function withSignal(f: typeof fetch, signal: AbortSignal): typeof fetch {
+  return ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) =>
+    f(input, { ...init, signal: init?.signal ?? signal })) as typeof fetch;
+}
 
 export type TwzrdMerchantCard = {
   merchant?: string;
@@ -59,11 +66,22 @@ export class MerchantCardUnreachableError extends Error {
 
 export async function fetchMerchantCardResult(
   wallet: string,
-  opts: { intelBase: string; fetch: typeof fetch },
+  opts: { intelBase: string; fetch: typeof fetch; timeoutMs?: number },
 ): Promise<MerchantCardLookup> {
   const w = (wallet || "").trim();
   // No wallet to ask about is not an outage — there is nothing to look up.
   if (!w) return { reachable: true, card: null };
+  if (opts.timeoutMs !== undefined && opts.timeoutMs > 0) {
+    // A lookup that misses the deadline is an outage, like a thrown fetch.
+    try {
+      return await withDeadline(opts.timeoutMs, "merchant_card", (signal) =>
+        fetchMerchantCardResult(w, { intelBase: opts.intelBase, fetch: withSignal(opts.fetch, signal) }),
+      );
+    } catch (err) {
+      const msg = String((err as Error)?.message ?? err).slice(0, 80);
+      return { reachable: false, card: null, error: `fetch_failed (${msg})` };
+    }
+  }
   try {
     const url = `${opts.intelBase.replace(/\/+$/, "")}/v1/intel/merchant_card/${encodeURIComponent(w)}?full=true`;
     const resp = await opts.fetch(url, {

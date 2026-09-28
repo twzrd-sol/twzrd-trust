@@ -1,6 +1,8 @@
 # Compatibility note — twzrd-x402-gate 0.9.3 → 0.9.4
 
-0.11.1 is the released identity of this package. npm dist-tags `latest` and `paying-client-fail-closed` are both 0.11.1.
+0.11.2 is the released identity of this package. npm dist-tags `latest` and `paying-client-fail-closed` are both 0.11.2.
+
+0.11.2 is a security fix from a line-by-line audit of 0.11.1: an amount that is not an ASCII base-unit integer is refused on every entry point (`amount_malformed`); fetch wrappers and the MCP hook check every offer in `accepts[]`, not one; `./cloudflare-base` applies the package's signing rules instead of signing on any non-block verdict; genuine USDC is no longer refused when the network is omitted or spelled `mainnet-beta`; free intel calls have a deadline (`intelTimeoutMs`). See `CHANGELOG.md`.
 
 0.11.1 is a security fix: on Solana and Base, a payment requirement that names an asset other than USDC is refused before intel (`twzrd_non_usdc_asset`; `non_usdc_asset` from `twzrd.safeFetch`). The gate prices every cap in USDC and used to read any asset's `amount` as micro-USDC, so a seller naming an 8-decimal mint could pass a $0.10 cap while moving a far larger value. A requirement naming USDC, or no asset, is unchanged. See `CHANGELOG.md`.
 
@@ -73,12 +75,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` and `paying-client-fail-closed` dist-tags: **0.11.1**. `0.10.0` and `0.10.1` are deprecated as
+- `latest` and `paying-client-fail-closed` dist-tags: **0.11.2**. `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.11.1 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.11.2 as the
   maintained line.
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy. Pin the exact version (`twzrd-x402-gate@0.11.1`) if you want
+  new refusal policy. Pin the exact version (`twzrd-x402-gate@0.11.2`) if you want
   no change at all.

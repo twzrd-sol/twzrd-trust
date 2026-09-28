@@ -20,12 +20,16 @@ export {
   pickRequirements,
   resolveRequirementFields,
   AMOUNT_FIELD_CONFLICT,
+  AMOUNT_MALFORMED,
   PAYTO_FIELD_CONFLICT,
+  isBaseUnitAmount,
   TWZRD_FEE_PAYER,
 } from "./payto.js";
 export type { RequirementFieldConflict } from "./payto.js";
 export {
   classifyNetwork,
+  solanaCluster,
+  type SolanaCluster,
   decideUnsupportedNetwork,
   amountBucket,
   type NetworkClass,
@@ -311,8 +315,9 @@ export {
   type PaymentIntent,
   type PaymentProtocol,
 } from "./intent.js";
-// unsafeAssertIntentApprovedWithoutSignature is intentionally absent here:
-// it is exported only from the `twzrd-x402-gate/unsafe` subpath (./unsafe.js).
+// unsafeAssertIntentApprovedWithoutSignature is intentionally absent here and is
+// not published on any subpath (the ./unsafe subpath was removed in 0.9.4 and its
+// module in 0.11.2). It stays internal to decision-token for tests.
 export {
   assertIntentApproved,
   createDecisionRegistry,

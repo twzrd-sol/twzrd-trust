@@ -1,5 +1,6 @@
 import { wrapFetchEchoTwzrdAttempt } from "./attempt-echo.js";
 import { resolveBuyerPathADefaults } from "./buyer-defaults.js";
+import { distinctOffers, firstRefusedOffer, TOO_MANY_PAYMENT_OPTIONS, MAX_DISTINCT_OFFERS } from "./all-offers.js";
 import { resolveConfig } from "./config.js";
 import { evaluate_x402_resource, type EvaluateX402Options } from "./evaluate.js";
 import { paymentRequiredFromResponse, payToFromRequirements, pickRequirements } from "./payto.js";
@@ -79,8 +80,27 @@ export function withTwzrdGuard(
       return resp;
     }
 
-    const first = pickRequirements(body.accepts as Array<Record<string, unknown>> | undefined);
+    const offers = distinctOffers(body.accepts);
+    const first = pickRequirements(offers);
     const url = requestUrl(input);
+
+    // The payer, not this guard, picks the entry it pays. Every other distinct
+    // offer gets the free approval first (no paid hops), so a refused wallet
+    // listed next to a clean one cannot be paid (0.11.2).
+    if (offers.length > MAX_DISTINCT_OFFERS) {
+      throw new Error(`[twzrd-guard] payment blocked: ${TOO_MANY_PAYMENT_OPTIONS} url=${url}`);
+    }
+    const refusedOther = await firstRefusedOffer(offers, {
+      config,
+      resourceUrl: url,
+      agentIntent: "withTwzrdGuard_offer",
+      skip: first as Record<string, unknown>,
+    });
+    if (refusedOther) {
+      throw new Error(
+        `[twzrd-guard] payment blocked: ${refusedOther.reason} payTo=${refusedOther.payTo ?? "unknown"} url=${url}`,
+      );
+    }
 
     const result = await evaluate_x402_resource(url, first, {
       intelBase: config.intelBase,

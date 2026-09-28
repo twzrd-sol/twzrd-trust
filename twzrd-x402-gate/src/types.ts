@@ -96,6 +96,13 @@ export type TwzrdGateConfig = {
    */
   refuseUnevaluated?: boolean;
   /**
+   * Deadline for each intel call (preflight, merchant card, paid receipts), in
+   * ms. Default 2000. A call that misses it is an outage: failOpen decides it
+   * (twzrd_fail_closed / twzrd_card_unreachable_fail_closed by default).
+   * Env: TWZRD_INTEL_TIMEOUT_MS.
+   */
+  intelTimeoutMs?: number;
+  /**
    * After free preflight, also GET free merchant_card for payTo and refuse
    * when wash_flagged=true. Default: true (trustless step 3 open default).
    * A reachable card with no wash_flagged fails open (never invent). An
@@ -213,6 +220,11 @@ export type TwzrdApprovalResult = {
    * price was at or under the card's recommended cap.
    */
   unevaluated?: boolean;
+  /**
+   * true when the free merchant card could not be read and the payment was
+   * allowed anyway because failOpen is set: the wash check did not run.
+   */
+  cardUnreachable?: boolean;
   /** true when the price exceeded recommendedCapUsdc and the payment was refused */
   overRecommendedCap?: boolean;
   /** Raw payment network (CAIP-2 / x402 wire), when known */

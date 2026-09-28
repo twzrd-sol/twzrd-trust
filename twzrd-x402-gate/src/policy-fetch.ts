@@ -6,6 +6,16 @@ import { createTwzrdPayingFetch, type CreateTwzrdPayingFetchInput } from "./payi
 import { paymentRequiredFromResponse, pickRequirements } from "./payto.js";
 import { evaluateIntent, type Mandate, type SpendLedger, type SpendPolicy } from "./policy-runtime.js";
 
+/** Load the optional @x402/fetch peer with an install hint instead of a bare ERR_MODULE_NOT_FOUND (0.11.2). */
+function x402FetchPeer(entry: string): Promise<typeof import("@x402/fetch")> {
+  return import("@x402/fetch").catch((cause: unknown) => {
+    throw new Error(
+      `[twzrd-x402-gate] ${entry} needs @x402/fetch, an optional peer dependency. Install it: npm i @x402/fetch @x402/core`,
+      { cause },
+    );
+  });
+}
+
 /** Budget/mandate abort; never treated as a dead origin. */
 export class TwzrdPolicyAbortError extends Error {
   override name = "TwzrdPolicyAbortError";
@@ -58,7 +68,7 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
       return async (input, init) => {
         if (!pay) {
           if (opts.wallet == null) throw new Error("[twzrd-x402-gate] createTwzrdPolicyFetch needs wallet or wrapPay");
-          pay = (await import("@x402/fetch")).wrapFetchWithPayment(
+          pay = (await x402FetchPeer("createTwzrdPolicyFetch")).wrapFetchWithPayment(
             gated,
             wrapX402ClientEchoAttempt(opts.wallet) as never,
           );
