@@ -130,9 +130,9 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
 /**
  * A seller the server has not evaluated (0.11.0+).
  *
- * The server still answers with a decision and, for a seller it has never
- * seen, a per-seller ceiling (`recommended_cap_usdc`, $0.01 on live intel as of
- * 2026-09-28). Refusing every such seller stopped agents from paying anyone new,
+ * The server still answers with a decision and a ceiling (`recommended_cap_usdc`).
+ * For a seller it has never seen, live intel (2026-09-28) grades the floor score
+ * to its lowest warn tier, $0.10, and reports min($0.10, requested price). Refusing every such seller stopped agents from paying anyone new,
  * including when the server itself said "warn, within cap". So by default the
  * gate follows the server: allow at or under the cap, refuse above it. Every
  * case where the bound cannot be checked still refuses:

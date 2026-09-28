@@ -944,7 +944,7 @@ A payment is **blocked** when:
 3. `can_spend === false` — **only** when `gateOnCanSpend: true` (default `false`, opt-in)
 4. the price is above `recommended_cap_usdc` when the card was otherwise approved
 
-**Unevaluated sellers (0.11.0+).** Live intel answers a seller it has never evaluated with `null_reason: unknown_subject`, `score: null`, a floor `trust_score` of 45, `decision: "warn"` and a per-seller `recommended_cap_usdc` ($0.01 today). The gate follows that card instead of refusing every new seller:
+**Unevaluated sellers (0.11.0+).** Live intel answers a seller it has never evaluated with `null_reason: unknown_subject`, `score: null`, a floor `trust_score` of 45, `decision: "warn"` and a `recommended_cap_usdc`. For that floor score live intel's ceiling is $0.10, and the card reports the lower of $0.10 and the requested price (2026-09-28). The gate follows that card instead of refusing every new seller, so a never-seen seller can be paid up to $0.10 per call:
 
 | Case | Result | Reason |
 |---|---|---|

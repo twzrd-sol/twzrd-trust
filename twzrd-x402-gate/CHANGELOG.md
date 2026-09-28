@@ -32,7 +32,7 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
 - A seller intel has never evaluated (`null_reason` set, or `score: null`) is no longer
   refused outright. Live intel answers such a seller with `decision: "warn"` and a
-  per-seller `recommended_cap_usdc` ($0.01 on 2026-09-28); the gate now allows the
+  `recommended_cap_usdc` of min($0.10, requested price) on 2026-09-28; the gate now allows the
   payment at or under that cap (`twzrd_unevaluated_within_cap_<price>_le_<cap>`) and
   refuses it above the cap, when the card has no cap, or when the price is unknown.
   An approval carries `unevaluated: true` and `score: null`. The free wash check still
