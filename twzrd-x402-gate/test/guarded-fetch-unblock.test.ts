@@ -43,6 +43,20 @@ async function main() {
     assert.equal(signed, 1, "devnet USDC under a price cap must reach the signer");
   }
 
+  // 1b. The devnet mint named on MAINNET is some other token: still refused.
+  {
+    let signed = 0;
+    const client = new x402Client();
+    client.register(MAINNET, fakeScheme(() => signed++));
+    client.setSpendControls(false);
+    createGuardedX402Fetch({ client, maxPricePerCall: "0.05", twzrd: { disabled: true }, fetch: fetch });
+    await assert.rejects(
+      client.createPaymentPayload(challenge(MAINNET, DEVNET_USDC, "1000")),
+      /unsupported_or_non_usdc_asset/,
+    );
+    assert.equal(signed, 0, "a devnet mint on mainnet must not pass as USDC");
+  }
+
   // 2. A real @x402/core default-spend-control refusal is rewrapped with the fix.
   {
     let signed = 0;

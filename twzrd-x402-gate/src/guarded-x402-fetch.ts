@@ -12,8 +12,12 @@ import {
 const HOUR_MS = 60 * 60 * 1000;
 const guardedClients = new WeakSet<object>();
 const USDC_ASSETS: Record<string, ReadonlySet<string>> = {
-  solana: new Set([
+  // Mints are per cluster: a devnet mint address named on mainnet is some other
+  // token, so it must not be priced against a USDC cap there.
+  "solana-mainnet": new Set([
     "epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v", // mainnet USDC
+  ]),
+  "solana-devnet": new Set([
     "4zmmc9srt5ri5x14gagxhahii3gnpaeerypjgzjdncdu", // devnet USDC (Circle; the @x402/svm default)
     "gh9zwemdlj8dsckntktqpbnwlnnbjuszag9vp2kgtkjr", // devnet USDC (spl-token-faucet)
   ]),
@@ -65,8 +69,11 @@ function recipientMatches(payTo: string, allowed: readonly string[]): boolean {
 function isUsdcRequirement(requirement: Record<string, unknown>): boolean {
   const network = String(requirement.network ?? "").toLowerCase();
   const asset = String(requirement.asset ?? "").toLowerCase();
-  if (network === "solana" || network.startsWith("solana:")) {
-    return USDC_ASSETS.solana.has(asset);
+  if (network === "solana-devnet" || network === "solana:etwtrabzayq6imfeykouru166vu2xqa1") {
+    return USDC_ASSETS["solana-devnet"].has(asset);
+  }
+  if (network === "solana" || network.startsWith("solana")) {
+    return USDC_ASSETS["solana-mainnet"].has(asset);
   }
   if (network === "base" || network === "base-mainnet" || network === "eip155:8453") {
     return USDC_ASSETS["eip155:8453"].has(asset);
