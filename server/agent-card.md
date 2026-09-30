@@ -14,8 +14,8 @@ Blocks happen with zero signer invocations (`signerInvocations: 0`).
 
 After payment, the agent can verify the signed receipt offline.
 
-It also checks a store product before an agent buys it. `check_listing(product_url, declared_unit_price)`
-compares the product and the asking price with TWZRD's published listing-claim card (one
+It also checks a store listing before an agent buys from it. `check_listing(product_url, declared_unit_price)`
+compares the product URL and the asking price with TWZRD's published listing-claim card (one
 reference card today; an observer card, not a merchant attestation). A price above the
 advertised one is refused; a price below it, or a card with no advertised price, sets
 `needs_approval` so a human approves. `authorizes_spend` is always false.
