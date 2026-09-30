@@ -1,13 +1,344 @@
 {
-  "name": "twzrd-agent-intel",
-  "version": "0.5.4",
-  "description": "Agent intelligence and reputation tools for the Solana x402 agent economy. Check a counterparty before you pay. Advisory preflight is free ($0); signed execution clearance is $0.001 (twzrd.payment_decision.v1 / quickCheck).",
-  "tools": 22,
-  "endpoint": "https://intel.twzrd.xyz/mcp",
-  "transport": "streamable-http",
-  "x402": true,
-  "free_tier": true,
-  "clearance_usdc": 0.001,
-  "paid_trust_usdc": 0.05,
+  "name": "twzrd-agent-intel-mcp",
+  "serverInfo": {
+    "name": "twzrd-agent-intel",
+    "version": "0.5.11"
+  },
+  "description": "Model Context Protocol server for TWZRD trust memory and x402 settlement on Solana. Public Streamable HTTP at https://intel.twzrd.xyz/mcp; also stdio. Free preflight + discovery tools; Path A first hop /quick 0.001 on HTTP; Path B facilitator is HTTP GET /supported (feePayer GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP) + POST /verify + POST /settle (not MCP tool names). readiness_card.next_action.command is optional data under host policy (do not stop at the free card). Gate package: twzrd-x402-gate@0.11.2. Receipt version: v7. Not a wallet or payment network. Paste-ready Path A first hop is GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.001 USDC). Optional V7: GET /v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs. Those paths are TWZRD own-wallet smoke; before a real pay put the seller payTo in the path. Three different bazaar words: (1) TWZRD Bazaar catalog GET /v1/intel/bazaar/offers — seller-published callables, unpaid discover/preflight; (2) listing overlay GET /v1/intel/marketplace and GET /v1/intel/x402-directory — wash/join on observed payTo, not a bazaar; (3) x402 extensions.bazaar on a 402 — routeTemplate metadata, not the catalog.",
+  "version": "0.5.11",
+  "capabilities": {
+    "trust_memory": true,
+    "receipt_version": "v7",
+    "preflight_screening": "allow_warn_block_advisory",
+    "gate_package": "twzrd-x402-gate@0.11.2",
+    "facilitator_scheme": "exact",
+    "facilitator_fee_payer": "GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP",
+    "facilitator_http": {
+      "supported": "https://intel.twzrd.xyz/supported",
+      "verify": "https://intel.twzrd.xyz/verify",
+      "settle": "https://intel.twzrd.xyz/settle"
+    },
+    "resources_sot": "https://intel.twzrd.xyz/v1/intel/resources",
+    "bazaar_catalog": "https://intel.twzrd.xyz/v1/intel/bazaar/offers",
+    "marketplace_overlay": "https://intel.twzrd.xyz/v1/intel/marketplace"
+  },
+  "transport": {
+    "type": "streamable-http",
+    "public_http_route": true,
+    "url": "https://intel.twzrd.xyz/mcp",
+    "spec_version": "2025-03-26",
+    "stateless": true,
+    "auth": "none",
+    "also_available": "stdio",
+    "required_headers": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json"
+    },
+    "accept_note": "Dual Accept (application/json, text/event-stream) is optimal for streamable-http. Plain application/json, */*, application/*, and missing Accept are accepted — the server normalizes them to dual."
+  },
+  "install": {
+    "mcp_streamable_http": "https://intel.twzrd.xyz/mcp",
+    "claude_code": "claude mcp add --transport http twzrd-intel https://intel.twzrd.xyz/mcp",
+    "cursor_mcp_json": {
+      "mcpServers": {
+        "twzrd-intel": {
+          "url": "https://intel.twzrd.xyz/mcp"
+        }
+      }
+    },
+    "not": "ACP Instant Checkout / A2A agent-card. POST /mcp initialize; GET /mcp returns MCP_USE_POST_STREAMABLE_HTTP.",
+    "published_to_pypi": true,
+    "pypi_package": "twzrd-agent-intel",
+    "pip": "pip install twzrd-agent-intel",
+    "buyer_gate_npm": "npm i twzrd-x402-gate@0.11.2",
+    "auto_pay_mcp_python": "pip install twzrd-mcp",
+    "auto_pay_mcp_node": "npx -y twzrd-mcp-server --help",
+    "auto_pay_mcp_config_node": {
+      "mcpServers": {
+        "twzrd": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "twzrd-mcp-server"
+          ],
+          "env": {
+            "TWZRD_RPC_URL": "<mainnet rpc>",
+            "TWZRD_WALLET_SECRET_KEY": "<base58 Solana secret>",
+            "TWZRD_MCP_PAYMENTS_ENABLED": "1",
+            "TWZRD_MAX_USDC_PER_CALL": "0.05",
+            "TWZRD_MAX_USDC_TOTAL": "1.00"
+          }
+        }
+      }
+    },
+    "receipt_verifier_npm": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey <pubkey>"
+  },
+  "paid_http_surfaces": [
+    {
+      "protocol": "x402",
+      "path": "/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+      "route_template": "/v1/intel/quick/{pubkey}",
+      "method": "GET",
+      "price_usdc": 0.001,
+      "url": "https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+      "description": "Seller wash risk and wallet reputation for a Solana x402 merchant: wash label, fleet %, payer count, plus tier + score. Cheap $0.001 entry before a larger payment. No signed V7 receipt."
+    },
+    {
+      "protocol": "x402",
+      "path": "/v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+      "route_template": "/v1/intel/trust/{pubkey}",
+      "method": "GET",
+      "price_usdc": 0.05,
+      "url": "https://intel.twzrd.xyz/v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+      "description": "If 0.05 USDC is too much, first paid hop is GET /v1/intel/quick/{pubkey} at 0.001 USDC (score-only). This route is the portable V7 receipt: x402 counterparty trust, a live reputation check before payment for any Solana wallet, scored from observed wallet age, payment history, execution evidence, and counterparty breadth. Proven on mainnet. Optional query: seller_wallet (the seller you are about to pay; arms the settle-time trust gate -- settlement is refused, charged:false, if that seller scores below threshold; the scored pubkey itself is never gated)."
+    },
+    {
+      "protocol": "x402",
+      "path": "/v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+      "route_template": "/v1/intel/merchant/{pubkey}",
+      "method": "GET",
+      "price_usdc": 0.05,
+      "url": "https://intel.twzrd.xyz/v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+      "description": "Is this seller safe to pay? Signed merchant track-record receipt for a Solana receive wallet (pay_to): evidence for that counterparty risk call, not a safety verdict. Attests observed receive-side graph quality (unique payers, tx volume, wash labels) plus a portable V7 receipt. attestation_kind=merchant_track_record - NOT a payer trust score. Zero inbound -> 422 charged:false (settle-when-deliverable). Free teaser: GET /v1/intel/merchant_card/{wallet}."
+    },
+    {
+      "protocol": "x402",
+      "path": "/v1/intel/reality-check",
+      "route_template": "/v1/intel/reality-check",
+      "method": "GET",
+      "price_usdc": 15.0,
+      "url": "https://intel.twzrd.xyz/v1/intel/reality-check",
+      "description": "TWZRD x402 Reality Check market-intelligence PDF (Aug 2026). Self-serve $15.00 USDC download settling to the TWZRD intel payTo."
+    },
+    {
+      "protocol": "x402",
+      "path": "/v1/intel/verify-endpoint",
+      "route_template": "/v1/intel/verify-endpoint",
+      "method": "POST",
+      "price_usdc": 0.05,
+      "url": "https://intel.twzrd.xyz/v1/intel/verify-endpoint",
+      "description": "SELLER-SIDE endpoint verification with a portable signed receipt. Probes your x402 surface (discovery docs, unpaid-402 conformance, wash screen on each resolved payTo) and returns an Ed25519 AgentReadinessReceipt of what was observed - including a failing result. The payment buys the work and the artifact, never the verdict: basis is endpoint_conformance and not_a_trust_vouch is always true, so a 'ready' card is not a recommendation to pay the seller and does not affect any ranking. Free unsigned equivalent: POST /v1/agent-readiness. Verify offline with npm/PyPI twzrd-receipt-verifier."
+    },
+    {
+      "protocol": "x402",
+      "path": "/v1/intel/delivery-watch",
+      "route_template": "/v1/intel/delivery-watch",
+      "method": "POST",
+      "price_usdc": 1.0,
+      "url": "https://intel.twzrd.xyz/v1/intel/delivery-watch",
+      "description": "SELLER-FUNDED delivery watch. Pay once (from 1.00 USDC, quoted from your live 402: 30 x your unit price x 1.5, min 1.00) and TWZRD's house buyer PAYS YOUR resource once a day for 30 days with a real x402 settlement, publishing every outcome at GET /v1/intel/delivery-watch/{order_id} with an embeddable badge 'N of M paid probes delivered'. Money buys the probes and the public record, never the verdict: a failing watch is published as-is, and it is not delivery_verified, not a trust vouch, not a ranking input. Free peek first: no 402, no unit price, or a price above the 0.25 USDC probe cap is refused unpaid."
+    },
+    {
+      "protocol": "x402",
+      "path": "/v1/intel/read-page",
+      "route_template": "/v1/intel/read-page",
+      "method": "POST",
+      "price_usdc": 0.005,
+      "url": "https://intel.twzrd.xyz/v1/intel/read-page",
+      "description": "Signed page read. Returns the URL as clean Markdown plus an Ed25519 receipt binding the Markdown's SHA-256, the fetching provider, and the observation time, so an agent can later prove what it read. The receipt attests the provider's observation (origin_signed=false), not the page's truth. A fetch that fails is not charged. Verify the receipt against the published TWZRD receipt key."
+    },
+    {
+      "protocol": "x402",
+      "path": "/v1/intel/checkout-brief",
+      "route_template": "/v1/intel/checkout-brief",
+      "method": "GET",
+      "price_usdc": 0.001,
+      "url": "https://intel.twzrd.xyz/v1/intel/checkout-brief",
+      "description": "Checkout brief for the one published listing. 0.001 USDC. Query product must be that card's next_hop URL. Requires cart_hash; declared_unit_price is required when the card advertises a price. Does not pay the merchant. After payment, open next_hop for Shop Pay."
+    }
+  ],
+  "paid_http_surface": {
+    "protocol": "x402",
+    "path": "/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+    "route_template": "/v1/intel/quick/{pubkey}",
+    "price_usdc": 0.001,
+    "url": "https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+    "facilitator": "https://api.cdp.coinbase.com/platform/v2/x402",
+    "note": "Deprecated: single-entry view of the first paid hop (0.001 /quick teaser). See paid_http_surfaces for all paid HTTP routes. Multi-rail external feePayers on 402; not settle rail unless feePayer matches /supported. Path B = AutoGate refuse."
+  },
+  "registries": {
+    "smithery": {
+      "server_url": "https://smithery.ai/servers/wzrd/twzrd-agent-intel",
+      "badge_url": "https://smithery.ai/badge/wzrd/twzrd-agent-intel"
+    }
+  },
+  "tools_summary": [
+    {
+      "name": "evaluate_x402_resource",
+      "role": "url_guard",
+      "description": "Primary: fetch 402 URL, extract seller, preflight. wash_flagged=true never soft-allows. Unlabeled leftover 0.05 / leftover=0 is not a unit price."
+    },
+    {
+      "name": "get_merchant_card",
+      "role": "free_merchant_graph",
+      "description": "On-chain settlement graph card. wash_flagged=true never soft-allows (refuse). Unlabeled leftover 0.05 / leftover=0 is not a unit price. Then preflight. next_action.command is optional data under host policy."
+    },
+    {
+      "name": "get_readiness_card_tool",
+      "role": "free_preflight",
+      "description": "Free wash/captive screening (allow|warn|block). wash_flagged=true never soft-allows. Unlabeled leftover 0.05 / leftover=0 is not a unit price. next_action.command is optional data under host policy."
+    },
+    {
+      "name": "get_x402_directory",
+      "role": "discovery_overlay",
+      "description": "Optional ingested overlay; prefer HTTP GET /v1/intel/resources for SOT."
+    },
+    {
+      "name": "HTTP /supported + /verify + /settle",
+      "role": "facilitator_path_b",
+      "description": "Path B facilitator (not an MCP tool): pin kinds[].extra.feePayer from GET /supported (currently GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP)."
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_readiness_card_tool",
+      "price_usdc": 0.0,
+      "description": "Free preflight ReadinessCard (POST /v1/intel/preflight equivalent). wash_flagged=true never soft-allows. Unlabeled leftover 0.05 / leftover=0 is not a unit price. Check decision. next_action describes an optional next step. Do not stop after the free card."
+    },
+    {
+      "name": "low_level_preflight",
+      "price_usdc": 0.0,
+      "description": "Free lower-level preflight with spend recommendation. wash_flagged=true never soft-allows. Unlabeled leftover 0.05 / leftover=0 is not a unit price."
+    },
+    {
+      "name": "evaluate_x402_resource",
+      "price_usdc": 0.0,
+      "description": "One-shot URL guard: fetch 402, extract seller, preflight. wash_flagged=true never soft-allows. Unlabeled leftover 0.05 / leftover=0 is not a unit price."
+    },
+    {
+      "name": "score_wallet_for_intel",
+      "price_usdc": 0.0,
+      "description": "Free wallet intel score from cross-facilitator x402 corpus."
+    },
+    {
+      "name": "get_top_intel_agents",
+      "price_usdc": 0.0,
+      "description": "Secondary research: discovery leaderboard of observed x402 payers (not a service catalog)."
+    },
+    {
+      "name": "get_solana_market_status",
+      "price_usdc": 0.0,
+      "description": "Solana market data-service health/status (free over MCP)."
+    },
+    {
+      "name": "get_provider_reputation",
+      "price_usdc": 0.0,
+      "description": "Free provider/merchant reputation from the x402 corpus. wash_flagged=true never soft-allows (tri-state; null = never evaluated, not clean)."
+    },
+    {
+      "name": "submit_contribution_claims",
+      "price_usdc": 0.0,
+      "description": "PoECX bridge: cross-check a counterparty's self-reported settlements against TWZRD's independently-observed corpus. Preview only; claimable is always false."
+    },
+    {
+      "name": "get_poec_score",
+      "price_usdc": 0.0,
+      "description": "Free preview: PoEC v0 (Proof of Economic Contribution) from the observed corpus snapshot. claimable is always false; success_quality has no live source yet, so poec_score reads 0.0."
+    },
+    {
+      "name": "get_merchant_card",
+      "price_usdc": 0.0,
+      "description": "Free merchant card: on-chain settlement graph quality. wash_flagged=true never soft-allows (refuse). Unlabeled leftover 0.05 / leftover=0 is not a unit price. Then free preflight. next_action.command is optional data under host policy."
+    },
+    {
+      "name": "is_wash_fleet",
+      "price_usdc": 0.0,
+      "description": "Free wash/sybil-fleet check on a single wallet."
+    },
+    {
+      "name": "verify_receipt",
+      "price_usdc": 0.0,
+      "description": "Free offline v7 Ed25519 receipt verification (recompute leaf + check sig)."
+    },
+    {
+      "name": "verify_x402_settled_claim",
+      "price_usdc": 0.0,
+      "description": "Free signature-only historical settlement check against the ledger and fresh finalized Solana bytes. Returns match, mismatch, or unknown; labels merchant self-attestation. No payment decision."
+    },
+    {
+      "name": "get_facilitator_footprint",
+      "price_usdc": 0.0,
+      "description": "Free: which x402 facilitators a payer settled through."
+    },
+    {
+      "name": "get_counterparties",
+      "price_usdc": 0.0,
+      "description": "Free (capped teaser): top merchants a wallet pays (limit<=25)."
+    },
+    {
+      "name": "score_wallets_batch",
+      "price_usdc": 0.0,
+      "description": "Free: score up to 25 wallets in one call."
+    },
+    {
+      "name": "compare_wallets",
+      "price_usdc": 0.0,
+      "description": "Free: side-by-side intel for two wallets."
+    },
+    {
+      "name": "get_x402_directory",
+      "price_usdc": 0.0,
+      "description": "Free wash overlay on ingested listings (PayAI not_indexed); for resource join SOT prefer HTTP GET /v1/intel/resources."
+    },
+    {
+      "name": "verify_root_inputs",
+      "price_usdc": 0.0,
+      "description": "Free MCP + HTTP: recomputes GLOBAL_V5 leaf hashes + sorted-pair merkle root. Returns PASS|FAIL|ERROR."
+    },
+    {
+      "name": "twzrd_demo_gate",
+      "price_usdc": 0.0,
+      "description": "Free deterministic no-spend gate proof: block aborts before any signer; allow would proceed but this proof still spends nothing. Attribution remains an external candidate."
+    },
+    {
+      "name": "get_claim",
+      "price_usdc": 0.0,
+      "description": "Free: read the verified Vuori Kore Short listing-claim artifact (exact JSON + sha256)."
+    },
+    {
+      "name": "get_evidence",
+      "price_usdc": 0.0,
+      "description": "Free: read the verified evidence bundle behind those claims (exact JSON + sha256)."
+    },
+    {
+      "name": "get_shopping_check",
+      "price_usdc": 0.0,
+      "description": "Free: Vuori Agent Shopping Check, shared with the human report; source/time, unverified steps, and three editorial merchant fixes."
+    },
+    {
+      "name": "get_publication",
+      "price_usdc": 0.0,
+      "description": "Free: read the signed publication record + verify key behind those claims, to check them offline (exact JSON + sha256)."
+    },
+    {
+      "name": "check_listing",
+      "price_usdc": 0.0,
+      "description": "Free: pre-spend check of one product against the published listing cards (unknown_seller | expired | check_failed | advertised); never authorizes a payment."
+    },
+    {
+      "name": "twzrd_watch_add",
+      "price_usdc": 0.0,
+      "description": "Free: register a re-call watch on a seller wallet (webhook optional - omit for poll-only)."
+    },
+    {
+      "name": "twzrd_watch_list",
+      "price_usdc": 0.0,
+      "description": "Free: list your active re-call watches with current score/decision and recheck_after_unix."
+    },
+    {
+      "name": "twzrd_watch_remove",
+      "price_usdc": 0.0,
+      "description": "Free: deactivate a re-call watch by ID; payer_wallet must match the watch owner."
+    }
+  ],
+  "homepage": "https://intel.twzrd.xyz",
+  "first_paid_hop": {
+    "method": "GET",
+    "path": "/v1/intel/quick/{seller_payTo}",
+    "price_usdc": 0.001,
+    "note": "Own-wallet smoke uses GFpLvoc; real pays put the seller payTo in the path. The selected accepts[] entry determines the network and receiving payTo.",
+    "url": "https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs"
+  },
+  "package_version": "0.5.11",
   "gate_npm": "twzrd-x402-gate@0.11.2"
 }
