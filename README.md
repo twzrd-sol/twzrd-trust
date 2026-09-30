@@ -174,7 +174,7 @@ Expected output while the reference card is current and advertises $78:
 
 - `price_check: verified` means your declared price equals the price on the captured card. It does not mean TWZRD verified the store, the purchase, or delivery.
 - `needs_approval: true` means a human approves before the agent buys; a card that advertises no price also sets it. `needs_approval: false` means this check raised no flag. It is not clearance, and with no `declared_unit_price` the price was not checked at all.
-- `check_failed` also covers a card that cannot be read or verified, and a declared price that is not a valid number (`price_check: invalid`).
+- `check_failed` also covers a card that cannot be read or verified, and a declared price that is not a valid non-negative number (`price_check: invalid`).
 - `authorizes_spend` is always `false`: a matching card is evidence for your own spend policy, not permission to spend.
 
 What a card is, and what it is not:
@@ -182,7 +182,7 @@ What a card is, and what it is not:
 - **One reference card today:** Vuori Kore Short, Ink, US. It is an observer card (TWZRD's capture of the store's public pages), not a merchant attestation. Each published card carries an `expires_at`; after it, `check_listing` returns `expired`.
 - **Advertised means a captured page said it.** Purchase completion and delivery are not verified.
 - **Read the card and its evidence:** `get_claim` and `get_evidence`. `get_shopping_check` returns the Agent Shopping Check report, the same one as https://twzrd.xyz/shopping-check/vuori-kore/ and `GET https://intel.twzrd.xyz/v1/shopping-check/vuori-kore`.
-- **Check that the card is the one TWZRD published:** `get_publication` returns a record with `verify_key` (base64), `publication` (digests and `signature`) and `signed_message` (how the signed bytes are built). Base64-decode `verify_key` to its 32 raw bytes and compare their sha256 with the fingerprint below, which is pinned here and in skill.md; never trust a fingerprint taken from the same response. Then verify the Ed25519 `signature` over the signed bytes with that key, and check that the sha256 of the `text` returned by `get_claim` and `get_evidence` equals `publication.artifact_digest` and `publication.evidence_digest`. A valid signature shows that TWZRD published these bytes; it is not a merchant attestation.
+- **Check that the card is the one TWZRD published:** `get_publication` returns the publication record as JSON in its `text` field: `verify_key` (base64), `publication` (the digests and a base64 `signature`) and `signed_message` (how the signed bytes are built). Base64-decode `verify_key` to its 32 raw bytes and compare their sha256 with the fingerprint below. This README is the independent pin: skill.md carries the same value but is served by the same host as the key, and a fingerprint taken from the same response proves nothing. Then verify the Ed25519 `signature` over the signed bytes with that key, and check that the sha256 of the `text` returned by `get_claim` and `get_evidence` equals `publication.artifact_digest` and `publication.evidence_digest`. A valid signature shows that TWZRD published these bytes; it is not a merchant attestation.
 
   ```text
   sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
