@@ -1,6 +1,6 @@
 # TWZRD Agent Intelligence — Counterparty Trust & Spend Control for Solana x402
 
-> **100% Free • No API Key • No Wallet Required • Zero Config**
+> **Free tools • No API Key • No Wallet Required • Zero Config**
 
 Vet any counterparty wallet **before** you sign or send USDC over x402. Blocks happen before your private key is ever reached (**`signerInvocations: 0`** on block) — protecting your agent against malicious sellers, wash trading, and unvetted contracts.
 
@@ -54,9 +54,20 @@ Expected output:
 
 ---
 
+## Product Listings (Agent Shopping)
+
+Before an agent buys a product from a store, the free `check_listing(product_url, declared_unit_price)` tool
+compares it with TWZRD's published listing-claim card (one reference card today: Vuori Kore Short, Ink, US;
+an observer card, not a merchant attestation). A price above the advertised one is refused
+(`phantom_markup_detected`); a price below it, or a card with no advertised price, sets `needs_approval`.
+`authorizes_spend` is always `false`, and purchase completion and delivery are not verified.
+Report: https://twzrd.xyz/shopping-check/vuori-kore/
+
+---
+
 ## Data Sent & Privacy Disclosure
 
-- **What is sent:** Target seller wallet address, requested resource URL, and proposed spend amount.
+- **What is sent:** Target seller wallet address, requested resource URL, and proposed spend amount; for a listing check, the product URL and declared unit price.
 - **What is NEVER sent:** Private keys, seed phrases, client keystores, or internal agent prompts.
 - **Custody:** Non-custodial. TWZRD never executes transactions on your behalf.
 
@@ -64,7 +75,7 @@ Expected output:
 
 ## How to Install
 
-### Option A: Zero-Install Hosted MCP (Recommended — 22 Tools)
+### Option A: Zero-Install Hosted MCP (Recommended)
 Add to your Cursor / Claude / Windsurf MCP config:
 ```json
 {
