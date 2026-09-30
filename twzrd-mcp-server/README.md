@@ -12,7 +12,7 @@ behavior. It does not prove a person, company, or autonomous agent identity.
 when you want local auto-pay for paid intel.**
 
 ```json
-// Recommended — 22 tools, no wallet, nothing to install
+// Recommended — full hosted tool set, no wallet, nothing to install
 { "mcpServers": { "twzrd": { "url": "https://intel.twzrd.xyz/mcp" } } }
 ```
 
@@ -28,10 +28,10 @@ pip install twzrd-mcp          # Python
 
 ## Which surface do I want?
 
-| Surface | Tools | Wallet | Use when |
+| Surface | Tool set | Wallet | Use when |
 |---------|-------|--------|----------|
-| `https://intel.twzrd.xyz/mcp` (hosted) | 22 | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, and observed-market research. |
-| `twzrd-mcp-server` / `twzrd-mcp` (this local package) | 6 | Only for paid | You want `quick_trust` / `full_trust` auto-paid locally with caps. |
+| `https://intel.twzrd.xyz/mcp` (hosted) | Full hosted set (live `tools/list`) | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, product-listing checks (`check_listing`), and observed-market research. |
+| `twzrd-mcp-server` / `twzrd-mcp` (this local package) | 6 local tools | Only for paid | You want `quick_trust` / `full_trust` auto-paid locally with caps. |
 
 Start with hosted `twzrd_demo_gate` for a zero-setup, zero-spend proof of the
 block path. The hosted MCP is also [listed on Smithery](https://smithery.ai/servers/wzrd/twzrd-agent-intel).
