@@ -145,7 +145,7 @@ Two independent external implementations have already reproduced it.
 | Implementation + tests | [`twzrd-x402-gate/`](./twzrd-x402-gate/) in this repo |
 | External review map, mainnet ground truth | [REVIEW.md](./REVIEW.md) |
 | The 7-day integration milestone | [MILESTONE.md](./MILESTONE.md) |
-| Live verifier + merchant intel | `https://intel.twzrd.xyz` (free advisory preflight; signed payment decision **$0.001** `payment_decision.v1`) |
+| Live verifier + merchant intel | `https://intel.twzrd.xyz` (free advisory preflight; `quickCheck` **$0.001**: seller wash risk, tier and score) |
 
 Questions or a broken sample: open an issue on this repo. A sample that does
 not run exactly as shown is a bug.

@@ -7,7 +7,7 @@
       "title": "x402 services",
       "you_are": "an agent about to pay an x402 seller",
       "free": "Readiness card (allow, warn or block), wash flags, seller reputation, offline receipt check.",
-      "paid": "$0.001 signed payment decision (`twzrd.payment_decision.v1`); optional $0.05 trust receipt, a signed V7 receipt when you pay on Solana."
+      "paid": "$0.001 `quickCheck` (seller wash risk, tier and score, no receipt); optional $0.05 trust receipt, a signed V7 receipt when you pay on Solana."
     },
     {
       "title": "Product listings",
@@ -26,14 +26,14 @@
     },
     {
       "name": "[`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate)",
-      "alone": "Wraps an x402 client's pay path: asks the hosted checks about the seller before your signer runs, refuses a block (the signer is never invoked), and enforces a spend cap.",
+      "alone": "Wraps an x402 client's pay path: asks the hosted checks about the seller before your signer runs, refuses a block (the signer is never invoked), enforces a spend cap, and can record each decision as a `twzrd.payment_decision.v1` signed with your own signer.",
       "plugged_in": "Decisions come from the hosted checks; pairs with `x402-solana` or `@x402/fetch` as the payer.",
       "install": "`npm install twzrd-x402-gate`"
     },
     {
       "name": "[`twzrd-preflight`](https://github.com/twzrd-sol/twzrd-preflight)",
-      "alone": "OpenClaw plugin: install it and every HTTP 402 is checked before a signer can attach payment (enforce and fail-closed by default).",
-      "plugged_in": "Runs the same checks as the gate, against the hosted checks.",
+      "alone": "OpenClaw plugin: assign its wrapped fetch to the client and every 402 that passes through it is checked before a signer can attach payment (enforce and fail-closed by default).",
+      "plugged_in": "Matches the gate's wrapper and adds OpenClaw tool-call gating, against the hosted checks. Payments outside the wrapped fetch (a ClawRouter proxy, unparsed exec or curl) are not covered.",
       "install": "`npm install twzrd-preflight`"
     },
     {

@@ -4,7 +4,7 @@
 
 Vet any counterparty wallet **before** you sign or send USDC over x402. Blocks happen before your private key is ever reached (**`signerInvocations: 0`** on block) — protecting your agent against malicious sellers, wash trading, and unvetted contracts.
 
-Advisory preflight is free ($0). A signed payment decision is **$0.001** (`twzrd.payment_decision.v1` / `quickCheck`). Optional Path A V7 receipts are $0.05 and are not the primary SKU. Pin: `twzrd-x402-gate@0.11.2`.
+Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** (seller wash risk, tier and score; no receipt), and the gate can record each decision as a `twzrd.payment_decision.v1` signed with your own signer. Optional Path A V7 receipts are $0.05 and are not the primary SKU. Pin: `twzrd-x402-gate@0.11.2`.
 
 ---
 
