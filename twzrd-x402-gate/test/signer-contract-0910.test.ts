@@ -60,7 +60,11 @@ async function run() {
     }
   }
   const compat = readFileSync(join(pkgRoot, "COMPATIBILITY.md"), "utf8");
-  assert.match(compat, /0\.11\.2 is the released identity/);
+  // Follows package.json, so a release that forgets COMPATIBILITY.md goes red.
+  assert.ok(
+    compat.includes(`${pkg.version} is the released identity`),
+    `COMPATIBILITY.md must name ${pkg.version} as the released identity`,
+  );
   assert.doesNotMatch(pkg.description, /Fail-closed by default/);
   assert.match(pkg.description, /not uniformly fail-closed/);
   assert.match(pkg.description, /Base mainnet \(eip155:8453\)/);
