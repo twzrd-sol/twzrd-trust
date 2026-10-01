@@ -25,9 +25,9 @@ description: |
   shopping check, before buying a product, listing claims
 homepage: https://intel.twzrd.xyz
 metadata:
-  version: "1.13.34"
+  version: "1.13.36"
   canonical_url: https://intel.twzrd.xyz/skill.md
-  gate_npm: twzrd-x402-gate@0.11.2
+  gate_npm: twzrd-x402-gate@0.11.4
   x402_solana_npm: x402-solana@3.0.0
   # Floor, not an exact pin: a receipt verifier should track the newest
   # signature-checking code, and an exact pin goes stale on every publish.
@@ -129,14 +129,14 @@ curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 # 2) PRIMARY seat — stock PayAI client beforePayment (x402-solana@3.0.0).
 #    Gate runs AFTER requirement selection, BEFORE signTransaction. Do not only
 #    describe the enrollment step — seat the gate on a signer path.
-npm install twzrd-x402-gate@0.11.2 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0
 # createX402Client({ wallet, network: "solana",
 #   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })
 
 # 2b) Prove refuse-before-sign (signer=0). Published tarball has no examples/;
 #     bin/ is the proof path. Optional peers are not auto-installed, so on a
 #     cold machine run the full line first:
-# npm install twzrd-x402-gate@0.11.2 x402-solana@3.0.0 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+# npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 
 # 3) OPTIONAL Path A (paid intel) — start at 0.001 USDC /quick. Does not enforce.
@@ -197,7 +197,7 @@ exist. Correct install is `clawhub install` or `npx clawhub install` above.
 **Primary (stock PayAI `x402-solana@3.0.0`):**
 
 ```bash
-npm install twzrd-x402-gate@0.11.2 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0
 ```
 
 ```ts
@@ -292,7 +292,7 @@ Opt out: `requireReceipt: false` and/or `escalateOnWarn: false`.
 **Fallback CLI only** (agents that only run a script and stop do not clear W1):
 
 ```bash
-npm install twzrd-x402-gate@0.11.2 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+npm install twzrd-x402-gate@0.11.4 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 
@@ -415,7 +415,7 @@ feePayer, submits the payment, and best-effort attaches V7 receipt + merchant_at
 If the seller's wash status was never evaluated, the attach still succeeds but the leaf ships **unsigned** (`merchant_attach.signed: false`, `reason: wash_unknown_unsigned`) — a numeric confidence field cannot encode 'never checked', so TWZRD refuses to sign a clean-looking attestation for an unevaluated merchant. Check `signed` before treating an attach as proof.
 (Naming: agent guides use "Path B" for the buyer-side refuse seat — AutoGate. This
 section is NOT that; it is only the facilitator settle rail.) `POST /settle`
-**does** call `evaluate_settle_gate` (seated 2026-08-19, #2049). Whether a
+**does** call `evaluate_settle_gate` (seated 2026-08-19). Whether a
 below-threshold seller is actually refused is runtime config: read
 `settle_gate_enforcing` from `GET /health`. As of 2026-08-19 production runs
 `enabled=true` + `shadow=false` → `enforcing=true` (a below-threshold seller is
