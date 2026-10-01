@@ -25,9 +25,9 @@ The hook matches the `onBeforeSettle(ctx)` contract of `daydreamsai/facilitator`
 | `intelBase` | `https://intel.twzrd.xyz` | Preflight host |
 | `timeoutMs` | `500` | Milliseconds before the hook gives up on the preflight |
 | `failOpen` | `false` | `false` blocks the settle when the preflight is unreachable; `true` allows it |
-| `solanaOnly` | `true` | Only settles on a `solana:*` network are checked; other networks pass through unchecked |
+| `solanaOnly` | `true` | Only settles on a Solana network are checked (`solana:*`, plus `mainnet-beta`, `mainnet`, `devnet`, `testnet` and `localnet`); other networks pass through unchecked |
 | `minScore` | `0` | Also block when the trust score is below this, even if the decision is not `block`. Unknown sellers score 45, so a value above 45 blocks every seller not seen before |
-| `onVerdict` | none | Callback that receives every verdict, including allows and outage results |
+| `onVerdict` | none | Callback that receives every verdict the hook computes, including allows and outage results. It is not called when the hook returns early (no seller wallet, or a non-Solana network) |
 | `fetchImpl` | `globalThis.fetch` | Inject a fetch for tests or runtimes without one |
 
 ## No hook seam on your facilitator
@@ -42,7 +42,7 @@ if (!(await canSpendSafely(payTo))) {
 }
 ```
 
-`canSpendSafely` returns `false` when the preflight says block, and applies the same `failOpen` rule when the preflight is unreachable.
+`canSpendSafely` returns `false` whenever the verdict is blocked: a preflight block, a `minScore` block, or an unreachable preflight with `failOpen` off. Its own default timeout is 4000 ms (the hook's is 500 ms).
 
 ## What this does and does not do
 

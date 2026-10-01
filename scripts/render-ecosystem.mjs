@@ -37,11 +37,16 @@ export function render(eco) {
 function loadEco() {
   return JSON.parse(readFileSync(join(root, "docs/ecosystem.json"), "utf8"));
 }
+const count = (text, needle) => text.split(needle).length - 1;
 function extract(text) {
+  // One marker pair exactly: a second, drifted copy must not slip past the check.
+  if (count(text, BEGIN) !== 1 || count(text, END) !== 1) return null;
   const i = text.indexOf(BEGIN), j = text.indexOf(END);
-  if (i < 0 || j < 0 || j < i) return null;
+  if (j < i) return null;
   return { before: text.slice(0, i), body: text.slice(i + BEGIN.length, j), after: text.slice(j) };
 }
+// Checkouts with autocrlf rewrite line endings; compare content, not endings.
+const lf = (text) => text.replace(/\r\n/g, "\n");
 const wrap = (block) => `\n${block}\n`;
 
 const mode = process.argv[2] ?? "--check";
@@ -51,16 +56,16 @@ if (mode === "--print") {
 } else if (mode === "--write") {
   for (const t of TARGETS) {
     const p = join(root, t);
-    const x = extract(readFileSync(p, "utf8"));
-    if (!x) { console.error(`${t}: markers missing`); process.exit(1); }
+    const x = extract(lf(readFileSync(p, "utf8")));
+    if (!x) { console.error(`${t}: expected exactly one begin and one end marker`); process.exit(1); }
     writeFileSync(p, x.before + BEGIN + wrap(block) + x.after);
     console.log(`${t}: written`);
   }
 } else if (mode === "--check") {
   let bad = 0;
   for (const t of TARGETS) {
-    const x = extract(readFileSync(join(root, t), "utf8"));
-    if (!x) { console.error(`${t}: markers missing`); bad++; continue; }
+    const x = extract(lf(readFileSync(join(root, t), "utf8")));
+    if (!x) { console.error(`${t}: expected exactly one begin and one end marker`); bad++; continue; }
     if (x.body !== wrap(block)) { console.error(`${t}: block differs from docs/ecosystem.json (run: node scripts/render-ecosystem.mjs --write)`); bad++; }
   }
   if (bad) process.exit(1);

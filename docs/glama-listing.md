@@ -99,4 +99,4 @@ npm install twzrd-x402-gate@0.11.2 x402-solana@3.0.0
 
 ## Outage behavior
 
-The gate and the plugins fail closed by default: if the TWZRD checks are unreachable, the payment is refused. Set the fail-open option only if you want payments to continue when the checks are down.
+The buyer-side paths fail closed by default: the gate's buyer path, `twzrd-preflight` and `@wzrd_sol/plugin-trustgate` refuse a payment when the TWZRD checks are unreachable. The seller-side guards are advisory and fail open by default: the gate's settle guard and PayAI hook, and the hook in `twzrd-mcp-server`. Each README says how to change the default.

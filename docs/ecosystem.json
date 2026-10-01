@@ -7,7 +7,7 @@
       "title": "x402 services",
       "you_are": "an agent about to pay an x402 seller",
       "free": "Readiness card (allow, warn or block), wash flags, seller reputation, offline receipt check.",
-      "paid": "$0.001 signed clearance; optional $0.05 signed trust receipt."
+      "paid": "$0.001 signed payment decision (`twzrd.payment_decision.v1`); optional $0.05 signed trust receipt."
     },
     {
       "title": "Product listings",
@@ -21,7 +21,7 @@
       "name": "Hosted checks",
       "link": "https://intel.twzrd.xyz/llms.txt",
       "alone": "Free checks with nothing to install: is this x402 seller safe to pay, and does this store listing match a published card.",
-      "plugged_in": "Every piece below calls it; it is where the decisions and the signed receipts come from.",
+      "plugged_in": "The pieces below that screen a payment call it; it is where the decisions and the signed receipts come from. The receipt verifier needs no server.",
       "install": "Add `https://intel.twzrd.xyz/mcp` to an MCP client"
     },
     {
@@ -62,8 +62,8 @@
     },
     {
       "name": "Seller starters: [`x402-solana-starter`](https://github.com/twzrd-sol/x402-solana-starter), [`x402-seller-starter`](https://github.com/twzrd-sol/x402-seller-starter)",
-      "alone": "Cloudflare Worker templates for selling a paid API to agents over x402.",
-      "plugged_in": "Pre-wired to the TWZRD facilitator and settle guard, so your buyers can be checked the same way.",
+      "alone": "Cloudflare Worker templates for selling a paid API to agents over x402: `x402-solana-starter` is the production-style Solana storefront (x402 v2), `x402-seller-starter` a minimal wedge.",
+      "plugged_in": "Both default to the TWZRD facilitator. `x402-solana-starter` also runs a settle guard, advisory and fail-open, that screens payers through the hosted checks.",
       "install": "Deploy button in each repo"
     }
   ],
