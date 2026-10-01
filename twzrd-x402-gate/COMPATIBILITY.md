@@ -1,6 +1,6 @@
 # Compatibility note — twzrd-x402-gate 0.9.3 → 0.9.4
 
-0.11.4 is the released identity of this package and npm `latest`. 0.11.2 and 0.11.3 are deprecated on npm; the `paying-client-fail-closed` dist-tag still points at 0.11.2.
+0.11.4 is the released identity of this package and npm `latest`. 0.11.2 and 0.11.3 are deprecated on npm. The `paying-client-fail-closed` dist-tag also points at 0.11.4.
 
 0.11.3 and 0.11.4 are security fixes; each change adds a refusal or makes one reliable. The paying and policy fetch wrappers check every offer and refuse an entry with no recipient; every boolean flag is read by one parser, so `failOpen: "false"` stays closed; the policy seat refuses a non-USDC asset instead of reading its base units as USD; and the Base Worker scores case and whitespace variants of the Base network name (`BASE`, `base`, or `eip155:8453` with a trailing space). See `CHANGELOG.md`.
 
@@ -77,7 +77,7 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` dist-tag: **0.11.4**. `paying-client-fail-closed`: **0.11.2** (deprecated; the tag has not moved). `0.10.0` and `0.10.1` are deprecated as
+- `latest` and `paying-client-fail-closed` dist-tags: **0.11.4**. `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
   public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.11.4 as the
