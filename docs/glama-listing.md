@@ -99,4 +99,4 @@ npm install twzrd-x402-gate@0.11.2 x402-solana@3.0.0
 
 ## Outage behavior
 
-The buyer-side paths fail closed by default: the gate's buyer path, `twzrd-preflight` and `@wzrd_sol/plugin-trustgate` refuse a payment when the TWZRD checks are unreachable. The seller-side guards are advisory and fail open by default: the gate's settle guard and PayAI hook, and the hook in `twzrd-mcp-server`. Each README says how to change the default.
+The buyer-side paths fail closed by default: the gate's buyer path, `twzrd-preflight` and `@wzrd_sol/plugin-trustgate` refuse a payment when the TWZRD checks are unreachable. Two things fail open instead: the pre-signature wash check in `twzrd-mcp-server` (buyer-side), and the seller-side guards, which are advisory: the gate's settle guard (its README documents `failOpen: false`) and its PayAI hook.

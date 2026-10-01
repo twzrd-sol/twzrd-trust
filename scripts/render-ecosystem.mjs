@@ -54,11 +54,18 @@ const block = render(loadEco());
 if (mode === "--print") {
   console.log(block);
 } else if (mode === "--write") {
+  // Validate every target first so a bad file cannot leave the others half-updated.
+  const plan = [];
   for (const t of TARGETS) {
     const p = join(root, t);
-    const x = extract(lf(readFileSync(p, "utf8")));
-    if (!x) { console.error(`${t}: expected exactly one begin and one end marker`); process.exit(1); }
-    writeFileSync(p, x.before + BEGIN + wrap(block) + x.after);
+    const raw = readFileSync(p, "utf8");
+    const x = extract(lf(raw));
+    if (!x) { console.error(`${t}: expected exactly one begin and one end marker; nothing written`); process.exit(1); }
+    plan.push({ t, p, x, crlf: raw.includes("\r\n") });
+  }
+  for (const { t, p, x, crlf } of plan) {
+    const out = x.before + BEGIN + wrap(block) + x.after;
+    writeFileSync(p, crlf ? out.replace(/\n/g, "\r\n") : out);  // keep the file's own line endings
     console.log(`${t}: written`);
   }
 } else if (mode === "--check") {
