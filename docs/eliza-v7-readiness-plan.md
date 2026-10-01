@@ -73,9 +73,9 @@ artifact resync.
 1. Restore or obtain the actual upstream Eliza plugin source.
 
    Done in-repo: `eliza-plugin-source/` restores the 98e4b78 baseline and
-   forward-ports `merchant-card` from the 0.6.1 artifact. The private
-   `wzrd-final` tree still holds 0.6.1 / V6 and is not imported (see that
-   package's README). A release should publish from this restored source.
+   forward-ports `merchant-card` from the 0.6.1 artifact. A private upstream
+   tree still holds 0.6.1 / V6 and is not imported (see that package's
+   README). A release should publish from this restored source.
 
 2. Update paid trust action semantics.
 
@@ -116,8 +116,8 @@ artifact resync.
 
 - Do not hand-edit `eliza-plugin/dist/` and call it a source migration.
 - Do not broaden package pins as a substitute for V7 receipt handling.
-- Do not import implementation from `witness`, `outbid`, `trade`, `wzrd-final`,
-  or other lanes.
+- Do not import implementation from `witness`, `outbid`, `trade`, the private
+  upstream monorepo, or other lanes.
 - Do not make `server/` buildable as part of this work.
 
 ## Completion evidence

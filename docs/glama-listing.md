@@ -29,26 +29,29 @@ Expected output:
 
 ---
 
-## Sample Preflight Responses
+## Sample Responses
 
-### 1. Blocked Seller (`wash_flagged`)
+Trimmed from live responses on 2026-10-01. The warn is the free preflight (`POST /v1/intel/preflight`) for a seller TWZRD has seen; the block is the no-spend demo gate. Field values change as the observed corpus changes; run the calls yourself for current output.
+
+### A warn: proceed only within the cap
 ```json
 {
-  "decision": "block",
-  "trust_score": 12,
-  "can_spend": false,
-  "reason": "twzrd_wash_flagged",
-  "risk_factors": ["wash_trading_cluster", "circular_flow_detected"]
+  "decision": "warn",
+  "can_spend": true,
+  "recommended_action": "proceed_with_cap",
+  "maximum_recommended_spend_usdc": 0.01,
+  "confidence": "medium",
+  "wash_flagged": false
 }
 ```
 
-### 2. Allowed Seller (Verified Counterparty)
+### A block: the signer is never invoked
 ```json
 {
-  "decision": "allow",
-  "trust_score": 92,
-  "can_spend": true,
-  "recommended_cap_usdc": 10.00
+  "verdict": "block",
+  "approved": false,
+  "signer_invocations": 0,
+  "reason": "trust decision=block: gate aborts, wallet never contacted"
 }
 ```
 
@@ -94,6 +97,6 @@ npm install twzrd-x402-gate@0.11.2 x402-solana@3.0.0
 
 ---
 
-## Performance & Availability
-- **Latency:** ~45ms average preflight response time.
-- **SLA & Uptime:** 99.9% availability backed by global edge infrastructure. Fail-open and fail-closed policies configurable via client options.
+## Outage behavior
+
+The buyer-side paths fail closed by default: the gate's buyer path, `twzrd-preflight` and `@wzrd_sol/plugin-trustgate` refuse a payment when the TWZRD checks are unreachable. Two things fail open instead: the pre-signature wash check in `twzrd-mcp-server` (buyer-side), and the seller-side guards, which are advisory: the gate's settle guard (its README documents `failOpen: false`) and its PayAI hook.

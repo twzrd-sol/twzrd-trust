@@ -8,13 +8,13 @@ below-threshold seller counterparty is refused settlement — HTTP 402,
 `charged: false`, no transaction — on `POST /settle` and on the paid routes
 that accept a seller counterparty parameter.
 
-**Preconditions in place before the flip** (each verifiable in
-`twzrd-sol/wzrd-final` history):
+**Preconditions in place before the flip** (each is recorded in TWZRD's
+private source history):
 
 - The gate was seated on the path that actually settles, with durable
-  per-decision logging to the `x402_gate_decisions` ledger (#2049, merged
+  per-decision logging to the `x402_gate_decisions` ledger (merged
   2026-08-19).
-- Internal house payers were exempted (#2078), so the gate cannot refuse
+- Internal house payers were exempted, so the gate cannot refuse
   TWZRD's own operational traffic and an enforce error cannot be masked by a
   house workaround.
 - The decision threshold (35) was set in runtime config before activation and
