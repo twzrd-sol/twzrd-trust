@@ -68,7 +68,9 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
             opts.onAudit?.(d);
             throw new TwzrdPolicyAbortError(d);
           }
-          if (offer === preferred || !intent) { intent = it; decision = d; }
+          // The client may pay any entry (default selector: accepts[0]), so the ledger books the
+          // costliest one rather than the preferred one; the daily ceiling cannot be undercounted.
+          if (!intent || toMicroUsd(it.amount) > toMicroUsd(intent.amount) || (toMicroUsd(it.amount) === toMicroUsd(intent.amount) && offer === preferred)) { intent = it; decision = d; }
         }
         if (!intent || !decision) return resp;
         pending = { payTo: intent.payTo, amount: intent.amount, decision };
