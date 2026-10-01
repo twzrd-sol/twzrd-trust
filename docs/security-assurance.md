@@ -15,7 +15,7 @@ TWZRD provides **spend control and counterparty trust** for autonomous agents pa
 The security loop is:
 1. **Discover:** evaluate counterparty identity and endpoint requirements.
 2. **Preflight:** request a free advisory decision (`ReadinessCard`) and wash-screening.
-3. **Clearance (optional):** signed `twzrd.payment_decision.v1` / `quickCheck` at **$0.001**. Path A $0.05 V7 is not the primary SKU.
+3. **Paid check (optional):** `quickCheck` at **$0.001** (tier and score). Separately, the gate can issue a `twzrd.payment_decision.v1` from its decision, signed with your own signer. Path A $0.05 V7 is not the primary SKU.
 4. **Enforce:** intercept before `wallet.signTransaction` (`signerInvocations: 0` on block).
 5. **Bind:** bind settled on-chain transfers to the evaluated 402 offer (`bind-v1`).
 6. **Verify:** independently verify portable Ed25519 V5, V6, or V7 receipts offline.
