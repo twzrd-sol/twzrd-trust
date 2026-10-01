@@ -2,7 +2,7 @@
 
 0.11.4 is the released identity of this package and npm `latest`. 0.11.2 and 0.11.3 are deprecated on npm; the `paying-client-fail-closed` dist-tag still points at 0.11.2.
 
-0.11.3 and 0.11.4 are security fixes; each change adds a refusal or makes one reliable. The paying and policy fetch wrappers check every offer and refuse an entry with no recipient; every boolean flag is read by one parser, so `failOpen: "false"` stays closed; the policy seat refuses a non-USDC asset instead of reading its base units as USD; and the Base Worker scores every spelling of the Base network. See `CHANGELOG.md`.
+0.11.3 and 0.11.4 are security fixes; each change adds a refusal or makes one reliable. The paying and policy fetch wrappers check every offer and refuse an entry with no recipient; every boolean flag is read by one parser, so `failOpen: "false"` stays closed; the policy seat refuses a non-USDC asset instead of reading its base units as USD; and the Base Worker scores case and whitespace variants of the Base network name (`BASE`, `base`, a trailing space). See `CHANGELOG.md`.
 
 0.11.2 is a security fix from a line-by-line audit of 0.11.1: an amount that is not an ASCII base-unit integer is refused on every entry point (`amount_malformed`); fetch wrappers and the MCP hook check every offer in `accepts[]`, not one; `./cloudflare-base` applies the package's signing rules instead of signing on any non-block verdict; genuine USDC is no longer refused when the network is omitted or spelled `mainnet-beta`; free intel calls have a deadline (`intelTimeoutMs`). See `CHANGELOG.md`.
 
