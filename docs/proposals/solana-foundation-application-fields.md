@@ -9,7 +9,7 @@ Linked proposal (Developer Tooling dropdown) — public and live:
     https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proposals/solana-x402-trust-tooling.md
 
 > Use the `main` blob URL. Branch URLs die when the branch is deleted on merge.
-> Do not paste a `wzrd-final` link anywhere: that repo is private and 404s for reviewers.
+> Do not paste a link to TWZRD's private source repository anywhere: it is private and 404s for reviewers.
 
 ## Recommended Form Choices
 
