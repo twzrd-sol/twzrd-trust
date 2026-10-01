@@ -365,7 +365,6 @@ export {
 } from "./policy-runtime.js";
 export {
   ap2CheckoutToIntent,
-  ap2CheckoutToIntent,
   TwzrdUnpricedAssetError,
   x402RequirementsToIntent,
   type Ap2Cart,
