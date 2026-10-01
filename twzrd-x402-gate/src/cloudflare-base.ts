@@ -122,13 +122,24 @@ export async function twzrdBasePreflight(
 }
 
 
+/**
+ * A Base entry by network name or chain id, read case- and whitespace-insensitively ("BASE",
+ * "eip155:8453 ") so a spelling variant is scored, not skipped. This Worker pays EVM entries
+ * only: Solana siblings are not its to sign and are deliberately not scored here (0.11.4).
+ */
+function isBaseEntry(c: Record<string, unknown>): boolean {
+  const network = typeof c.network === "string" ? c.network.trim().toLowerCase() : undefined;
+  const chainId = c.chainId ?? c.chain_id;
+  const chain = typeof chainId === "string" ? chainId.trim() : chainId;
+  return network === BASE_NETWORK || network === "base" || chain === BASE_CHAIN_ID || chain === String(BASE_CHAIN_ID);
+}
+
 /** One requirements object per Base entry, so every entry the Worker could sign is evaluated (0.11.3). */
 function perBaseEntry(requirements: CloudflareBaseRequirements): CloudflareBaseRequirements[] {
   const accepts = Array.isArray(requirements.accepts) ? requirements.accepts : [];
   const base = accepts.filter((c) => {
     if (!c || typeof c !== "object") return false;
-    const chainId = c.chainId ?? c.chain_id;
-    return c.network === BASE_NETWORK || chainId === BASE_CHAIN_ID || chainId === String(BASE_CHAIN_ID);
+    return isBaseEntry(c);
   });
   if (base.length === 0) return [requirements];
   if (base.length > 8) throw new OfferRefusal("too_many_payment_options", "[twzrd] more than 8 Base offers");
@@ -222,12 +233,7 @@ function refusalCode(error: unknown): string {
  */
 function baseOffer(requirements: CloudflareBaseRequirements): { payTo: string; priceUsdc: number } {
   const accepts = Array.isArray(requirements.accepts) ? requirements.accepts : [];
-  const accept = accepts.find((candidate) => {
-    if (!candidate || typeof candidate !== "object") return false;
-    const network = candidate.network;
-    const chainId = candidate.chainId ?? candidate.chain_id;
-    return network === BASE_NETWORK || chainId === BASE_CHAIN_ID || chainId === String(BASE_CHAIN_ID);
-  });
+  const accept = accepts.find((candidate) => !!candidate && typeof candidate === "object" && isBaseEntry(candidate));
   const payTo = accept?.payTo ?? accept?.pay_to;
   if (typeof payTo !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(payTo)) {
     throw new OfferRefusal("twzrd_unidentifiable_payment_recipient", "[twzrd] Base x402 requirements lack a valid eip155:8453 payTo");
@@ -245,7 +251,12 @@ function baseOffer(requirements: CloudflareBaseRequirements): { payTo: string; p
   if (asset != null && String(asset).toLowerCase() !== BASE_USDC) {
     throw new OfferRefusal("twzrd_non_usdc_asset", "[twzrd] Base offer names an asset other than USDC");
   }
-  return { payTo, priceUsdc: Number(amount) / 1_000_000 };
+  const priceUsdc = Number(amount) / 1_000_000;
+  // 400 digits overflow Number to Infinity; the Solana hook refuses that as twzrd_invalid_price.
+  if (!Number.isFinite(priceUsdc)) {
+    throw new OfferRefusal("twzrd_invalid_price", "[twzrd] Base offer amount is out of range");
+  }
+  return { payTo, priceUsdc };
 }
 
 /**

@@ -28,6 +28,11 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.11.4 - 2026-10-01 (security fix)
+
+- **`createTwzrdPolicyFetch` and the x402 intent adapter refuse a non-USDC asset** (`twzrd_non_usdc_asset`) instead of reading its base units as USD: 5 wSOL (`500000000`) passed a $1000 cap as "$500". The hook and approval seats already refused it; the policy seat now agrees. A bare `"USDC"` symbol is not a mint and is refused like any other non-mint asset on a network with a known USDC set. The MPP seat has its own priced-asset table and is unchanged (it also prices USDT 1:1; the x402 seats do not).
+- **Base Worker**: an entry whose network is spelled `BASE`, `base` or `eip155:8453 ` is scored like `eip155:8453` (it was skipped, so a clean sibling could approve a wash one). An amount too large for a finite number is refused (`twzrd_invalid_price`). The Worker pays EVM entries only; Solana siblings are not scored by it.
+
 ## 0.11.3 — 2026-10-01 (security fix)
 
 Follow-up to a red-team of the published 0.11.2. Every change adds a refusal or makes one reliable.

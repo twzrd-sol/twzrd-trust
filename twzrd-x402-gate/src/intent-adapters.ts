@@ -77,9 +77,7 @@ export function x402RequirementsToIntent(
     throw new TwzrdUnpricedAssetError(`[twzrd] x402 requirement amount is not a base-unit integer`);
   }
   // amount / 10^6 is a USD price only for USDC; 5e8 wSOL would read as $500 (0.11.4).
-  // The bare symbol "USDC" (v1 offers, fixtures) is not a mint; payers cannot build a transfer
-  // from it, so it keeps the USDC reading rather than breaking symbol-only integrations.
-  const named = typeof req.asset === "string" && req.asset.trim() !== "" && req.asset.trim().toUpperCase() !== "USDC";
+  const named = typeof req.asset === "string" && req.asset.trim() !== "";
   if (named && hasUsdcTable(req) && !isUsdcRequirement(req as Record<string, unknown>)) {
     throw new TwzrdUnpricedAssetError(`[twzrd] x402 requirement asset is not USDC; no USD price`);
   }
