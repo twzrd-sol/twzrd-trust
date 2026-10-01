@@ -48,6 +48,8 @@ export async function twzrdOnPaymentRequested(
       config,
       resourceUrl: legacy.context?.resource,
       agentIntent: "x402_mcp_onPaymentRequested",
+      resourceName: toolName,
+      buyerWallet: (real as { buyerWallet?: string }).buyerWallet ?? (legacy.context as { buyerWallet?: string } | undefined)?.buyerWallet,
     });
     if (refused) {
       console.warn("[twzrd] blocked x402 payment:", refused.reason, {

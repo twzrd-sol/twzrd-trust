@@ -121,21 +121,40 @@ export async function twzrdBasePreflight(
   }
 }
 
+
+/** One requirements object per Base entry, so every entry the Worker could sign is evaluated (0.11.3). */
+function perBaseEntry(requirements: CloudflareBaseRequirements): CloudflareBaseRequirements[] {
+  const accepts = Array.isArray(requirements.accepts) ? requirements.accepts : [];
+  const base = accepts.filter((c) => {
+    if (!c || typeof c !== "object") return false;
+    const chainId = c.chainId ?? c.chain_id;
+    return c.network === BASE_NETWORK || chainId === BASE_CHAIN_ID || chainId === String(BASE_CHAIN_ID);
+  });
+  if (base.length === 0) return [requirements];
+  if (base.length > 8) throw new OfferRefusal("too_many_payment_options", "[twzrd] more than 8 Base offers");
+  return base.map((entry) => ({ ...requirements, accepts: [entry] }));
+}
+
 /** Cloudflare `withX402Client` callback: true permits the retry; false aborts it. */
 export function createTwzrdCloudflareBaseApproval(
   options: CloudflareBaseGateOptions = {},
 ): (requirements: CloudflareBaseRequirements) => Promise<boolean> {
   return async (requirements) => {
-    let offer: { payTo: string; priceUsdc: number };
+    let entries: CloudflareBaseRequirements[];
+    const offers: Array<{ payTo: string; priceUsdc: number }> = [];
     try {
-      offer = baseOffer(requirements);
+      entries = perBaseEntry(requirements);
+      for (const e of entries) offers.push(baseOffer(e));
     } catch {
       // A malformed or non-USDC offer is not an outage: failOpen never signs it.
       return false;
     }
     try {
-      const verdict = await twzrdBasePreflight(requirements, options);
-      return baseRefusal(verdict, offer.priceUsdc, options) === undefined;
+      for (let i = 0; i < entries.length; i++) {
+        const verdict = await twzrdBasePreflight(entries[i], options);
+        if (baseRefusal(verdict, offers[i].priceUsdc, options) !== undefined) return false;
+      }
+      return true;
     } catch {
       return isTrueFlag(options.failOpen);
     }
@@ -155,9 +174,11 @@ export async function withTwzrdBasePreflight<T>(
 ): Promise<T> {
   // Offer shape first: a malformed amount or non-USDC asset is refused before
   // intel and is never an outage for failOpen to wave through (0.11.2).
-  let offer: { payTo: string; priceUsdc: number };
+  let entries: CloudflareBaseRequirements[];
+  const offers: Array<{ payTo: string; priceUsdc: number }> = [];
   try {
-    offer = baseOffer(requirements);
+    entries = perBaseEntry(requirements);
+    for (const e of entries) offers.push(baseOffer(e));
   } catch (error) {
     throw new TwzrdBasePaymentBlockedError({
       decision: "block",
@@ -165,16 +186,18 @@ export async function withTwzrdBasePreflight<T>(
       reasons: [refusalCode(error)],
     });
   }
-  let verdict: BasePreflightVerdict;
-  try {
-    verdict = await twzrdBasePreflight(requirements, options);
-  } catch (error) {
-    if (isTrueFlag(options.failOpen)) return signOrSend();
-    throw error;
-  }
-  const refusal = baseRefusal(verdict, offer.priceUsdc, options);
-  if (refusal) {
-    throw new TwzrdBasePaymentBlockedError({ ...verdict, reasons: [refusal, ...verdict.reasons] });
+  for (let i = 0; i < entries.length; i++) {
+    let verdict: BasePreflightVerdict;
+    try {
+      verdict = await twzrdBasePreflight(entries[i], options);
+    } catch (error) {
+      if (isTrueFlag(options.failOpen)) return signOrSend();
+      throw error;
+    }
+    const refusal = baseRefusal(verdict, offers[i].priceUsdc, options);
+    if (refusal) {
+      throw new TwzrdBasePaymentBlockedError({ ...verdict, reasons: [refusal, ...verdict.reasons] });
+    }
   }
   return signOrSend();
 }

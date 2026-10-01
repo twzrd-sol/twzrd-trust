@@ -56,6 +56,9 @@ export async function firstRefusedOffer(
     config?: ResolvedTwzrdGateConfig;
     resourceUrl?: string;
     agentIntent: string;
+    resourceName?: string;
+    buyerWallet?: string;
+    sellerWallet?: string;
     skip?: Record<string, unknown>;
   },
 ): Promise<{ offer: Record<string, unknown>; payTo?: string; reason: string } | undefined> {
@@ -72,6 +75,9 @@ export async function firstRefusedOffer(
         payTo: f.payTo,
         priceUsdc: priceUsdcFromAmountMicro(f.amount, offer),
         agentIntent: opts.agentIntent,
+        resourceName: opts.resourceName,
+        buyerWallet: opts.buyerWallet,
+        sellerWallet: opts.sellerWallet,
         chain: offer.network as string | undefined,
         asset: requirementAsset(offer),
       },
