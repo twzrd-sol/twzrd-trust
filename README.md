@@ -9,7 +9,7 @@ Pre-spend trust for agents that buy: the x402 service they are about to pay (Sol
 Not a wallet. Not a payment network. Not Catena's Agent Commerce Kit — the walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
-**Spend-control SDK (npm)** • [`twzrd-x402-gate@0.11.2`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.0`](https://www.npmjs.com/package/x402-solana)  
+**Spend-control SDK (npm)** • [`twzrd-x402-gate@0.11.4`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.0`](https://www.npmjs.com/package/x402-solana)  
 **Live MCP** • https://intel.twzrd.xyz/mcp (streamable HTTP; free tools for x402 service checks and product-listing checks)  
 **Shopping check** • free `check_listing` on the hosted MCP · report: https://twzrd.xyz/shopping-check/vuori-kore/  
 **Agent contract** • https://intel.twzrd.xyz/llms.txt · https://intel.twzrd.xyz/.well-known/agent.json
@@ -110,7 +110,7 @@ build or demo them locally. Hosted MCP: `https://intel.twzrd.xyz/mcp`.
 ### 1. Install
 
 ```bash
-npm install twzrd-x402-gate@0.11.2 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0
 ```
 
 ### 2. Wrap paid fetches with spend controls
@@ -148,9 +148,9 @@ const client = createX402Client({
 
 ## Commerce loop
 
-One path. Install `twzrd-x402-gate@0.11.2`. Free preflight does not enforce; AutoGate on the pay path does.
+One path. Install `twzrd-x402-gate@0.11.4`. Free preflight does not enforce; AutoGate on the pay path does.
 
-1. **Install the gate** — `npm i twzrd-x402-gate@0.11.2` then `installTwzrdAutoGate`
+1. **Install the gate** — `npm i twzrd-x402-gate@0.11.4` then `installTwzrdAutoGate`
 2. **Cold-start (optional)** — `npx twzrd-cold-start` writes a default-deny `policy.json` from a pinned foreign 402 diet (0 USDC; not a TWZRD bazaar)
 3. **Directory** — `GET /v1/intel/resources` (or `listDirectoryCallables`) — bazaars list; TWZRD sits beside
 4. **Preflight** — free ReadinessCard + merchant_card wash refuse

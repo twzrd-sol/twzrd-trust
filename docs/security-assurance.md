@@ -1,7 +1,7 @@
 # TWZRD Security & Trust Assurance
 
-**Applies to:** `twzrd-x402-gate@0.11.2`, TWZRD Agent Intelligence, and V7 trust receipts  
-**Last verified:** 2026-09-12 (properties; install pin is the published 0.11.2 line)  
+**Applies to:** `twzrd-x402-gate@0.11.4`, TWZRD Agent Intelligence, and V7 trust receipts  
+**Last verified:** 2026-09-12, against 0.11.2. The install pin is now 0.11.4, which adds the 0.11.3 and 0.11.4 security fixes in the gate `CHANGELOG.md`; 0.11.2 and 0.11.3 are deprecated on npm.  
 **Disclosure Policy:** [SECURITY.md](../SECURITY.md)
 
 This document states the security properties TWZRD implements, the evidence an evaluator can independently reproduce, and the explicit trust boundaries of the system.
