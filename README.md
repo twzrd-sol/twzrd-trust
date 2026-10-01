@@ -3,7 +3,7 @@
 **Don't let your agent sign blind.**  
 Pre-spend trust for agents that buy: the x402 service they are about to pay (Solana, and Base) and the product listing they are about to buy from.
 
-- **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** (seller wash risk, tier and score; no receipt). The gate can record each decision as a portable `twzrd.payment_decision.v1` record, signed locally with your own signer.
+- **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable `twzrd.payment_decision.v1` record from its own decision, signed locally with your own signer.
 - **Product listings:** a free check of a store product URL and its asking price against a card TWZRD published from the store's public pages. The card is an observer card, not a merchant attestation, and a match is never permission to spend ([details](#product-listings-check-the-listing-before-you-buy)).
 
 Not a wallet. Not a payment network. Not Catena's Agent Commerce Kit — the walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
@@ -56,7 +56,7 @@ Each piece below works alone. Plugged into the hosted checks, they form one pre-
 | Piece | On its own | Plugged in | Install |
 |---|---|---|---|
 | [Hosted checks](https://intel.twzrd.xyz/llms.txt) | Free checks with nothing to install: is this x402 seller safe to pay, and does this store listing match a published card. | The pieces below that screen a payment call it; it is where the decisions and the signed receipts come from. The receipt verifier needs no server. | Add `https://intel.twzrd.xyz/mcp` to an MCP client |
-| [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) | Wraps an x402 client's pay path: asks the hosted checks about the seller before your signer runs, refuses a block (the signer is never invoked), enforces a spend cap, and can record each decision as a `twzrd.payment_decision.v1` signed with your own signer. | Decisions come from the hosted checks; pairs with `x402-solana` or `@x402/fetch` as the payer. | `npm install twzrd-x402-gate` |
+| [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) | Wraps an x402 client's pay path: asks the hosted checks about the seller before your signer runs, refuses a block (the signer is never invoked), enforces a spend cap, and can issue a `twzrd.payment_decision.v1` record from its decision, signed with your own signer. | Decisions come from the hosted checks; pairs with `x402-solana` or `@x402/fetch` as the payer. | `npm install twzrd-x402-gate` |
 | [`twzrd-preflight`](https://github.com/twzrd-sol/twzrd-preflight) | OpenClaw plugin: assign its wrapped fetch to the client and every 402 that passes through it is checked before a signer can attach payment (enforce and fail-closed by default). | Matches the gate's wrapper and adds OpenClaw tool-call gating, against the hosted checks. Payments outside the wrapped fetch (a ClawRouter proxy, unparsed exec or curl) are not covered. | `npm install twzrd-preflight` |
 | [`twzrd-receipt-verifier`](https://github.com/twzrd-sol/twzrd-receipt-verifier) | Verifies a TWZRD receipt offline against a published Ed25519 key: no wallet, no API key, no trust in TWZRD's server. | Checks the signed receipts that the hosted checks issue. | `npx twzrd-receipt-verifier` or `pip install twzrd-receipt-verifier` |
 | [`twzrd-mcp-server`](https://www.npmjs.com/package/twzrd-mcp-server) / [`twzrd-mcp`](https://pypi.org/project/twzrd-mcp/) | A local MCP client with 6 tools that pays the $0.001 and $0.05 calls itself under a spend cap (a wallet only if you enable paid calls). | Calls the hosted checks; use the hosted MCP directly for the free checks. | `npx -y twzrd-mcp-server` or `pip install twzrd-mcp` |
@@ -155,7 +155,7 @@ One path. Install `twzrd-x402-gate@0.11.2`. Free preflight does not enforce; Aut
 3. **Directory** — `GET /v1/intel/resources` (or `listDirectoryCallables`) — bazaars list; TWZRD sits beside
 4. **Preflight** — free ReadinessCard + merchant_card wash refuse
 5. **Pay only when policy allows** — blocks have `signerInvocations === 0`
-6. **Paid check ($0.001)** — `quickCheck` (tier and score) + a portable `twzrd.payment_decision.v1` record signed by your own signer (`npx twzrd-payment-decision --verify`)
+6. **Paid check ($0.001)** — `quickCheck` (tier and score). Separately, the gate can issue a portable `twzrd.payment_decision.v1` record from its decision, signed by your own signer (`npx twzrd-payment-decision --verify`)
 7. **Evidence bundle** — `exportEvidenceBundle` / `npx twzrd-evidence-bundle`
 8. **Optional Path A** — $0.05 V7 intel receipt. Not the primary SKU.
 
@@ -168,7 +168,7 @@ Walkthrough: [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 1. **Discover** — `GET /v1/intel/resources` (resource catalog)
 2. **Merchant card** — `GET /v1/intel/merchant_card/{pay_to}` (refuse if `wash_flagged: true`)
 3. **Preflight** — `POST /v1/intel/preflight` → ReadinessCard (allow / warn / block)
-4. **Paid check ($0.001)** — `GET /v1/intel/quick/{pay_to}` (wash risk, tier, score) + a locally signed `twzrd.payment_decision.v1`
+4. **Paid check ($0.001)** — `GET /v1/intel/quick/{pay_to}` (wash risk, tier, score). Separately, the gate can issue a locally signed `twzrd.payment_decision.v1`
 5. **Pay** — sign only when preflight & spend policy allow
 
 ```bash

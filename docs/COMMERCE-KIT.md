@@ -140,7 +140,7 @@ harness, is [`strategy/gate-adoption-operator-proof.md`](strategy/gate-adoption-
 | Check | Price | Role |
 |---|---|---|
 | Preflight + merchant_card | Free ($0) | Advisory decide |
-| `quickCheck` + `twzrd.payment_decision.v1` | **$0.001** | Paid check; the record is signed by your own signer |
+| `quickCheck` + `twzrd.payment_decision.v1` | **$0.001** | Paid check; the record is issued separately, signed by your own signer |
 | bind-v1 / V5–V7 verify | Free | Verify |
 | Path A V7 / merchant receipt | $0.05 | Optional intel — not the primary SKU |
 | Settle guard payer screen | Free (advisory) | Deliver |

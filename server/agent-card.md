@@ -3,7 +3,7 @@
 **Category:** Trust & Reputation / Solana x402
 **Transport:** MCP (streamable HTTP)
 **Endpoint:** `https://intel.twzrd.xyz/mcp` (streamable HTTP)
-**Pricing:** Free advisory preflight ($0). The paid `quickCheck` costs **$0.001** (seller wash risk, tier and score; no receipt). The gate can record each decision as a `twzrd.payment_decision.v1` signed with your own signer. Optional Path A intel receipts are $0.05 and are not the primary SKU. Product-listing checks (`check_listing`) are free; the optional checkout brief is $0.001.
+**Pricing:** Free advisory preflight ($0). The paid `quickCheck` costs **$0.001** (seller wash risk, tier and score; no receipt). Separately, the gate can issue a `twzrd.payment_decision.v1` from its decision, signed with your own signer. Optional Path A intel receipts are $0.05 and are not the primary SKU. Product-listing checks (`check_listing`) are free; the optional checkout brief is $0.001.
 
 ## What it does
 
