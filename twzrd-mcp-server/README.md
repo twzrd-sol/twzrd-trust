@@ -107,7 +107,7 @@ the paying-client brake, not a Path A shop.
 | `TWZRD_WALLET_SECRET_KEY` (Node) / `TWZRD_WALLET_KEYPAIR` (Python) | — | signer for paid tools |
 | `TWZRD_MAX_USDC_PER_CALL` | `0.05` | per-call spend cap |
 | `TWZRD_MAX_USDC_TOTAL` | `1.00` | cumulative session spend cap |
-| `TWZRD_RPC_URL` | **none — required for paid tools** | Solana RPC. Paid tools refuse to arm without it: the public RPC is rate-limited and loses x402 races (stale blockhash / sponsored feePayer between the 402 challenge and the signed retry), and a rejected settle can still move USDC. Free tools need no RPC. Known public URLs are rejected; `TWZRD_ALLOW_PUBLIC_RPC` no longer enables them. |
+| `TWZRD_RPC_URL` | **none — required for paid tools** | Solana RPC. Paid tools refuse to arm without it: the public RPC is rate-limited and loses x402 races (stale blockhash / sponsored feePayer between the 402 challenge and the signed retry), and a rejected settle can still move USDC. Free tools need no RPC. The Solana Foundation public endpoints (`api.mainnet-beta`, `api.devnet` and `api.testnet` `.solana.com`, trailing dots ignored) and any URL with a `/public` path segment are refused, by the Node server and by the Python client; other shared public RPCs are not detected, so choose a dedicated one. `TWZRD_ALLOW_PUBLIC_RPC` no longer enables a refused URL. |
 
 ## Safety
 

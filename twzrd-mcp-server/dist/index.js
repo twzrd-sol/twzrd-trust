@@ -61,6 +61,7 @@ const MAX_PER_CALL = parseCap(process.env.TWZRD_MAX_USDC_PER_CALL, 0.05, "TWZRD_
 const MAX_TOTAL = parseCap(process.env.TWZRD_MAX_USDC_TOTAL, 1.00, "TWZRD_MAX_USDC_TOTAL");
 const PAYMENTS_ENABLED = process.env.TWZRD_MCP_PAYMENTS_ENABLED === "1";
 const RPC_URL = privateRpcUrl(process.env.TWZRD_RPC_URL);
+const RPC_URL_REJECTED = Boolean(process.env.TWZRD_RPC_URL?.trim()) && !RPC_URL;
 const SECRET = process.env.TWZRD_WALLET_SECRET_KEY || "";
 const RECEIPT_PUBKEY = process.env.TWZRD_RECEIPT_PUBKEY || "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS";
 let spentUsdc = 0;
@@ -77,7 +78,12 @@ let paidFetch = null;
 let paymentInitError = "";
 if (SECRET && PAYMENTS_ENABLED && !RPC_URL) {
     paymentInitError =
-        "TWZRD_RPC_URL is required to arm paid tools. The public Solana RPC is " +
+        (RPC_URL_REJECTED
+            ? "TWZRD_RPC_URL is set but refused: it is not an http(s) URL, or it names a " +
+                "known public Solana endpoint (api.mainnet-beta, api.devnet or api.testnet " +
+                ".solana.com, or a /public path). "
+            : "TWZRD_RPC_URL is required to arm paid tools. ") +
+            "The public Solana RPC is " +
             "rate-limited and loses x402 races (stale blockhash / sponsored feePayer " +
             "between the 402 challenge and the signed retry), and a rejected settle can " +
             "still move USDC. Set TWZRD_RPC_URL to a dedicated mainnet RPC (Helius, " +
