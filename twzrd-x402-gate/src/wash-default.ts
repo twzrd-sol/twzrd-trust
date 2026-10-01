@@ -1,3 +1,4 @@
+import { isTrueFlag } from "./config.js";
 /**
  * Product default paying path (2026-08-22).
  *
@@ -227,7 +228,7 @@ function resolveWashMaxUsdc(opts?: WashDefaultOptions): number | null {
 }
 
 function resolveFailOpen(opts?: WashDefaultOptions): boolean {
-  if (opts?.failOpen != null) return opts.failOpen;
+  if (opts?.failOpen != null) return isTrueFlag(opts.failOpen);
   return process.env.TWZRD_FAIL_OPEN === "true" || process.env.TWZRD_FAIL_OPEN === "1";
 }
 

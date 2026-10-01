@@ -52,7 +52,7 @@ export type EvaluateX402Options = TwzrdGateConfig & {
    * Called immediately after a receipt is captured on-chain.
    * Provides the raw twzrd_receipt object and the settlement tx hash (if present).
    */
-  onReceipt?: (receipt: unknown, tx: string | undefined) => void;
+  onReceipt?: (receipt: unknown, tx: string | undefined) => void | Promise<void>;
   /**
    * Require a captured Path A receipt to be proven included in the Receipt
    * Transparency log under a key the host pinned, before it counts as trust.
@@ -328,7 +328,7 @@ export async function evaluate_x402_resource(
         const feeCaptured = !!tx || body.charged === true;
         // A consumer callback must not turn a paid receipt into a deny (0.11.2).
         try {
-          if (opts.onReceipt) opts.onReceipt(receipt, tx);
+          if (opts.onReceipt) void Promise.resolve(opts.onReceipt(receipt, tx)).catch(() => {});
         } catch {
           /* telemetry */
         }

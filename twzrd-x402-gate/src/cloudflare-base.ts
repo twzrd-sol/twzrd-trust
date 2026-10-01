@@ -46,7 +46,18 @@ export type CloudflareBaseGateOptions = {
   agentIntent?: string;
   /** Default false: an unavailable or malformed preflight does not permit signing. */
   failOpen?: boolean;
+  /** Deadline for the preflight call, ms (default 2000). A miss is an outage decided by failOpen. */
+  intelTimeoutMs?: number;
 };
+
+const TRUE_FLAGS = new Set(["true", "1", "yes", "on"]);
+/** Same reading as the main entry's isTrueFlag (kept local: this module imports no package code). */
+function isTrueFlag(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  return typeof v === "string" && TRUE_FLAGS.has(v.trim().toLowerCase());
+}
+
+const DEFAULT_INTEL_TIMEOUT_MS = 2000;
 
 export class TwzrdBasePaymentBlockedError extends Error {
   readonly verdict: BasePreflightVerdict;
@@ -74,7 +85,19 @@ export async function twzrdBasePreflight(
   if (typeof fetchFn !== "function") throw new Error("[twzrd] Worker fetch is unavailable");
 
   const intelBase = (options.intelBase ?? "https://intel.twzrd.xyz").replace(/\/+$/, "");
+  const t = Number(options.intelTimeoutMs);
+  const timeoutMs = Number.isFinite(t) && t > 0 ? Math.min(t, 2_147_483_647) : DEFAULT_INTEL_TIMEOUT_MS;
+  const ctrl = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ctrl.abort();
+      reject(new Error(`[twzrd] Base preflight timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  const call = (async () => {
   const response = await fetchFn(`${intelBase}/v1/intel/preflight`, {
+    signal: ctrl.signal,
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -89,6 +112,27 @@ export async function twzrdBasePreflight(
   });
   if (!response.ok) throw new Error(`[twzrd] Base preflight HTTP ${response.status}`);
   return normalizePreflight(await response.json());
+  })();
+  try {
+    return await Promise.race([call, deadline]);
+  } finally {
+    clearTimeout(timer);
+    call.catch(() => {});
+  }
+}
+
+
+/** One requirements object per Base entry, so every entry the Worker could sign is evaluated (0.11.3). */
+function perBaseEntry(requirements: CloudflareBaseRequirements): CloudflareBaseRequirements[] {
+  const accepts = Array.isArray(requirements.accepts) ? requirements.accepts : [];
+  const base = accepts.filter((c) => {
+    if (!c || typeof c !== "object") return false;
+    const chainId = c.chainId ?? c.chain_id;
+    return c.network === BASE_NETWORK || chainId === BASE_CHAIN_ID || chainId === String(BASE_CHAIN_ID);
+  });
+  if (base.length === 0) return [requirements];
+  if (base.length > 8) throw new OfferRefusal("too_many_payment_options", "[twzrd] more than 8 Base offers");
+  return base.map((entry) => ({ ...requirements, accepts: [entry] }));
 }
 
 /** Cloudflare `withX402Client` callback: true permits the retry; false aborts it. */
@@ -96,18 +140,23 @@ export function createTwzrdCloudflareBaseApproval(
   options: CloudflareBaseGateOptions = {},
 ): (requirements: CloudflareBaseRequirements) => Promise<boolean> {
   return async (requirements) => {
-    let offer: { payTo: string; priceUsdc: number };
+    let entries: CloudflareBaseRequirements[];
+    const offers: Array<{ payTo: string; priceUsdc: number }> = [];
     try {
-      offer = baseOffer(requirements);
+      entries = perBaseEntry(requirements);
+      for (const e of entries) offers.push(baseOffer(e));
     } catch {
       // A malformed or non-USDC offer is not an outage: failOpen never signs it.
       return false;
     }
     try {
-      const verdict = await twzrdBasePreflight(requirements, options);
-      return baseRefusal(verdict, offer.priceUsdc, options) === undefined;
+      for (let i = 0; i < entries.length; i++) {
+        const verdict = await twzrdBasePreflight(entries[i], options);
+        if (baseRefusal(verdict, offers[i].priceUsdc, options) !== undefined) return false;
+      }
+      return true;
     } catch {
-      return options.failOpen === true;
+      return isTrueFlag(options.failOpen);
     }
   };
 }
@@ -125,9 +174,11 @@ export async function withTwzrdBasePreflight<T>(
 ): Promise<T> {
   // Offer shape first: a malformed amount or non-USDC asset is refused before
   // intel and is never an outage for failOpen to wave through (0.11.2).
-  let offer: { payTo: string; priceUsdc: number };
+  let entries: CloudflareBaseRequirements[];
+  const offers: Array<{ payTo: string; priceUsdc: number }> = [];
   try {
-    offer = baseOffer(requirements);
+    entries = perBaseEntry(requirements);
+    for (const e of entries) offers.push(baseOffer(e));
   } catch (error) {
     throw new TwzrdBasePaymentBlockedError({
       decision: "block",
@@ -135,16 +186,18 @@ export async function withTwzrdBasePreflight<T>(
       reasons: [refusalCode(error)],
     });
   }
-  let verdict: BasePreflightVerdict;
-  try {
-    verdict = await twzrdBasePreflight(requirements, options);
-  } catch (error) {
-    if (options.failOpen === true) return signOrSend();
-    throw error;
-  }
-  const refusal = baseRefusal(verdict, offer.priceUsdc, options);
-  if (refusal) {
-    throw new TwzrdBasePaymentBlockedError({ ...verdict, reasons: [refusal, ...verdict.reasons] });
+  for (let i = 0; i < entries.length; i++) {
+    let verdict: BasePreflightVerdict;
+    try {
+      verdict = await twzrdBasePreflight(entries[i], options);
+    } catch (error) {
+      if (isTrueFlag(options.failOpen)) return signOrSend();
+      throw error;
+    }
+    const refusal = baseRefusal(verdict, offers[i].priceUsdc, options);
+    if (refusal) {
+      throw new TwzrdBasePaymentBlockedError({ ...verdict, reasons: [refusal, ...verdict.reasons] });
+    }
   }
   return signOrSend();
 }
@@ -213,7 +266,7 @@ export function baseRefusal(
   const unevaluated = (typeof verdict.nullReason === "string" && verdict.nullReason.trim() !== "") || verdict.scoreIsNull === true;
   if (unevaluated) {
     const nr = verdict.nullReason || "score_null";
-    if (options.refuseUnevaluated === true) return `twzrd_unevaluated_subject_${nr}`;
+    if (isTrueFlag(options.refuseUnevaluated)) return `twzrd_unevaluated_subject_${nr}`;
     if (cap === null) return `twzrd_unevaluated_no_cap_${nr}`;
     if (priceUsdc > cap) return `twzrd_unevaluated_over_cap_${priceUsdc}_gt_${cap}`;
     return undefined;

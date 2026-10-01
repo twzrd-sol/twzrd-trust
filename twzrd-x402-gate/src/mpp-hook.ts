@@ -1,3 +1,4 @@
+import { isTrueFlag } from "./config.js";
 /**
  * TWZRD Payment Control on the Machine Payments Protocol (MPP) client path.
  *
@@ -469,7 +470,7 @@ export function createTwzrdMppOnChallenge(
 
     const refuse =
       decision.decision === "block" ||
-      (decision.decision === "warn" && options.treatWarnAsBlock === true);
+      (decision.decision === "warn" && isTrueFlag(options.treatWarnAsBlock));
     if (refuse) {
       throw new TwzrdMppBlockError(
         "PAYMENT_CONTROL_BLOCK",

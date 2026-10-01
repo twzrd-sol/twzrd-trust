@@ -1,3 +1,4 @@
+import { distinctOffers, MAX_DISTINCT_OFFERS, TOO_MANY_PAYMENT_OPTIONS } from "./all-offers.js";
 import { wrapFetchEchoTwzrdAttempt, wrapX402ClientEchoAttempt } from "./attempt-echo.js";
 import { resolveConfig } from "./config.js";
 import { captureDeliveryObservation } from "./delivery-capture.js";
@@ -104,14 +105,19 @@ export function createTwzrdPayingFetch(opts: CreateTwzrdPayingFetchInput): typeo
     lastChallenge = challenge;
     const accepts = (challenge as { accepts?: Array<Record<string, unknown>> }).accepts;
     const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const decision = await evaluateWashOnlyBeforePayment(
-      mapWashRequirements(
-        pickRequirements(accepts) as WashSelectedRequirements & Record<string, unknown>,
-        { requestUrl },
-      ),
-      opts,
-    );
-    if (decision && decision.abort === true) throw new TwzrdWashAbortError(decision.reason);
+    // The payer may take any entry (@x402/core: the first its schemes can pay), so every
+    // distinct entry must pass the wash check, and one with no recipient is refused (0.11.3).
+    const offers = distinctOffers(accepts);
+    if (offers.length === 0) throw new TwzrdWashAbortError("twzrd_unidentifiable_payment_recipient");
+    if (offers.length > MAX_DISTINCT_OFFERS) throw new TwzrdWashAbortError(TOO_MANY_PAYMENT_OPTIONS);
+    for (const offer of offers) {
+      if (!payToFromRequirements(offer).payTo) throw new TwzrdWashAbortError("twzrd_unidentifiable_payment_recipient");
+      const decision = await evaluateWashOnlyBeforePayment(
+        mapWashRequirements(offer as WashSelectedRequirements & Record<string, unknown>, { requestUrl }),
+        opts,
+      );
+      if (decision && decision.abort === true) throw new TwzrdWashAbortError(decision.reason);
+    }
     return resp;
   };
   let pay = opts.wrapPay?.(guarded);

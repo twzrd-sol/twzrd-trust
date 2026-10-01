@@ -1,8 +1,9 @@
 import type { DecisionSigner, PaymentDecision } from "./decision-token.js";
+import { distinctOffers, MAX_DISTINCT_OFFERS, TOO_MANY_PAYMENT_OPTIONS } from "./all-offers.js";
 import { wrapX402ClientEchoAttempt } from "./attempt-echo.js";
 import { x402RequirementsToIntent } from "./intent-adapters.js";
 import { toMicroUsd } from "./intent.js";
-import { createTwzrdPayingFetch, type CreateTwzrdPayingFetchInput } from "./paying-fetch.js";
+import { createTwzrdPayingFetch, TwzrdWashAbortError, type CreateTwzrdPayingFetchInput } from "./paying-fetch.js";
 import { paymentRequiredFromResponse, pickRequirements } from "./payto.js";
 import { evaluateIntent, type Mandate, type SpendLedger, type SpendPolicy } from "./policy-runtime.js";
 
@@ -48,19 +49,30 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
         catch { return resp; }
         if (challenge == null) return resp;
         const accepts = (challenge as { accepts?: Array<Record<string, unknown>> }).accepts;
-        let intent;
-        try {
-          const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-          intent = x402RequirementsToIntent(pickRequirements(accepts), { resourceUrl: url });
-        } catch { return resp; }
-        const decision = await evaluateIntent(intent, {
-          signer: opts.signer, policy: opts.policy, mandate: opts.mandate,
-          ledger: opts.ledger, recordSpend: false,
-        });
-        if (decision.decision === "block") {
-          opts.onAudit?.(decision);
-          throw new TwzrdPolicyAbortError(decision);
+        const offers = distinctOffers(accepts);
+        if (offers.length === 0 || offers.length > MAX_DISTINCT_OFFERS) {
+          throw new TwzrdWashAbortError(offers.length === 0 ? "twzrd_unidentifiable_payment_recipient" : TOO_MANY_PAYMENT_OPTIONS);
         }
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        // Every entry the payer could choose must clear the policy (0.11.3), not just the preferred one.
+        let intent; let decision;
+        const preferred = pickRequirements(offers);
+        for (const offer of offers) {
+          let it;
+          try { it = x402RequirementsToIntent(offer, { resourceUrl: url }); } catch { throw new TwzrdWashAbortError("twzrd_unidentifiable_payment_recipient"); }
+          const d = await evaluateIntent(it, {
+            signer: opts.signer, policy: opts.policy, mandate: opts.mandate,
+            ledger: opts.ledger, recordSpend: false,
+          });
+          if (d.decision === "block") {
+            opts.onAudit?.(d);
+            throw new TwzrdPolicyAbortError(d);
+          }
+          // The client may pay any entry (default selector: accepts[0]), so the ledger books the
+          // costliest one rather than the preferred one; the daily ceiling cannot be undercounted.
+          if (!intent || toMicroUsd(it.amount) > toMicroUsd(intent.amount) || (toMicroUsd(it.amount) === toMicroUsd(intent.amount) && offer === preferred)) { intent = it; decision = d; }
+        }
+        if (!intent || !decision) return resp;
         pending = { payTo: intent.payTo, amount: intent.amount, decision };
         return resp;
       };

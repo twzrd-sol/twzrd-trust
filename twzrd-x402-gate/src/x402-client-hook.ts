@@ -160,7 +160,7 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
   /**
    * Called after a successful Path A purchase from the beforePayment seat.
    */
-  onReceipt?: (receipt: unknown, tx: string | undefined) => void;
+  onReceipt?: (receipt: unknown, tx: string | undefined) => void | Promise<void>;
   /**
    * Raw `twzrdApprovePayment` result, before abort/allow mapping.
    * Sidecar issuers (APN packet) bind a payment_decision.v1 to this object.
@@ -536,7 +536,7 @@ export async function evaluateBeforePaymentCreation(
               : undefined);
           receiptFeeCaptured = !!tx || body.charged === true;
           try {
-            options.onReceipt?.(receipt, tx);
+            if (options.onReceipt) void Promise.resolve(options.onReceipt(receipt, tx)).catch(() => {});
           } catch {
             /* never break path */
           }
