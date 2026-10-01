@@ -27,7 +27,8 @@ mirrors, **not** buildable source:
 ### Install (read this before any command)
 
 CI (`.github/workflows/ci.yml`) is the bootstrap: **root** `npm ci`, then
-`npm run ci`. Node **20** in CI, `engines` `>=18`. Node 22+ works.
+`npm run ci`. Node **20** in CI; the root `engines` is `>=20` (the dev tree pins
+`jayson@5`, which needs it) while the published `twzrd-x402-gate` stays `>=18`. Node 22+ works.
 
 ```bash
 # from the repo root — the only supported install

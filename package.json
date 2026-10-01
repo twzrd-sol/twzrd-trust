@@ -4,6 +4,9 @@
   "private": true,
   "description": "TWZRD trust monorepo — buyer-side x402 spend control and trust tooling on Solana",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "workspaces": [
     "twzrd-x402-gate",
     "twzrd-mcp-server",
