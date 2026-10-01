@@ -28,7 +28,7 @@ does not abort. The portable `twzrd.payment_decision.v1` sidecar is issued
 from that approval and stored next to APN's receipt, joined on `offerHash` /
 operation id.
 
-Pin: `twzrd-x402-gate@0.11.2`. That record is issued from the free decision and signed locally by your own signer; no paid TWZRD call is involved.
+Pin: `twzrd-x402-gate@0.11.4`. That record is issued from the free decision and signed locally by your own signer; no paid TWZRD call is involved.
 Path A $0.05 V7 intel is not this packet.
 
 ## What the three fixtures prove
