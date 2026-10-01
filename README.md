@@ -3,7 +3,7 @@
 **Don't let your agent sign blind.**  
 Pre-spend trust for agents that buy: the x402 service they are about to pay (Solana, and Base) and the product listing they are about to buy from.
 
-- **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Advisory preflight is free ($0). Signed execution clearance is **$0.001** (`twzrd.payment_decision.v1` / `quickCheck`).
+- **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Advisory preflight is free ($0). A signed payment decision is **$0.001** (`twzrd.payment_decision.v1` / `quickCheck`).
 - **Product listings:** a free check of a store product URL and its asking price against a card TWZRD published from the store's public pages. The card is an observer card, not a merchant attestation, and a match is never permission to spend ([details](#product-listings-check-the-listing-before-you-buy)).
 
 Not a wallet. Not a payment network. Not Catena's Agent Commerce Kit — the walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
@@ -155,7 +155,7 @@ One path. Install `twzrd-x402-gate@0.11.2`. Free preflight does not enforce; Aut
 3. **Directory** — `GET /v1/intel/resources` (or `listDirectoryCallables`) — bazaars list; TWZRD sits beside
 4. **Preflight** — free ReadinessCard + merchant_card wash refuse
 5. **Pay only when policy allows** — blocks have `signerInvocations === 0`
-6. **Clearance ($0.001)** — `quickCheck` + portable `twzrd.payment_decision.v1` (`npx twzrd-payment-decision --verify`)
+6. **Payment decision ($0.001)** — `quickCheck` + portable `twzrd.payment_decision.v1` (`npx twzrd-payment-decision --verify`)
 7. **Evidence bundle** — `exportEvidenceBundle` / `npx twzrd-evidence-bundle`
 8. **Optional Path A** — $0.05 V7 intel receipt. Not the primary SKU.
 
@@ -168,7 +168,7 @@ Walkthrough: [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 1. **Discover** — `GET /v1/intel/resources` (resource catalog)
 2. **Merchant card** — `GET /v1/intel/merchant_card/{pay_to}` (refuse if `wash_flagged: true`)
 3. **Preflight** — `POST /v1/intel/preflight` → ReadinessCard (allow / warn / block)
-4. **Clearance ($0.001)** — `GET /v1/intel/quick/{pay_to}` + `twzrd.payment_decision.v1`
+4. **Payment decision ($0.001)** — `GET /v1/intel/quick/{pay_to}` + `twzrd.payment_decision.v1`
 5. **Pay** — sign only when preflight & spend policy allow
 
 ```bash

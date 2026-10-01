@@ -3,7 +3,7 @@
 **Category:** Trust & Reputation / Solana x402
 **Transport:** MCP (streamable HTTP)
 **Endpoint:** `https://intel.twzrd.xyz/mcp` (streamable HTTP)
-**Pricing:** Free advisory preflight ($0). Signed execution clearance **$0.001** (`twzrd.payment_decision.v1` / `quickCheck`). Optional Path A intel receipts are $0.05 and are not the primary SKU. Product-listing checks (`check_listing`) are free; the optional checkout brief is $0.001.
+**Pricing:** Free advisory preflight ($0). A signed payment decision costs **$0.001** (`twzrd.payment_decision.v1` / `quickCheck`). Optional Path A intel receipts are $0.05 and are not the primary SKU. Product-listing checks (`check_listing`) are free; the optional checkout brief is $0.001.
 
 ## What it does
 

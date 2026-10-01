@@ -103,7 +103,7 @@ npx tsx examples/commerce-kit.ts
 npx twzrd-gate-eval-refuse
 ```
 
-Paid clearance is `$0.001` (`quickCheck` + `twzrd.payment_decision.v1`). A Path A
+The paid signed payment decision costs `$0.001` (`quickCheck` + `twzrd.payment_decision.v1`). A Path A
 V7 intel receipt is `$0.05` and is not the primary SKU.
 
 ### 5. Verify the receipt afterward
@@ -140,7 +140,7 @@ harness, is [`strategy/gate-adoption-operator-proof.md`](strategy/gate-adoption-
 | Check | Price | Role |
 |---|---|---|
 | Preflight + merchant_card | Free ($0) | Advisory decide |
-| `quickCheck` + `twzrd.payment_decision.v1` | **$0.001** | Signed execution clearance |
+| `quickCheck` + `twzrd.payment_decision.v1` | **$0.001** | Signed payment decision |
 | bind-v1 / V5–V7 verify | Free | Verify |
 | Path A V7 / merchant receipt | $0.05 | Optional intel — not the primary SKU |
 | Settle guard payer screen | Free (advisory) | Deliver |
