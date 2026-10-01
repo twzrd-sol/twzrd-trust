@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { privateRpcUrl } from "./rpc-url.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
@@ -59,9 +60,7 @@ const API_BASE = process.env.TWZRD_API_URL || "https://intel.twzrd.xyz";
 const MAX_PER_CALL = parseCap(process.env.TWZRD_MAX_USDC_PER_CALL, 0.05, "TWZRD_MAX_USDC_PER_CALL");
 const MAX_TOTAL = parseCap(process.env.TWZRD_MAX_USDC_TOTAL, 1.00, "TWZRD_MAX_USDC_TOTAL");
 const PAYMENTS_ENABLED = process.env.TWZRD_MCP_PAYMENTS_ENABLED === "1";
-const ALLOW_PUBLIC_RPC = process.env.TWZRD_ALLOW_PUBLIC_RPC === "1";
-const PUBLIC_RPC = "https://api.mainnet-beta.solana.com";
-const RPC_URL = process.env.TWZRD_RPC_URL || (ALLOW_PUBLIC_RPC ? PUBLIC_RPC : "");
+const RPC_URL = privateRpcUrl(process.env.TWZRD_RPC_URL);
 const SECRET = process.env.TWZRD_WALLET_SECRET_KEY || "";
 const RECEIPT_PUBKEY = process.env.TWZRD_RECEIPT_PUBKEY || "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS";
 let spentUsdc = 0;
@@ -82,16 +81,10 @@ if (SECRET && PAYMENTS_ENABLED && !RPC_URL) {
             "rate-limited and loses x402 races (stale blockhash / sponsored feePayer " +
             "between the 402 challenge and the signed retry), and a rejected settle can " +
             "still move USDC. Set TWZRD_RPC_URL to a dedicated mainnet RPC (Helius, " +
-            "QuickNode, Triton, your own node). Free tools need no RPC and are unaffected. " +
-            "To accept the risk anyway, set TWZRD_ALLOW_PUBLIC_RPC=1.";
+            "Alchemy, QuickNode, Triton, your own node). Free tools need no RPC.";
     console.error(`TWZRD MCP: paid tools disabled — ${paymentInitError}`);
 }
 else if (SECRET && PAYMENTS_ENABLED) {
-    if (RPC_URL === PUBLIC_RPC) {
-        console.error("TWZRD MCP: WARNING — paid tools armed against the PUBLIC Solana RPC " +
-            "(TWZRD_ALLOW_PUBLIC_RPC=1). Expect x402 settle failures under load; a " +
-            "rejected settle can still move USDC. Use a dedicated RPC.");
-    }
     try {
         const secretBytes = bs58.decode(SECRET);
         const signer = await createKeyPairSignerFromBytes(secretBytes);

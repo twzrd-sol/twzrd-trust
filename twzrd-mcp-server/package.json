@@ -9,6 +9,7 @@
   "main": "./dist/index.js",
   "files": [
     "dist/index.js",
+    "dist/rpc-url.js",
     "dist/select-solana-exact.js",
     "dist/wash-before-pay.js",
     "dist/leftover-wash-oracle.js",
