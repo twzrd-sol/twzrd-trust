@@ -46,7 +46,18 @@ export type CloudflareBaseGateOptions = {
   agentIntent?: string;
   /** Default false: an unavailable or malformed preflight does not permit signing. */
   failOpen?: boolean;
+  /** Deadline for the preflight call, ms (default 2000). A miss is an outage decided by failOpen. */
+  intelTimeoutMs?: number;
 };
+
+const TRUE_FLAGS = new Set(["true", "1", "yes", "on"]);
+/** Same reading as the main entry's isTrueFlag (kept local: this module imports no package code). */
+function isTrueFlag(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  return typeof v === "string" && TRUE_FLAGS.has(v.trim().toLowerCase());
+}
+
+const DEFAULT_INTEL_TIMEOUT_MS = 2000;
 
 export class TwzrdBasePaymentBlockedError extends Error {
   readonly verdict: BasePreflightVerdict;
@@ -74,7 +85,19 @@ export async function twzrdBasePreflight(
   if (typeof fetchFn !== "function") throw new Error("[twzrd] Worker fetch is unavailable");
 
   const intelBase = (options.intelBase ?? "https://intel.twzrd.xyz").replace(/\/+$/, "");
+  const t = Number(options.intelTimeoutMs);
+  const timeoutMs = Number.isFinite(t) && t > 0 ? Math.min(t, 2_147_483_647) : DEFAULT_INTEL_TIMEOUT_MS;
+  const ctrl = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ctrl.abort();
+      reject(new Error(`[twzrd] Base preflight timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  const call = (async () => {
   const response = await fetchFn(`${intelBase}/v1/intel/preflight`, {
+    signal: ctrl.signal,
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -89,6 +112,13 @@ export async function twzrdBasePreflight(
   });
   if (!response.ok) throw new Error(`[twzrd] Base preflight HTTP ${response.status}`);
   return normalizePreflight(await response.json());
+  })();
+  try {
+    return await Promise.race([call, deadline]);
+  } finally {
+    clearTimeout(timer);
+    call.catch(() => {});
+  }
 }
 
 /** Cloudflare `withX402Client` callback: true permits the retry; false aborts it. */
@@ -107,7 +137,7 @@ export function createTwzrdCloudflareBaseApproval(
       const verdict = await twzrdBasePreflight(requirements, options);
       return baseRefusal(verdict, offer.priceUsdc, options) === undefined;
     } catch {
-      return options.failOpen === true;
+      return isTrueFlag(options.failOpen);
     }
   };
 }
@@ -139,7 +169,7 @@ export async function withTwzrdBasePreflight<T>(
   try {
     verdict = await twzrdBasePreflight(requirements, options);
   } catch (error) {
-    if (options.failOpen === true) return signOrSend();
+    if (isTrueFlag(options.failOpen)) return signOrSend();
     throw error;
   }
   const refusal = baseRefusal(verdict, offer.priceUsdc, options);
@@ -213,7 +243,7 @@ export function baseRefusal(
   const unevaluated = (typeof verdict.nullReason === "string" && verdict.nullReason.trim() !== "") || verdict.scoreIsNull === true;
   if (unevaluated) {
     const nr = verdict.nullReason || "score_null";
-    if (options.refuseUnevaluated === true) return `twzrd_unevaluated_subject_${nr}`;
+    if (isTrueFlag(options.refuseUnevaluated)) return `twzrd_unevaluated_subject_${nr}`;
     if (cap === null) return `twzrd_unevaluated_no_cap_${nr}`;
     if (priceUsdc > cap) return `twzrd_unevaluated_over_cap_${priceUsdc}_gt_${cap}`;
     return undefined;

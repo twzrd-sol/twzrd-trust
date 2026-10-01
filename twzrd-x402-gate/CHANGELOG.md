@@ -28,6 +28,17 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.11.3 — unreleased (security fix)
+
+Follow-up to a red-team of the published 0.11.2. Every change adds a refusal or makes one reliable.
+
+- **One flag parser.** `failOpen` (override, wash seat, seller hook), `cloudflare-base` `failOpen` and `refuseUnevaluated`, and the MPP `treatWarnAsBlock`
+  read a boolean the same way: true, 1, or true/1/yes/on in any case are on; anything else is off, and a typo warns once. `failOpen: "false"` no longer
+  opens on an outage.
+- **`createTwzrdPayingFetch` and `createTwzrdPolicyFetch` check every offer**, as the other wrappers do since 0.11.2, and refuse an entry with no recipient.
+- **`./cloudflare-base` has a deadline** (`intelTimeoutMs`, default 2000) and honours string flags.
+- An `async` `onReceipt` that rejects no longer crashes the host. `intelTimeoutMs` above 2^31-1 is clamped instead of becoming 1 ms.
+
 ## 0.11.2 — 2026-09-28 (security fix)
 
 Fixes from a line-by-line audit of the published 0.11.1. Every change adds a

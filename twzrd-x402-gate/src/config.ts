@@ -42,18 +42,34 @@ function parseBlockDecisions(raw: string | undefined): Set<string> {
  * A typo must not silently leave strict mode off (0.11.2).
  */
 const TRUTHY = new Set(["true", "1", "yes", "on"]);
-function strictFlag(override: unknown, env: string | undefined): boolean {
-  const v = override !== undefined && override !== null ? override : env;
+const FALSY = new Set(["", "false", "0", "no", "off"]);
+const warnedFlags = new Set<string>();
+/**
+ * One reading of a boolean flag for every seat (0.11.3): true, 1, or the strings
+ * true/1/yes/on in any case are on. Everything else is off, and an unrecognised
+ * non-empty string (a typo) is off with a one-time warning, never silently on.
+ */
+export function isTrueFlag(v: unknown): boolean {
   if (v === true || v === 1) return true;
-  if (typeof v === "string") return TRUTHY.has(v.trim().toLowerCase());
+  if (typeof v === "string") {
+    const t = v.trim().toLowerCase();
+    if (TRUTHY.has(t)) return true;
+    if (!FALSY.has(t) && !warnedFlags.has(t)) {
+      warnedFlags.add(t);
+      console.warn(`[twzrd-x402-gate] unrecognised flag value ${JSON.stringify(v)} treated as off; use true/false`);
+    }
+  }
   return false;
+}
+function strictFlag(override: unknown, env: string | undefined): boolean {
+  return isTrueFlag(override !== undefined && override !== null ? override : env);
 }
 
 const DEFAULT_INTEL_TIMEOUT_MS = 2000;
 function intelTimeout(override: unknown, env: string | undefined): number {
   const raw = override ?? env;
   const n = typeof raw === "number" ? raw : raw == null || raw === "" ? NaN : Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_INTEL_TIMEOUT_MS;
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 2_147_483_647) : DEFAULT_INTEL_TIMEOUT_MS;
 }
 
 export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateConfig {
@@ -77,9 +93,9 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
   // and on merchant_card outage on the reputation-scored path.
   // Opt in to legacy fail-open with TWZRD_FAIL_OPEN=true or TWZRD_FAIL_OPEN=1.
   const failOpen =
-    overrides?.failOpen ??
-    (process.env.TWZRD_FAIL_OPEN === "true" ||
-      process.env.TWZRD_FAIL_OPEN === "1");
+    overrides?.failOpen != null
+      ? isTrueFlag(overrides.failOpen)
+      : process.env.TWZRD_FAIL_OPEN === "true" || process.env.TWZRD_FAIL_OPEN === "1";
 
   // Default false: can_spend false alone does not block. null_reason
   // unknown_subject is handled earlier (refuseUnevaluated) and is not this

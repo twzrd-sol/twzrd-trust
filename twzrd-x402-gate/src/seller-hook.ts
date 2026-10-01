@@ -1,3 +1,4 @@
+import { isTrueFlag } from "./config.js";
 /**
  * Optional seller-side x402 pre-settlement guard (merchant customer policy).
  *
@@ -314,7 +315,7 @@ export function createTwzrdSettleGuard(
   const abortOn = { ...DEFAULT_ABORT_ON, ...(opts.abortOn ?? {}) };
   // Omitted failOpen is fail-open. A thrown screen returns without abort.
   // Abort on a thrown screen requires failOpen: false.
-  const failOpen = opts.failOpen !== false;
+  const failOpen = opts.failOpen === undefined || opts.failOpen === null ? true : isTrueFlag(opts.failOpen);
   const getPayer = opts.getPayer ?? defaultExtractPayer;
   const timeoutMs =
     typeof opts.timeoutMs === "number" ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
