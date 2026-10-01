@@ -67,8 +67,9 @@ both — the server runs read-only and never signs. Spend is bounded by per-call
 session caps.
 
 Before any Solana signature the Node server runs `twzrd-x402-gate@0.11.4` wash
-default (Python `twzrd-mcp` 0.2.1 does the same `merchant_card` check on the 402
-`payTo`): abort iff `wash_flagged===true` → fail-open if intel is down. That is
+default (Python `twzrd-mcp` 0.2.2 does the same `merchant_card` check on the 402
+`payTo`): abort iff `wash_flagged===true`, and fail closed if intel cannot answer
+(timeout, 5xx/429, unreadable body): an outage is never read as clean. That is
 the paying-client brake, not a Path A shop.
 
 ### Python — `pip install twzrd-mcp`
