@@ -38,6 +38,7 @@ Follow-up to a red-team of the published 0.11.2. Every change adds a refusal or 
 - **`createTwzrdPayingFetch` and `createTwzrdPolicyFetch` check every offer**, as the other wrappers do since 0.11.2, and refuse an entry with no recipient.
 - **`./cloudflare-base` has a deadline** (`intelTimeoutMs`, default 2000) and honours string flags.
 - An `async` `onReceipt` that rejects no longer crashes the host. `intelTimeoutMs` above 2^31-1 is clamped instead of becoming 1 ms (the main gate config and the Base Worker; `timeoutMs` on the wash seat and settle guard is not clamped and fails closed by default). `createTwzrdPolicyFetch` books the costliest offer in the spend ledger, since the client may pay any entry.
+- Behavior changes to note: on the paying and policy fetch wrappers a 402 with a legitimate entry plus a sibling that has no recipient (e.g. another rail) is now refused whole (`twzrd_unidentifiable_payment_recipient`), matching `wrapFetchWithTwzrdGate`; more than 8 distinct entries is refused (`too_many_payment_options`); settle-guard `failOpen` of `"false"`/`"0"`/`0` now fails closed (was open).
 
 ## 0.11.2 — 2026-09-28 (security fix)
 
