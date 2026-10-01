@@ -11,7 +11,7 @@ const ROUTE = "https://outbid.sh/route";
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const invoice = (payTo: string) =>
-  json({ accepts: [{ payTo, amount: "10000", network: "solana", asset: "USDC" }] }, 402);
+  json({ accepts: [{ payTo, amount: "10000", network: "solana", asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }] }, 402);
 const asFetch = (fn: typeof fetch) => fn as unknown as typeof fetch;
 const card = (flag: boolean) =>
   asFetch(async () =>

@@ -356,7 +356,7 @@ async function run() {
       pay_to: MERCHANT,
       network: "solana",
       maxAmountRequired: "50000",
-      asset: "USDC",
+      asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     });
     assert.equal(v1.amount, "0.05");
     assert.equal(v1.payTo, MERCHANT);

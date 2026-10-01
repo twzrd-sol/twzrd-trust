@@ -1,7 +1,7 @@
 import type { DecisionSigner, PaymentDecision } from "./decision-token.js";
 import { distinctOffers, MAX_DISTINCT_OFFERS, TOO_MANY_PAYMENT_OPTIONS } from "./all-offers.js";
 import { wrapX402ClientEchoAttempt } from "./attempt-echo.js";
-import { x402RequirementsToIntent } from "./intent-adapters.js";
+import { TwzrdUnpricedAssetError, x402RequirementsToIntent } from "./intent-adapters.js";
 import { toMicroUsd } from "./intent.js";
 import { createTwzrdPayingFetch, TwzrdWashAbortError, type CreateTwzrdPayingFetchInput } from "./paying-fetch.js";
 import { paymentRequiredFromResponse, pickRequirements } from "./payto.js";
@@ -59,7 +59,7 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
         const preferred = pickRequirements(offers);
         for (const offer of offers) {
           let it;
-          try { it = x402RequirementsToIntent(offer, { resourceUrl: url }); } catch { throw new TwzrdWashAbortError("twzrd_unidentifiable_payment_recipient"); }
+          try { it = x402RequirementsToIntent(offer, { resourceUrl: url }); } catch (e) { throw new TwzrdWashAbortError(e instanceof TwzrdUnpricedAssetError ? "twzrd_non_usdc_asset" : "twzrd_unidentifiable_payment_recipient"); }
           const d = await evaluateIntent(it, {
             signer: opts.signer, policy: opts.policy, mandate: opts.mandate,
             ledger: opts.ledger, recordSpend: false,

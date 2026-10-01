@@ -71,7 +71,7 @@ async function run() {
       signer,
       fetch: asFetch(async () => json({ wash_flagged: false, wash_confidence: "full" })),
       rawFetch: asFetch(async () =>
-        json({ accepts: [{ payTo: "GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs", amount: "10000", network: "solana", asset: "USDC" }] }, 402)),
+        json({ accepts: [{ payTo: "GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs", amount: "10000", network: "solana", asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }] }, 402)),
       wrapPay,
       ledger: createMemorySpendLedger(),
       policy: { dailyCeilingUsd: "0.025" },
