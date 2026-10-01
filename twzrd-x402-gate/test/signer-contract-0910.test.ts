@@ -44,7 +44,7 @@ function intelFetch(card: Record<string, unknown>, urls: string[]): typeof fetch
 
 async function run() {
   const pkg = require("../package.json") as { version: string; description: string };
-  assert.equal(pkg.version, "0.11.2");
+  assert.equal(pkg.version, "0.11.3");
   console.log(`version 0.11.2`);
 
   const shipped = ["README.md", "QUICKSTART.md", "src/doctor.ts"];
