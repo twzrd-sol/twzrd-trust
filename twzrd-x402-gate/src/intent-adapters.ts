@@ -11,7 +11,20 @@
 import type { PaymentIntent } from "./intent.js";
 import type { Mandate } from "./policy-runtime.js";
 import type { X402SelectedRequirements } from "./x402-client-hook.js";
-import { resolveRequirementFields } from "./payto.js";
+import { hasUsdcTable, isBaseUnitAmount, isUsdcRequirement, resolveRequirementFields } from "./payto.js";
+
+/**
+ * The requirement names an asset the gate cannot price in USD (any non-USDC asset
+ * on a network with a known USDC set), or an amount that is not a base-unit
+ * integer. PaymentIntent.amount is decimal USD, so there is nothing to evaluate.
+ */
+export class TwzrdUnpricedAssetError extends Error {
+  readonly code = "twzrd_non_usdc_asset";
+  constructor(message: string) {
+    super(message);
+    this.name = "TwzrdUnpricedAssetError";
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* x402                                                                */
@@ -60,6 +73,14 @@ export function x402RequirementsToIntent(
   const amountUnits = fields.amount;
   if (!payTo) throw new Error("[twzrd] x402 requirement missing payTo");
   if (!amountUnits) throw new Error("[twzrd] x402 requirement missing amount");
+  if (!isBaseUnitAmount(amountUnits)) {
+    throw new TwzrdUnpricedAssetError(`[twzrd] x402 requirement amount is not a base-unit integer`);
+  }
+  // amount / 10^6 is a USD price only for USDC; 5e8 wSOL would read as $500 (0.11.4).
+  const named = typeof req.asset === "string" && req.asset.trim() !== "";
+  if (named && hasUsdcTable(req) && !isUsdcRequirement(req as Record<string, unknown>)) {
+    throw new TwzrdUnpricedAssetError(`[twzrd] x402 requirement asset is not USDC; no USD price`);
+  }
   return {
     protocol: "x402",
     network: req.network ?? "unknown",

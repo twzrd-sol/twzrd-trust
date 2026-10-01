@@ -203,7 +203,7 @@ function evmUsdcTable(networkRaw: unknown): ReadonlySet<string> | undefined {
 }
 
 /** True when the network has a USDC set the gate knows (Solana clusters, Base, Base Sepolia). */
-function hasUsdcTable(requirement: { network?: unknown; payTo?: unknown; pay_to?: unknown }): boolean {
+export function hasUsdcTable(requirement: { network?: unknown; payTo?: unknown; pay_to?: unknown }): boolean {
   return (
     solanaCluster(requirement.network as string | undefined, recipientOf(requirement)) !== undefined ||
     evmUsdcTable(requirement.network) !== undefined
