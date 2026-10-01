@@ -131,7 +131,7 @@ function isBaseEntry(c: Record<string, unknown>): boolean {
   const network = typeof c.network === "string" ? c.network.trim().toLowerCase() : undefined;
   const chainId = c.chainId ?? c.chain_id;
   const chain = typeof chainId === "string" ? chainId.trim() : chainId;
-  return network === BASE_NETWORK || network === "base" || chain === BASE_CHAIN_ID || chain === String(BASE_CHAIN_ID);
+  return network === BASE_NETWORK || network === "base" || network === "base-mainnet" || chain === BASE_CHAIN_ID || chain === String(BASE_CHAIN_ID);
 }
 
 /** One requirements object per Base entry, so every entry the Worker could sign is evaluated (0.11.3). */

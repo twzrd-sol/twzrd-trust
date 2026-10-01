@@ -41,7 +41,7 @@ const intel = (async (_u: unknown, init: { body: string }) => {
 const entry = (network: string, payTo: string, amount = "1000") => ({ scheme: "exact", network, asset: BUSDC, payTo, amount });
 
 test("Base worker: a spelling-variant Base sibling is scored, not skipped", async () => {
-  for (const variant of ["BASE", "base", "eip155:8453 ", " Eip155:8453"]) {
+  for (const variant of ["BASE", "base", "base-mainnet", "eip155:8453 ", " Eip155:8453"]) {
     seen.length = 0;
     const approve = createTwzrdCloudflareBaseApproval({ fetch: intel });
     const r = await approve({ accepts: [entry("eip155:8453", BCLEAN), entry(variant, BWASH)] });
@@ -63,4 +63,14 @@ test("Base worker: Solana siblings are not this Worker's to score", async () => 
   const approve = createTwzrdCloudflareBaseApproval({ fetch: intel });
   await approve({ accepts: [entry("eip155:8453", BCLEAN), { scheme: "exact", network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", payTo: "7G73PLhKvAPBGTzG5ESAE4coE7QrVeTTKfhTxQZbyGgC", amount: "1000" }] });
   assert.deepEqual(seen, [BCLEAN]);
+});
+
+import { canonicalEvmNetwork } from "../src/network.js";
+test("Base Worker network aliases match the package alias table", async () => {
+  for (const n of ["base", "base-mainnet", "BASE-MAINNET", "eip155:8453"]) {
+    assert.equal(canonicalEvmNetwork(n), "eip155:8453");
+    seen.length = 0;
+    await createTwzrdCloudflareBaseApproval({ fetch: intel })({ accepts: [entry("eip155:8453", BCLEAN), entry(n, BWASH)] });
+    assert.ok(seen.includes(BWASH), n);
+  }
 });
