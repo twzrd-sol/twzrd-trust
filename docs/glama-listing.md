@@ -4,7 +4,7 @@
 
 Vet any counterparty wallet **before** you sign or send USDC over x402. Blocks happen before your private key is ever reached (**`signerInvocations: 0`** on block) — protecting your agent against malicious sellers, wash trading, and unvetted contracts.
 
-Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** (seller wash risk, tier and score; no receipt), and, separately, the gate can issue a `twzrd.payment_decision.v1` from its decision, signed with your own signer. Optional Path A V7 receipts are $0.05 and are not the primary SKU. Pin: `twzrd-x402-gate@0.11.4`.
+Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** (seller wash risk, tier and score; no receipt), and, separately, the gate can issue a `twzrd.payment_decision.v1` from its decision, signed with your own signer. Optional Path A V7 receipts are $0.05 and are not the primary SKU. Pin: `twzrd-x402-gate@0.11.5`.
 
 ---
 
@@ -92,7 +92,7 @@ Add to your Cursor / Claude / Windsurf MCP config:
 
 ### Option B: Node SDK / Local Package
 ```bash
-npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.11.5 x402-solana@3.0.1
 ```
 
 ---
