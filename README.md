@@ -9,7 +9,7 @@ Pre-spend trust for agents that buy: the x402 service they are about to pay (Sol
 Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
-**Spend-control SDK (npm)** • [`twzrd-x402-gate@0.11.4`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.0`](https://www.npmjs.com/package/x402-solana)  
+**Spend-control SDK (npm)** • [`twzrd-x402-gate@0.11.4`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.1`](https://www.npmjs.com/package/x402-solana)  
 **Live MCP** • https://intel.twzrd.xyz/mcp (streamable HTTP; free tools for x402 service checks and product-listing checks)  
 **Shopping check** • free `check_listing` on the hosted MCP · report: https://twzrd.xyz/shopping-check/vuori-kore/  
 **Agent contract** • https://intel.twzrd.xyz/llms.txt · https://intel.twzrd.xyz/.well-known/agent.json
@@ -110,7 +110,7 @@ build or demo them locally. Hosted MCP: `https://intel.twzrd.xyz/mcp`.
 ### 1. Install
 
 ```bash
-npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.1
 ```
 
 ### 2. Wrap paid fetches with spend controls
@@ -239,7 +239,7 @@ What a card is, and what it is not:
 | Package | Pin | Description |
 |---|---|---|
 | `twzrd-x402-gate` | **@0.11.4** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
-| `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
+| `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
 | `twzrd-mcp-server` | **@0.5.7** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.7** | Eliza / facilitator adapter |
