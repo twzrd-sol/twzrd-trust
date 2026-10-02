@@ -1,6 +1,6 @@
 {
   "name": "@wzrd_sol/eliza-plugin",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "WZRD Agent Intel for ElizaOS. Free preflight ReadinessCard + merchant_card (wash_flagged refuse default), paid GET /v1/intel/trust (~0.05 USDC) V7 receipt, offline verify via twzrd-receipt-verifier. Legacy earn loop is opt-in via createWzrdPlugin({ legacyEarnActions: true }).",
   "type": "module",
   "main": "dist/index.js",
@@ -24,7 +24,7 @@
     "bs58": "^5.0.0",
     "tweetnacl": "^1.0.3",
     "twzrd-receipt-verifier": "^1.4.0",
-    "twzrd-x402-gate": "^0.9.5 || ^0.11.0"
+    "twzrd-x402-gate": "^0.11.4"
   },
   "peerDependencies": {
     "@elizaos/core": "^1.0.0"
