@@ -222,7 +222,7 @@ consumer gate (`action: untrusted-recheck` on earlier V5/V6 receipts). Do not tr
 `recheck_after_unix` / `due` as a trusted allow. Stale ≠ invalid.
 Watch lane: `twzrd_watch_add` or `POST /v1/intel/watch` re-checks the seller when a re-check is due and POSTs `twzrd.watch.recheck_due` if intel changed; detail on /llms-full.txt.
 
-### Trust gate semantics (twzrd-agent-intel service v0.5.12)
+### Trust gate semantics (twzrd-agent-intel service v0.5.13)
 
 - Service package, npm buyer gate, and framework plugins version independently.
 - Preflight does NOT block settlement; an installed client hook must honor the decision.
