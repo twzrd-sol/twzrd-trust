@@ -240,14 +240,14 @@ What a card is, and what it is not:
 |---|---|---|
 | `twzrd-x402-gate` | **@0.11.4** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
-| `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V5/V6/V7 receipts |
+| `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
 | `twzrd-mcp-server` | **@0.5.6** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.7** | Eliza / facilitator adapter |
 
 - **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 - **Step-by-step Guide:** [QUICKSTART.md](./QUICKSTART.md)
 - **Concepts & Architecture:** [docs/taxonomy.md](./docs/taxonomy.md)
-- **V6/V7 Receipt Specification:** [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md)
+- **Receipt Specification (V7, with the V6 lineage):** [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md)
 - **Receipt Transparency Log:** [docs/transparency-log.md](./docs/transparency-log.md) (in-repo `twzrd-log-verifier` — not on npm)
 - **Receipt Verification & Ground Truth:** [REVIEW.md](./REVIEW.md)
 - **Security Policy:** [SECURITY.md](./SECURITY.md) · [docs/security-assurance.md](./docs/security-assurance.md)
