@@ -30,15 +30,15 @@
 
 Install the gate in your x402 client so a `block` verdict refuses the payment
 before your wallet ever signs - the refusal itself is the product working.
-Primary seat: `twzrd-x402-gate@0.11.4` + `x402-solana@3.0.0`. Hook runs after
+Primary seat: `twzrd-x402-gate@0.11.4` + `x402-solana@3.0.1`. Hook runs after
 requirement selection, before `signTransaction`. Path B success = refuse
 transcript (`signer_invocation_count=0`), not `day0.gate_evals` or free_card_hits.
 
 ```bash
-npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.1
 # Prove refuse-before-sign. The gate's OPTIONAL peers are not auto-installed by
 # npm, so on a cold machine run the full line first:
-#   npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+#   npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 
@@ -85,8 +85,9 @@ Refuse / preflight honesty (match live code):
   omit leftover `price_usdc` on replay curl. Caller-supplied / `exact` 0.05 stays.
 - Milestone status: `proven` | `held` | `needs_human`. Surfaces cannot claim proven when held or needs_human.
 
-`twzrd_demo_gate` is a deterministic no-spend proof: block aborts before any
-signer; allow proceeds but still spends nothing. Caller-supplied attribution is
+`twzrd_demo_gate` is a deterministic no-spend transcript, a recorded example,
+not a live run: block aborts before any signer; allow proceeds but still spends
+nothing. Caller-supplied attribution is
 an `external_candidate`, never proof of an external run.
 
 ### Fixtures (do not confuse roles)
@@ -179,7 +180,7 @@ Optional Path A curl examples: /llms-full.txt.
 - `GET https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.001 USDC. First paid hop. No V7 receipt.
 - `GET https://intel.twzrd.xyz/v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs?seller_wallet=GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.05 USDC. Optional portable V7.
 - `GET https://intel.twzrd.xyz/v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.05 USDC.
-- `GET /v1/intel/reality-check` — 15.0 USDC Reality Check PDF.
+- `GET /v1/intel/reality-check` — 0.05 USDC Reality Check PDF.
 - `POST /v1/intel/verify-endpoint` — 0.05 USDC. Body `{"url"}`. not_a_trust_vouch; not_ready still charged. Free unsigned: `POST /v1/agent-readiness`.
 - `POST /v1/intel/read-page` — 0.005 USDC, signed.
 - `POST /v1/intel/delivery-watch`
@@ -221,7 +222,7 @@ consumer gate (`action: untrusted-recheck` on earlier V5/V6 receipts). Do not tr
 `recheck_after_unix` / `due` as a trusted allow. Stale ≠ invalid.
 Watch lane: `twzrd_watch_add` or `POST /v1/intel/watch` re-checks the seller when a re-check is due and POSTs `twzrd.watch.recheck_due` if intel changed; detail on /llms-full.txt.
 
-### Trust gate semantics (twzrd-agent-intel service v0.5.11)
+### Trust gate semantics (twzrd-agent-intel service v0.5.12)
 
 - Service package, npm buyer gate, and framework plugins version independently.
 - Preflight does NOT block settlement; an installed client hook must honor the decision.
