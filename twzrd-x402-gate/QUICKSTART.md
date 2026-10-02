@@ -6,13 +6,13 @@ is unreachable the gate never *invents* a wash flag. A failed preflight, or a me
 outage on a scored path, blocks by default (`TWZRD_FAIL_OPEN=true` to allow). A reachable
 card with no wash signal still proceeds.
 
-**Pin:** `twzrd-x402-gate@0.11.4` + stock PayAI client `x402-solana@3.0.0` (official
+**Pin:** `twzrd-x402-gate@0.11.4` + stock PayAI client `x402-solana@3.0.1` (official
 `beforePayment` seat). `@x402/core` Path E remains supported; refuse script is fallback.
 
 ## 1. Stock PayAI client (default seat — copy-paste)
 
 ```bash
-npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.1
 ```
 
 > **ESM-only.** The package ships `import` conditions only — a CommonJS
@@ -109,7 +109,7 @@ Optional seat proofs (live intel; the clean-fixture leg can exit 2 when
 `CLEAN_PAYTO` is wash-flagged — that is not the first demo):
 
 ```bash
-# Stock-client seat proof (beforePayment). Needs x402-solana@3.0.0.
+# Stock-client seat proof (beforePayment). Needs x402-solana@3.0.1.
 # Harness fallback runs without it but does not clear closure.
 npm run x402-solana-before-payment-proof
 # writes block-proof-<run_id>.json — hook: beforePayment

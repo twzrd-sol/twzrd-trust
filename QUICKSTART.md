@@ -35,7 +35,7 @@ the live clean fixture is wash-flagged.
 ## 1. Install (published package)
 
 ```bash
-npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.1
 ```
 
 ## 2. First call — nothing to configure

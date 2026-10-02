@@ -92,7 +92,7 @@ Add to your Cursor / Claude / Windsurf MCP config:
 
 ### Option B: Node SDK / Local Package
 ```bash
-npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.0
+npm install twzrd-x402-gate@0.11.4 x402-solana@3.0.1
 ```
 
 ---

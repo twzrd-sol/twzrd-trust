@@ -34,7 +34,7 @@ Do not say “the receipt” in agent copy when more than one of these is in pla
 ## Install (≤5 commands) — external agent
 
 ```bash
-npm i twzrd-x402-gate@0.11.4 x402-solana@3.0.0
+npm i twzrd-x402-gate@0.11.4 x402-solana@3.0.1
 # optional offline verifier floor for Path A receipts:
 npm i twzrd-receipt-verifier@^1.4.0
 # refuse-before-sign proof (no wallet, 0 USDC):
