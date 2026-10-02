@@ -1,6 +1,8 @@
 # Compatibility note — twzrd-x402-gate 0.9.3 → 0.9.4
 
-0.11.4 is the released identity of this package and npm `latest`. 0.11.2 and 0.11.3 are deprecated on npm. The `paying-client-fail-closed` dist-tag also points at 0.11.4.
+0.11.5 is the released identity of this package and npm `latest`. 0.11.2 and 0.11.3 are deprecated on npm. The `paying-client-fail-closed` dist-tag also points at 0.11.5.
+
+0.11.5 raises the `x402-solana` peer floor to `>=3.0.1`, which refuses a non-positive or out-of-range amount before signing. Gate behavior is unchanged from 0.11.4.
 
 0.11.3 and 0.11.4 are security fixes; each change adds a refusal or makes one reliable. The paying and policy fetch wrappers check every offer and refuse an entry with no recipient; every boolean flag is read by one parser, so `failOpen: "false"` stays closed; the policy seat refuses a non-USDC asset instead of reading its base units as USD; and the Base Worker scores case and whitespace variants of the Base network name (`BASE`, `base`, or `eip155:8453` with a trailing space). See `CHANGELOG.md`.
 
@@ -77,12 +79,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` and `paying-client-fail-closed` dist-tags: **0.11.4**. `0.10.0` and `0.10.1` are deprecated as
+- `latest` and `paying-client-fail-closed` dist-tags: **0.11.5**. `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.11.4 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.11.5 as the
   maintained line (0.11.2 and 0.11.3 are deprecated on npm for security fixes).
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy. Pin the exact version (`twzrd-x402-gate@0.11.4`) if you want
+  new refusal policy. Pin the exact version (`twzrd-x402-gate@0.11.5`) if you want
   no change at all.

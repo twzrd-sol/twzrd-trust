@@ -28,6 +28,10 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.11.5 - 2026-10-02 (peer floor)
+
+- **`x402-solana` peer floor raised to `>=3.0.1`** (was `>=3.0.0`). x402-solana 3.0.1 refuses a non-positive amount, or one above the u64 range, before it builds or signs a transfer; 3.0.0 accepted a negative amount. An install that resolves the stock PayAI client now gets that check. The gate's own `amount_malformed` refusal (0.11.2) already rejected a signed or non-integer amount on every gate entry point; this closes the same hole for a payer that calls `x402-solana` directly. No gate allow/refuse outcome changes.
+
 ## 0.11.4 - 2026-10-01 (security fix)
 
 - **`createTwzrdPolicyFetch` and the x402 intent adapter refuse a non-USDC asset** (`twzrd_non_usdc_asset`) instead of reading its base units as USD: 5 wSOL (`500000000`) passed a $1000 cap as "$500". The hook and approval seats already refused it; the policy seat now agrees. A bare `"USDC"` symbol is not a mint and is refused like any other non-mint asset on a network with a known USDC set. The MPP seat has its own priced-asset table and is unchanged (it also prices USDT 1:1; the x402 seats do not).
