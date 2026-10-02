@@ -45,7 +45,7 @@ TWZRD's full free buyer sequence on the marketplace is:
 
 1. Free **preflight** ReadinessCard (this package implements this)
 2. Free **merchant_card** `wash_flagged` refuse (default on the product stack)
-3. Optional paid **V6 trust receipt** (~0.05 USDC)
+3. Optional paid **V7 trust receipt** (~0.05 USDC)
 4. Optional facilitator **settle attach** when settle is routed through `intel.twzrd.xyz`
 
 **This package only implements step 1** (preflight) + opt-in enforcement primitives.

@@ -1,7 +1,7 @@
 # twzrd-log-verifier
 
 Offline verifier for the **TWZRD Receipt Transparency log** — the append-only,
-Solana-anchored Merkle log of issued V6 trust receipts. Spec:
+Solana-anchored Merkle log of issued trust receipts (V7 today; the first leaves are V6). Spec:
 [`docs/transparency-log.md`](../docs/transparency-log.md).
 
 Verifies, with **no trust in TWZRD's servers or code**, that:
