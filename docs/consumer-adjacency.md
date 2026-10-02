@@ -49,7 +49,7 @@ Hermes skill (Solana sellers only): refresh
 
 ## Product boundaries
 
-- **Not** a wallet, Link issuer, Catena ACK, outbid board, or witness host.
+- **Not** a wallet, Link issuer, outbid board, or witness host.
 - **Not** PR #96 / `completionOfPaidIntel` / agent-commerce-kit.
 - Outbid and witness stay separate products; do not brand-merge.
 

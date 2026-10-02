@@ -1,8 +1,8 @@
 # Don't let your agent sign blind
 
 The TWZRD commerce loop is a walkthrough of `twzrd-x402-gate`, not a second
-package and not Catena's Agent Commerce Kit (ACK-Pay). ACK-Pay remains the
-optional receipt-passport shape on paid `/trust` and settle. The portable
+package. ACK-Pay remains the optional receipt-passport shape on paid `/trust`
+and settle. The portable
 artifact is the existing V7 receipt (or bind-v1). V6 remains verifiable. Do not invent another format.
 
 ```

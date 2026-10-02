@@ -6,7 +6,7 @@ Pre-spend trust for agents that buy: the x402 service they are about to pay (Sol
 - **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable `twzrd.payment_decision.v1` record from its own decision, signed locally with your own signer.
 - **Product listings:** a free check of a store product URL and its asking price against a card TWZRD published from the store's public pages. The card is an observer card, not a merchant attestation, and a match is never permission to spend ([details](#product-listings-check-the-listing-before-you-buy)).
 
-Not a wallet. Not a payment network. Not Catena's Agent Commerce Kit — the walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
+Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
 **Spend-control SDK (npm)** • [`twzrd-x402-gate@0.11.4`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.0`](https://www.npmjs.com/package/x402-solana)  
@@ -241,7 +241,7 @@ What a card is, and what it is not:
 | `twzrd-x402-gate` | **@0.11.4** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
-| `twzrd-mcp-server` | **@0.5.6** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
+| `twzrd-mcp-server` | **@0.5.7** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.7** | Eliza / facilitator adapter |
 
 - **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)

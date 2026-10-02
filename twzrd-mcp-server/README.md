@@ -33,8 +33,8 @@ pip install twzrd-mcp          # Python
 | `https://intel.twzrd.xyz/mcp` (hosted) | Full hosted set (live `tools/list`) | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, product-listing checks (`check_listing`), and observed-market research. |
 | `twzrd-mcp-server` / `twzrd-mcp` (this local package) | 6 local tools | Only for paid | You want `quick_trust` / `full_trust` auto-paid locally with caps. |
 
-Start with hosted `twzrd_demo_gate` for a zero-setup, zero-spend proof of the
-block path. The hosted MCP is also [listed on Smithery](https://smithery.ai/servers/wzrd/twzrd-agent-intel).
+Start with hosted `twzrd_demo_gate` for a zero-setup, zero-spend transcript of
+the block path: a recorded example, not a live run. The hosted MCP is also [listed on Smithery](https://smithery.ai/servers/wzrd/twzrd-agent-intel).
 
 ## The 6 local client tools
 
