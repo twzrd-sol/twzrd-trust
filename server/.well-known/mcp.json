@@ -4,13 +4,13 @@
     "name": "twzrd-agent-intel",
     "version": "0.5.13"
   },
-  "description": "Model Context Protocol server for TWZRD trust memory and x402 settlement on Solana. Public Streamable HTTP at https://intel.twzrd.xyz/mcp; also stdio. Free preflight + discovery tools; Path A first hop /quick 0.001 on HTTP; Path B facilitator is HTTP GET /supported (feePayer GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP) + POST /verify + POST /settle (not MCP tool names). readiness_card.next_action.command is optional data under host policy (do not stop at the free card). Gate package: twzrd-x402-gate@0.11.4. Receipt version: v7. Not a wallet or payment network. Paste-ready Path A first hop is GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.001 USDC). Optional V7: GET /v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs. Those paths are TWZRD own-wallet smoke; before a real pay put the seller payTo in the path. Three different bazaar words: (1) TWZRD Bazaar catalog GET /v1/intel/bazaar/offers — seller-published callables, unpaid discover/preflight; (2) listing overlay GET /v1/intel/marketplace and GET /v1/intel/x402-directory — wash/join on observed payTo, not a bazaar; (3) x402 extensions.bazaar on a 402 — routeTemplate metadata, not the catalog.",
+  "description": "Model Context Protocol server for TWZRD trust memory and x402 settlement on Solana. Public Streamable HTTP at https://intel.twzrd.xyz/mcp; also stdio. Free preflight + discovery tools; Path A first hop /quick 0.001 on HTTP; Path B facilitator is HTTP GET /supported (feePayer GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP) + POST /verify + POST /settle (not MCP tool names). readiness_card.next_action.command is optional data under host policy (do not stop at the free card). Gate package: twzrd-x402-gate@0.11.5. Receipt version: v7. Not a wallet or payment network. Paste-ready Path A first hop is GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.001 USDC). Optional V7: GET /v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs. Those paths are TWZRD own-wallet smoke; before a real pay put the seller payTo in the path. Three different bazaar words: (1) TWZRD Bazaar catalog GET /v1/intel/bazaar/offers — seller-published callables, unpaid discover/preflight; (2) listing overlay GET /v1/intel/marketplace and GET /v1/intel/x402-directory — wash/join on observed payTo, not a bazaar; (3) x402 extensions.bazaar on a 402 — routeTemplate metadata, not the catalog.",
   "version": "0.5.13",
   "capabilities": {
     "trust_memory": true,
     "receipt_version": "v7",
     "preflight_screening": "allow_warn_block_advisory",
-    "gate_package": "twzrd-x402-gate@0.11.4",
+    "gate_package": "twzrd-x402-gate@0.11.5",
     "facilitator_scheme": "exact",
     "facilitator_fee_payer": "GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP",
     "facilitator_http": {
@@ -50,7 +50,7 @@
     "published_to_pypi": true,
     "pypi_package": "twzrd-agent-intel",
     "pip": "pip install twzrd-agent-intel",
-    "buyer_gate_npm": "npm i twzrd-x402-gate@0.11.4",
+    "buyer_gate_npm": "npm i twzrd-x402-gate@0.11.5",
     "auto_pay_mcp_python": "pip install twzrd-mcp",
     "auto_pay_mcp_node": "npx -y twzrd-mcp-server --help",
     "auto_pay_mcp_config_node": {
@@ -340,5 +340,5 @@
     "url": "https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs"
   },
   "package_version": "0.5.13",
-  "gate_npm": "twzrd-x402-gate@0.11.4"
+  "gate_npm": "twzrd-x402-gate@0.11.5"
 }
