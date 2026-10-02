@@ -1,7 +1,7 @@
 {
   "name": "@wzrd_sol/eliza-plugin-source",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "V7-migrated ElizaOS plugin source for @wzrd_sol/eliza-plugin. Publishable after merge as the next @wzrd_sol/eliza-plugin line; this public-mirror directory is not the artifact-only eliza-plugin/ package.",
   "type": "module",
   "main": "dist/index.js",
@@ -24,7 +24,7 @@
     "bs58": "^5.0.0",
     "tweetnacl": "^1.0.3",
     "twzrd-receipt-verifier": "^1.4.0",
-    "twzrd-x402-gate": "^0.9.5 || ^0.11.0"
+    "twzrd-x402-gate": "^0.11.4"
   },
   "peerDependencies": {
     "@elizaos/core": "^1.0.0"
