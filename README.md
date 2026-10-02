@@ -239,7 +239,7 @@ What a card is, and what it is not:
 | Package | Pin | Description |
 |---|---|---|
 | `twzrd-x402-gate` | **@0.11.4** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
-| `x402-solana` | **@3.0.0** | Compatible Solana client seat for the pre-payment gate |
+| `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
 | `twzrd-mcp-server` | **@0.5.7** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.7** | Eliza / facilitator adapter |
