@@ -114,7 +114,7 @@ override). `POST /v1/compute/inference` here is receipt-gated and is not that SK
 | During | buyer gate at `onBeforePaymentCreation` / `beforePayment` | block aborts before wallet signing |
 | First paid hop | `GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` | 0.001 USDC, score-only teaser (Path A) |
 | After (optional) | `GET /v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` | 0.05 USDC, signed V7 receipt (Path A) |
-| After | `POST /v1/receipts/verify` | free offline verification of V5, V6, and V7 receipts |
+| After | `POST /v1/receipts/verify` | free offline verification of V7 receipts (earlier V5 and V6 receipts still verify) |
 
 Refuse-receipt: caller's own local deny, not a TWZRD wash verdict. Replay 90 days.
 
@@ -217,7 +217,7 @@ leaf bytes. Verify offline with
 `POST /v1/receipts/verify`. Freshness
 (`recheck_after_unix`, `staleness_days`, `score_decay_model`) is untrusted
 (not leaf-bound; `unauthenticated_fields`). `evaluateRecall(receipt)` is the
-consumer gate (`action: untrusted-recheck` on live V5/V6). Do not treat raw
+consumer gate (`action: untrusted-recheck` on earlier V5/V6 receipts). Do not treat raw
 `recheck_after_unix` / `due` as a trusted allow. Stale ≠ invalid.
 Watch lane: `twzrd_watch_add` or `POST /v1/intel/watch` re-checks the seller when a re-check is due and POSTs `twzrd.watch.recheck_due` if intel changed; detail on /llms-full.txt.
 
