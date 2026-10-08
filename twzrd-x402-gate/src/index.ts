@@ -280,6 +280,14 @@ export {
   type VerifyPaymentDecisionOptions,
 } from "./payment-decision.js";
 export {
+  CLEARANCE_SKU_USDC,
+  evaluateClearanceSku,
+  resolveRequirePaymentDecisionPolicy,
+  type RequirePaymentDecision,
+  type RequirePaymentDecisionPolicy,
+  type ClearanceSkuResult,
+} from "./clearance.js";
+export {
   quickCheck,
   QUICK_PRICE_USDC,
   type QuickCheckResult,

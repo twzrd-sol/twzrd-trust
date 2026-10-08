@@ -1129,6 +1129,13 @@ r.ok && r.decision; // "block" — or null when rejected
 npx twzrd-payment-decision --verify record.json --pubkey issuer.spki.pem [--challenge accepts-entry.json] [--json]
 ```
 
+This record is the **$0.001 clearance SKU** (`requirePaymentDecision` on the
+before-payment hook). The hook will not proceed to sign without an unexpired
+`allow` or `warn` for this exact `challenge_hash`. Opt-in — default AutoGate
+stays free-refuse. `GET /v1/intel/quick/{seller}` is a $0.001 score teaser
+and is **not** this SKU (not challenge-bound). Intel does not issue the
+record over x402 yet; pass a verified `record` or an explicit `issuerUrl`.
+
 Spec (schema, challenge normalization, what is signed, what is forbidden):
 [`docs/payment-decision-v1-spec.md`](../docs/payment-decision-v1-spec.md) ·
 JSON Schema: [`docs/schemas/twzrd.payment_decision.v1.schema.json`](../docs/schemas/twzrd.payment_decision.v1.schema.json) ·
