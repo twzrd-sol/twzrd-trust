@@ -105,12 +105,21 @@ export type TwzrdGateConfig = {
   /**
    * After free preflight, also GET free merchant_card for payTo and refuse
    * when wash_flagged=true. Default: true (trustless step 3 open default).
-   * A reachable card with no wash_flagged fails open (never invent). An
+   * A reachable card without full wash coverage is decided by refuseWashUnknown. An
    * unreachable card (5xx/429/network/bad JSON) on the scored path honours
    * failOpen (default fail-closed). 4xx is a service answer, not an outage.
    * Opt out of wash refuse with refuseWashFlagged:false or TWZRD_REFUSE_WASH_FLAGGED=0.
    */
   refuseWashFlagged?: boolean;
+  /**
+   * Refuse when the merchant_card is reachable but has not fully answered the wash
+   * question: no card, wash confidence other than "full", ring_evaluated false, or
+   * wash_stale. Reason twzrd_wash_unknown. Default true (0.12.0+). Applies on the
+   * reputation-scored path only, and only when refuseWashFlagged is on. An unreachable
+   * card is an outage and stays with failOpen. Opt out with refuseWashUnknown:false or
+   * TWZRD_REFUSE_WASH_UNKNOWN=0.
+   */
+  refuseWashUnknown?: boolean;
   /**
    * Soft cap instead of hard refuse: when wash_flagged and priceUsdc <= this,
    * allow (reason twzrd_wash_capped_*). Above the cap (or unknown price) refuse.

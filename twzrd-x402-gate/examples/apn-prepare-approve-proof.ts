@@ -202,7 +202,7 @@ export function routedIntelFetch(washFlagged: boolean, calls: string[]): typeof 
     }
     if (url.includes("/v1/intel/merchant_card/")) {
       const merchant = url.split("/v1/intel/merchant_card/")[1]?.split(/[?/]/)[0] ?? "";
-      return new Response(JSON.stringify({ merchant, wash_flagged: washFlagged, in_corpus: true }), {
+      return new Response(JSON.stringify({ merchant, wash_flagged: washFlagged, in_corpus: true, confidence: "full" }), {
         status: 200, headers: { "content-type": "application/json" },
       });
     }

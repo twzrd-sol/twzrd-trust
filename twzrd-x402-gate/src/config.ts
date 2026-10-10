@@ -12,6 +12,8 @@ export type ResolvedTwzrdGateConfig = {
   intelTimeoutMs: number;
   /** Default true: refuse when free merchant_card.wash_flagged */
   refuseWashFlagged: boolean;
+  /** Default true (0.12.0+): refuse a reachable card whose wash coverage is missing, partial or stale. */
+  refuseWashUnknown: boolean;
   /** Soft cap USDC when wash_flagged; null = hard refuse */
   washMaxUsdc: number | null;
   /**
@@ -115,6 +117,16 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     overrides?.refuseWashFlagged ??
     !(refuseWashEnv === "0" || refuseWashEnv === "false");
 
+  // Default true (0.12.0+): a reachable merchant_card that has not fully answered the
+  // wash question (no card, partial/unknown confidence, ring not evaluated, stale)
+  // refuses with twzrd_wash_unknown, the rule wash-default.ts already applied.
+  // Opt out: refuseWashUnknown:false or TWZRD_REFUSE_WASH_UNKNOWN=0|false.
+  const washUnknownRaw = overrides?.refuseWashUnknown ?? process.env.TWZRD_REFUSE_WASH_UNKNOWN;
+  const refuseWashUnknown =
+    washUnknownRaw === undefined || washUnknownRaw === null || washUnknownRaw === ""
+      ? true
+      : isTrueFlag(washUnknownRaw);
+
   let washMaxUsdc: number | null = null;
   if (overrides?.washMaxUsdc != null && Number.isFinite(overrides.washMaxUsdc)) {
     washMaxUsdc = overrides.washMaxUsdc;
@@ -160,6 +172,7 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     refuseUnevaluated,
     intelTimeoutMs: intelTimeout(overrides?.intelTimeoutMs, process.env.TWZRD_INTEL_TIMEOUT_MS),
     refuseWashFlagged,
+    refuseWashUnknown,
     washMaxUsdc,
     unsupportedNetworkMode,
     fetch: fetchFn,

@@ -30,7 +30,7 @@ function merchant402(): typeof fetch {
 
 function preflightFetch(card: unknown): typeof fetch {
   return (async () =>
-    new Response(JSON.stringify({ readiness_card: card }), {
+    new Response(JSON.stringify({ readiness_card: card, confidence: "full" }), {
       status: 200,
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;

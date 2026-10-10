@@ -132,13 +132,24 @@ async function run() {
   }
 
   // --- twzrdApprovePayment: wash still refuses an unevaluated seller within its cap ---
+  // The cap ladder runs with the coverage check off (refuseWashUnknown:false);
+  // the 0.12.0 default is asserted right after.
   {
     const clean = await twzrdApprovePayment(
       { payTo: SELLER, chain: "solana", priceUsdc: 0.005 },
-      resolveConfig({ fetch: intel(unknownCard()) }),
+      resolveConfig({ fetch: intel(unknownCard()), refuseWashUnknown: false }),
     );
     assert.equal(clean.approved, true, clean.reason);
     assert.equal(clean.unevaluated, true);
+
+    const partial = await twzrdApprovePayment(
+      { payTo: SELLER, chain: "solana", priceUsdc: 0.005 },
+      resolveConfig({
+        fetch: intel(unknownCard(), { wash_flagged: null, confidence: "partial_inbound_only" }),
+      }),
+    );
+    assert.equal(partial.approved, false, "default refuses an unevaluated within-cap seller with partial coverage");
+    assert.equal(partial.reason, "twzrd_wash_unknown");
 
     const washed = await twzrdApprovePayment(
       { payTo: SELLER, chain: "solana", priceUsdc: 0.005 },
@@ -153,7 +164,7 @@ async function run() {
     const x402 = paying();
     const result = await evaluateBeforePaymentCreation(
       { payTo: SELLER, network: "solana", amount: "5000", resource: "https://seller.example/paid" },
-      { fetch: intel(unknownCard()), x402Fetch: x402 },
+      { fetch: intel(unknownCard()), x402Fetch: x402, refuseWashUnknown: false },
     );
     assert.ok(!result || result.abort !== true, `unexpected abort: ${JSON.stringify(result)}`);
     assert.equal(x402.calls.length, 0, "no paid hop can score a seller intel never saw");
@@ -162,7 +173,7 @@ async function run() {
     const x402b = paying();
     await evaluateBeforePaymentCreation(
       { payTo: SELLER, network: "solana", amount: "5000", resource: "https://seller.example/paid" },
-      { fetch: intel({ decision: "warn", trust_score: 50, can_spend: true }), x402Fetch: x402b },
+      { fetch: intel({ decision: "warn", trust_score: 50, can_spend: true }, { wash_flagged: false, confidence: "full" }), x402Fetch: x402b },
     );
     assert.equal(x402b.calls.length, 1);
     assert.match(x402b.calls[0], /\/v1\/intel\/quick\//);
@@ -176,6 +187,7 @@ async function run() {
       fetch: intel(unknownCard()),
       x402Fetch: x402,
       escalateOnWarn: { minSpendUsdc: 0 },
+      refuseWashUnknown: false,
     });
     assert.equal(r.approved, true, r.reason);
     assert.equal(r.escalated, undefined);

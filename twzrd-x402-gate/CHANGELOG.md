@@ -28,6 +28,16 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.12.0 - 2026-10-10 (refusal policy: unknown wash coverage)
+
+- **`refuseWashUnknown` defaults on** (an allow/refuse change, hence a minor release). On the reputation-scored path, a merchant card that answered but has not fully answered the wash question refuses with `twzrd_wash_unknown`: no card (including a 4xx), wash confidence other than `full` (`partial_inbound_only`, `base_2cycle`, `unknown`, ...), `ring_evaluated: false`, or `wash_stale: true`. This is the rule `wash-default.ts` already applied; the full-preflight entry points (`createTwzrdBeforePaymentHook`, `wrapFetchWithTwzrdGate`, `evaluate_x402_resource`, `safeFetch`, `withTwzrdGuard`, auto-gate seats) now apply it too. Measured wash keeps `twzrd_wash_flagged` and is checked first.
+- **Interaction with `refuseUnevaluated`** (still default false): an unevaluated seller within its card's cap is now refused by default when its merchant card lacks full coverage, which is the usual case for a seller intel has not evaluated. `refuseWashUnknown: false` restores the 0.11.x cap ladder.
+- **Not an outage.** A card that answered is never reported as `twzrd_card_unreachable_fail_closed`, and `failOpen` does not open `twzrd_wash_unknown`. An unreachable card (5xx, 429, non-JSON, throw, timeout) is still decided by `failOpen`. The unsupported-network observe path is not refused for coverage.
+- **Opt out** with `refuseWashUnknown: false` or `TWZRD_REFUSE_WASH_UNKNOWN=0|false|no|off`. Only applies while `refuseWashFlagged` is on.
+- **Wash seat timeout 3000 -> 2000 ms** (`createTwzrdWashBeforePaymentHook` default and the `TWZRD_WASH_TIMEOUT_MS` fallback), matching the gate's `intelTimeoutMs`.
+- **`decideSolanaConsumerAction` (consumer-adjacency router, not exported) fails closed**: wash, unknown wash (`washFlagged` null or absent) and a missing or unknown preflight decision refuse; only a clean `warn` pays capped. It previously paid on a missing decision and capped on wash.
+- Impact sample (2026-10-10, 24 sellers from the live `/v1/intel/resources` catalog): 14 carry `partial_inbound_only` or no confidence and would be refused by default; 8 have full coverage; 2 are wash-flagged.
+
 ## 0.11.5 - 2026-10-02 (peer floor)
 
 - **`x402-solana` peer floor raised to `>=3.0.1`** (was `>=3.0.0`). x402-solana 3.0.1 refuses a non-positive amount, or one above the u64 range, before it builds or signs a transfer; 3.0.0 accepted a negative amount. An install that resolves the stock PayAI client now gets that check. The gate's own `amount_malformed` refusal (0.11.2) already rejected a signed or non-integer amount on every gate entry point; this closes the same hole for a payer that calls `x402-solana` directly. No gate allow/refuse outcome changes.

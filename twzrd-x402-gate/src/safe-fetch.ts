@@ -53,6 +53,8 @@ export type SafeFetchOptions = {
   unsupportedNetworkMode?: "observe" | "strict";
   failOpen?: boolean;
   refuseWashFlagged?: boolean;
+  /** Refuse a reachable card without full wash coverage (default true). See TwzrdGateConfig. */
+  refuseWashUnknown?: boolean;
   /** Refuse every unevaluated seller instead of allowing up to its cap. See TwzrdGateConfig. */
   refuseUnevaluated?: boolean;
   preflightMinScore?: number;
@@ -361,6 +363,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
     unsupportedNetworkMode: opts.unsupportedNetworkMode,
     failOpen: opts.failOpen,
     refuseWashFlagged: opts.refuseWashFlagged,
+    refuseWashUnknown: opts.refuseWashUnknown,
     refuseUnevaluated: opts.refuseUnevaluated,
     preflightMinScore: opts.preflightMinScore,
     fetch: fetchFn,

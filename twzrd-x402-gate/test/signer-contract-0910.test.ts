@@ -27,7 +27,11 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function intelFetch(card: Record<string, unknown>, urls: string[]): typeof fetch {
+function intelFetch(
+  card: Record<string, unknown>,
+  urls: string[],
+  merchant: Record<string, unknown> = { wash_flagged: null, in_corpus: false },
+): typeof fetch {
   const impl: typeof fetch = async (input) => {
     const url = String(input);
     urls.push(url);
@@ -35,7 +39,7 @@ function intelFetch(card: Record<string, unknown>, urls: string[]): typeof fetch
       return jsonResponse({ readiness_card: card });
     }
     if (url.includes("/v1/intel/merchant_card/")) {
-      return jsonResponse({ wash_flagged: null, in_corpus: false });
+      return jsonResponse(merchant);
     }
     throw new Error(`unexpected intel url ${url}`);
   };
@@ -44,8 +48,8 @@ function intelFetch(card: Record<string, unknown>, urls: string[]): typeof fetch
 
 async function run() {
   const pkg = require("../package.json") as { version: string; description: string };
-  assert.equal(pkg.version, "0.11.5");
-  console.log(`version 0.11.5`);
+  assert.equal(pkg.version, "0.12.0");
+  console.log(`version 0.12.0`);
 
   const shipped = ["README.md", "QUICKSTART.md", "src/doctor.ts"];
   for (const rel of shipped) {
@@ -162,8 +166,17 @@ async function run() {
       seller_wallet: SELLER,
       ...(cap === undefined ? {} : { recommended_cap_usdc: cap }),
     });
-    const unknownHook = (cap: number | undefined, extra: { refuseUnevaluated?: boolean } = {}) =>
-      createTwzrdBeforePaymentHook({ fetch: intelFetch(unknownCard(cap), []), ...extra });
+    // The cap ladder is tested with the coverage check off; the default (on) is
+    // asserted separately below: the stub card has no wash coverage.
+    const unknownHook = (
+      cap: number | undefined,
+      extra: { refuseUnevaluated?: boolean; refuseWashUnknown?: boolean } = {},
+    ) =>
+      createTwzrdBeforePaymentHook({
+        fetch: intelFetch(unknownCard(cap), []),
+        refuseWashUnknown: false,
+        ...extra,
+      });
     const req = (network: string, amount: string) => ({
       payTo: SELLER,
       network,
@@ -185,6 +198,12 @@ async function run() {
       const strict = await unknownHook(0.01, { refuseUnevaluated: true })(req(network, "10000"));
       assert.ok(strict && strict.abort === true, network);
       assert.match(String(strict.reason), /twzrd_unevaluated_subject_unknown_subject/);
+
+      const coverageDefault = await createTwzrdBeforePaymentHook({
+        fetch: intelFetch(unknownCard(0.01), []),
+      })(req(network, "10000"));
+      assert.ok(coverageDefault && coverageDefault.abort === true, `${network} default refuses unknown coverage`);
+      assert.match(String(coverageDefault.reason), /twzrd_wash_unknown/);
     }
     console.log("unknown_subject signs only within its cap on a scored network");
 
@@ -227,6 +246,7 @@ async function run() {
           recommended_cap_usdc: 10,
         },
         [],
+        { wash_flagged: false, confidence: "full" },
       ),
       x402Fetch: payingFetch,
     });
