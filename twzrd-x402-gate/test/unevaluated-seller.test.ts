@@ -145,10 +145,11 @@ async function run() {
     const partial = await twzrdApprovePayment(
       { payTo: SELLER, chain: "solana", priceUsdc: 0.005 },
       resolveConfig({
+        refuseWashUnknown: true,
         fetch: intel(unknownCard(), { wash_flagged: null, confidence: "partial_inbound_only" }),
       }),
     );
-    assert.equal(partial.approved, false, "default refuses an unevaluated within-cap seller with partial coverage");
+    assert.equal(partial.approved, false, "opted in, refuseWashUnknown refuses an unevaluated within-cap seller with partial coverage");
     assert.equal(partial.reason, "twzrd_wash_unknown");
 
     const washed = await twzrdApprovePayment(

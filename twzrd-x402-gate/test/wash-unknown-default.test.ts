@@ -1,8 +1,10 @@
 /**
- * 0.12.0: refuseWashUnknown defaults on. On the reputation-scored path a merchant
- * card that answered but has not fully answered the wash question refuses with
- * twzrd_wash_unknown, the rule wash-default.ts already applied. An outage stays
- * with failOpen, and the unsupported-network observe path is not refused for it.
+ * 0.12.0: refuseWashUnknown (opt in; default false in 0.12.x, true from 0.13.0).
+ * When on, a merchant card on the reputation-scored path that answered but has not
+ * fully answered the wash question refuses with twzrd_wash_unknown, the rule
+ * wash-default.ts already applies. Off, partial coverage passes as in 0.11.x. An
+ * outage stays with failOpen, and the unsupported-network observe path is never
+ * refused for coverage.
  *
  * Run: npx tsx test/wash-unknown-default.test.ts
  */
@@ -36,10 +38,19 @@ function intel(card: CardReply): typeof fetch {
 
 const approve = (card: CardReply, extra: Partial<TwzrdGateConfig> = {}, chain = "solana", payTo = SOL_PAYTO) =>
   twzrdApprovePayment({ payTo, chain, priceUsdc: 0.01 }, resolveConfig({ fetch: intel(card), ...extra }));
+const strict = { refuseWashUnknown: true } as const;
 
 async function run() {
-  assert.equal(resolveConfig({}).refuseWashUnknown, true, "default on");
-  assert.equal(resolveConfig({ refuseWashUnknown: false }).refuseWashUnknown, false);
+  assert.equal(resolveConfig({}).refuseWashUnknown, false, "default off in 0.12.x");
+  assert.equal(resolveConfig({ refuseWashUnknown: true }).refuseWashUnknown, true);
+
+  // --- default (off): partial coverage passes as in 0.11.x ---
+  {
+    const r = await approve({ status: 200, body: { wash_flagged: null, confidence: "partial_inbound_only" } });
+    assert.equal(r.approved, true, `default allows partial coverage: ${r.reason}`);
+    assert.notEqual(r.reason, "twzrd_wash_unknown");
+  }
+  console.log("ok  default off: partial coverage is not refused");
 
   // --- refuses: every shape of "answered, but not fully" ---
   const unknownShapes: Array<[string, CardReply]> = [
@@ -51,17 +62,17 @@ async function run() {
     ["4xx (null card)", { status: 404 }],
   ];
   for (const [name, card] of unknownShapes) {
-    const r = await approve(card);
+    const r = await approve(card, strict);
     assert.equal(r.approved, false, `${name}: refuses`);
     assert.equal(r.reason, "twzrd_wash_unknown", `${name}: reason`);
     assert.equal(r.verdict, "block", `${name}: verdict`);
     assert.ok(!/unreachable/.test(r.reason), `${name}: never an outage`);
   }
-  console.log("ok  partial / base_2cycle / ring false / stale / no confidence / null card refuse twzrd_wash_unknown");
+  console.log("ok  opted in: partial / base_2cycle / ring false / stale / no confidence / null card refuse twzrd_wash_unknown");
 
   // --- allows: full coverage, clean ---
   {
-    const r = await approve({ status: 200, body: { wash_flagged: false, confidence: "full" } });
+    const r = await approve({ status: 200, body: { wash_flagged: false, confidence: "full" } }, strict);
     assert.equal(r.approved, true, r.reason);
     assert.equal(r.washFlagged, false);
   }
@@ -69,38 +80,39 @@ async function run() {
 
   // --- measured wash keeps its own reason ---
   {
-    const r = await approve({ status: 200, body: { wash_flagged: true, confidence: "partial_inbound_only" } });
-    assert.equal(r.approved, false);
-    assert.equal(r.reason, "twzrd_wash_flagged", "measured wash is wash_flagged, not wash_unknown");
+    for (const extra of [{}, strict]) {
+      const r = await approve({ status: 200, body: { wash_flagged: true, confidence: "partial_inbound_only" } }, extra);
+      assert.equal(r.approved, false);
+      assert.equal(r.reason, "twzrd_wash_flagged", "measured wash is wash_flagged, not wash_unknown");
+    }
   }
   console.log("ok  wash_flagged true refuses twzrd_wash_flagged");
 
-  // --- opt-outs: option and env ---
+  // --- opt-in by env; an explicit option wins over env ---
   {
     const partial: CardReply = { status: 200, body: { wash_flagged: false, confidence: "partial_inbound_only" } };
-    const viaOption = await approve(partial, { refuseWashUnknown: false });
-    assert.equal(viaOption.approved, true, `option opt-out: ${viaOption.reason}`);
-
     const prev = process.env.TWZRD_REFUSE_WASH_UNKNOWN;
-    process.env.TWZRD_REFUSE_WASH_UNKNOWN = "0";
+    process.env.TWZRD_REFUSE_WASH_UNKNOWN = "1";
     try {
-      assert.equal(resolveConfig({}).refuseWashUnknown, false, "env 0 turns it off");
+      assert.equal(resolveConfig({}).refuseWashUnknown, true, "env 1 turns it on");
       const viaEnv = await approve(partial);
-      assert.equal(viaEnv.approved, true, `env opt-out: ${viaEnv.reason}`);
+      assert.equal(viaEnv.reason, "twzrd_wash_unknown", `env opt-in refuses: ${viaEnv.reason}`);
+      const optionOff = await approve(partial, { refuseWashUnknown: false });
+      assert.equal(optionOff.approved, true, `option false overrides env: ${optionOff.reason}`);
     } finally {
       if (prev === undefined) delete process.env.TWZRD_REFUSE_WASH_UNKNOWN;
       else process.env.TWZRD_REFUSE_WASH_UNKNOWN = prev;
     }
   }
-  console.log("ok  refuseWashUnknown:false and TWZRD_REFUSE_WASH_UNKNOWN=0 allow partial coverage");
+  console.log("ok  TWZRD_REFUSE_WASH_UNKNOWN=1 opts in; refuseWashUnknown:false overrides it");
 
   // --- an outage stays with failOpen ---
   {
-    const closed = await approve({ status: 503 }, { failOpen: false });
+    const closed = await approve({ status: 503 }, { failOpen: false, ...strict });
     assert.equal(closed.approved, false);
     assert.match(closed.reason, /^twzrd_card_unreachable_fail_closed/);
 
-    const open = await approve({ status: 503 }, { failOpen: true });
+    const open = await approve({ status: 503 }, { failOpen: true, ...strict });
     assert.equal(open.approved, true, `failOpen still opens an outage: ${open.reason}`);
     assert.equal(open.cardUnreachable, true);
   }
@@ -110,7 +122,7 @@ async function run() {
   {
     const r = await approve(
       { status: 200, body: { wash_flagged: false, confidence: "partial_inbound_only" } },
-      { unsupportedNetworkMode: "observe" },
+      { unsupportedNetworkMode: "observe", ...strict },
       "eip155:137",
       EVM_PAYTO,
     );

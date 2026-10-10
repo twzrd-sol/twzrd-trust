@@ -272,8 +272,8 @@ async function main() {
     assert.match(String(strict.decisions[0]?.reason), /twzrd_unevaluated_subject_unknown_subject/);
     assert.equal(strict.signerInvocations, 0, "CRITICAL: refuseUnevaluated must refuse before the signer");
 
-    const coverage = await run({ payTo: SELLER_CLEAN, card: unknown(0.01) });
-    show("E5 unknown seller within cap, default refuseWashUnknown", coverage);
+    const coverage = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: { refuseWashUnknown: true } });
+    show("E5 unknown seller within cap, refuseWashUnknown opted in", coverage);
     assert.equal(coverage.decisions[0]?.approved, false);
     assert.match(String(coverage.decisions[0]?.reason), /twzrd_wash_unknown/);
     assert.equal(coverage.signerInvocations, 0, "CRITICAL: unknown wash coverage must refuse before the signer");
