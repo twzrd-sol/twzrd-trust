@@ -33,6 +33,11 @@ import {
   type RequireReceiptPolicy,
 } from "./receipt-policy.js";
 import {
+  evaluateClearanceSku,
+  resolveRequirePaymentDecisionPolicy,
+  type RequirePaymentDecision,
+} from "./clearance.js";
+import {
   stampResourceBind,
   type ResourceBindDecision,
 } from "./resource-bind.js";
@@ -138,6 +143,13 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
   /** Clock for decision issue time, Unix ms. Injectable for tests. Default Date.now. */
   now?: () => number;
   /**
+   * Clearance SKU (#99). When set, the hook will not proceed to sign without
+   * an unexpired `twzrd.payment_decision.v1` `allow` or `warn` for this
+   * exact challenge. Opt-in: default AutoGate stays free-refuse. Not
+   * `quickCheck` — that door is not challenge-bound.
+   */
+  requirePaymentDecision?: RequirePaymentDecision;
+  /**
    * Host threshold policy for Path A V6 (same semantics as evaluate_x402_resource).
    * Requires `x402Fetch` when hard require is active.
    */
@@ -202,6 +214,9 @@ export type InstallX402ClientHookOptions = TwzrdGateConfig & {
      */
     receiptSkipped?: "unscored_network";
     resourceBind?: ResourceBindDecision;
+    /** true when requirePaymentDecision denied before the signer */
+    clearanceDenied?: boolean;
+    clearanceReason?: string;
   }) => void;
 };
 
@@ -414,6 +429,40 @@ export async function evaluateBeforePaymentCreation(
       // never break payment path on telemetry
     }
     return { abort: true, reason };
+  }
+
+  // Clearance SKU: paid, challenge-bound payment_decision.v1. After free
+  // refuse (never tax a block), before Path A gift shop and before sign.
+  const clearancePolicy = resolveRequirePaymentDecisionPolicy(options?.requirePaymentDecision);
+  if (clearancePolicy) {
+    const clearance = await evaluateClearanceSku({
+      policy: clearancePolicy,
+      challenge: selectedRequirements,
+      x402Fetch: options.x402Fetch,
+      now: options.now?.(),
+    });
+    if (!clearance.cleared && clearancePolicy.hard) {
+      const reason = `[twzrd] ${clearance.reason} payTo=${payTo ?? "unknown"}`;
+      try {
+        options?.onDecision?.({
+          approved: false,
+          reason,
+          verdict: String(approval.verdict),
+          payTo,
+          network: approval.network ?? network,
+          amountMicro,
+          reputationScored: approval.reputationScored,
+          policyAction: "block",
+          intent,
+          decision,
+          clearanceDenied: true,
+          clearanceReason: clearance.reason,
+        });
+      } catch {
+        /* telemetry */
+      }
+      return { abort: true, reason };
+    }
   }
 
   // Host threshold: Path A V6 before signing high-value or warn spends.
