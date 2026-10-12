@@ -266,7 +266,7 @@ async function run() {
       const url = String(input);
       if (url.includes("/v1/intel/merchant_card/")) {
         return new Response(
-          JSON.stringify({ wash_flagged: false, in_corpus: true }),
+          JSON.stringify({ wash_flagged: false, in_corpus: true, confidence: "full" }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }

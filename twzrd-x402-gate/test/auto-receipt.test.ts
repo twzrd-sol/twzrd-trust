@@ -24,7 +24,7 @@ const REQS: X402PaymentRequirements = {
 /** Free-preflight mock: returns a readiness_card with the given decision. */
 const preflight = (card: Record<string, unknown>): typeof fetch =>
   (async () =>
-    new Response(JSON.stringify({ readiness_card: card }), {
+    new Response(JSON.stringify({ readiness_card: card, confidence: "full" }), {
       status: 200,
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;

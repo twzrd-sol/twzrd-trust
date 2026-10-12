@@ -41,7 +41,7 @@ const raw402 = (payTo: string, body: string | null): typeof fetch =>
 /** Preflight mock keyed on the seller the gate actually asked about. */
 const intel = (seen: string[]): typeof fetch =>
   (async (url: unknown, init?: { body?: unknown }) => {
-    if (String(url).includes("/merchant_card/")) return new Response("{}", { status: 404 });
+    if (String(url).includes("/merchant_card/")) return new Response(JSON.stringify({ wash_flagged: false, confidence: "full" }), { status: 200 });
     const seller = String(JSON.parse(String(init?.body ?? "{}")).seller_wallet ?? "");
     seen.push(seller);
     const card = seller === BAD ? { decision: "block", trust_score: 5 } : { decision: "allow", trust_score: 90 };

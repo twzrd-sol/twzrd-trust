@@ -179,7 +179,7 @@ function assertWire(r: Awaited<ReturnType<typeof run>>, payTo: string) {
 async function main() {
   // A. Clean seller: intel allows, the signer runs exactly once, the merchant is paid.
   {
-    const r = await run({ payTo: SELLER_CLEAN, card: { decision: "allow", can_spend: true, trust_score: 90, seller_wallet: SELLER_CLEAN, wash_flagged: false } });
+    const r = await run({ payTo: SELLER_CLEAN, card: { decision: "allow", can_spend: true, trust_score: 90, seller_wallet: SELLER_CLEAN, wash_flagged: false, confidence: "full" } });
     show("A clean seller", r);
     assertWire(r, SELLER_CLEAN);
     assert.equal(r.decisions[0]?.approved, true, `approved: ${JSON.stringify(r.decisions)}`);
@@ -243,7 +243,9 @@ async function main() {
       ...(cap === undefined ? {} : { recommended_cap_usdc: cap }),
     });
 
-    const within = await run({ payTo: SELLER_CLEAN, card: unknown(0.01) });
+    // The cap ladder runs with the coverage check off; E5 asserts the default.
+    const ladder = { refuseWashUnknown: false };
+    const within = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: ladder });
     show("E1 unknown seller, $0.001 within a $0.01 cap", within);
     assertWire(within, SELLER_CLEAN);
     assert.equal(within.decisions[0]?.approved, true, `decisions: ${JSON.stringify(within.decisions)}`);
@@ -252,13 +254,13 @@ async function main() {
     assert.equal(within.merchantPaid, 1);
     assert.equal(within.status, 200);
 
-    const over = await run({ payTo: SELLER_CLEAN, card: unknown(0.0005) });
+    const over = await run({ payTo: SELLER_CLEAN, card: unknown(0.0005), twzrd: ladder });
     show("E2 unknown seller, $0.001 over a $0.0005 cap", over);
     assert.equal(over.decisions[0]?.approved, false);
     assert.match(String(over.decisions[0]?.reason), /twzrd_unevaluated_over_cap_/);
     assert.equal(over.signerInvocations, 0, "CRITICAL: an unevaluated seller over its cap must never reach the signer");
 
-    const noCap = await run({ payTo: SELLER_CLEAN, card: unknown() });
+    const noCap = await run({ payTo: SELLER_CLEAN, card: unknown(), twzrd: ladder });
     show("E3 unknown seller, card carries no cap", noCap);
     assert.equal(noCap.decisions[0]?.approved, false);
     assert.match(String(noCap.decisions[0]?.reason), /twzrd_unevaluated_no_cap_unknown_subject/);
@@ -269,6 +271,12 @@ async function main() {
     assert.equal(strict.decisions[0]?.approved, false);
     assert.match(String(strict.decisions[0]?.reason), /twzrd_unevaluated_subject_unknown_subject/);
     assert.equal(strict.signerInvocations, 0, "CRITICAL: refuseUnevaluated must refuse before the signer");
+
+    const coverage = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: { refuseWashUnknown: true } });
+    show("E5 unknown seller within cap, refuseWashUnknown opted in", coverage);
+    assert.equal(coverage.decisions[0]?.approved, false);
+    assert.match(String(coverage.decisions[0]?.reason), /twzrd_wash_unknown/);
+    assert.equal(coverage.signerInvocations, 0, "CRITICAL: unknown wash coverage must refuse before the signer");
   }
 
   // D. Bypass: twzrd.disabled skips the intel call entirely but local caps still bind.

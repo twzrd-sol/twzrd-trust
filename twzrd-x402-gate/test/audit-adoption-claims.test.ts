@@ -64,7 +64,7 @@ async function run() {
     const paidUrls: string[] = [];
     const raw: typeof fetch = (async (input: unknown) => {
       const u = String(input);
-      if (u.includes("/v1/intel/merchant_card/")) return new Response("{}", { status: 404 });
+      if (u.includes("/v1/intel/merchant_card/")) return new Response(JSON.stringify({ wash_flagged: false, confidence: "full" }), { status: 200 });
       if (u.includes("/v1/intel/preflight")) {
         return new Response(JSON.stringify({ readiness_card: { decision: "warn", trust_score: 45 } }), { status: 200 });
       }

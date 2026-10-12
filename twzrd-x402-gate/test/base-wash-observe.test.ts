@@ -50,7 +50,7 @@ function washRoutedFetch(opts: {
       opts.hits.merchantCard += 1;
       const wallet = decodeURIComponent(cardMatch[1] ?? "");
       const flagged = opts.washByWallet[wallet];
-      return new Response(JSON.stringify({ wash_flagged: flagged === true }), {
+      return new Response(JSON.stringify({ wash_flagged: flagged === true, confidence: "full" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });

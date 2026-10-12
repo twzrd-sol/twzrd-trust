@@ -214,7 +214,7 @@ async function run() {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
-        return new Response("{}", { status: 200 });
+        return new Response(JSON.stringify({ wash_flagged: false, confidence: "full" }), { status: 200 });
       }) as typeof fetch,
     });
     const gated = wrapFetchWithTwzrdGate(base402, cfg);

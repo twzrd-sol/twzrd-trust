@@ -74,7 +74,7 @@ function countingFetch(card: Record<string, unknown>) {
     }
     if (url.includes("/v1/intel/merchant_card")) {
       merchantCardCount += 1;
-      return new Response(JSON.stringify({ wash_flagged: false }), {
+      return new Response(JSON.stringify({ wash_flagged: false, confidence: "full" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
