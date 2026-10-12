@@ -27,7 +27,7 @@
     "test:artifacts": "node scripts/check-artifact-workspaces.mjs",
     "test:ecosystem": "node scripts/render-ecosystem.mjs --check",
     "test:quickstart": "node scripts/test-readme-quickstart.mjs",
-    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "audit:prod": "node scripts/audit-prod.mjs",
     "ci": "npm run build && npm run typecheck && npm test && npm run audit:prod && npm run test:quickstart"
   },
   "devDependencies": {
