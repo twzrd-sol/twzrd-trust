@@ -11,7 +11,6 @@ import { AgentRuntime } from '@elizaos/core';
 import type { Content, IAgentRuntime, Memory } from '@elizaos/core';
 import wzrdPlugin, {
   createWzrdPlugin,
-  wzrdPluginWithLegacyEarn,
   intelPreflightAction,
   merchantCardAction,
   intelTrustAction,
@@ -88,25 +87,26 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
     }
   });
 
-  it('default plugin (0.6+) does not register legacy earn actions', () => {
+  it('0.8.0: the retired earn actions are not registered or exported', async () => {
     const names = wzrdPlugin.actions?.map((a) => a.name) ?? [];
     for (const legacy of ['WZRD_INFER', 'WZRD_REPORT', 'WZRD_EARN', 'WZRD_CLAIM', 'WZRD_REWARDS']) {
-      assert.equal(names.includes(legacy), false, `${legacy} must be opt-in`);
+      assert.equal(names.includes(legacy), false, `${legacy} must be gone`);
     }
-  });
-
-  it('createWzrdPlugin({ legacyEarnActions: true }) registers earn actions', () => {
-    const names = createWzrdPlugin({ legacyEarnActions: true }).actions?.map((a) => a.name) ?? [];
-    for (const legacy of ['WZRD_INFER', 'WZRD_REPORT', 'WZRD_EARN', 'WZRD_CLAIM', 'WZRD_REWARDS']) {
-      assert.ok(names.includes(legacy), `${legacy} must register when legacyEarnActions is true`);
+    const mod = (await import('../src/index.js')) as Record<string, unknown>;
+    for (const gone of [
+      'wzrdPluginWithLegacyEarn',
+      'legacyEarnActions',
+      'earnAction',
+      'inferAction',
+      'reportAction',
+      'claimAction',
+      'rewardsAction',
+      'WzrdClient',
+      'getWzrdClient',
+      'clearClientCache',
+    ]) {
+      assert.equal(gone in mod, false, `${gone} must not be exported`);
     }
-  });
-
-  it('wzrdPluginWithLegacyEarn matches createWzrdPlugin legacy opt-in', () => {
-    assert.deepEqual(
-      wzrdPluginWithLegacyEarn.actions?.map((a) => a.name),
-      createWzrdPlugin({ legacyEarnActions: true }).actions?.map((a) => a.name),
-    );
   });
 
   it('registers intel actions on a real @elizaos/core AgentRuntime', async () => {
@@ -192,7 +192,7 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
       const callbacks: string[] = [];
       const result = await intelTrustAction.handler!(
         mockRuntime(),
-        mockMemory({ pubkey: SELLER }),
+        mockMemory({ pubkey: SELLER, confirm_spend: true }),
         undefined,
         undefined,
         async (r: Content) => {
@@ -244,7 +244,7 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
     try {
       const callbacks: string[] = [];
       const result = await intelTrustAction.handler!(
-        mockRuntime(),
+        mockRuntime({ WZRD_INTEL_ALLOW_PAID: 'true' }),
         mockMemory({ pubkey: SELLER }),
         undefined,
         undefined,
@@ -289,7 +289,7 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
     try {
       const callbacks: string[] = [];
       const result = await intelTrustAction.handler!(
-        mockRuntime(),
+        mockRuntime({ WZRD_INTEL_ALLOW_PAID: 'true' }),
         mockMemory({ pubkey: SELLER }),
         undefined,
         undefined,
@@ -336,7 +336,7 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
     try {
       const callbacks: string[] = [];
       const result = await intelTrustAction.handler!(
-        mockRuntime(),
+        mockRuntime({ WZRD_INTEL_ALLOW_PAID: 'true' }),
         mockMemory({ pubkey: SELLER }),
         undefined,
         undefined,
@@ -481,7 +481,7 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
     try {
       const callbacks: string[] = [];
       const result = await intelTrustAction.handler!(
-        mockRuntime(),
+        mockRuntime({ WZRD_INTEL_ALLOW_PAID: 'true' }),
         mockMemory({ pubkey: SELLER }),
         undefined,
         undefined,
