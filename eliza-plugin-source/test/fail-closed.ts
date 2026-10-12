@@ -4,6 +4,7 @@
  * carries a default integration attribution.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import type { Content, IAgentRuntime, Memory } from '@elizaos/core';
 import {
@@ -14,6 +15,7 @@ import {
   autoGateOptions,
   refusePacket,
   paidLookupConfirmed,
+  GATE_PIN,
 } from '../src/index.js';
 
 const SELLER = '4LkEFjJdXARkKx8FBx4LBFa2SvJNmjQpgGDLoJcypZUE';
@@ -124,6 +126,32 @@ describe('merchant_card is fail-closed', () => {
       globalThis.fetch = realFetch;
     }
   });
+
+  it('stamps the seat headers on the merchant-card fetch', async () => {
+    const realFetch = globalThis.fetch;
+    let headers: Headers | undefined;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      headers = new Headers(init?.headers);
+      return json({ merchant: SELLER, wash_flagged: false, confidence: 'full' });
+    }) as typeof fetch;
+    try {
+      const { cb } = collect();
+      await merchantCardAction.handler!(
+        mockRuntime(),
+        mockMemory({ pubkey: SELLER }),
+        undefined,
+        undefined,
+        cb,
+      );
+      assert.ok(headers);
+      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.8.0@${GATE_PIN}`);
+      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.8.0');
+      assert.equal(headers.get('X-TWZRD-Client'), `twzrd-x402-gate/${GATE_PIN}`);
+      assert.ok((headers.get('X-TWZRD-Run-Id') ?? '').length > 0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });
 
 describe('paid trust needs a spend confirmation', () => {
@@ -190,6 +218,39 @@ describe('paid trust needs a spend confirmation', () => {
     }
   });
 
+  it('a missing merchant card refuses the paid lookup before any spend', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/merchant_card/')) return json({ error: 'down' }, 503);
+      return json({ readiness_card: { decision: 'allow', trust_score: 80, can_spend: true } });
+    }) as typeof fetch;
+    let payAttempted = false;
+    setPayingFetch((async () => {
+      payAttempted = true;
+      return json({});
+    }) as typeof fetch);
+    try {
+      const { lines, cb } = collect();
+      const result = (await intelTrustAction.handler!(
+        mockRuntime({ WZRD_INTEL_ALLOW_PAID: 'true' }),
+        mockMemory({ pubkey: SELLER }),
+        undefined,
+        undefined,
+        cb,
+      )) as { success: boolean; error?: string; data?: { refuse?: unknown } };
+      assert.equal(result.success, false);
+      assert.equal(result.error, 'merchant_card_unavailable');
+      assertRefusePacket(result.data?.refuse, 'merchant_card_unavailable');
+      assert.equal(payAttempted, false);
+      assert.match(lines.join('\n'), /do not pay/i);
+      assert.match(lines.join('\n'), /No payment was sent/);
+    } finally {
+      globalThis.fetch = realFetch;
+      clearPayingFetch();
+    }
+  });
+
   it('a gate block carries the refuse packet', async () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -223,6 +284,16 @@ describe('paid trust needs a spend confirmation', () => {
     assert.equal(paidLookupConfirmed(mockRuntime({ WZRD_INTEL_ALLOW_PAID: true }), {}), true);
     assert.equal(paidLookupConfirmed(mockRuntime(), { confirm_spend: true }), true);
     assertRefusePacket(refusePacket('x', SELLER), 'x');
+  });
+});
+
+describe('gate pin', () => {
+  it('depends on twzrd-x402-gate exactly 0.12.0', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      dependencies: Record<string, string>;
+    };
+    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.12.0');
+    assert.equal(GATE_PIN, '0.12.0');
   });
 });
 

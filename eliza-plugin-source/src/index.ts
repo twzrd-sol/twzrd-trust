@@ -55,6 +55,9 @@ export {
   resolvePayingFetch,
   installTwzrdAutoGate,
   autoGateOptions,
+  withTracking,
+  callerTag,
+  GATE_PIN,
 } from './paying-fetch.js';
 export { refusePacket, paidLookupConfirmed } from './actions/intel-trust.js';
 export type { RefusePacket } from './actions/intel-trust.js';

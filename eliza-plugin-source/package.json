@@ -21,7 +21,7 @@
   "dependencies": {
     "@wzrd_sol/sdk": "^0.4.8",
     "twzrd-receipt-verifier": "^1.4.0",
-    "twzrd-x402-gate": "^0.12.0"
+    "twzrd-x402-gate": "0.12.0"
   },
   "peerDependencies": {
     "@elizaos/core": "^1.0.0"

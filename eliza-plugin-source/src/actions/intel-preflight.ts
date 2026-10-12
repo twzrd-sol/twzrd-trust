@@ -4,6 +4,7 @@
 import type { Action, HandlerCallback, IAgentRuntime, Memory } from '@elizaos/core';
 import { intelPreflight } from '@wzrd_sol/sdk';
 import { getIntelBase, parsePreflightInput, withTimeout } from '../intel-helpers.js';
+import { callerTag } from '../paying-fetch.js';
 
 function isValidBase58Wallet(s: string | undefined): boolean {
   if (!s) return false;
@@ -88,7 +89,7 @@ export const intelPreflightAction: Action = {
 
     const apiBase = getIntelBase(runtime);
     try {
-      const res = await withTimeout(() => intelPreflight(input, apiBase));
+      const res = await withTimeout(() => intelPreflight(input, apiBase, callerTag()));
       const card = res.readiness_card;
       if (!card) {
         const text = `Preflight OK (legacy). decision=${res.decision ?? 'unknown'}, score=${res.trust_score ?? 'n/a'}`;
@@ -101,8 +102,10 @@ export const intelPreflightAction: Action = {
       return { success: true, data: { ...res, readiness_card: card } as unknown as Record<string, unknown> };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await callback?.({ text: `Preflight failed: ${msg}` });
-      return { success: false, error: msg };
+      await callback?.({
+        text: `Preflight failed: ${msg}. The check could not finish; do not pay this pay_to (fail-closed).`,
+      });
+      return { success: false, error: msg, data: { refuse_pay: true, reason: 'preflight_unavailable' } };
     }
   },
 };

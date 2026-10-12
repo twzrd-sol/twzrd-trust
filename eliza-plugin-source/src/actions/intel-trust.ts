@@ -9,7 +9,7 @@
 import type { Action, HandlerCallback, IAgentRuntime, Memory } from '@elizaos/core';
 import { fetchIntelTrust, preSpendGate, IntelPaymentRequiredError } from '@wzrd_sol/sdk';
 import { extractPubkey, formatPaymentRequired, getIntelBase, withTimeout } from '../intel-helpers.js';
-import { resolvePayingFetch } from '../paying-fetch.js';
+import { callerTag, resolvePayingFetch, withTracking } from '../paying-fetch.js';
 import {
   classifyReceipt,
   describeReceiptSurface,
@@ -103,7 +103,7 @@ export const intelTrustAction: Action = {
     try {
       const gate = await preSpendGate(
         { seller_wallet: pubkey },
-        { apiBase, failOpen: false, refuseWashFlagged: true, fetchImpl: baseFetchImpl },
+        { apiBase, failOpen: false, refuseWashFlagged: true, fetchImpl: withTracking(baseFetchImpl) },
       );
       if (!gate.allow) {
         const washLine =
@@ -129,6 +129,20 @@ export const intelTrustAction: Action = {
           },
         };
       }
+      // The SDK returns allow=true with merchantCard=null when the card lookup
+      // cannot finish. 0.12.0 does not refuse unknown coverage; a missing card does.
+      if (gate.merchantCard == null) {
+        await callback?.({
+          text:
+            `Merchant card unavailable for ${pubkey}, so the wash check could not finish. ` +
+            `Fail-closed: do not pay this pay_to. No payment was sent.`,
+        });
+        return {
+          success: false,
+          error: 'merchant_card_unavailable',
+          data: { refuse: refusePacket('merchant_card_unavailable', pubkey) },
+        };
+      }
     } catch (gateErr) {
       const msg = gateErr instanceof Error ? gateErr.message : String(gateErr);
       await callback?.({ text: `Preflight gate unavailable (${msg}); not spending. Try again shortly.` });
@@ -143,7 +157,11 @@ export const intelTrustAction: Action = {
       const res = await withTimeout((signal) => {
         const abortingFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
           baseFetchImpl(input, { ...(init || {}), signal })) as typeof fetch;
-        return fetchIntelTrust(pubkey, { apiBase, fetchImpl: abortingFetch });
+        return fetchIntelTrust(pubkey, {
+          apiBase,
+          fetchImpl: withTracking(abortingFetch),
+          caller: callerTag(),
+        });
       });
       const paid = res as typeof res & {
         reputation_credential?: {

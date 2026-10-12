@@ -6,6 +6,7 @@
 import type { Action, HandlerCallback, IAgentRuntime, Memory } from '@elizaos/core';
 import { fetchMerchantCard, type MerchantCard } from '@wzrd_sol/sdk';
 import { extractPubkey, getIntelBase, withTimeout } from '../intel-helpers.js';
+import { withTracking } from '../paying-fetch.js';
 
 type Coverage = { washConfidence: string | null; coverageFull: boolean };
 
@@ -98,7 +99,9 @@ export const merchantCardAction: Action = {
     }
     const apiBase = getIntelBase(runtime);
     try {
-      const card = await withTimeout(() => fetchMerchantCard(pubkey, { apiBase }));
+      const card = await withTimeout(() =>
+        fetchMerchantCard(pubkey, { apiBase, fetchImpl: withTracking(globalThis.fetch) }),
+      );
       if (!card) {
         await callback?.({
           text:
