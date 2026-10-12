@@ -7,7 +7,8 @@ trust receipts, and offline verification. Default path (0.7+):
 seller → preflight → merchant_card → policy → optional V7 trust receipt → sign or refuse
 ```
 
-The default export registers **intel actions only**. Legacy AO/CCM earn actions are opt-in.
+The default export registers **intel actions only**. 0.8.0 removed the retired AO/CCM earn actions
+(`WZRD_INFER`, `WZRD_REPORT`, `WZRD_EARN`, `WZRD_CLAIM`, `WZRD_REWARDS`) and the `legacyEarnActions` option.
 
 ## Buyer sequence (marketplace default)
 
@@ -49,16 +50,15 @@ npm install @wzrd_sol/eliza-plugin
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `WZRD_INTEL_URL` | No | `https://intel.twzrd.xyz` | Agent Intel API (preflight, merchant_card, trust, verify) |
-| `WZRD_API_URL` | Legacy earn only | `https://api.twzrd.xyz` | Earn API when `legacyEarnActions: true` |
-| `SOLANA_PRIVATE_KEY` | Legacy earn only | - | JSON array of secret key bytes for agent Ed25519 auth |
+| `WZRD_INTEL_ALLOW_PAID` | For paid lookups | unset (off) | `true` lets `WZRD_INTEL_TRUST` spend ~0.05 USDC without a per-message `confirm_spend: true` |
 
 ## Intel actions (primary)
 
 | Action | Auth/Pay | Description |
 |--------|----------|-------------|
 | `WZRD_INTEL_PREFLIGHT` | Free | ReadinessCard: `decision`, `trust_score`, `can_spend`, `caveats`, `preflight_id` |
-| `WZRD_MERCHANT_CARD` | Free | Graph card: `wash_flagged`, tier, catalog join; **default refuse if wash** |
-| `WZRD_INTEL_TRUST` | x402 (~0.05 USDC) | Paid trust payload + **V7** signed receipt + ERC-8004 `reputation_credential` |
+| `WZRD_MERCHANT_CARD` | Free | Graph card: `wash_flagged`, coverage, tier, catalog join; **refuse if wash**; card unavailable = **refuse** (fail-closed) |
+| `WZRD_INTEL_TRUST` | x402 (~0.05 USDC) | Paid trust payload + **V7** signed receipt + ERC-8004 `reputation_credential`. Needs `WZRD_INTEL_ALLOW_PAID=true` or `confirm_spend: true`; every refusal returns a zero-spend `twzrd.gate_eval_refuse.v1` record in `data.refuse` |
 | `WZRD_VERIFY_RECEIPT` | Free (offline) | Leaf + Ed25519 verify via `twzrd-receipt-verifier`; V7 current, V6 labeled legacy |
 
 ### Receipt versions
@@ -122,6 +122,7 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 ```
 
 `payWrap` receives the **guarded** fetch. Opt out with `TWZRD_AUTO_GATE=0` or `{ disabled: true }`.
+Lookups carry `X-TWZRD-Integration: eliza-plugin/<version>` unless you pass your own `attribution`.
 
 ### Paid trust receipt
 
@@ -131,23 +132,19 @@ import { createAgentcashFetch } from 'agentcash';
 
 setPayingFetch(createAgentcashFetch({ apiKey: process.env.AGENTCASH_API_KEY }));
 const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
-// WZRD_INTEL_TRUST: free preflight + merchant_card, then pays ~$0.05 USDC,
-// returns VC + V7 receipt, then offline-verifies before labeling freshness=signed
+// WZRD_INTEL_TRUST (with WZRD_INTEL_ALLOW_PAID=true or confirm_spend: true): free preflight +
+// merchant_card, then pays ~$0.05 USDC, returns VC + V7 receipt, then offline-verifies
+// before labeling freshness=signed
 ```
 
 Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
 
-## Legacy earn actions (opt-in)
+## 0.8.0 changes (breaking)
 
-**0.6 breaking change:** default `wzrdPlugin` registers intel actions only.
-
-```typescript
-import { createWzrdPlugin, wzrdPluginWithLegacyEarn } from '@wzrd_sol/eliza-plugin';
-
-const agent = new AgentRuntime({
-  plugins: [createWzrdPlugin({ legacyEarnActions: true })],
-});
-```
+- Removed the retired earn actions, `legacyEarnActions`, `wzrdPluginWithLegacyEarn`, `WzrdClient`,
+  `getWzrdClient` and `clearClientCache`. The plugin no longer reads `SOLANA_PRIVATE_KEY` or `WZRD_API_URL`.
+- `WZRD_INTEL_TRUST` spends only with `WZRD_INTEL_ALLOW_PAID=true` or `confirm_spend: true`.
+- `WZRD_MERCHANT_CARD` is fail-closed when the card is unavailable (`refuse_pay: true`).
 
 ## Programmatic SDK usage
 

@@ -5,16 +5,11 @@
  *   WZRD_INTEL_PREFLIGHT → WZRD_MERCHANT_CARD → WZRD_INTEL_TRUST → WZRD_VERIFY_RECEIPT
  * Paid intel requires a caller-supplied x402 fetch — either setPayingFetch(payingFetch)
  * or installTwzrdAutoGate(payWrap). Current paid receipt surface is V7.
+ * Paid lookups need WZRD_INTEL_ALLOW_PAID=true or content.confirm_spend === true.
  *
- * Legacy earn lane (opt-in via createWzrdPlugin({ legacyEarnActions: true })):
- *   WZRD_INFER → WZRD_REPORT → WZRD_EARN → WZRD_CLAIM / WZRD_REWARDS on api.twzrd.xyz
+ * 0.8.0 removed the retired earn actions (infer/report/earn/claim/rewards).
  */
 import type { Action, Plugin } from '@elizaos/core';
-import { inferAction } from './actions/infer.js';
-import { reportAction } from './actions/report.js';
-import { earnAction } from './actions/earn.js';
-import { claimAction } from './actions/claim.js';
-import { rewardsAction } from './actions/rewards.js';
 import { intelPreflightAction } from './actions/intel-preflight.js';
 import { merchantCardAction } from './actions/merchant-card.js';
 import { intelTrustAction } from './actions/intel-trust.js';
@@ -27,42 +22,23 @@ export const intelActions: Action[] = [
   verifyReceiptAction,
 ];
 
-export const legacyEarnActions: Action[] = [
-  earnAction,
-  inferAction,
-  reportAction,
-  claimAction,
-  rewardsAction,
-];
-
 const INTEL_DESCRIPTION =
   'WZRD Agent Intel — free ReadinessCard preflight + free merchant_card wash refuse (default), ' +
-  'then optional x402-paid V7 trust receipt (~0.05 USDC) + offline verify via twzrd-receipt-verifier. ' +
+  'then optional x402-paid V7 trust receipt (~0.05 USDC, needs WZRD_INTEL_ALLOW_PAID or confirm_spend) + ' +
+  'offline verify via twzrd-receipt-verifier. ' +
   'Legacy V6 verification is labeled freshness=derived_from_timestamp. ' +
   'Buyer sequence is call-site / action-driven (not an auto-interceptor of all payments).';
 
-const LEGACY_EARN_SUFFIX = ' Legacy earn actions (infer/report/claim/rewards) on api.twzrd.xyz are enabled.';
-
-export interface WzrdPluginOptions {
-  /** Register WZRD_INFER / REPORT / EARN / CLAIM / REWARDS (0.5.x default; off in 0.6+). */
-  legacyEarnActions?: boolean;
-}
-
-export function createWzrdPlugin(options: WzrdPluginOptions = {}): Plugin {
-  const actions = options.legacyEarnActions
-    ? [...intelActions, ...legacyEarnActions]
-    : [...intelActions];
+export function createWzrdPlugin(): Plugin {
   return {
     name: 'wzrd',
-    description: options.legacyEarnActions ? INTEL_DESCRIPTION + LEGACY_EARN_SUFFIX : INTEL_DESCRIPTION,
-    actions,
+    description: INTEL_DESCRIPTION,
+    actions: [...intelActions],
   };
 }
 
 /** Default plugin: intel actions only (0.6+). */
 export const wzrdPlugin = createWzrdPlugin();
-/** Pre-0.6 compatibility: intel + legacy earn actions. */
-export const wzrdPluginWithLegacyEarn = createWzrdPlugin({ legacyEarnActions: true });
 export default wzrdPlugin;
 
 export {
@@ -70,22 +46,18 @@ export {
   merchantCardAction,
   intelTrustAction,
   verifyReceiptAction,
-  earnAction,
-  inferAction,
-  reportAction,
-  claimAction,
-  rewardsAction,
 };
 
-export { getWzrdClient, clearClientCache, getIntelApiBase, getIntelClient } from './client-factory.js';
+export { getIntelApiBase, getIntelClient } from './client-factory.js';
 export {
   setPayingFetch,
   clearPayingFetch,
   resolvePayingFetch,
   installTwzrdAutoGate,
+  autoGateOptions,
 } from './paying-fetch.js';
-export { WzrdClient } from './client.js';
-export type { InferResult, ReportResult, RewardsBalance, ClaimResult } from './client.js';
+export { refusePacket, paidLookupConfirmed } from './actions/intel-trust.js';
+export type { RefusePacket } from './actions/intel-trust.js';
 
 /** SDK intel helpers. TRUSTED_RECEIPT_PUBKEY is the v1 key — use CURRENT_RECEIPT_PUBKEY for V7 verify. */
 export {

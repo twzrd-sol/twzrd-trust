@@ -18,6 +18,40 @@ import {
   type TwzrdReceiptLike,
 } from '../receipt-verify.js';
 
+export type RefusePacket = {
+  schema: 'twzrd.gate_eval_refuse.v1';
+  rail: 'eliza-plugin';
+  subject: string;
+  reason: string;
+  signer_invocation_count: 0;
+  usdc_spent: 0;
+  at: string;
+};
+
+/** Zero-spend refusal record, the same shape monid-x402 writes before any signer exists. */
+export function refusePacket(reason: string, subject: string): RefusePacket {
+  return {
+    schema: 'twzrd.gate_eval_refuse.v1',
+    rail: 'eliza-plugin',
+    subject,
+    reason,
+    signer_invocation_count: 0,
+    usdc_spent: 0,
+    at: new Date().toISOString(),
+  };
+}
+
+/** A paid lookup proceeds only with WZRD_INTEL_ALLOW_PAID (true/1) or content.confirm_spend === true. */
+export function paidLookupConfirmed(
+  runtime: Pick<IAgentRuntime, 'getSetting'>,
+  content: Record<string, unknown>,
+): boolean {
+  if (content.confirm_spend === true) return true;
+  const v = runtime.getSetting('WZRD_INTEL_ALLOW_PAID');
+  if (v === true || v === 1) return true;
+  return typeof v === 'string' && ['true', '1'].includes(v.trim().toLowerCase());
+}
+
 export const intelTrustAction: Action = {
   name: 'WZRD_INTEL_TRUST',
   similes: ['WZRD_TRUST_RECEIPT', 'INTEL_TRUST', 'GET_TRUST_RECEIPT'],
@@ -26,7 +60,8 @@ export const intelTrustAction: Action = {
     'twzrd_receipt (portable offline proof; freshness fields are leaf-bound). Runs free preflight + merchant_card ' +
     'wash check first; aborts on decision=block or wash_flagged before any spend. ' +
     'Legacy V6 receipts, if still returned, are labeled freshness=derived_from_timestamp. ' +
-    'Requires an x402-capable fetchImpl (setPayingFetch or host service).',
+    'Requires an x402-capable fetchImpl (setPayingFetch or host service), and a spend confirmation: ' +
+    'runtime setting WZRD_INTEL_ALLOW_PAID=true or message content confirm_spend: true. Without one, nothing is paid.',
   examples: [
     [
       { name: '{{user1}}', content: { text: 'Get the trust receipt for seller JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4' } },
@@ -48,6 +83,20 @@ export const intelTrustAction: Action = {
       return { success: false, error: 'Missing pubkey' };
     }
 
+    if (!paidLookupConfirmed(runtime, content)) {
+      await callback?.({
+        text:
+          `Trust lookup for ${pubkey} costs ~0.05 USDC and was not confirmed. ` +
+          `Set WZRD_INTEL_ALLOW_PAID=true for this agent, or send the request with confirm_spend: true. ` +
+          `No payment was sent.`,
+      });
+      return {
+        success: false,
+        error: 'spend_not_confirmed',
+        data: { refuse: refusePacket('spend_not_confirmed', pubkey) },
+      };
+    }
+
     const apiBase = getIntelBase(runtime);
     const baseFetchImpl = resolvePayingFetch(runtime);
 
@@ -67,21 +116,27 @@ export const intelTrustAction: Action = {
             `Reason: ${gate.reason}\n` +
             `No payment was sent.`,
         });
+        const error = gate.washFlagged === true ? 'wash_flagged' : 'preflight_block';
         return {
           success: false,
-          error: gate.washFlagged === true ? 'wash_flagged' : 'preflight_block',
+          error,
           data: {
             decision: gate.decision,
             trustScore: gate.trustScore,
             reason: gate.reason,
             washFlagged: gate.washFlagged ?? null,
+            refuse: refusePacket(error, pubkey),
           },
         };
       }
     } catch (gateErr) {
       const msg = gateErr instanceof Error ? gateErr.message : String(gateErr);
       await callback?.({ text: `Preflight gate unavailable (${msg}); not spending. Try again shortly.` });
-      return { success: false, error: 'preflight_unavailable', data: { detail: msg } };
+      return {
+        success: false,
+        error: 'preflight_unavailable',
+        data: { detail: msg, refuse: refusePacket('preflight_unavailable', pubkey) },
+      };
     }
 
     try {
