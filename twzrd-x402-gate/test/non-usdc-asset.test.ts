@@ -32,7 +32,7 @@ function intel(card: Record<string, unknown>) {
   const calls: string[] = [];
   const fn = (async (url: string | URL) => {
     calls.push(String(url));
-    const body = /\/merchant_card\//.test(String(url)) ? { wash_flagged: false } : { readiness_card: card };
+    const body = /\/merchant_card\//.test(String(url)) ? { wash_flagged: false, confidence: "full" } : { readiness_card: card };
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   }) as unknown as typeof fetch & { calls: string[] };
   fn.calls = calls;

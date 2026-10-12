@@ -221,35 +221,26 @@ export type SolanaConsumerInput = {
 const CARD_REFUSALS = new Set(["refuse", "do_not_pay"]);
 
 /**
- * Hermes-aligned Solana spend verdict after free preflight + merchant_card.
- * Hard stop only on decision=block or merchant_card refuse / cap breach.
- * wash + warn → pay_capped + Path A escalate, not hard stop.
+ * Fail-closed Solana spend verdict after free preflight + merchant_card (same rule as monid-x402).
+ * Refuses on block, card refusal, cap breach, wash, unknown wash (washFlagged null/absent),
+ * and a missing or unknown preflight decision. Only warn pays, capped, with Path A escalation.
  */
 export function decideSolanaConsumerAction(
   input: SolanaConsumerInput,
 ): SolanaConsumerDecision {
   const decision = norm(input.preflightDecision);
   const next = norm(input.merchantNextAction);
+  const refuse = (reason: string, cap: number | null = null): SolanaConsumerDecision => ({
+    action: "do_not_pay",
+    reason,
+    canSign: false,
+    escalatePathA: false,
+    recommendedCapUsdc: cap,
+  });
 
-  if (decision === "block") {
-    return {
-      action: "do_not_pay",
-      reason: "preflight_block",
-      canSign: false,
-      escalatePathA: false,
-      recommendedCapUsdc: null,
-    };
-  }
-
-  if (next && CARD_REFUSALS.has(next)) {
-    return {
-      action: "do_not_pay",
-      reason: "merchant_card_refuses",
-      canSign: false,
-      escalatePathA: false,
-      recommendedCapUsdc: null,
-    };
-  }
+  if (decision === "block") return refuse("preflight_block");
+  if (next && CARD_REFUSALS.has(next)) return refuse("merchant_card_refuses");
+  if (decision !== "allow" && decision !== "warn") return refuse("preflight_unknown");
 
   const cap =
     input.recommendedCapUsdc == null || !Number.isFinite(Number(input.recommendedCapUsdc))
@@ -260,43 +251,24 @@ export function decideSolanaConsumerAction(
       ? null
       : Number(input.priceUsdc);
 
-  if (cap != null && price != null && price > cap) {
-    return {
-      action: "do_not_pay",
-      reason: "price_exceeds_cap",
-      canSign: false,
-      escalatePathA: false,
-      recommendedCapUsdc: cap,
-    };
-  }
+  if (cap != null && price != null && price > cap) return refuse("price_exceeds_cap", cap);
+  if (input.washFlagged === true) return refuse("wash_flagged", cap);
+  if (input.washFlagged !== false) return refuse("wash_unknown", cap);
 
-  const wash = input.washFlagged === true;
-  if (wash || decision === "warn") {
+  if (decision === "warn") {
     return {
       action: "pay_capped",
-      reason: wash ? "wash_escalate" : "preflight_warn",
+      reason: "preflight_warn",
       canSign: true,
       escalatePathA: true,
       recommendedCapUsdc: cap,
     };
   }
-
-  if (decision === "allow" || decision === "") {
-    return {
-      action: "pay",
-      reason: decision === "allow" ? "preflight_allow" : "preflight_allow",
-      canSign: true,
-      escalatePathA: false,
-      recommendedCapUsdc: cap,
-    };
-  }
-
-  // Unknown / missing decision → fail closed to capped escalate, not clean pay
   return {
-    action: "pay_capped",
-    reason: "preflight_unknown",
+    action: "pay",
+    reason: "preflight_allow",
     canSign: true,
-    escalatePathA: true,
+    escalatePathA: false,
     recommendedCapUsdc: cap,
   };
 }

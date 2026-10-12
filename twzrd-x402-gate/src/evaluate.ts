@@ -157,6 +157,7 @@ export async function evaluate_x402_resource(
     gateOnCanSpend: opts.gateOnCanSpend,
     refuseUnevaluated: opts.refuseUnevaluated,
     refuseWashFlagged: opts.refuseWashFlagged,
+    refuseWashUnknown: opts.refuseWashUnknown,
     washMaxUsdc: opts.washMaxUsdc,
     unsupportedNetworkMode: opts.unsupportedNetworkMode,
     fetch: opts.fetch,

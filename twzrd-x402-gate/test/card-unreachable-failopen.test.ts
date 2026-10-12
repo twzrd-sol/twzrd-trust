@@ -1,6 +1,6 @@
 /**
  * Regression: a merchant_card OUTAGE must obey failOpen, and a reachable card
- * with no wash signal must still fail open.
+ * with no wash signal is an answer, not an outage.
  *
  * Root cause this locks: fetchMerchantCard caught its own errors and returned
  * null, so "intel is down" and "intel answered, no wash signal" arrived at the
@@ -16,7 +16,10 @@
  *
  * The two unknowns are NOT the same and this pins both:
  *   unreachable        -> decided by failOpen (fail-closed by default)
- *   reachable, no flag -> always allow (the no-invent rule, unchanged)
+ *   reachable, no flag -> allow by default (the no-invent rule). With the opt-in
+ *                         refuseWashUnknown (0.12.0; default from 0.13.0) it refuses as
+ *                         twzrd_wash_unknown. Never reported as an outage, failOpen does
+ *                         not decide it, and washFlagged stays null either way.
  *
  * Run: npx tsx test/card-unreachable-failopen.test.ts
  */
@@ -124,8 +127,25 @@ async function run() {
   }
   console.log("ok  the same outages proceed under failOpen=true (opt-in preserved)");
 
-  // --- 3. REACHABLE card with no wash signal still fails open, even failOpen:false.
-  //        This is the no-invent rule and must not regress into a refusal. ---
+  // --- 3. REACHABLE card with no wash signal: an answer, not an outage. By default
+  //        it allows (no-invent rule). Opted in to refuseWashUnknown it refuses as
+  //        twzrd_wash_unknown under failOpen true or false, never naming an outage. ---
+  for (const failOpen of [false, true]) {
+    const r = await twzrdApprovePayment(
+      { payTo: PAYTO, chain: "solana", priceUsdc: 0.05 },
+      resolveConfig({
+        refuseWashFlagged: true,
+        refuseWashUnknown: true,
+        failOpen,
+        fetch: cardNoSignalFetch,
+      }),
+    );
+    assert.equal(r.approved, false, `failOpen=${failOpen}: opted in, a reachable card with no wash coverage refuses`);
+    assert.equal(r.reason, "twzrd_wash_unknown", `failOpen=${failOpen}: reason`);
+    assert.equal(r.verdict, "block");
+    assert.equal(r.washFlagged, null, "no signal stays null, never invented");
+    assert.ok(!/unreachable/.test(r.reason), `must not be reported as an outage (got ${r.reason})`);
+  }
   {
     const r = await twzrdApprovePayment(
       { payTo: PAYTO, chain: "solana", priceUsdc: 0.05 },
@@ -143,7 +163,7 @@ async function run() {
     assert.equal(r.washFlagged, null, "no signal stays null, never invented");
     assert.ok(!/unreachable/.test(r.reason), `must not be reported as an outage (got ${r.reason})`);
   }
-  console.log("ok  reachable card with no wash signal still allows (no-invent rule intact)");
+  console.log("ok  reachable card with no wash signal allows by default; opted in it refuses twzrd_wash_unknown");
 
   // --- 4. the lookup primitive itself distinguishes the two ---
   //     Imported dynamically so sections 1-3 still LOAD against a build that
@@ -206,11 +226,13 @@ async function run() {
   }
   console.log("ok  fetchMerchantCardResult separates outage from no-signal");
 
-  // --- 5. a 4xx is NOT an outage: the service answered and has nothing.
+  // --- 5. a 4xx is NOT an outage: the service answered and has nothing. It is
+  //        never reported as card_unreachable and failOpen does not decide it.
   //        Live intel returns 200 + wash_flagged:null for an unscored wallet and
-  //        400 for a malformed address, so 4xx must never refuse -- otherwise
-  //        every unscored recipient blocks under the default failOpen=false,
-  //        which is the over-refusal that got this gate removed downstream. ---
+  //        400 for a malformed address, so by default a 4xx must not refuse --
+  //        otherwise every unscored recipient blocks, the over-refusal that got
+  //        this gate removed downstream. Opted in to refuseWashUnknown, "nothing"
+  //        is an unknown wash answer and refuses as twzrd_wash_unknown. ---
   for (const status of ["http404" as const]) {
     const r = await twzrdApprovePayment(
       { payTo: PAYTO, chain: "solana", priceUsdc: 0.05 },
@@ -226,8 +248,21 @@ async function run() {
       `${status}: must not report an outage (got ${r.reason})`,
     );
     assert.equal(r.washFlagged, null, `${status}: no signal, none invented`);
+
+    const optIn = await twzrdApprovePayment(
+      { payTo: PAYTO, chain: "solana", priceUsdc: 0.05 },
+      resolveConfig({
+        refuseWashFlagged: true,
+        refuseWashUnknown: true,
+        failOpen: false,
+        fetch: cardFailingFetch(status),
+      }),
+    );
+    assert.equal(optIn.approved, false, `${status}: opted in, no wash answer refuses`);
+    assert.equal(optIn.reason, "twzrd_wash_unknown", `${status}: reason`);
+    assert.ok(!/unreachable/.test(optIn.reason), `${status}: never an outage`);
   }
-  console.log("ok  a 4xx answer does not refuse (unscored recipients still proceed)");
+  console.log("ok  a 4xx answer does not refuse by default (unscored recipients still proceed); opted in it is wash unknown");
 
   // --- 6. the outage refusal only TIGHTENS: it must not relabel a payment that
   //        was already refused for a more specific reason. The caller needs the

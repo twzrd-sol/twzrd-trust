@@ -158,7 +158,7 @@ async function run() {
     resolveConfig({
       fetch: routedFetch({
         preflightCard: allowCard,
-        merchantCard: { merchant: "CLEAN", wash_flagged: false },
+        merchantCard: { merchant: "CLEAN", wash_flagged: false, confidence: "full" },
       }),
     }),
   );
@@ -210,12 +210,46 @@ async function run() {
       washMaxUsdc: 0.05,
       fetch: routedFetch({
         preflightCard: allowCard,
-        merchantCard: { wash_flagged: true },
+        merchantCard: { wash_flagged: true, confidence: "full" },
       }),
     }),
   );
   assert.equal(softCap.approved, true, "under washMaxUsdc allows");
   assert.equal(softCap.washCapped, true);
+
+  // 0.12.0 opt-in: a soft-capped wash still needs full coverage, the wash-default.ts order.
+  const softCapPartial = await twzrdApprovePayment(
+    { payTo: "WASHWALLET", priceUsdc: 0.01 },
+    resolveConfig({
+      washMaxUsdc: 0.05,
+      refuseWashUnknown: true,
+      fetch: routedFetch({
+        preflightCard: allowCard,
+        merchantCard: { wash_flagged: true, confidence: "partial_inbound_only" },
+      }),
+    }),
+  );
+  assert.equal(softCapPartial.approved, false, "soft cap does not excuse partial coverage");
+  assert.equal(softCapPartial.reason, "twzrd_wash_unknown");
+
+  // A reachable card with no wash answer: allowed by default (0.12.x), refused
+  // twzrd_wash_unknown when opted in to refuseWashUnknown.
+  const noSignalDefault = await twzrdApprovePayment(
+    { payTo: "CLEAN", priceUsdc: 0.01 },
+    resolveConfig({
+      fetch: routedFetch({ preflightCard: allowCard, merchantCard: { merchant: "CLEAN" } }),
+    }),
+  );
+  assert.equal(noSignalDefault.approved, true, `no wash answer allows by default: ${noSignalDefault.reason}`);
+  const noSignal = await twzrdApprovePayment(
+    { payTo: "CLEAN", priceUsdc: 0.01 },
+    resolveConfig({
+      refuseWashUnknown: true,
+      fetch: routedFetch({ preflightCard: allowCard, merchantCard: { merchant: "CLEAN" } }),
+    }),
+  );
+  assert.equal(noSignal.approved, false, "opted in, no wash answer refuses");
+  assert.equal(noSignal.reason, "twzrd_wash_unknown");
 
   console.log("wash-refuse.test.ts: ALL PASSED");
 }

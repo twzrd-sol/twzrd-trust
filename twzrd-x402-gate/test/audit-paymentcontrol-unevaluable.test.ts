@@ -39,7 +39,7 @@ const SOL = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 
 const allowIntel: typeof fetch = (async (url: unknown) =>
   String(url).includes("/merchant_card/")
-    ? new Response("{}", { status: 404 })
+    ? new Response(JSON.stringify({ wash_flagged: false, confidence: "full" }), { status: 200 })
     : new Response(JSON.stringify({ readiness_card: { decision: "allow", trust_score: 90, can_spend: true } }), { status: 200 })
 ) as unknown as typeof fetch;
 

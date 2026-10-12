@@ -118,7 +118,7 @@ describe("routeConsumer402", () => {
 });
 
 describe("decideSolanaConsumerAction", () => {
-  it("hard-stops only on decision=block", () => {
+  it("hard-stops on decision=block", () => {
     const r = decideSolanaConsumerAction({
       preflightDecision: "block",
       washFlagged: false,
@@ -139,15 +139,44 @@ describe("decideSolanaConsumerAction", () => {
     assert.equal(r.canSign, false);
   });
 
-  it("wash + warn caps and escalates — does not hard-stop", () => {
+  it("wash refuses even under the cap (fail-closed)", () => {
     const r = decideSolanaConsumerAction({
       preflightDecision: "warn",
       washFlagged: true,
       recommendedCapUsdc: 0.01,
       priceUsdc: 0.005,
     });
+    assert.equal(r.action, "do_not_pay");
+    assert.equal(r.reason, "wash_flagged");
+    assert.equal(r.canSign, false);
+  });
+
+  it("unknown wash (null or absent) refuses on allow", () => {
+    for (const washFlagged of [null, undefined]) {
+      const r = decideSolanaConsumerAction({ preflightDecision: "allow", washFlagged });
+      assert.equal(r.action, "do_not_pay");
+      assert.equal(r.reason, "wash_unknown");
+      assert.equal(r.canSign, false);
+    }
+  });
+
+  it("missing or unknown preflight decision refuses", () => {
+    for (const preflightDecision of [undefined, null, "", "maybe"]) {
+      const r = decideSolanaConsumerAction({ preflightDecision, washFlagged: false });
+      assert.equal(r.action, "do_not_pay");
+      assert.equal(r.reason, "preflight_unknown");
+    }
+  });
+
+  it("clean warn pays capped and escalates", () => {
+    const r = decideSolanaConsumerAction({
+      preflightDecision: "warn",
+      washFlagged: false,
+      recommendedCapUsdc: 0.01,
+      priceUsdc: 0.005,
+    });
     assert.equal(r.action, "pay_capped");
-    assert.equal(r.reason, "wash_escalate");
+    assert.equal(r.reason, "preflight_warn");
     assert.equal(r.canSign, true);
     assert.equal(r.escalatePathA, true);
     assert.equal(r.recommendedCapUsdc, 0.01);

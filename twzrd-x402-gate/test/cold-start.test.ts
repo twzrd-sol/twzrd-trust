@@ -46,7 +46,7 @@ test("runColdStart enforces known prices, including a zero cap", async (t) => {
       scheme: "exact", network: "solana", payTo: "Seller1111111111111111111111111111111111111",
       ...(amount === undefined ? {} : { [amountField]: amount }),
     }] }, { status: 402 });
-    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false });
+    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false, confidence: "full" });
     if (url.endsWith("/preflight")) return Response.json({
       readiness_card: { decision: "allow", trust_score: 90, can_spend: true },
     });
@@ -347,7 +347,7 @@ test("a hop candidate whose live-resolved payTo duplicates an already-scored wal
         scheme: "exact", network: "solana", payTo: sharedPayTo, amount: "10000",
       }] }, { status: 402 });
     }
-    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false });
+    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false, confidence: "full" });
     if (url.endsWith("/preflight")) {
       return Response.json({ readiness_card: { decision: "allow", trust_score: 90, can_spend: true } });
     }
@@ -381,7 +381,7 @@ test("a wash-capped gate approval is still refused by cold-start, and the reason
         amount: "10000",
       }] }, { status: 402 });
     }
-    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: true });
+    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: true, confidence: "full" });
     if (url.endsWith("/preflight")) {
       return Response.json({ readiness_card: { decision: "allow", trust_score: 90, can_spend: true } });
     }
@@ -416,7 +416,7 @@ test("ok credits a hop-scored host even when the exported API is called with no 
         amount: "10000",
       }] }, { status: 402 });
     }
-    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false });
+    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false, confidence: "full" });
     if (url.endsWith("/preflight")) {
       return Response.json({ readiness_card: { decision: "allow", trust_score: 90, can_spend: true } });
     }
@@ -451,7 +451,7 @@ test("a write failure on --policy-out is reported, not thrown, and the transcrip
         amount: "10000",
       }] }, { status: 402 });
     }
-    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false });
+    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false, confidence: "full" });
     if (url.endsWith("/preflight")) {
       return Response.json({ readiness_card: { decision: "allow", trust_score: 90, can_spend: true } });
     }

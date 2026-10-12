@@ -54,7 +54,7 @@ function intel(cards: Record<string, Record<string, unknown>>, fallback: Record<
     const u = String(url);
     calls.push(u);
     const m = u.match(/merchant_card\/([^?]+)/);
-    if (m) return json({ wash_flagged: wash[decodeURIComponent(m[1])] ?? false });
+    if (m) return json({ wash_flagged: wash[decodeURIComponent(m[1])] ?? false, confidence: "full" });
     const body = JSON.parse(String(init?.body ?? "{}"));
     const card = cards[body.seller_wallet] ?? fallback;
     return json({ readiness_card: card });

@@ -55,11 +55,11 @@ async function withMockProxy(fn: (base: string) => Promise<void>): Promise<void>
 const preflight = (card: unknown): typeof fetch =>
   (async (url: unknown) => {
     const u = String(url);
-    // Wash tighten always GETs merchant_card after preflight. A reachable
-    // no-signal card must not be mistaken for an outage, or an allow decision
-    // gets relabelled twzrd_card_unreachable_fail_closed.
+    // Wash tighten always GETs merchant_card after preflight. A clean card with
+    // full wash coverage, so an allow decision stays an allow (0.12.0 refuses a
+    // card without full coverage as twzrd_wash_unknown).
     if (u.includes("/v1/intel/merchant_card/")) {
-      return new Response(JSON.stringify({ merchant: PAYTO }), {
+      return new Response(JSON.stringify({ merchant: PAYTO, wash_flagged: false, confidence: "full" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });

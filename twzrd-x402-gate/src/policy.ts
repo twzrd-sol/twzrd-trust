@@ -6,6 +6,7 @@ import {
   fetchMerchantCardResult,
 } from "./merchant-card.js";
 import { isUsdcRequirement } from "./payto.js";
+import { isWashCoverageAdequate, washEvidenceFromCard } from "./wash-default.js";
 import {
   amountBucket,
   classifyNetwork,
@@ -313,6 +314,7 @@ async function tightenWithMerchantCardWash(input: {
 }> {
   let washFlagged: boolean | null = null;
   let cardUnreachable = false;
+  let coverageAdequate: boolean | null = null;
   let approved = input.approved;
   let reason = input.reason;
   let verdict = input.verdict;
@@ -352,6 +354,11 @@ async function tightenWithMerchantCardWash(input: {
     if (lookup.card && typeof lookup.card.wash_flagged === "boolean") {
       washFlagged = lookup.card.wash_flagged;
     }
+    if (lookup.reachable) {
+      coverageAdequate = lookup.card
+        ? isWashCoverageAdequate(washEvidenceFromCard(lookup.card))
+        : false;
+    }
   }
 
   const wash = applyWashFlaggedPolicy({
@@ -366,6 +373,18 @@ async function tightenWithMerchantCardWash(input: {
   reason = wash.reason;
   washFlagged = wash.washFlagged;
   if (!approved && wash.washFlagged === true) {
+    verdict = "block";
+  }
+  // Same order as wash-default.ts: measured wash first, then coverage. Scored path
+  // only: the observe path already allows what it cannot score.
+  if (
+    approved &&
+    input.cfg.refuseWashUnknown &&
+    input.failClosedOnOutage &&
+    coverageAdequate === false
+  ) {
+    approved = false;
+    reason = "twzrd_wash_unknown";
     verdict = "block";
   }
   return {

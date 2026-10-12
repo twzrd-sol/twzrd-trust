@@ -112,7 +112,7 @@ export type WashDefaultOptions = {
   fetch?: typeof fetch;
   /** Same pair as installTwzrdAutoGate — stamps X-Twzrd-Caller on merchant_card. */
   attribution?: { integration: string; runId: string };
-  /** merchant_card timeout ms. Default 3000. On timeout → abort unless failOpen. */
+  /** merchant_card timeout ms. Default 2000 (the gate's intel deadline). On timeout → abort unless failOpen. */
   timeoutMs?: number;
   /**
    * When true, intel outage (5xx/429/throw/timeout/bad JSON) proceeds.
@@ -241,7 +241,7 @@ async function fetchMerchantCardTimed(
     attribution?: { integration: string; runId: string };
   },
 ): Promise<{ lookup: MerchantCardLookup; timedOut: boolean }> {
-  const timeoutMs = opts.timeoutMs > 0 ? opts.timeoutMs : 3000;
+  const timeoutMs = opts.timeoutMs > 0 ? opts.timeoutMs : 2000;
   let timedOut = false;
   const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer =
@@ -328,7 +328,7 @@ export async function evaluateWashOnlyBeforePayment(
   const timeoutMs =
     typeof options?.timeoutMs === "number" && options.timeoutMs > 0
       ? options.timeoutMs
-      : Number(process.env.TWZRD_WASH_TIMEOUT_MS ?? "3000") || 3000;
+      : Number(process.env.TWZRD_WASH_TIMEOUT_MS ?? "2000") || 2000;
 
   const { lookup, timedOut } = await fetchMerchantCardTimed(payTo, {
     intelBase,
