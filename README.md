@@ -251,3 +251,7 @@ What a card is, and what it is not:
 - **Receipt Transparency Log:** [docs/transparency-log.md](./docs/transparency-log.md) (in-repo `twzrd-log-verifier` — not on npm)
 - **Receipt Verification & Ground Truth:** [REVIEW.md](./REVIEW.md)
 - **Security Policy:** [SECURITY.md](./SECURITY.md) · [docs/security-assurance.md](./docs/security-assurance.md)
+
+## License
+
+MIT. See [LICENSE](./LICENSE). The hosted checks run on infrastructure TWZRD operates; the server package behind them is published separately as [`twzrd-agent-intel`](https://pypi.org/project/twzrd-agent-intel/) on PyPI, also MIT.
