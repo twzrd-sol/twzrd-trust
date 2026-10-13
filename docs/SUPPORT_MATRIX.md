@@ -55,7 +55,7 @@ join → return/sign in → link wallet → review and approve claim → confirm
 
 Retain a dated verification receipt with the released build, network, transaction signature and confirmation result. Account identifiers and identity-link evidence stay private; publish only consented, necessary evidence.
 
-This is a promotion boundary, not an instruction to disable existing production features or transact from an agent session. Funding a vault or observing an enabled claim handler is not proof of a completed user payout.
+This is a promotion boundary, not an instruction to disable existing production features or transact from an agent session. Funding a vault or observing an enabled claim handler is not proof of a completed user claim.
 
 The operator reports the legal pages are already live. Treat that release task as complete; do not claim an independent live check was performed in this docs PR.
 
