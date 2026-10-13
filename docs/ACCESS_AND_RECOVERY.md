@@ -1,15 +1,15 @@
 # Access and recovery responsibility register
 
 Date: 2026-10-13
-Status: draft policy and responsibility register for maintainer review.
+Status: adopted policy and responsibility register (merged in #195). The completion evidence below remains pending verification.
 
 This public document names accountable roles and required evidence. It is not an inventory of credentials, recovery-code locations, account IDs, private hosts or infrastructure configuration.
 
 ## Ownership
 
-Zo is the accountable human primary across the surfaces below. A second human backup has not been designated in this decision record.
+Zo is the accountable human primary across the surfaces below. A second human backup has not yet been designated.
 
-Sealed recovery codes and a written recovery runbook are the interim recovery requirement, not a substitute for a second operator. Their existence, storage and usability have not been verified by this PR. Keep the actual material and sensitive recovery instructions outside this public repository.
+Sealed recovery codes and a written recovery runbook are the interim recovery requirement, not a substitute for a second operator. Their existence, storage and usability have not yet been verified. Keep the actual material and sensitive recovery instructions outside this public repository.
 
 No agent is assigned independent publish or DNS authority. Any agent-assisted release or administrative action must operate within explicit human authorization. This document does not verify or change existing credentials or permissions.
 
@@ -36,7 +36,7 @@ The assigned primary role is an accountability decision, not proof of current pr
 
 ## Completion evidence
 
-| Required follow-up | Owner | Status in this PR |
+| Required follow-up | Owner | Status |
 |---|---|---|
 | Confirm primary access for each surface | Zo | Not verified |
 | Designate a second human backup | Zo | Unassigned |
