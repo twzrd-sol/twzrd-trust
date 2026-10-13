@@ -151,5 +151,8 @@
     "tsx": "^4.23.12",
     "typescript": "^5.4.0",
     "x402-solana": "^3.0.1"
+  },
+  "overrides": {
+    "jayson": "^5.0.0"
   }
 }
