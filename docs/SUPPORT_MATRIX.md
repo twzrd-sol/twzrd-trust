@@ -1,7 +1,7 @@
 # Supported path and Radio LAN release boundary
 
 Date: 2026-10-13
-Status: draft decision record for maintainer review. This document proposes the support policy; it does not change registry metadata, other repositories, production flags, or permissions.
+Status: adopted support policy (merged in #195). Items listed under follow-up implementation and release acceptance remain pending verification. This document does not itself change registry metadata, other repositories, production flags, or permissions.
 
 ## Supported path
 
@@ -9,7 +9,7 @@ The public reference is twzrd-sol/twzrd-trust. The default connector is the host
 
 The public reference is not the sole source repository for every component. Follow AGENTS.md for source-versus-artifact boundaries and upstream fork relationships.
 
-| Surface | Proposed status | Public guidance | Accountable owner |
+| Surface | Status | Public guidance | Accountable owner |
 |---|---|---|---|
 | twzrd-trust | Supported public reference | Canonical ecosystem description, installation guidance and reviewable client code | Zo |
 | Hosted Intel MCP | Supported default connector | Start here for free hosted checks | Zo |
@@ -43,7 +43,7 @@ Read current versions from the release manifest or registry when verifying; this
 - Complete the remaining package/connector inventory.
 - Record release verification receipts before marking these follow-ups complete.
 
-This docs PR does not execute any of those changes.
+These follow-ups remain pending; adopting this policy did not execute any of them.
 
 ## Radio LAN: controlled beta
 
@@ -57,7 +57,7 @@ Retain a dated verification receipt with the released build, network, transactio
 
 This is a promotion boundary, not an instruction to disable existing production features or transact from an agent session. Funding a vault or observing an enabled claim handler is not proof of a completed user claim.
 
-The operator reports the legal pages are already live. Treat that release task as complete; do not claim an independent live check was performed in this docs PR.
+The operator reports the legal pages are already live. Treat that release task as complete; no independent live check is recorded in this document.
 
 ## Review sources
 
