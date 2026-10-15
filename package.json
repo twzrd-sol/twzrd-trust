@@ -39,5 +39,8 @@
     "@elizaos/core": {
       "pdfjs-dist": "^6.2.108"
     }
+  },
+  "dependencies": {
+    "bigint-buffer": "npm:@trufflesuite/bigint-buffer@^1.1.10"
   }
 }
