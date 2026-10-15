@@ -33,7 +33,7 @@ export function buildPublishManifest(sourcePkg) {
     name: PUBLIC_NAME,
     version: sourcePkg.version,
     description:
-      "WZRD Agent Intel for ElizaOS. Free preflight ReadinessCard + merchant_card (wash_flagged refuse default), paid GET /v1/intel/trust (~0.05 USDC) V7 receipt, offline verify via twzrd-receipt-verifier. Paid lookups need WZRD_INTEL_ALLOW_PAID or confirm_spend; merchant_card outages fail closed.",
+      "TWZRD Agent Intel for ElizaOS. Free preflight ReadinessCard + merchant_card (wash_flagged refuse default), paid GET /v1/intel/trust (~0.05 USDC) V7 receipt, offline verify via twzrd-receipt-verifier. Paid lookups need WZRD_INTEL_ALLOW_PAID or confirm_spend; merchant_card outages fail closed.",
     type: "module",
     main: "dist/index.js",
     types: "dist/index.d.ts",

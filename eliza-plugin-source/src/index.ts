@@ -1,5 +1,5 @@
 /**
- * @wzrd_sol/eliza-plugin-source — V7-migrated WZRD Agent Intel for ElizaOS
+ * @wzrd_sol/eliza-plugin-source — V7-migrated TWZRD Agent Intel for ElizaOS
  *
  * Intel lane (default https://intel.twzrd.xyz):
  *   WZRD_INTEL_PREFLIGHT → WZRD_MERCHANT_CARD → WZRD_INTEL_TRUST → WZRD_VERIFY_RECEIPT
@@ -23,7 +23,7 @@ export const intelActions: Action[] = [
 ];
 
 const INTEL_DESCRIPTION =
-  'WZRD Agent Intel — free ReadinessCard preflight + free merchant_card wash refuse (default), ' +
+  'TWZRD Agent Intel — free ReadinessCard preflight + free merchant_card wash refuse (default), ' +
   'then optional x402-paid V7 trust receipt (~0.05 USDC, needs WZRD_INTEL_ALLOW_PAID or confirm_spend) + ' +
   'offline verify via twzrd-receipt-verifier. ' +
   'Legacy V6 verification is labeled freshness=derived_from_timestamp. ' +
