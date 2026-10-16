@@ -20,7 +20,8 @@
     },
     "resources_sot": "https://intel.twzrd.xyz/v1/intel/resources",
     "bazaar_catalog": "https://intel.twzrd.xyz/v1/intel/bazaar/offers",
-    "marketplace_overlay": "https://intel.twzrd.xyz/v1/intel/marketplace"
+    "marketplace_overlay": "https://intel.twzrd.xyz/v1/intel/marketplace",
+    "muse_connector": "https://intel.twzrd.xyz/muse/mcp"
   },
   "transport": {
     "type": "streamable-http",
@@ -71,7 +72,8 @@
         }
       }
     },
-    "receipt_verifier_npm": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey <pubkey>"
+    "receipt_verifier_npm": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey <pubkey>",
+    "muse_connector": "https://intel.twzrd.xyz/muse/mcp"
   },
   "paid_http_surfaces": [
     {
@@ -318,17 +320,17 @@
     {
       "name": "twzrd_watch_add",
       "price_usdc": 0.0,
-      "description": "Free: register a re-call watch on a seller wallet (webhook optional - omit for poll-only)."
+      "description": "Free: register a re-call watch on a seller wallet (webhook optional - omit for poll-only). Requires payer_wallet's twzrd-watch/v1 ed25519 proof and a timestamp within 300 seconds."
     },
     {
       "name": "twzrd_watch_list",
       "price_usdc": 0.0,
-      "description": "Free: list your active re-call watches with current score/decision and recheck_after_unix."
+      "description": "Free: list your active re-call watches with current score/decision and recheck_after_unix. Requires payer_wallet's twzrd-watch/v1 ed25519 proof and a timestamp within 300 seconds."
     },
     {
       "name": "twzrd_watch_remove",
       "price_usdc": 0.0,
-      "description": "Free: deactivate a re-call watch by ID; payer_wallet must match the watch owner."
+      "description": "Free: deactivate a re-call watch by ID; payer_wallet must match the watch owner. Requires payer_wallet's twzrd-watch/v1 ed25519 proof and a timestamp within 300 seconds."
     }
   ],
   "homepage": "https://intel.twzrd.xyz",
@@ -340,5 +342,36 @@
     "url": "https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs"
   },
   "package_version": "0.5.13",
-  "gate_npm": "twzrd-x402-gate@0.12.0"
+  "gate_npm": "twzrd-x402-gate@0.12.0",
+  "muse_connector": {
+    "url": "https://intel.twzrd.xyz/muse/mcp",
+    "read_only": true,
+    "note": "Directory allowlist. Not the general /mcp server.",
+    "tools": [
+      {
+        "name": "get_claim",
+        "title": "Listing claim"
+      },
+      {
+        "name": "get_evidence",
+        "title": "Listing evidence"
+      },
+      {
+        "name": "get_publication",
+        "title": "Signed publication"
+      },
+      {
+        "name": "get_shopping_check",
+        "title": "Shopping check"
+      },
+      {
+        "name": "check_listing",
+        "title": "Product listing check"
+      },
+      {
+        "name": "verify_x402_settled_claim",
+        "title": "Settlement verification"
+      }
+    ]
+  }
 }

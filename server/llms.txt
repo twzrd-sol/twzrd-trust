@@ -5,11 +5,10 @@
 >   `get_merchant_card`, `evaluate_x402_resource`, signed V7 receipts. Detail below.
 > - **Product listings** (the product you are about to buy from a store): the free MCP
 >   tool `check_listing(product_url, declared_unit_price?)` checks it against TWZRD's
->   published listing-claim card: a price above the advertised one is refused, one below
+>   only listing-claim card, Vuori Kore Short: a price above the advertised one is refused, one below
 >   it or no advertised price sets `needs_approval`. Verify offline with `get_claim`,
 >   `get_evidence`, `get_publication` (Ed25519-signed publication record). Report: `get_shopping_check` / https://twzrd.xyz/shopping-check/vuori-kore/.
->   Paid `GET /v1/intel/checkout-brief` ($0.001) binds your cart_hash. One reference card
->   today (Vuori Kore Short); purchase completion and delivery are not verified.
+>   Paid `GET /v1/intel/checkout-brief` ($0.001) binds your cart_hash. Purchase completion and delivery are not verified.
 
 > Primary settlement rail: **Solana**. Free read-only scoring also covers **Base**
 > (EIP-3009 USDC settlements, high-confidence bucket). Paid V7 receipts remain
@@ -220,7 +219,7 @@ leaf bytes. Verify offline with
 (not leaf-bound; `unauthenticated_fields`). `evaluateRecall(receipt)` is the
 consumer gate (`action: untrusted-recheck` on earlier V5/V6 receipts). Do not treat raw
 `recheck_after_unix` / `due` as a trusted allow. Stale ≠ invalid.
-Watch lane: `twzrd_watch_add` or `POST /v1/intel/watch` re-checks the seller when a re-check is due and POSTs `twzrd.watch.recheck_due` if intel changed. Register, list, and remove calls require a `twzrd-watch/v1` Ed25519 control proof signed by `payer_wallet`, with a `signature` and timestamp within 300 seconds; unsigned requests are rejected. Detail on /llms-full.txt.
+Watch lane: `twzrd_watch_add` / `POST /v1/intel/watch` (twzrd-watch/v1 control proof) re-check when due and POST `twzrd.watch.recheck_due` on change; detail on /llms-full.txt.
 
 ### Trust gate semantics (twzrd-agent-intel service v0.5.13)
 
@@ -260,6 +259,7 @@ server.onBeforeSettle(createTwzrdSettleGuard({ screen: twzrdPayerScreen() }));
 - [OpenAPI](https://intel.twzrd.xyz/openapi.json): canonical HTTP schemas and x402 annotations
 - free `get_claim`, `get_evidence`, `get_publication`, no payment: `twzrd://claims/vuori-kore`
 - [MCP](https://intel.twzrd.xyz/mcp): hosted Streamable HTTP server with 28 tools
+- [Muse connector](https://intel.twzrd.xyz/muse/mcp): six read-only tools, separate from /mcp.
 - [MCP card](https://intel.twzrd.xyz/.well-known/mcp.json): transport, install and exact declared tools
 - [Full reference](https://intel.twzrd.xyz/llms-full.txt): complete tool catalog, policies and examples
 - [Smithery](https://smithery.ai/servers/wzrd/twzrd-agent-intel): existing hosted marketplace listing
