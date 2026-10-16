@@ -220,7 +220,7 @@ leaf bytes. Verify offline with
 (not leaf-bound; `unauthenticated_fields`). `evaluateRecall(receipt)` is the
 consumer gate (`action: untrusted-recheck` on earlier V5/V6 receipts). Do not treat raw
 `recheck_after_unix` / `due` as a trusted allow. Stale ≠ invalid.
-Watch lane: `twzrd_watch_add` or `POST /v1/intel/watch` re-checks the seller when a re-check is due and POSTs `twzrd.watch.recheck_due` if intel changed; detail on /llms-full.txt.
+Watch lane: `twzrd_watch_add` or `POST /v1/intel/watch` re-checks the seller when a re-check is due and POSTs `twzrd.watch.recheck_due` if intel changed. Register, list, and remove calls require a `twzrd-watch/v1` Ed25519 control proof signed by `payer_wallet`, with a `signature` and timestamp within 300 seconds; unsigned requests are rejected. Detail on /llms-full.txt.
 
 ### Trust gate semantics (twzrd-agent-intel service v0.5.13)
 
