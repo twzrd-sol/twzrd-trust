@@ -318,17 +318,17 @@
     {
       "name": "twzrd_watch_add",
       "price_usdc": 0.0,
-      "description": "Free: register a re-call watch on a seller wallet (webhook optional - omit for poll-only)."
+      "description": "Free: register a re-call watch on a seller wallet (webhook optional - omit for poll-only). Requires payer_wallet's twzrd-watch/v1 ed25519 proof and a timestamp within 300 seconds."
     },
     {
       "name": "twzrd_watch_list",
       "price_usdc": 0.0,
-      "description": "Free: list your active re-call watches with current score/decision and recheck_after_unix."
+      "description": "Free: list your active re-call watches with current score/decision and recheck_after_unix. Requires payer_wallet's twzrd-watch/v1 ed25519 proof and a timestamp within 300 seconds."
     },
     {
       "name": "twzrd_watch_remove",
       "price_usdc": 0.0,
-      "description": "Free: deactivate a re-call watch by ID; payer_wallet must match the watch owner."
+      "description": "Free: deactivate a re-call watch by ID; payer_wallet must match the watch owner. Requires payer_wallet's twzrd-watch/v1 ed25519 proof and a timestamp within 300 seconds."
     }
   ],
   "homepage": "https://intel.twzrd.xyz",
