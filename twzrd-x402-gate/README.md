@@ -145,7 +145,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.8.5 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.12.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -299,11 +299,28 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.12.0
+npm i twzrd-x402-gate
 ```
 
-Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
-**0.8.6**) has gone stale. Check `npm view twzrd-x402-gate version` if in doubt.
+This doc describes **0.12.0**. Check `npm view twzrd-x402-gate version` for the latest release.
+
+### CLI commands (package `bin`)
+
+`twzrd-safe-fetch`, `twzrd-gate-eval-refuse`, `twzrd-gate-doctor`, `twzrd-evidence-bundle`,
+`twzrd-payment-decision`, `twzrd-bounty-preflight`, `twzrd-cold-start` (run with `npx <name>`).
+
+### Pay-path behavior (0.12.0)
+
+- Scored preflight runs on Solana mainnet and Base mainnet (`eip155:8453`). Other EVM networks do not run the scored preflight.
+- A missing `payTo` is never approved.
+- A buyer preflight outage does not sign unless `TWZRD_FAIL_OPEN=true`.
+- An unevaluated seller (`null_reason: unknown_subject`) can be paid up to its card's `recommended_cap_usdc`; above the cap it does not sign. `refuseUnevaluated: true` refuses it outright (see *Unevaluated sellers* under Policy).
+- A price above `recommended_cap_usdc` does not sign.
+- Disagreeing v1/v2 price or recipient fields are refused.
+- An approved `warn` with a wired paying fetch requests `/v1/intel/quick` and does not request `/v1/intel/trust`.
+- `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`; those switches apply only to `installTwzrdAutoGate`.
+- `createTwzrdSettleGuard` stays fail-open by default, so an unavailable gate does not abort.
+- The pay path is not uniformly fail-closed in any release: `createTwzrdSettleGuard` is fail-open by default, `TWZRD_FAIL_OPEN=true` lets a buyer preflight outage sign, and unscored EVM networks default to `observe` (allow, wash check still runs).
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
 (`onBeforeSettle`) — optional 0.8.1** above. Do not confuse with facilitator
@@ -485,7 +502,7 @@ probe request → TWZRD scores challenge A → (if allowed) AgentCash request �
 
 ### CLI: `twzrd-bounty-preflight` (worker-side refuse, zero spend)
 
-For agents that earn on bounty boards (DeskCrew arena, ClawTasks). Before you pay
+For agents that work bounty boards (DeskCrew arena, ClawTasks). Before you pay
 an attempt fee or stake collateral, read the board, read the paid door's unpaid
 402 for its payTo, gate that payTo, and decide each open row. One JSON transcript
 on stdout (`schema: twzrd.bounty_preflight.v1`, `usdc_spent: 0`,
