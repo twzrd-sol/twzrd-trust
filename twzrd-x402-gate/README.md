@@ -299,11 +299,28 @@ Dogfood (one public live proof path):
 ## Install
 
 ```bash
-npm install twzrd-x402-gate@0.12.0
+npm i twzrd-x402-gate
 ```
 
-Do not hardcode a version in this doc — every past pin here (**0.5.4**, **0.7.1**, **0.8.5**,
-**0.8.6**) has gone stale. Check `npm view twzrd-x402-gate version` if in doubt.
+This doc describes **0.12.0**. Check `npm view twzrd-x402-gate version` for the latest release.
+
+### CLI commands (package `bin`)
+
+`twzrd-safe-fetch`, `twzrd-gate-eval-refuse`, `twzrd-gate-doctor`, `twzrd-evidence-bundle`,
+`twzrd-payment-decision`, `twzrd-bounty-preflight`, `twzrd-cold-start` (run with `npx <name>`).
+
+### Pay-path behavior (0.12.0)
+
+- Scored preflight runs on Solana mainnet and Base mainnet (`eip155:8453`). Other EVM networks do not run the scored preflight.
+- A missing `payTo` is never approved.
+- A buyer preflight outage does not sign unless `TWZRD_FAIL_OPEN=true`.
+- `null_reason: unknown_subject` does not sign.
+- A price above `recommended_cap_usdc` does not sign.
+- Disagreeing v1/v2 price or recipient fields are refused.
+- An approved `warn` with a wired paying fetch requests `/v1/intel/quick` and does not request `/v1/intel/trust`.
+- `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`; those switches apply only to `installTwzrdAutoGate`.
+- `createTwzrdSettleGuard` stays fail-open by default, so an unavailable gate does not abort.
+- Releases before 0.11.2 (including 0.11.0) are not uniformly fail-closed; upgrade.
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
 (`onBeforeSettle`) — optional 0.8.1** above. Do not confuse with facilitator
@@ -485,7 +502,7 @@ probe request → TWZRD scores challenge A → (if allowed) AgentCash request �
 
 ### CLI: `twzrd-bounty-preflight` (worker-side refuse, zero spend)
 
-For agents that earn on bounty boards (DeskCrew arena, ClawTasks). Before you pay
+For agents that work bounty boards (DeskCrew arena, ClawTasks). Before you pay
 an attempt fee or stake collateral, read the board, read the paid door's unpaid
 402 for its payTo, gate that payTo, and decide each open row. One JSON transcript
 on stdout (`schema: twzrd.bounty_preflight.v1`, `usdc_spent: 0`,

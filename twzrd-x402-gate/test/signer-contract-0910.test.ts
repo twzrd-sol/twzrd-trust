@@ -70,14 +70,16 @@ async function run() {
     `COMPATIBILITY.md must name ${pkg.version} as the released identity`,
   );
   assert.doesNotMatch(pkg.description, /Fail-closed by default/);
-  assert.match(pkg.description, /not uniformly fail-closed/);
   assert.match(pkg.description, /Base mainnet \(eip155:8453\)/);
-  assert.match(
-    pkg.description,
-    /createTwzrdBeforePaymentHook does not read TWZRD_AUTO_GATE or TWZRD_GATE_ENABLED/,
-  );
+  assert.ok(pkg.description.length <= 200, "description stays one short line");
 
   const readme = readFileSync(join(pkgRoot, "README.md"), "utf8");
+  // Detailed behavior notes live in the README, not package.json description.
+  assert.match(readme, /not uniformly fail-closed/);
+  assert.match(
+    readme,
+    /`createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`/,
+  );
   assert.match(readme, /Solana mainnet and Base mainnet \(`eip155:8453`\)/);
   assert.doesNotMatch(readme, /only \*\*reputation-scores Solana mainnet\*\*/);
   assert.doesNotMatch(readme, /any non-Solana payTo/);
