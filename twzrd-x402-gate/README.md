@@ -145,7 +145,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.8.5 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.12.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -314,13 +314,13 @@ This doc describes **0.12.0**. Check `npm view twzrd-x402-gate version` for the 
 - Scored preflight runs on Solana mainnet and Base mainnet (`eip155:8453`). Other EVM networks do not run the scored preflight.
 - A missing `payTo` is never approved.
 - A buyer preflight outage does not sign unless `TWZRD_FAIL_OPEN=true`.
-- `null_reason: unknown_subject` does not sign.
+- An unevaluated seller (`null_reason: unknown_subject`) can be paid up to its card's `recommended_cap_usdc`; above the cap it does not sign. `refuseUnevaluated: true` refuses it outright (see *Unevaluated sellers* under Policy).
 - A price above `recommended_cap_usdc` does not sign.
 - Disagreeing v1/v2 price or recipient fields are refused.
 - An approved `warn` with a wired paying fetch requests `/v1/intel/quick` and does not request `/v1/intel/trust`.
 - `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`; those switches apply only to `installTwzrdAutoGate`.
 - `createTwzrdSettleGuard` stays fail-open by default, so an unavailable gate does not abort.
-- Releases before 0.11.2 (including 0.11.0) are not uniformly fail-closed; upgrade.
+- The pay path is not uniformly fail-closed in any release: `createTwzrdSettleGuard` is fail-open by default, `TWZRD_FAIL_OPEN=true` lets a buyer preflight outage sign, and unscored EVM networks default to `observe` (allow, wash check still runs).
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
 (`onBeforeSettle`) — optional 0.8.1** above. Do not confuse with facilitator

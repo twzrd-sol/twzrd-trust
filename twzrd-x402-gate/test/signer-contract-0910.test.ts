@@ -54,7 +54,7 @@ async function run() {
   const shipped = ["README.md", "QUICKSTART.md", "src/doctor.ts"];
   for (const rel of shipped) {
     const text = readFileSync(join(pkgRoot, rel), "utf8");
-    const hits = text.match(/npm install twzrd-x402-gate\S*/g) ?? [];
+    const hits = text.match(/npm install twzrd-x402-gate\S*|npm i twzrd-x402-gate@\S*/g) ?? [];
     assert.ok(hits.length > 0, `${rel} ships an install string`);
     for (const hit of hits) {
       assert.ok(
@@ -75,11 +75,17 @@ async function run() {
 
   const readme = readFileSync(join(pkgRoot, "README.md"), "utf8");
   // Detailed behavior notes live in the README, not package.json description.
-  assert.match(readme, /not uniformly fail-closed/);
+  const payPath = readme.split("### Pay-path behavior (0.12.0)")[1]?.split(/\n#{2,3} /)[0] ?? "";
+  assert.ok(payPath.length > 0, "README has the pay-path behavior section");
+  assert.match(payPath, /The pay path is not uniformly fail-closed in any release: `createTwzrdSettleGuard` is fail-open by default/);
+  assert.match(payPath, /`TWZRD_FAIL_OPEN=true` lets a buyer preflight outage sign/);
   assert.match(
-    readme,
-    /`createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`/,
+    payPath,
+    /^- `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`; those switches apply only to `installTwzrdAutoGate`\.$/m,
   );
+  assert.match(payPath, /`null_reason: unknown_subject`\) can be paid up to its card's `recommended_cap_usdc`/);
+  // Must not claim an unknown_subject seller is refused within cap.
+  assert.doesNotMatch(payPath, /unknown_subject`? (does not|never) sign/);
   assert.match(readme, /Solana mainnet and Base mainnet \(`eip155:8453`\)/);
   assert.doesNotMatch(readme, /only \*\*reputation-scores Solana mainnet\*\*/);
   assert.doesNotMatch(readme, /any non-Solana payTo/);

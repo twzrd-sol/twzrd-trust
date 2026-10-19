@@ -1,7 +1,7 @@
 {
   "name": "twzrd-x402-gate",
   "version": "0.12.0",
-  "description": "Buyer-side x402 trust gate: free preflight before your agent signs USDC. Solana mainnet + Base mainnet (eip155:8453). The paying client does not sign when the preflight is unavailable.",
+  "description": "Buyer-side x402 trust gate: free preflight before signing USDC on Solana + Base mainnet (eip155:8453). By default no signing if preflight is down; TWZRD_FAIL_OPEN overrides. Other EVM: unscored.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
