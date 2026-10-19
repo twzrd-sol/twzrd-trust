@@ -28,6 +28,12 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.12.1 - 2026-10-19 (docs and package metadata only)
+
+- **No runtime change.** No allow/refuse outcome, export, option or default differs from 0.12.0; `src/` changes only the install strings printed by `twzrd-gate-doctor`. This patch exists so the npm page carries the corrected description and README.
+- **package.json `description`** is now one line: a free preflight before signing USDC on Solana mainnet and Base mainnet (`eip155:8453`), no signing by default if the preflight is down (`TWZRD_FAIL_OPEN` overrides), other EVM networks unscored. It previously carried release notes and an over-broad fail-closed claim.
+- **README "Pay-path behavior"** holds the notes moved out of the description and corrects them: an unevaluated seller (`null_reason: unknown_subject`) can be paid up to its card's `recommended_cap_usdc` (unless `refuseUnevaluated`), and the pay path is not uniformly fail-closed (`createTwzrdSettleGuard` is fail-open by default, `TWZRD_FAIL_OPEN=true` lets a preflight outage sign, unscored EVM networks default to `observe`). Install pins move to 0.12.1; the README also lists the package's `bin` commands.
+
 ## 0.12.0 - 2026-10-10 (opt-in: refuse unknown wash coverage)
 
 - **New `refuseWashUnknown` option, default `false` in 0.12.x.** Opted in, on the reputation-scored path a merchant card that answered but has not fully answered the wash question refuses with `twzrd_wash_unknown`: no card (including a 4xx), wash confidence other than `full` (`partial_inbound_only`, `base_2cycle`, `unknown`, ...), `ring_evaluated: false`, or `wash_stale: true`. This is the rule `createTwzrdWashBeforePaymentHook` already applies; the full-preflight entry points (`createTwzrdBeforePaymentHook`, `wrapFetchWithTwzrdGate`, `evaluate_x402_resource`, `safeFetch`, `withTwzrdGuard`, auto-gate seats) can now apply it too. Measured wash keeps `twzrd_wash_flagged` and is checked first. Opt in with `refuseWashUnknown: true` or `TWZRD_REFUSE_WASH_UNKNOWN=1|true|yes|on`; an explicit option wins over the env. It only applies while `refuseWashFlagged` is on.
