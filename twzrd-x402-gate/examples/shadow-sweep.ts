@@ -134,7 +134,7 @@ async function shadowFacilitatorSettle(seller: string): Promise<void> {
   const abort = await hook({
     requirements: {
       payTo: seller,
-      // CAIP-2 Solana mainnet so the Solana-only gate engages.
+      // CAIP-2 Solana mainnet so the scored preflight engages (Base mainnet would too).
       network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
       asset: "USDC",
       amount: "50000",

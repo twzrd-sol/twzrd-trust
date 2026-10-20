@@ -50,4 +50,5 @@ if (!(await canSpendSafely(payTo))) {
 - A pass is not a guarantee; it means the free preflight did not return a block.
 - If the settle context carries no seller wallet, there is nothing to score and the hook allows the settle.
 - With `solanaOnly` on, a settle whose network is empty is treated as possibly Solana and is checked; only a confirmed non-Solana network passes through unchecked.
-- Solana only by default, because the observed corpus the checks use is Solana.
+- Solana only by default (`solanaOnly`). The free preflight itself also scores Base
+  mainnet sellers; other EVM chains are not scored.
