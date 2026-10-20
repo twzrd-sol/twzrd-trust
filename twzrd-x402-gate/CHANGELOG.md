@@ -28,7 +28,7 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## Unreleased
+## 0.12.3 - 2026-10-20 (buyer front door: createBuyerFetch)
 
 - **Buyer front door: `createBuyerFetch` and `twzrd-buyer-demo`.** Required exact
   per-call cap and recipient allowlist, mandatory fail-closed free preflight,

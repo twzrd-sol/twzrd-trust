@@ -55,6 +55,6 @@ verifier tests, package-surface checks and documentation checks remain green.
 
 SCOPE: no live signing, paid API call, outside-agent execution, outreach, registry
 release or deployment. Internal tests and isolated installations do not establish
-outside adoption or close the first-outside-proof milestone. The package version
-is unchanged and the new API is documented as unreleased; the local tarball is
-for review and installation testing, not an assertion about npm's contents.
+outside adoption or close the first-outside-proof milestone. The API was first
+published in 0.12.3; a locally packed tarball is for testing an unpublished build,
+not an assertion about npm's contents.

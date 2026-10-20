@@ -48,8 +48,8 @@ function intelFetch(
 
 async function run() {
   const pkg = require("../package.json") as { version: string; description: string };
-  assert.equal(pkg.version, "0.12.2");
-  console.log(`version 0.12.2`);
+  assert.equal(pkg.version, "0.12.3");
+  console.log(`version 0.12.3`);
 
   const shipped = ["README.md", "QUICKSTART.md", "src/doctor.ts"];
   for (const rel of shipped) {
@@ -75,7 +75,7 @@ async function run() {
 
   const readme = readFileSync(join(pkgRoot, "README.md"), "utf8");
   // Detailed behavior notes live in the README, not package.json description.
-  const payPath = readme.split("### Pay-path behavior (0.12.2)")[1]?.split(/\n#{2,3} /)[0] ?? "";
+  const payPath = readme.split("### Pay-path behavior (0.12.3)")[1]?.split(/\n#{2,3} /)[0] ?? "";
   assert.ok(payPath.length > 0, "README has the pay-path behavior section");
   assert.match(payPath, /The pay path is not uniformly fail-closed in any release: `createTwzrdSettleGuard` is fail-open by default/);
   assert.match(payPath, /`TWZRD_FAIL_OPEN=true` lets a buyer preflight outage sign/);
