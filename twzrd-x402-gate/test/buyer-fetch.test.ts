@@ -19,6 +19,7 @@ function setup(options: {
   amount?: string;
   recipient?: string;
   preflight?: "allow" | "warn" | "block" | "down" | "invalid" | "hang";
+  recommendedCap?: number;
   hourlyBudgetCap?: string;
   dir?: string;
   signerFails?: boolean;
@@ -53,7 +54,7 @@ function setup(options: {
       if (options.preflight === "hang") return new Promise<Response>(() => {});
       const card = options.preflight === "invalid" ? { decision: "nonsense", trust_score: 99 } : {
         decision: options.preflight ?? "allow", trust_score: 90, seller_wallet: SELLER,
-        recommended_cap_usdc: 1,
+        recommended_cap_usdc: options.recommendedCap ?? 1,
       };
       return Response.json({ readiness_card: card });
     }
@@ -90,6 +91,90 @@ test("cap refuses a real paying fetch before preflight or signing and persists t
   assert.deepEqual(h.rows()[0].reason_codes, ["price_cap_exceeded"]);
   assert.equal(h.rows()[0].input.resource_origin, "https://merchant.example");
   assert.ok(!readFileSync(h.decisionFile, "utf8").includes("secret"));
+});
+
+test("a $1,000 challenge under a $1,000 cap signs unless expectedAmount binds the quote", async () => {
+  const thousand = "1000000000";
+  // Without an expected amount the cap is the only amount check, and $1,000 passes it.
+  const open = setup({ amount: thousand, recommendedCap: 1000 });
+  open.config.maxPricePerCall = "1000";
+  assert.equal((await open.run()(URL)).status, 200);
+  assert.equal(open.state.signs, 1);
+
+  const bound = setup({ amount: thousand, recommendedCap: 1000 });
+  bound.config.maxPricePerCall = "1000";
+  await assert.rejects(createBuyerFetch({ ...bound.config, expectedAmount: "0.05" })(URL), (error: unknown) => {
+    assert.ok(error instanceof BuyerFetchBlockedError);
+    assert.equal(error.reason, "expected_amount_mismatch");
+    return true;
+  });
+  assert.equal(bound.state.signs, 0);
+  assert.equal(bound.state.paid, 0);
+  assert.equal(bound.state.preflights, 0);
+  assert.equal(bound.rows()[0].outcome, "block");
+  assert.deepEqual(bound.rows()[0].reason_codes, ["expected_amount_mismatch"]);
+  assert.equal(bound.rows()[0].input.amount_micro, thousand);
+});
+
+test("expectedAmount is exact: a lower challenge refuses and the quoted amount signs", async () => {
+  const lower = setup({ amount: "40000" });
+  await assert.rejects(createBuyerFetch({ ...lower.config, expectedAmount: "0.05" })(URL), /expected_amount_mismatch/);
+  assert.equal(lower.state.signs, 0);
+
+  const exact = setup({ amount: "50000" });
+  assert.equal((await createBuyerFetch({ ...exact.config, expectedAmount: "0.050" })(URL)).status, 200);
+  assert.equal(exact.state.signs, 1);
+  assert.equal(exact.rows()[0].outcome, "allow");
+
+  // The cap still applies on its own and keeps its own reason.
+  const over = setup({ amount: "50001" });
+  await assert.rejects(createBuyerFetch({ ...over.config, expectedAmount: "0.05" })(URL), /price_cap_exceeded/);
+  assert.equal(over.state.signs, 0);
+});
+
+test("a per-payment expectedAmount function binds each quote and fails closed without one", async () => {
+  const seen: unknown[] = [];
+  const quoted = setup();
+  const guarded = createBuyerFetch({ ...quoted.config, expectedAmount: payment => {
+    seen.push(payment);
+    return payment.resource === URL ? "0.001" : undefined;
+  } });
+  assert.equal((await guarded(URL)).status, 200);
+  assert.equal(quoted.state.signs, 1);
+  // The function never sees the challenged amount, so it cannot echo it back.
+  assert.deepEqual(seen, [{ resource: URL, payTo: SELLER, network: NETWORK }]);
+
+  for (const expectedAmount of [
+    () => undefined, async () => { throw new Error("quote store down"); }, () => "1e3",
+  ]) {
+    const h = setup();
+    await assert.rejects(createBuyerFetch({ ...h.config, expectedAmount })(URL), (error: unknown) => {
+      assert.ok(error instanceof BuyerFetchBlockedError);
+      assert.equal(error.reason, "expected_amount_unavailable");
+      return true;
+    });
+    assert.equal(h.state.signs, 0);
+    assert.equal(h.state.preflights, 0);
+    assert.deepEqual(h.rows()[0].reason_codes, ["expected_amount_unavailable"]);
+  }
+
+  const mismatch = setup();
+  await assert.rejects(createBuyerFetch({ ...mismatch.config, expectedAmount: async () => "0.002" })(URL),
+    /expected_amount_mismatch/);
+  assert.equal(mismatch.state.signs, 0);
+});
+
+test("expectedAmount is validated at install and cannot be changed afterwards", async () => {
+  const h = setup();
+  assert.throws(() => createBuyerFetch({ ...h.config, expectedAmount: "0.06" }), /must not exceed maxPricePerCall/);
+  assert.throws(() => createBuyerFetch({ ...h.config, expectedAmount: 0.001 as never }), TypeError);
+  assert.throws(() => createBuyerFetch({ ...h.config, expectedAmount: "1e-3" }), /bad decimal amount/);
+
+  const config = { ...h.config, expectedAmount: "0.002" };
+  const guarded = createBuyerFetch(config);
+  config.expectedAmount = "0.001";
+  await assert.rejects(guarded(URL), /expected_amount_mismatch/);
+  assert.equal(h.state.signs, 0);
 });
 
 test("unlisted and missing recipients never sign; an empty allowlist denies all", async () => {

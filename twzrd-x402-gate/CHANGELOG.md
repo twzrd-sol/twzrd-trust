@@ -28,6 +28,18 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## Unreleased
+
+- **`createBuyerFetch` takes an optional `expectedAmount`.** `maxPricePerCall` is
+  a ceiling, so a $1,000 challenge passed a $1,000 cap. With `expectedAmount`
+  (an exact USDC decimal, or a function returning one per payment), any other
+  atomic amount on the selected requirement refuses with
+  `expected_amount_mismatch` before preflight or signing; a function that
+  returns no decimal string or throws refuses with `expected_amount_unavailable`.
+  The cap is unchanged and keeps `price_cap_exceeded`. A fixed value above
+  `maxPricePerCall` throws at install. Opt-in: without the option, no outcome
+  changes. 0.12.3 ignores the option.
+
 ## 0.12.3 - 2026-10-20 (buyer front door: createBuyerFetch)
 
 - **Buyer front door: `createBuyerFetch` and `twzrd-buyer-demo`.** Required exact

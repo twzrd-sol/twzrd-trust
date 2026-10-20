@@ -15,6 +15,17 @@ export type BuyerFetchOptions = {
   client: X402ClientLike;
   /** Required per-payment USDC ceiling, as an exact decimal string. */
   maxPricePerCall: string;
+  /**
+   * Optional exact USDC amount the caller expects to pay, as a decimal string,
+   * or a function returning it per payment. Any other challenged amount, lower
+   * or higher, refuses with `expected_amount_mismatch` before signing, even
+   * under `maxPricePerCall`. The cap bounds spend; this binds the challenge to
+   * the caller's quote. A function sees no challenged amount; when it returns
+   * no decimal string or throws, the payment refuses with
+   * `expected_amount_unavailable`.
+   */
+  expectedAmount?: string | ((payment: { resource: string; payTo: string; network?: string }) =>
+    string | undefined | Promise<string | undefined>);
   /** Required payTo allowlist. Empty means refuse every payment. */
   allowedRecipients: readonly string[];
   /** Optional cumulative USDC ceiling over the preceding hour. */
@@ -66,6 +77,19 @@ function limit(value: string, name: string): bigint {
   return toMicroUsd(value);
 }
 
+async function expectedMicro(
+  expected: bigint | Exclude<BuyerFetchOptions["expectedAmount"], string | undefined>,
+  payment: { resource: string; payTo: string; network?: string },
+): Promise<bigint | undefined> {
+  if (typeof expected === "bigint") return expected;
+  try {
+    const value = await expected(payment);
+    return typeof value === "string" ? toMicroUsd(value) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function recipientKey(value: string): string {
   return value.startsWith("0x") ? value.toLowerCase() : value;
 }
@@ -84,6 +108,11 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
   if (clients.has(options.client as object)) throw new TypeError("createBuyerFetch already installed on this client");
   const client = options.client;
   const max = limit(options.maxPricePerCall, "maxPricePerCall");
+  const expected = typeof options.expectedAmount === "function" || options.expectedAmount === undefined
+    ? options.expectedAmount : limit(options.expectedAmount, "expectedAmount");
+  if (typeof expected === "bigint" && expected > max) {
+    throw new TypeError("expectedAmount must not exceed maxPricePerCall");
+  }
   const hourly = options.hourlyBudgetCap === undefined ? undefined : limit(options.hourlyBudgetCap, "hourlyBudgetCap");
   if (!Array.isArray(options.allowedRecipients) || options.allowedRecipients.some(v => typeof v !== "string" || !v.trim())) {
     throw new TypeError("allowedRecipients must be an explicit array of recipient addresses");
@@ -155,6 +184,12 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
     const micro = BigInt(fields.amount);
     if (micro > max) return refuse(attempt, "price_cap_exceeded");
     if (micro > BigInt(Number.MAX_SAFE_INTEGER)) return refuse(attempt, "amount_out_of_range");
+    if (expected !== undefined) {
+      const want = await expectedMicro(expected,
+        { resource: attempt.resource, payTo: fields.payTo, network: selected.network });
+      if (want === undefined) return refuse(attempt, "expected_amount_unavailable");
+      if (micro !== want) return refuse(attempt, "expected_amount_mismatch");
+    }
     const now = Date.now();
     if (hourly !== undefined && ledger.spentMicro(scope, HOUR_MS, now) + (inFlight.get(scope) ?? 0n) + micro > hourly) {
       return refuse(attempt, "hourly_budget_exceeded");

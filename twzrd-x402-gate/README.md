@@ -61,6 +61,30 @@ Caps and recipients are checked against the selected requirement at
 mainnet and Base mainnet; unscored networks refuse. EVM recipient comparison
 ignores case; Solana comparison preserves case. An empty allowlist refuses all.
 
+### Bind the quote: `expectedAmount` (not in 0.12.3)
+
+`maxPricePerCall` is a ceiling: with a $1,000 cap, a $1,000 challenge passes it.
+To refuse any amount other than the one you were quoted, also pass
+`expectedAmount`:
+
+```js
+const guardedFetch = createBuyerFetch({
+  client, maxPricePerCall: "1.00", allowedRecipients: [sellerPayTo],
+  expectedAmount: "0.01",          // exact USDC decimal the seller quoted
+});
+```
+
+The selected requirement's atomic amount, the one the signer authorizes, must
+equal it exactly, lower or higher. Otherwise the call refuses with
+`expected_amount_mismatch` before preflight or signing. The cap still applies
+and keeps `price_cap_exceeded`. One wrapper can serve several resources with a
+function that returns the quote per payment:
+`expectedAmount: ({ resource, payTo, network }) => quotes.get(resource)`. It
+never sees the challenged amount. When it returns no decimal string or throws,
+the call refuses with `expected_amount_unavailable`. A fixed `expectedAmount`
+above `maxPricePerCall` throws at install. Published 0.12.3 does not read this
+option and ignores it if passed; it ships in the next release.
+
 The free preflight and merchant-card checks run before signing. This entry
 point has no fail-open or disable switch: legacy `TWZRD_FAIL_OPEN`,
 `TWZRD_AUTO_GATE`, and `TWZRD_GATE_ENABLED` cannot bypass it. A `warn` can proceed
