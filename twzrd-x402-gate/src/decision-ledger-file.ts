@@ -51,6 +51,8 @@ function redactInput(input: RecordDecisionInput["input"]): DecisionLedgerRow["in
 export type FileDecisionLedgerOptions = {
   maxBufferedRows?: number;
   rotateBytes?: number;
+  /** Set false when the caller always awaits flush itself. Default: true. */
+  flushBeforeExit?: boolean;
   /** Opt in only when this library owns the host process lifecycle. Default: false. */
   flushOnSignals?: boolean;
 };
@@ -80,14 +82,16 @@ export function createFileDecisionLedger(filePath: string, options: FileDecision
   const scheduleFlush = () => {
     if (scheduled) return;
     scheduled = true;
-    queueMicrotask(() => { void flush(); });
+    // Keep failures on `writer` for an awaited flush to report. The background
+    // promise must not become an unhandled rejection while a buyer fails closed.
+    queueMicrotask(() => { void flush().catch(() => {}); });
   };
   // beforeExit is non-invasive. Hosts own SIGINT/SIGTERM unless they explicitly
   // opt in; libraries must not interleave themselves with an app's shutdown.
   const flushOnSignal = (signal: NodeJS.Signals) => {
-    process.once(signal, () => { void flush().finally(() => process.kill(process.pid, signal)); });
+    process.once(signal, () => { void flush().catch(() => {}).finally(() => process.kill(process.pid, signal)); });
   };
-  process.once("beforeExit", () => { void flush(); });
+  if (options.flushBeforeExit !== false) process.once("beforeExit", () => { void flush().catch(() => {}); });
   if (options.flushOnSignals === true) {
     flushOnSignal("SIGINT");
     flushOnSignal("SIGTERM");
@@ -102,7 +106,7 @@ export function createFileDecisionLedger(filePath: string, options: FileDecision
         input: redactInput(input.input),
       };
       pending.push(JSON.stringify(row) + "\n");
-      if (pending.length >= maxBufferedRows) void flush(); else scheduleFlush();
+      if (pending.length >= maxBufferedRows) void flush().catch(() => {}); else scheduleFlush();
       return row;
     },
     flush,

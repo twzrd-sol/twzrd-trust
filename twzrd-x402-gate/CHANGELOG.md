@@ -30,6 +30,18 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
 ## 0.12.2 - 2026-10-20 (opt-in local fulfillment record)
 
+- **Buyer front door: `createBuyerFetch` and `twzrd-buyer-demo`.** Required exact
+  per-call cap and recipient allowlist, mandatory fail-closed free preflight,
+  and local decision/spend files on the actual x402 paying call. The optional
+  hourly cap shares in-process reservations and replays spend on restart.
+  Logging failures refuse signing. Legacy disable/fail-open switches cannot
+  bypass this entry point; existing APIs retain their defaults. No paid score,
+  trust receipt, delivery capture or decision upload is enabled. The demo uses
+  an offline 402 fixture with the official client and no wallet.
+- Decision-ledger background flush failures remain observable through an
+  awaited `flush()` without an unhandled rejection; callers that explicitly
+  flush can opt out of the process `beforeExit` listener.
+
 - **New opt-in `onFulfillment` option on `createGuardedX402Fetch`.** After a paid call it builds one local record: `paid_to`, `network` and `amount_atomic` from the signed requirement, `tx` and `settled` from `PAYMENT-RESPONSE`, and the seller-reported `served_by` (`provider` or `model`), `failover_hops`, `ready`, `job_status` and `job_id`, with a `verdict` of `match`, `pending`, `mismatch` (with `reasons`) or `not_reported`. `ready: false` with a non-terminal status is `pending`, not a failure. It makes no network call and changes no allow/refuse outcome; without the option nothing is recorded.
 - **New exports:** `buildFulfillmentRecord`, `wrapFetchRecordFulfillment`, `createFileFulfillmentLog` (append-only JSONL), `modelMatches`, `FULFILLMENT_RECORD_SCHEMA` (`twzrd.fulfillment.v1`), `FULFILLMENT_MAX_BODY_BYTES` and their types. Only named fields are copied from a response body, the resource is kept as its origin, event streams and JSON bodies over 1 MiB record header fields only, and a failing sink never reaches the pay path.
 

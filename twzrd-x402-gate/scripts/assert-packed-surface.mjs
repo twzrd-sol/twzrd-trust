@@ -28,6 +28,7 @@ export const PUBLIC_RELEASE_SURFACE = {
     "./payment-decision",
   ],
   named: [
+    "createBuyerFetch",
     "createTwzrdPayKitBeforePaymentHook",
     "createTwzrdBeforePaymentHook",
     "installTwzrdX402ClientHook",

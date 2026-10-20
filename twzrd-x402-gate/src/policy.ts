@@ -334,7 +334,7 @@ async function tightenWithMerchantCardWash(input: {
       // Outage, and the caller did not opt into failOpen. Refuse before the
       // signer, and say which of the two unknowns this was.
       console.warn(
-        `[twzrd-x402-gate] payment BLOCKED: merchant_card unreachable (fail-closed) — ${lookup.error}. Set TWZRD_FAIL_OPEN=true to allow payments when the gate is down.`,
+        `[twzrd-x402-gate] payment BLOCKED: merchant_card unreachable (fail-closed) — ${lookup.error}.`,
       );
       return {
         approved: false,
@@ -633,7 +633,7 @@ export async function twzrdApprovePayment(
     // without abort.
     if (!cfg.failOpen) {
       const msg = String((err as Error)?.message ?? err).slice(0, 120);
-      console.warn(`[twzrd-x402-gate] payment BLOCKED: gate unreachable (fail-closed) — ${msg}. Set TWZRD_FAIL_OPEN=true to allow payments when the gate is down.`);
+      console.warn(`[twzrd-x402-gate] payment BLOCKED: gate unreachable (fail-closed) — ${msg}.`);
       return {
         decisionId,
         approved: false,

@@ -66,6 +66,8 @@ import * as gate from "twzrd-x402-gate";
 const require = createRequire(import.meta.url);
 const pkg = require("twzrd-x402-gate/package.json");
 assert.equal(typeof gate.twzrd.safeFetch, "function");
+assert.equal(typeof gate.createBuyerFetch, "function");
+assert.equal(typeof gate.BuyerFetchBlockedError, "function");
 assert.equal(typeof gate.spendControlSafeFetch, "function");
 assert.equal(typeof gate.assertIntentApproved, "function");
 assert.equal(typeof gate.exportEvidenceBundle, "function");
