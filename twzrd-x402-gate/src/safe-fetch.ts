@@ -53,7 +53,7 @@ export type SafeFetchOptions = {
   unsupportedNetworkMode?: "observe" | "strict";
   failOpen?: boolean;
   refuseWashFlagged?: boolean;
-  /** Refuse a reachable card without full wash coverage (default false in 0.12.x; true from 0.13.0). See TwzrdGateConfig. */
+  /** Refuse a reachable card without full wash coverage (default false; planned true in a later minor, see CHANGELOG). See TwzrdGateConfig. */
   refuseWashUnknown?: boolean;
   /** Refuse every unevaluated seller instead of allowing up to its cap. See TwzrdGateConfig. */
   refuseUnevaluated?: boolean;

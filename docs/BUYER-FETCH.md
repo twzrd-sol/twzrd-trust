@@ -9,7 +9,7 @@ their defaults. The quickstart leads with an executable offline refusal.
 ## Contract
 
 - `maxPricePerCall` and `allowedRecipients` are explicit and required.
-- Optional `expectedAmount` (after 0.12.3) binds the challenge to the caller's
+- Optional `expectedAmount` (since 0.13.0) binds the challenge to the caller's
   quote. Any other atomic amount on the selected requirement refuses with
   `expected_amount_mismatch`; a per-payment function that returns no decimal
   string or throws refuses with `expected_amount_unavailable` (cause kept), and

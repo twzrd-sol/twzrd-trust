@@ -6,10 +6,10 @@ cannot answer. Keep the reason in a local JSONL file.
 
 ## Start here: a blocked payment, no wallet
 
-`createBuyerFetch` and `twzrd-buyer-demo` ship in 0.12.3. In an ESM project:
+`createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.13.0. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.12.3 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.13.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -61,7 +61,7 @@ Caps and recipients are checked against the selected requirement at
 mainnet and Base mainnet; unscored networks refuse. EVM recipient comparison
 ignores case; Solana comparison preserves case. An empty allowlist refuses all.
 
-### Bind the quote: `expectedAmount` (not in 0.12.3)
+### Bind the quote: `expectedAmount` (0.13.0)
 
 `maxPricePerCall` is a ceiling: with a $1,000 cap, a $1,000 challenge passes it.
 To refuse any amount other than the one you were quoted, also pass
@@ -91,9 +91,9 @@ no decimal string or throws, the call refuses with `expected_amount_unavailable`
 and the error keeps the cause. An abort while it is pending refuses with
 `request_aborted`.
 
-Published 0.12.3 does not have this option. TypeScript rejects it there as an
-unknown property; plain JavaScript ignores it without an error. It ships in the
-next release.
+Added in 0.13.0. 0.12.3 does not have this option: TypeScript rejects it there
+as an unknown property, and plain JavaScript ignores it without an error, so pin
+0.13.0 or later before relying on it.
 
 The free preflight and merchant-card checks run before signing. This entry
 point has no fail-open or disable switch: legacy `TWZRD_FAIL_OPEN`,
@@ -167,7 +167,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.12.3 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.13.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -206,7 +206,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.12.3
+npm install twzrd-x402-gate@0.13.0
 ```
 
 ```typescript
@@ -251,7 +251,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.12.3
+npm install twzrd-x402-gate@0.13.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -271,7 +271,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.12.3 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.13.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -428,14 +428,14 @@ Dogfood (one public live proof path):
 npm i twzrd-x402-gate
 ```
 
-This doc describes **0.12.3**. Check `npm view twzrd-x402-gate version` for the latest release.
+This doc describes **0.13.0**. Check `npm view twzrd-x402-gate version` for the latest release.
 
 ### CLI commands (package `bin`)
 
 `twzrd-safe-fetch`, `twzrd-gate-eval-refuse`, `twzrd-gate-doctor`, `twzrd-evidence-bundle`,
 `twzrd-payment-decision`, `twzrd-bounty-preflight`, `twzrd-cold-start` (run with `npx <name>`).
 
-### Pay-path behavior (0.12.3)
+### Pay-path behavior (0.13.0)
 
 - Scored preflight runs on Solana mainnet and Base mainnet (`eip155:8453`). Other EVM networks do not run the scored preflight.
 - A missing `payTo` is never approved.
@@ -1177,7 +1177,7 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | `twzrd_over_recommended_cap_<price>_gt_<cap>` | An evaluated seller, and the price is above the card's `recommended_cap_usdc`. | always |
 | `twzrd_wash_flagged` | The free merchant card says `wash_flagged: true`. | on (`refuseWashFlagged` defaults true on every entry point) |
 | `twzrd_wash_flagged_above_cap_<price>_gt_<cap>`, `twzrd_wash_flagged_above_cap_unknown_price_max_<cap>` | Wash-flagged, `washMaxUsdc` is set, and the price is above it or unknown. | only with `washMaxUsdc` |
-| `twzrd_wash_unknown` | The merchant card answered but has not fully answered the wash question: no card (including a 4xx), wash confidence other than `full` (for example `partial_inbound_only`, `base_2cycle`), `ring_evaluated: false`, or `wash_stale: true`. Never reported as an outage; `failOpen` does not open it. Scored networks only. | opt-in (`refuseWashUnknown: true`; off by default in 0.12.x, on from 0.13.0; also needs `refuseWashFlagged`) |
+| `twzrd_wash_unknown` | The merchant card answered but has not fully answered the wash question: no card (including a 4xx), wash confidence other than `full` (for example `partial_inbound_only`, `base_2cycle`), `ring_evaluated: false`, or `wash_stale: true`. Never reported as an outage; `failOpen` does not open it. Scored networks only. | opt-in (`refuseWashUnknown: true`; off by default; planned default in a later minor, see CHANGELOG; also needs `refuseWashFlagged`) |
 | `twzrd_fail_closed (<error>)` | The preflight did not answer (non-2xx, non-JSON, network error, or no answer within `intelTimeoutMs`). | fail-closed unless `failOpen` |
 | `twzrd_card_unreachable_fail_closed (<error>)` | The merchant card did not answer (5xx, 429, non-JSON, network error, or no answer within `intelTimeoutMs`). A 4xx is an answer, not an outage. With `failOpen` the payment is allowed and the result carries `cardUnreachable: true` (the wash check did not run). | fail-closed unless `failOpen` |
 
@@ -1296,7 +1296,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `failOpen` (buyer preflight only) | `TWZRD_FAIL_OPEN` | `false` | Buyer outage only: default does not sign. `createTwzrdSettleGuard` omitted `failOpen` is the other default — a thrown screen returns without abort |
 | `gateOnCanSpend` | `TWZRD_GATE_ON_CAN_SPEND` | `false` | Also block when `can_spend=false` |
 | `refuseUnevaluated` | `TWZRD_REFUSE_UNEVALUATED` | `false` | Refuse every seller intel has not evaluated, instead of allowing it up to the card's `recommended_cap_usdc`. `true`, `1`, `"yes"`, `"on"` in any case turn it on. |
-| `refuseWashUnknown` | `TWZRD_REFUSE_WASH_UNKNOWN` | `false` (0.12.x; `true` from 0.13.0) | Refuse (`twzrd_wash_unknown`) when the merchant card is reachable but its wash coverage is missing, partial or stale. Also refuses an unevaluated seller within its cap when its card has no full coverage. `true`, `1`, `"yes"`, `"on"` turn it on. |
+| `refuseWashUnknown` | `TWZRD_REFUSE_WASH_UNKNOWN` | `false` (planned `true` in a later minor; see CHANGELOG) | Refuse (`twzrd_wash_unknown`) when the merchant card is reachable but its wash coverage is missing, partial or stale. Also refuses an unevaluated seller within its cap when its card has no full coverage. `true`, `1`, `"yes"`, `"on"` turn it on. |
 | `intelTimeoutMs` | `TWZRD_INTEL_TIMEOUT_MS` | `2000` | Deadline for each free intel call (preflight, merchant card). A miss is an outage, decided by `failOpen`. Paid hops are not cut off mid-payment. |
 | `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` when `/quick` did not already settle |
 | `x402Fetch` | — | — | x402-capable fetch for `autoReceipt` |

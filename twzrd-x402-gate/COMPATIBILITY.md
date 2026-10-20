@@ -1,8 +1,8 @@
 # Compatibility note — twzrd-x402-gate 0.9.3 → 0.9.4
 
-0.12.3 is the released identity of this package and npm `latest`. It adds a new entry point, `createBuyerFetch` (and the `twzrd-buyer-demo` bin), and does not change any allow/refuse outcome of the existing entry points. 0.12.2 added an opt-in local fulfillment record; 0.12.1 was docs and package metadata only over 0.12.0. 0.11.2 and 0.11.3 are deprecated on npm. The `paying-client-fail-closed` dist-tag is moved by hand after a publish; check `npm view twzrd-x402-gate dist-tags` for where it points.
+0.13.0 is the released identity of this package and npm `latest`. It adds an opt-in `expectedAmount` to `createBuyerFetch`, with two new refusals (`expected_amount_mismatch`, `expected_amount_unavailable`); without the option, no allow/refuse outcome changes, and no other entry point changes. It is a minor release because it adds refusals. It does not flip the `refuseWashUnknown` default (see below). 0.12.3 added the `createBuyerFetch` entry point (and the `twzrd-buyer-demo` bin); 0.12.2 added an opt-in local fulfillment record; 0.12.1 was docs and package metadata only over 0.12.0. 0.11.2 and 0.11.3 are deprecated on npm. The `paying-client-fail-closed` dist-tag is moved by hand after a publish; check `npm view twzrd-x402-gate dist-tags` for where it points.
 
-0.12.0 adds `refuseWashUnknown`, off by default in 0.12.x. Opted in (`refuseWashUnknown: true` or `TWZRD_REFUSE_WASH_UNKNOWN=1`), on the reputation-scored path (Solana mainnet, Base mainnet) a reachable merchant card without full, fresh, ring-evaluated wash coverage, or with no wash object (including a 4xx card), refuses with `twzrd_wash_unknown`. It is off by default because intel reports partial coverage for clean scored sellers today; the default becomes `true` in 0.13.0 (see `CHANGELOG.md` for the condition). An unreachable card stays an outage decided by `failOpen`; unscored networks on `observe` are never refused for coverage. 0.12.0 also lowers the wash seat timeout to 2000 ms (was 3000), which is its allow/refuse change. 0.11.5 raised the `x402-solana` peer floor to `>=3.0.1`.
+0.12.0 adds `refuseWashUnknown`, off by default in 0.12.x. Opted in (`refuseWashUnknown: true` or `TWZRD_REFUSE_WASH_UNKNOWN=1`), on the reputation-scored path (Solana mainnet, Base mainnet) a reachable merchant card without full, fresh, ring-evaluated wash coverage, or with no wash object (including a 4xx card), refuses with `twzrd_wash_unknown`. It is off by default because intel reports partial coverage for clean scored sellers today; the default is planned to become `true` in a later minor release, 0.14.0 at the earliest (see `CHANGELOG.md` for the condition). An unreachable card stays an outage decided by `failOpen`; unscored networks on `observe` are never refused for coverage. 0.12.0 also lowers the wash seat timeout to 2000 ms (was 3000), which is its allow/refuse change. 0.11.5 raised the `x402-solana` peer floor to `>=3.0.1`.
 
 0.11.3 and 0.11.4 are security fixes; each change adds a refusal or makes one reliable. The paying and policy fetch wrappers check every offer and refuse an entry with no recipient; every boolean flag is read by one parser, so `failOpen: "false"` stays closed; the policy seat refuses a non-USDC asset instead of reading its base units as USD; and the Base Worker scores case and whitespace variants of the Base network name (`BASE`, `base`, or `eip155:8453` with a trailing space). See `CHANGELOG.md`.
 
@@ -79,12 +79,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` dist-tag: **0.12.3**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
+- `latest` dist-tag: **0.13.0**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.12.3 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.13.0 as the
   maintained line (0.11.2 and 0.11.3 are deprecated on npm for security fixes).
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.12.3`) if you want
+  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.13.0`) if you want
   no change at all.
