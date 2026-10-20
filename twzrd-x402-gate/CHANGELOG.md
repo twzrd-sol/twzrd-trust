@@ -28,6 +28,33 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.12.4 - 2026-10-20 (createBuyerFetch expectedAmount)
+
+A patch release under the policy above: the two refusals (`expected_amount_mismatch`,
+`expected_amount_unavailable`) apply only when `expectedAmount` is set. No other entry
+point and no existing default changes. The 0.13.0 minor stays reserved for the
+`refuseWashUnknown` default flip.
+
+- **`createBuyerFetch` takes an optional `expectedAmount`.** `maxPricePerCall` is
+  a ceiling, so a $1,000 challenge passed a $1,000 cap. With `expectedAmount`
+  (an exact USDC decimal, or a function returning one per payment), any other
+  atomic amount on the selected requirement refuses with
+  `expected_amount_mismatch` before preflight or signing; a function that
+  returns no decimal string or throws refuses with `expected_amount_unavailable`
+  and keeps the cause. The function receives the request's `signal`, and an
+  abort while it is pending refuses with `request_aborted`. The cap is unchanged
+  and keeps `price_cap_exceeded`. A fixed value above `maxPricePerCall` throws
+  at install. Opt-in: without the option, no outcome changes. 0.12.3 does not
+  have the option (TypeScript rejects it; JavaScript ignores it).
+- README `## Refusals` now has a `createBuyerFetch` table, and the
+  refusal-codes doc test reads `src/buyer-fetch.ts`, so its reasons cannot go
+  undocumented again.
+- **The `refuseWashUnknown` default does not flip here.** The 0.12.0 entry
+  scheduled that flip for 0.13.0, and this release leaves it there. The flip
+  ships in 0.13.0 under the same condition: intel reports full coverage for
+  scored sellers without a wash finding, measured on the same sample. Until
+  then, strict consumers opt in as before.
+
 ## 0.12.3 - 2026-10-20 (buyer front door: createBuyerFetch)
 
 - **Buyer front door: `createBuyerFetch` and `twzrd-buyer-demo`.** Required exact

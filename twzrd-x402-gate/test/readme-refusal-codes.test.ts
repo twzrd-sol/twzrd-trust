@@ -22,7 +22,19 @@ const SOURCES = [
   "src/spend-control.ts",
   "src/all-offers.ts",
   "src/cloudflare-base.ts",
+  "src/buyer-fetch.ts",
 ];
+
+// Reason literals in buyer-fetch.ts: refuse(x, "..."), new BuyerFetchBlockedError("..."),
+// and the outcome ternary in its catch. Scoped to that file so other ternaries do not count.
+const FILE_PATTERNS: Record<string, RegExp[]> = {
+  "src/buyer-fetch.ts": [
+    /\brefuse\(\s*\w+,\s*(["`])([a-z][a-z0-9_]*)/g,
+    /BuyerFetchBlockedError\(\s*(["`])([a-z][a-z0-9_]*)/g,
+    /\?\s*(["])([a-z]+_[a-z0-9_]+)\1/g,
+    /\?\s*"[a-z_]+"\s*:\s*(["])([a-z]+_[a-z0-9_]+)\1/g,
+  ],
+};
 
 // Classification labels that share the `reason` field but never refuse.
 const NOT_REFUSALS = new Set(["solana_scored", "base_scored"]);
@@ -49,6 +61,7 @@ for (const rel of SOURCES) {
     // Any twzrd_* string literal in code: helper calls (refuse(`...`)) and ternaries.
     /(["`])((?:\[twzrd[a-z-]*\] )?twzrd_[a-zA-Z0-9_]*)/g,
     /\breason\s*:\s*[^,\n]*?\?\s*(["`])([a-z][a-z0-9_]*)/g,
+    ...(FILE_PATTERNS[rel] ?? []),
   ];
   for (const re of patterns) {
     for (const m of src.matchAll(re)) {
@@ -74,6 +87,11 @@ for (const must of [
   "price_cap_exceeded",
   "non_usdc_asset",
   "amount_field_conflict",
+  "expected_amount_mismatch",
+  "expected_amount_unavailable",
+  "presigned_payment_not_allowed",
+  "core_spend_controls",
+  "request_failed",
 ]) {
   assert.ok(found.has(must), `extractor missed ${must}; found ${[...found.keys()].join(", ")}`);
 }

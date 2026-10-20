@@ -9,6 +9,13 @@ their defaults. The quickstart leads with an executable offline refusal.
 ## Contract
 
 - `maxPricePerCall` and `allowedRecipients` are explicit and required.
+- Optional `expectedAmount` (since 0.12.4) binds the challenge to the caller's
+  quote. Any other atomic amount on the selected requirement refuses with
+  `expected_amount_mismatch`; a per-payment function that returns no decimal
+  string or throws refuses with `expected_amount_unavailable` (cause kept), and
+  an abort while it is pending refuses with `request_aborted`. It is a separate
+  check from `maxPricePerCall`, which keeps `price_cap_exceeded`. Only the offer
+  the client selected is compared.
 - Preflight blocks, unavailable checks, malformed/unscored requirements, local
   write failures and unauthorized recipients do not reach payment creation.
 - Legacy fail-open and disable environment variables cannot bypass this API.

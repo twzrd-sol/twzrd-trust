@@ -6,10 +6,10 @@ cannot answer. Keep the reason in a local JSONL file.
 
 ## Start here: a blocked payment, no wallet
 
-`createBuyerFetch` and `twzrd-buyer-demo` ship in 0.12.3. In an ESM project:
+`createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.12.3 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.12.4 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -60,6 +60,40 @@ Caps and recipients are checked against the selected requirement at
 `onBeforePaymentCreation`. Supported payment assets are USDC on scored Solana
 mainnet and Base mainnet; unscored networks refuse. EVM recipient comparison
 ignores case; Solana comparison preserves case. An empty allowlist refuses all.
+
+### Bind the quote: `expectedAmount` (0.12.4)
+
+`maxPricePerCall` is a ceiling: with a $1,000 cap, a $1,000 challenge passes it.
+To refuse any amount other than the one you were quoted, also pass
+`expectedAmount`:
+
+```js
+const guardedFetch = createBuyerFetch({
+  client, maxPricePerCall: "1.00", allowedRecipients: [sellerPayTo],
+  expectedAmount: "0.01",          // exact USDC decimal the seller quoted
+});
+```
+
+The atomic amount the signer would authorize, on the offer the client selected,
+must equal it exactly. A lower or higher amount refuses with
+`expected_amount_mismatch` before preflight or signing. Only the selected offer
+is checked, so a 402 that lists several offers can refuse even when another
+offer matches. The cap still applies and keeps `price_cap_exceeded`. A fixed
+`expectedAmount` above `maxPricePerCall` throws at install; values take up to 6
+decimal places.
+
+One wrapper can serve several resources with a function that returns the quote
+per payment: `expectedAmount: ({ resource, payTo, network, signal }) =>
+quotes.get(resource)`. It never sees the challenged amount. `resource` is the
+normalized request URL (`new Request(url).url`, with its query), and `payTo` is
+spelled as the challenge spells it, so key lookups the same way. When it returns
+no decimal string or throws, the call refuses with `expected_amount_unavailable`
+and the error keeps the cause. An abort while it is pending refuses with
+`request_aborted`.
+
+Added in 0.12.4. 0.12.3 does not have this option: TypeScript rejects it there
+as an unknown property, and plain JavaScript ignores it without an error, so pin
+0.12.4 or later before relying on it.
 
 The free preflight and merchant-card checks run before signing. This entry
 point has no fail-open or disable switch: legacy `TWZRD_FAIL_OPEN`,
@@ -133,7 +167,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.12.3 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.12.4 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -172,7 +206,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.12.3
+npm install twzrd-x402-gate@0.12.4
 ```
 
 ```typescript
@@ -217,7 +251,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.12.3
+npm install twzrd-x402-gate@0.12.4
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -237,7 +271,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.12.3 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.12.4 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -394,14 +428,14 @@ Dogfood (one public live proof path):
 npm i twzrd-x402-gate
 ```
 
-This doc describes **0.12.3**. Check `npm view twzrd-x402-gate version` for the latest release.
+This doc describes **0.12.4**. Check `npm view twzrd-x402-gate version` for the latest release.
 
 ### CLI commands (package `bin`)
 
 `twzrd-safe-fetch`, `twzrd-gate-eval-refuse`, `twzrd-gate-doctor`, `twzrd-evidence-bundle`,
 `twzrd-payment-decision`, `twzrd-bounty-preflight`, `twzrd-cold-start` (run with `npx <name>`).
 
-### Pay-path behavior (0.12.3)
+### Pay-path behavior (0.12.4)
 
 - Scored preflight runs on Solana mainnet and Base mainnet (`eip155:8453`). Other EVM networks do not run the scored preflight.
 - A missing `payTo` is never approved.
@@ -1188,6 +1222,38 @@ intel; `failOpen` never signs these), then `twzrd_decision_block`, `twzrd_wash_f
 `twzrd_over_recommended_cap_*`. The price comes from the entry's own `amount`;
 the `priceUsdc` option is ignored for the decision. Before 0.11.2 this seat
 signed on any non-block verdict.
+
+### `createBuyerFetch`
+
+Thrown as `BuyerFetchBlockedError` with `reason`; message `[twzrd-buyer-fetch] <reason>`.
+Refusals are flushed to the decision file before the error is thrown, except
+`use_buyer_fetch_for_payment` and `decision_log_unavailable`. Rows are in the
+order the checks run. The buyer approval above runs between
+`hourly_budget_exceeded` and `invalid_preflight_decision`, and its `twzrd_*`
+reasons also refuse here.
+
+| Reason | When |
+|---|---|
+| `presigned_payment_not_allowed` | The caller's request already carries a payment header. |
+| `use_buyer_fetch_for_payment` | The client's hook ran for a payment not made through the returned fetch. |
+| `amount_field_conflict`, `payto_field_conflict`, `amount_malformed` | As in the client hook table. |
+| `recipient_missing` | The selected offer names no recipient. |
+| `unauthorized_recipient` | `payTo` is not in `allowedRecipients` (an empty list refuses all). |
+| `unsupported_or_non_usdc_asset` | The asset is not USDC on that network. |
+| `amount_missing_or_malformed` | The amount is not a base-unit integer. |
+| `price_cap_exceeded` | The amount is above `maxPricePerCall`. |
+| `amount_out_of_range` | The amount is above 2^53-1 micro-USDC. |
+| `expected_amount_unavailable` | `expectedAmount` is a function that returned no decimal string or threw. |
+| `expected_amount_mismatch` | The amount is not exactly `expectedAmount`. |
+| `hourly_budget_exceeded` | The payment would take spend in the last hour above `hourlyBudgetCap`. |
+| `invalid_preflight_decision` | The preflight card's decision is neither `allow` nor `warn`. |
+| `request_aborted` | The request's signal aborted before signing. |
+| `decision_log_unavailable` | The decision file could not be written and flushed. |
+| `spend_ledger_unavailable` | The spend could not be recorded before signing. |
+| `payment_without_approval` | A payment header reached the transport without this wrapper's approval. |
+| `core_spend_controls` | The x402 client's own spend controls refused before this wrapper's hook ran. |
+| `payment_client_refused` | The x402 client failed after a 402 for another reason. |
+| `request_failed` | The request failed before any 402 (recorded as an `error` row, not a `block`). |
 
 ### `createGuardedX402Fetch` local caps
 
