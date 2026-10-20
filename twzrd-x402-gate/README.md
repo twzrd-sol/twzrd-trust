@@ -635,6 +635,43 @@ does not define a standard x402 challenge-to-payment contract. A separate paid
 Path A fetch cannot be passed through `twzrd.x402Fetch`: it has a different
 signer and cannot share this fetch's local ledger.
 
+#### Fulfillment record (opt-in, local only)
+
+Pass `onFulfillment` to keep one row per paid call: who was paid, the
+settlement transaction, who the seller says served, and whether the seller says
+the job became ready. Nothing is sent anywhere, and it never changes what is
+allowed or refused.
+
+```typescript
+import { createFileFulfillmentLog, createGuardedX402Fetch } from "twzrd-x402-gate";
+
+const log = createFileFulfillmentLog("./fulfillment.jsonl");
+const guardedFetch = createGuardedX402Fetch({ client, onFulfillment: log.record });
+```
+
+Each row (`schema: "twzrd.fulfillment.v1"`) carries `paid_to`, `network` and
+`amount_atomic` from the requirement the client signed, `tx` and `settled` from
+the facilitator's `PAYMENT-RESPONSE`, and, from the seller's JSON body only,
+`served_by` (`provider` or `model`), `requested_model`, `failover_hops`, `ready`,
+`job_status` and `job_id`. The resource is kept as its origin; no other body
+field is copied. `verdict` is one of:
+
+| verdict | meaning |
+|---|---|
+| `match` | The seller reports `ready: true`, or it served the model that was requested (a dated snapshot of it counts). |
+| `pending` | The seller reports `ready: false` with a non-terminal status such as `provisioning`. Readiness arrives later; it is not a failure. |
+| `mismatch` | One or more `reasons`: `not_ready` (terminal status without ready), `model_substituted`, `tx_disagrees` (the body's tx is not the `PAYMENT-RESPONSE` tx), `settle_failed`, `paid_http_error`. |
+| `not_reported` | The response carries none of these fields. |
+
+The row records the seller's own claims next to a transaction anyone can check
+on chain. It is not a delivery proof, and it is not a TWZRD receipt: the signed
+V7 receipt from paid `/trust` attests TWZRD's check of a seller, not that a GPU
+or a model was delivered. A GPU seller's `provider` is often a node label, so it
+is recorded but never compared with `paid_to`. To record a later job-status body
+(for example once the job is ready), call `buildFulfillmentRecord` with that body
+and append the row yourself. A proxy that pays internally and returns 200 never
+exposes a payment header, so no row is written for it.
+
 ### Networks (Solana mainnet and Base mainnet scored)
 
 The gate **recognizes** multi-chain 402s. **Solana mainnet and Base mainnet (`eip155:8453`)** run the scored preflight. Other EVM networks do not. `eip155:137` does not run `twzrdPreflight` or the scored preflight.

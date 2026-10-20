@@ -209,6 +209,19 @@ export {
   type FileDecisionLedgerOptions,
 } from "./decision-ledger-file.js";
 export {
+  buildFulfillmentRecord,
+  createFileFulfillmentLog,
+  modelMatches,
+  wrapFetchRecordFulfillment,
+  FULFILLMENT_MAX_BODY_BYTES,
+  FULFILLMENT_RECORD_SCHEMA,
+  type FileFulfillmentLogOptions,
+  type FulfillmentInput,
+  type FulfillmentReason,
+  type FulfillmentRecord,
+  type FulfillmentVerdict,
+} from "./fulfillment-record.js";
+export {
   runGateAdoptionProof,
   main as adoptionProofMain,
   ADOPTION_TRANSCRIPT_SCHEMA,
