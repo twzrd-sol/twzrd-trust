@@ -19,8 +19,7 @@ No agent is assigned independent publish or DNS authority. Any agent-assisted re
 | npm and other package registries | Zo | Unassigned | Account recovery, publisher inventory and documented publish/version-recovery procedure |
 | Hosted Intel MCP and API | Zo | Unassigned | Deployment runbook, fresh external health evidence and known rollback |
 | Cloudflare DNS and tunnels | Zo | Unassigned | Account recovery and private hostname/tunnel ownership map |
-| Battleship operations | Zo | Unassigned | Private host recovery runbook, backup/restore evidence and fresh status evidence |
-| Radio LAN hub and station | Zo | Unassigned | Private service runbook, rollback and end-to-end user-flow evidence |
+| Production host operations | Zo | Unassigned | Private host recovery runbook, backup/restore evidence and fresh status evidence |
 | Product logins and identity providers | Zo | Unassigned | Admin recovery, provider ownership and documented account/session recovery |
 | Secret management | Zo | Unassigned | Account recovery and private access inventory; no secrets in git |
 
@@ -28,7 +27,6 @@ The assigned primary role is an accountability decision, not proof of current pr
 
 ## Operating boundary
 
-- Keep Radio LAN and TWZRD production tunnels separate. Each tunnel has one intended connector host; do not introduce a second connector from an operator laptop.
 - Check both public edge and origin before diagnosing an outage. A healthy origin alone does not establish public availability.
 - Production releases require a fresh status check, a verified artifact and a retained rollback.
 - Recovery and access changes are human-attended. Avoid incidental credential rotation or session-secret changes during unrelated debugging.
@@ -49,5 +47,5 @@ A reviewer may record completion dates here without publishing the recovery mate
 
 ## Related records
 
-- SUPPORT_MATRIX.md: supported public path and Radio LAN promotion boundary.
-- twzrd-sol/battleship README.md: dated operating lessons and production-boundary guidance. Keep live private runbooks authoritative for current configuration.
+- SUPPORT_MATRIX.md: supported public path and release boundary.
+- Live private runbooks stay authoritative for current configuration.
