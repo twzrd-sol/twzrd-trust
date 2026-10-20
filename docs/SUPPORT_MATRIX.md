@@ -1,4 +1,4 @@
-# Supported path and Radio LAN release boundary
+# Supported path and release boundary
 
 Date: 2026-10-13
 Status: adopted support policy (merged in #195). Items listed under follow-up implementation and release acceptance remain pending verification. This document does not itself change registry metadata, other repositories, production flags, or permissions.
@@ -19,7 +19,7 @@ The public reference is not the sole source repository for every component. Foll
 | Local twzrd-mcp-server / twzrd-mcp | Secondary connector | Optional local client; paid calls require explicit enablement and spend limits | Zo |
 | plugin-trustgate / eliza-plugin | Secondary framework adapters | Maintain their documented framework-specific scope; promotion requires artifact verification | Zo |
 | @wzrd_sol/solana-agent-plugin | Deprecated for new integrations | Legacy attention/rewards path; direct new users to hosted Intel MCP or the gate | Zo |
-| Old wzrd-mcp README and its onboarding path | Deprecated for new integrations | Historical attention/rewards documentation; point new users to twzrd-trust | Zo |
+| Old WZRD MCP onboarding path | Deprecated for new integrations | Historical attention/rewards documentation; point new users to twzrd-trust | Zo |
 | Other packages and connectors | Unclassified pending inventory | No supported designation until maintainer review of published artifact and current API compatibility | Zo |
 
 Zo is the accountable primary; implementation may be delegated through reviewed changes.
@@ -45,23 +45,7 @@ Read current versions from the release manifest or registry when verifying; this
 
 These follow-ups remain pending; adopting this policy did not execute any of them.
 
-## Radio LAN: controlled beta
-
-Radio LAN remains a distinct product. The beta scope is discovery, sign-in, free seasons and points.
-
-Hold promotion of backing and ICELAN claims until at least one real eligible user completes the production journey with evidence:
-
-join → return/sign in → link wallet → review and approve claim → confirmed on-chain claim.
-
-Retain a dated verification receipt with the released build, network, transaction signature and confirmation result. Account identifiers and identity-link evidence stay private; publish only consented, necessary evidence.
-
-This is a promotion boundary, not an instruction to disable existing production features or transact from an agent session. Funding a vault or observing an enabled claim handler is not proof of a completed user claim.
-
-The operator reports the legal pages are already live. Treat that release task as complete; no independent live check is recorded in this document.
-
 ## Review sources
 
 - README.md and docs/ECOSYSTEM.md in this repository.
 - AGENTS.md for source and artifact boundaries.
-- twzrd-sol/wzrd-mcp README.md for the legacy path.
-- twzrd-sol/ansem-radio-private README.md, apps/hub/README.md and docs/LEGAL_RELEASE_20261009.md for the beta boundary and historical evidence.
