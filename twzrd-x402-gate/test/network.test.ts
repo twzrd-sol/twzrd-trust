@@ -345,7 +345,7 @@ async function run() {
 
     const probe = (mode: "strict" | "observe") => {
       let preflight = 0;
-      const fetchImpl = (async (input: RequestInfo | URL) => {
+      const fetchImpl: typeof fetch = async (input) => {
         const url = String(input);
         if (url.includes("/v1/intel/preflight")) {
           preflight += 1;
@@ -366,7 +366,7 @@ async function run() {
           status: 200,
           headers: { "content-type": "application/json" },
         });
-      }) as typeof fetch;
+      };
       return {
         cfg: resolveConfig({
           unsupportedNetworkMode: mode,
