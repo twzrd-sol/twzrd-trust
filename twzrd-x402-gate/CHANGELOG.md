@@ -35,10 +35,15 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
   (an exact USDC decimal, or a function returning one per payment), any other
   atomic amount on the selected requirement refuses with
   `expected_amount_mismatch` before preflight or signing; a function that
-  returns no decimal string or throws refuses with `expected_amount_unavailable`.
-  The cap is unchanged and keeps `price_cap_exceeded`. A fixed value above
-  `maxPricePerCall` throws at install. Opt-in: without the option, no outcome
-  changes. 0.12.3 ignores the option.
+  returns no decimal string or throws refuses with `expected_amount_unavailable`
+  and keeps the cause. The function receives the request's `signal`, and an
+  abort while it is pending refuses with `request_aborted`. The cap is unchanged
+  and keeps `price_cap_exceeded`. A fixed value above `maxPricePerCall` throws
+  at install. Opt-in: without the option, no outcome changes. 0.12.3 does not
+  have the option (TypeScript rejects it; JavaScript ignores it).
+- README `## Refusals` now has a `createBuyerFetch` table, and the
+  refusal-codes doc test reads `src/buyer-fetch.ts`, so its reasons cannot go
+  undocumented again.
 
 ## 0.12.3 - 2026-10-20 (buyer front door: createBuyerFetch)
 

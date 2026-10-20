@@ -10,22 +10,26 @@ import type { SpendLedger } from "./policy-runtime.js";
 import { sharedFileSpendLedger } from "./spend-ledger-file.js";
 import type { X402ClientLike } from "./x402-client-hook.js";
 
+type ExpectedAmountInput = { resource: string; payTo: string; network?: string; signal?: AbortSignal };
+
 export type BuyerFetchOptions = {
   /** Dedicated official x402 client with schemes/signers already registered. */
   client: X402ClientLike;
   /** Required per-payment USDC ceiling, as an exact decimal string. */
   maxPricePerCall: string;
   /**
-   * Optional exact USDC amount the caller expects to pay, as a decimal string,
-   * or a function returning it per payment. Any other challenged amount, lower
-   * or higher, refuses with `expected_amount_mismatch` before signing, even
-   * under `maxPricePerCall`. The cap bounds spend; this binds the challenge to
-   * the caller's quote. A function sees no challenged amount; when it returns
-   * no decimal string or throws, the payment refuses with
-   * `expected_amount_unavailable`.
+   * Optional exact USDC amount the caller expects to pay, as a decimal string
+   * with up to 6 places, or a function returning it per payment. Any other
+   * amount on the offer the client selected, lower or higher, refuses with
+   * `expected_amount_mismatch` before signing, even under `maxPricePerCall`.
+   * The cap bounds spend; this binds the challenge to the caller's quote.
+   * A function sees no challenged amount. `resource` is the normalized request
+   * URL (as `new Request(url).url`), `payTo` is spelled as the challenge spells
+   * it, and `signal` is the request's. When the function returns no decimal
+   * string or throws, the payment refuses with `expected_amount_unavailable`;
+   * an abort while it is pending refuses with `request_aborted`.
    */
-  expectedAmount?: string | ((payment: { resource: string; payTo: string; network?: string }) =>
-    string | undefined | Promise<string | undefined>);
+  expectedAmount?: string | ((payment: ExpectedAmountInput) => string | undefined | Promise<string | undefined>);
   /** Required payTo allowlist. Empty means refuse every payment. */
   allowedRecipients: readonly string[];
   /** Optional cumulative USDC ceiling over the preceding hour. */
@@ -77,17 +81,28 @@ function limit(value: string, name: string): bigint {
   return toMicroUsd(value);
 }
 
+/** The caller's quote in micro-USDC. Throws when it cannot be read or the request aborts first. */
 async function expectedMicro(
   expected: bigint | Exclude<BuyerFetchOptions["expectedAmount"], string | undefined>,
-  payment: { resource: string; payTo: string; network?: string },
-): Promise<bigint | undefined> {
+  payment: ExpectedAmountInput,
+): Promise<bigint> {
   if (typeof expected === "bigint") return expected;
+  const signal = payment.signal;
+  let onAbort = () => {};
+  let value: unknown;
   try {
-    const value = await expected(payment);
-    return typeof value === "string" ? toMicroUsd(value) : undefined;
-  } catch {
-    return undefined;
+    // A quote lookup that never settles must not outlive the caller's abort.
+    value = await new Promise((resolve, reject) => {
+      onAbort = () => reject(signal?.reason);
+      if (signal?.aborted) return onAbort();
+      signal?.addEventListener("abort", onAbort, { once: true });
+      Promise.resolve().then(() => expected(payment)).then(resolve, reject);
+    });
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
+  if (typeof value !== "string") throw new TypeError(`expectedAmount returned ${typeof value}, not a USDC decimal string`);
+  return toMicroUsd(value);
 }
 
 function recipientKey(value: string): string {
@@ -163,9 +178,9 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
       throw attempt.blocked;
     }
   }
-  async function refuse(attempt: Attempt, reason: string): Promise<never> {
+  async function refuse(attempt: Attempt, reason: string, cause?: unknown): Promise<never> {
     await record(attempt, "block", reason);
-    attempt.blocked = new BuyerFetchBlockedError(reason);
+    attempt.blocked = new BuyerFetchBlockedError(reason, cause === undefined ? undefined : { cause });
     throw attempt.blocked;
   }
 
@@ -185,9 +200,14 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
     if (micro > max) return refuse(attempt, "price_cap_exceeded");
     if (micro > BigInt(Number.MAX_SAFE_INTEGER)) return refuse(attempt, "amount_out_of_range");
     if (expected !== undefined) {
-      const want = await expectedMicro(expected,
-        { resource: attempt.resource, payTo: fields.payTo, network: selected.network });
-      if (want === undefined) return refuse(attempt, "expected_amount_unavailable");
+      let want: bigint;
+      try {
+        want = await expectedMicro(expected, { resource: attempt.resource, payTo: fields.payTo,
+          network: selected.network, signal: attempt.signal });
+      } catch (cause) {
+        if (attempt.signal?.aborted) return refuse(attempt, "request_aborted");
+        return refuse(attempt, "expected_amount_unavailable", cause);
+      }
       if (micro !== want) return refuse(attempt, "expected_amount_mismatch");
     }
     const now = Date.now();

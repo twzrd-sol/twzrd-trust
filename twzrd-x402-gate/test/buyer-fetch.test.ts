@@ -133,7 +133,7 @@ test("expectedAmount is exact: a lower challenge refuses and the quoted amount s
 });
 
 test("a per-payment expectedAmount function binds each quote and fails closed without one", async () => {
-  const seen: unknown[] = [];
+  const seen: Array<Record<string, unknown>> = [];
   const quoted = setup();
   const guarded = createBuyerFetch({ ...quoted.config, expectedAmount: payment => {
     seen.push(payment);
@@ -142,15 +142,21 @@ test("a per-payment expectedAmount function binds each quote and fails closed wi
   assert.equal((await guarded(URL)).status, 200);
   assert.equal(quoted.state.signs, 1);
   // The function never sees the challenged amount, so it cannot echo it back.
-  assert.deepEqual(seen, [{ resource: URL, payTo: SELLER, network: NETWORK }]);
+  assert.equal(seen.length, 1);
+  assert.deepEqual(Object.keys(seen[0]).sort(), ["network", "payTo", "resource", "signal"]);
+  assert.deepEqual({ ...seen[0], signal: undefined }, { resource: URL, payTo: SELLER, network: NETWORK, signal: undefined });
+  assert.ok(seen[0].signal instanceof AbortSignal);
 
+  const down = new Error("quote store down");
   for (const expectedAmount of [
-    () => undefined, async () => { throw new Error("quote store down"); }, () => "1e3",
+    () => undefined, async () => { throw down; }, () => { throw down; }, () => "1e3",
   ]) {
     const h = setup();
     await assert.rejects(createBuyerFetch({ ...h.config, expectedAmount })(URL), (error: unknown) => {
       assert.ok(error instanceof BuyerFetchBlockedError);
       assert.equal(error.reason, "expected_amount_unavailable");
+      // The lookup's own failure stays visible for diagnosis.
+      assert.ok(error.cause instanceof Error);
       return true;
     });
     assert.equal(h.state.signs, 0);
@@ -162,6 +168,26 @@ test("a per-payment expectedAmount function binds each quote and fails closed wi
   await assert.rejects(createBuyerFetch({ ...mismatch.config, expectedAmount: async () => "0.002" })(URL),
     /expected_amount_mismatch/);
   assert.equal(mismatch.state.signs, 0);
+});
+
+test("a quote lookup that never settles is cut off by the caller's abort before preflight or signing", async () => {
+  const h = setup();
+  const controller = new AbortController();
+  let calls = 0;
+  const guarded = createBuyerFetch({ ...h.config, expectedAmount: () => {
+    calls++;
+    setTimeout(() => controller.abort(), 10);
+    return new Promise<string>(() => {});
+  } });
+  await assert.rejects(guarded(URL, { signal: controller.signal }), (error: unknown) => {
+    assert.ok(error instanceof BuyerFetchBlockedError);
+    assert.equal(error.reason, "request_aborted");
+    return true;
+  });
+  assert.equal(calls, 1);
+  assert.equal(h.state.signs, 0);
+  assert.equal(h.state.preflights, 0);
+  assert.deepEqual(h.rows().at(-1).reason_codes, ["request_aborted"]);
 });
 
 test("expectedAmount is validated at install and cannot be changed afterwards", async () => {
