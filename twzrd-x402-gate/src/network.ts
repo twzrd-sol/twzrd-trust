@@ -125,10 +125,10 @@ export function classifyNetwork(
   if (cluster) {
     // Devnet/testnet named by keyword: recognized, not scored (no production
     // corpus). A devnet/testnet named only by its CAIP-2 genesis id stays
-    // scored, as it always has: devnet integration harnesses (including this
-    // package's signer-counted proofs) rely on it reaching the preflight.
-    // The USDC table reads the cluster, not this flag, so devnet mints are
-    // still matched as devnet.
+    // scored here, so harnesses and the USDC table still share solanaCluster.
+    // Strict approval refuses that id before preflight (policy.ts); observe
+    // still lets it reach the preflight. Devnet mints are matched from the
+    // cluster, not from this flag.
     if (n.includes("devnet") || n.includes("testnet") || n.includes("localnet")) {
       return {
         network: raw,

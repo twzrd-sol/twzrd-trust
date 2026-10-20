@@ -9,7 +9,7 @@ cannot answer. Keep the reason in a local JSONL file.
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.12.4 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.12.5 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -167,7 +167,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.12.4 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.12.5 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -206,7 +206,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.12.4
+npm install twzrd-x402-gate@0.12.5
 ```
 
 ```typescript
@@ -251,7 +251,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.12.4
+npm install twzrd-x402-gate@0.12.5
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -271,7 +271,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.12.4 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.12.5 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
