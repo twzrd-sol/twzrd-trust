@@ -658,7 +658,7 @@ field is copied. `verdict` is one of:
 
 | verdict | meaning |
 |---|---|
-| `match` | The seller reports `ready: true`, or it served the model that was requested (a dated snapshot of it counts). |
+| `match` | The seller reports `ready: true`, or it served the model that was requested (a dated snapshot of it counts). For a GPU job this is the seller's claim that capacity is ready, not evidence that the workload ran or its output is correct. |
 | `pending` | The seller reports `ready: false` with a non-terminal status such as `provisioning`. Readiness arrives later; it is not a failure. |
 | `mismatch` | One or more `reasons`: `not_ready` (terminal status without ready), `model_substituted`, `tx_disagrees` (the body's tx is not the `PAYMENT-RESPONSE` tx), `settle_failed`, `paid_http_error`. |
 | `not_reported` | The response carries none of these fields. |
