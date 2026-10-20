@@ -12,25 +12,32 @@ inscription
     Unpinned or self-attested is not authority to pay.
 settlement-not-delivery
     Reads settlement_visible, delivery_evidence. A visible settlement is not
-    delivery.
+    delivery, and payout needs delivery evidence whether or not anything
+    settled.
 familiar-face
     Reads known_name_vouches, unknown_key, unknown_key_verified. A known name
-    is not a warrant for an unknown key.
+    is not a warrant for an unknown key. The vouch is recorded and never
+    loosens the verdict.
 collapsed-time
     Reads must_decide_now, receipt_thin. When the decision must happen now,
-    hand it to a human.
+    hand it to a human, thin receipt or not. receipt_thin is recorded and
+    never loosens that.
 one-eyed-verifier
     Reads check_scope, reported_as_full_verification. A schema-only or partial
-    check is not a full verification.
+    check is not a full verification. The report is recorded and never
+    upgrades a partial scope.
 evidence-only
     Reads claim_wider_than_evidence, quick_integration_called_traction.
     A claim wider than the evidence is refused. A quick integration is not
     traction.
 
-Allow only when every role allows. The first refusal or hand-to-human stops
-the fold and names the roles that were not reached. A flag that is present
-but not a boolean is not evidence: None means "not evaluated", never "clean",
-so the role reading it refuses.
+Allow only when every role allows. The first refusal stops the fold and names
+the roles that were not reached. A hand-to-human does not stop it: the later
+roles still run and any refusal outranks the handoff, so a human is never
+handed a record that already fails. A flag that is present but not a boolean
+is not evidence: None means "not evaluated", never "clean", so the role
+reading it refuses and lists the flag as skipped. Files in the agent
+directory that are not counsel roles are ignored; an unreadable file refuses.
 """
 
 from __future__ import annotations
@@ -58,21 +65,29 @@ def agents_dir() -> Path:
     return Path(__file__).resolve().parents[1] / ".grok" / "agents"
 
 
-def _parse_agent(text: str, path: Path) -> dict:
+def _parse_agent(text: str, path: Path) -> dict | None:
+    """Parse one role file, or return None when it is not a counsel role.
+
+    A broken counsel role also returns None, and discover_agents then refuses
+    it as missing.
+    """
+    text = text.replace("\r\n", "\n")
     if not text.startswith("---\n"):
-        raise DiscoveryError(f"{path.name} has no frontmatter")
+        return None
     end = text.find("\n---\n", 4)
     if end < 0:
-        raise DiscoveryError(f"{path.name} frontmatter does not close")
+        return None
     meta: dict[str, str] = {}
     for line in text[4:end].splitlines():
         if not line.strip() or ":" not in line:
             continue
         key, value = line.split(":", 1)
-        meta[key.strip()] = value.strip()
+        meta[key.strip()] = value.strip().strip("\"'")
     body = text[end + len("\n---\n") :]
-    if "name" not in meta or "order" not in meta:
-        raise DiscoveryError(f"{path.name} is missing name or order")
+    if meta.get("name") not in ROLE_ORDER:
+        return None
+    if "order" not in meta:
+        raise DiscoveryError(f"{path.name} is missing order")
     try:
         order = int(meta["order"])
     except ValueError:
@@ -92,8 +107,16 @@ def discover_agents() -> list[dict]:
         raise DiscoveryError(f"agent directory missing: {root}")
     found: dict[str, dict] = {}
     for path in sorted(root.glob("*.md")):
-        parsed = _parse_agent(path.read_text(encoding="utf-8"), path)
-        if parsed["name"] not in ROLE_ORDER:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise DiscoveryError(
+                f"{path.name} is unreadable ({type(exc).__name__})"
+            ) from None
+        parsed = _parse_agent(text, path)
+        if parsed is None:
             continue
         if parsed["name"] in found:
             raise DiscoveryError(f"duplicate agent {parsed['name']}")
@@ -144,13 +167,18 @@ def _not_bool(record: dict, fields: tuple[str, ...]) -> list[str]:
     return [field for field in fields if not isinstance(record[field], bool)]
 
 
-def _refuse_not_bool(role: str, untyped: list[str], present: list[str]) -> dict:
+def _refuse_not_bool(
+    role: str,
+    untyped: list[str],
+    present: list[str],
+    absent: list[str] | None = None,
+) -> dict:
     return _outcome(
         role,
         "refuse",
         "not a boolean, so not evidence: " + ", ".join(untyped),
-        present,
-        [],
+        [field for field in present if field not in untyped],
+        untyped + list(absent or []),
     )
 
 
@@ -163,6 +191,9 @@ def gate_drought(record: dict) -> dict:
     skipped = [field for field in observed if field not in record]
     if missing:
         return _refuse_missing(role, missing, present)
+    untyped = _not_bool(record, tuple(present))
+    if untyped:
+        return _refuse_not_bool(role, untyped, present, skipped)
     if record["pressure_requests_override"] is not False:
         return _outcome(
             role,
@@ -234,18 +265,16 @@ def settlement_not_delivery(record: dict) -> dict:
     untyped = _not_bool(record, fields)
     if untyped:
         return _refuse_not_bool(role, untyped, present)
-    if record["settlement_visible"] is True and record["delivery_evidence"] is not True:
-        return _outcome(
-            role,
-            "refuse",
-            "settlement is not delivery; a visible transfer does not stand in for the thing it claims to have caused",
-            present,
-            [],
-        )
+    if record["delivery_evidence"] is not True:
+        if record["settlement_visible"] is True:
+            reason = "settlement is not delivery; a visible transfer does not stand in for the thing it claims to have caused"
+        else:
+            reason = "no delivery evidence; payout needs delivery, settled or not"
+        return _outcome(role, "refuse", reason, present, [])
     return _outcome(
         role,
         "allow",
-        "delivery was not inferred from settlement",
+        "delivery evidence was present and was not inferred from settlement",
         present,
         [],
     )
@@ -373,7 +402,7 @@ def _stopped(verdict: str, role: str, reason: str, checked: list[dict], start: i
 def decide(record: dict) -> dict:
     """Apply the seven discovered roles in fixed order. Same record, same verdict."""
     if not isinstance(record, dict):
-        return _stopped("refuse", "discovery", "decision record is not an object", [], 0)
+        return _stopped("refuse", "input", "decision record is not an object", [], 0)
     try:
         agents = discover_agents()
     except DiscoveryError as exc:
@@ -381,13 +410,20 @@ def decide(record: dict) -> dict:
     if [agent["name"] for agent in agents] != list(ROLE_ORDER):
         return _stopped("refuse", "discovery", "discovered role order does not match the fold", [], 0)
     checked: list[dict] = []
+    handoff: dict | None = None
     for index, name in enumerate(ROLE_ORDER):
         outcome = ROLES[name](record)
         if outcome["role"] != name or outcome["verdict"] not in ("allow", "refuse", "hand_to_human"):
             return _stopped("refuse", name, "role returned an unusable result", checked, index)
         checked.append(outcome)
-        if outcome["verdict"] != "allow":
-            return _stopped(outcome["verdict"], name, outcome["reason"], checked, index + 1)
+        if outcome["verdict"] == "refuse":
+            return _stopped("refuse", name, outcome["reason"], checked, index + 1)
+        if outcome["verdict"] == "hand_to_human" and handoff is None:
+            handoff = outcome
+    if handoff is not None:
+        return _stopped(
+            "hand_to_human", handoff["role"], handoff["reason"], checked, len(ROLE_ORDER)
+        )
     return {
         "verdict": "allow",
         "refusing_role": None,

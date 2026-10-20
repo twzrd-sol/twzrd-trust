@@ -13,6 +13,34 @@ from counsel_orchestration import decide, discover_agents
 # The package re-exports decide(), which shadows the submodule attribute.
 FOLD = importlib.import_module("counsel_orchestration.decide")
 
+FIELDS_BY_ROLE = {
+    "gate-drought": ("pressure_requests_override",),
+    "inscription": (
+        "parses_cleanly",
+        "signature_valid",
+        "signer_verified",
+        "signer_pinned",
+        "self_attested",
+    ),
+    "settlement-not-delivery": ("settlement_visible", "delivery_evidence"),
+    "familiar-face": ("known_name_vouches", "unknown_key", "unknown_key_verified"),
+    "collapsed-time": ("must_decide_now", "receipt_thin"),
+    "one-eyed-verifier": ("check_scope", "reported_as_full_verification"),
+    "evidence-only": ("claim_wider_than_evidence", "quick_integration_called_traction"),
+}
+OBSERVED = ("empty_queue", "deadline_pressure")
+
+
+def copy_agents(root: Path) -> None:
+    for agent in discover_agents():
+        source = Path(agent["path"])
+        (root / source.name).write_bytes(source.read_bytes())
+
+
+def decide_with_agents(root: Path, record: dict) -> dict:
+    with mock.patch.object(FOLD, "agents_dir", return_value=root):
+        return decide(record)
+
 RULES = (
     "refusal belongs in the gate and not in the mood of an empty queue or a deadline",
     "a readable label is not a credential, so a clean parse and a valid signature still require verifying the signer and who pinned that signer",
@@ -74,17 +102,64 @@ class DiscoverTest(unittest.TestCase):
     def test_unreadable_order_refuses_instead_of_raising(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for agent in discover_agents():
-                source = Path(agent["path"])
-                text = source.read_text(encoding="utf-8")
-                if agent["name"] == "familiar-face":
-                    text = text.replace("order: 4", "order: four")
-                (root / source.name).write_text(text, encoding="utf-8")
-            with mock.patch.object(FOLD, "agents_dir", return_value=root):
-                result = decide(allow_record())
+            copy_agents(root)
+            target = root / "04-familiar-face.md"
+            target.write_text(
+                target.read_text(encoding="utf-8").replace("order: 4", "order: four"),
+                encoding="utf-8",
+            )
+            result = decide_with_agents(root, allow_record())
         self.assertEqual(result["verdict"], "refuse")
         self.assertEqual(result["refusing_role"], "discovery")
+        self.assertIn("order is not an integer", result["refusals"][0]["reason"])
         self.assertFalse(result["payout_authorized"])
+
+    def test_files_that_are_not_counsel_roles_do_not_change_the_verdict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            copy_agents(root)
+            (root / "README.md").write_text("# notes\n", encoding="utf-8")
+            (root / "08-other.md").write_text(
+                "---\nname: other-agent\n---\n\nbody\n", encoding="utf-8"
+            )
+            (root / "unclosed.md").write_text("---\nname: x\n", encoding="utf-8")
+            (root / "folder.md").mkdir()
+            result = decide_with_agents(root, allow_record())
+        self.assertEqual(result["verdict"], "allow")
+        self.assertEqual(result, decide(allow_record()))
+
+    def test_unreadable_file_refuses_instead_of_raising(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            copy_agents(root)
+            (root / "08-bad.md").write_bytes(b"---\nname: x\norder: 8\n---\n\xff\n")
+            result = decide_with_agents(root, allow_record())
+        self.assertEqual(result["verdict"], "refuse")
+        self.assertEqual(result["refusing_role"], "discovery")
+        self.assertIn("unreadable", result["refusals"][0]["reason"])
+        self.assertFalse(result["payout_authorized"])
+
+    def test_quoted_name_bom_and_crlf_still_discover(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            copy_agents(root)
+            target = root / "02-inscription.md"
+            text = target.read_text(encoding="utf-8").replace(
+                "name: inscription", 'name: "inscription"'
+            )
+            target.write_bytes(b"\xef\xbb\xbf" + text.replace("\n", "\r\n").encode("utf-8"))
+            result = decide_with_agents(root, allow_record())
+        self.assertEqual(result["verdict"], "allow")
+
+    def test_a_broken_counsel_role_is_missing_not_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            copy_agents(root)
+            (root / "06-one-eyed-verifier.md").write_text("no frontmatter\n", encoding="utf-8")
+            result = decide_with_agents(root, allow_record())
+        self.assertEqual(result["verdict"], "refuse")
+        self.assertEqual(result["refusing_role"], "discovery")
+        self.assertIn("one-eyed-verifier", result["refusals"][0]["reason"])
 
 
 class DecideTest(unittest.TestCase):
@@ -167,10 +242,67 @@ class DecideTest(unittest.TestCase):
         self.assertNotEqual(first["verdict"], "allow")
         self.assertEqual(first["refusing_role"], "collapsed-time")
         self.assertFalse(first["payout_authorized"])
+        self.assertEqual(first["skipped"], [])
         self.assertEqual(
-            [item["role"] for item in first["skipped"]],
-            ["one-eyed-verifier", "evidence-only"],
+            [item["role"] for item in first["checked"]],
+            [item["name"] for item in discover_agents()],
         )
+
+    def test_a_handoff_does_not_hide_a_later_refusal(self) -> None:
+        record = allow_record()
+        record["must_decide_now"] = True
+        record["check_scope"] = "schema_only"
+        record["claim_wider_than_evidence"] = True
+        first = decide(record)
+        self.assertEqual(decide(record), first)
+        self.assertEqual(first["verdict"], "refuse")
+        self.assertEqual(first["refusing_role"], "one-eyed-verifier")
+        self.assertFalse(first["payout_authorized"])
+        collapsed = next(item for item in first["checked"] if item["role"] == "collapsed-time")
+        self.assertEqual(collapsed["verdict"], "hand_to_human")
+        self.assertEqual([item["role"] for item in first["skipped"]], ["evidence-only"])
+
+    def test_no_settlement_and_no_delivery_is_refused(self) -> None:
+        record = allow_record()
+        record["settlement_visible"] = False
+        record["delivery_evidence"] = False
+        result = decide(record)
+        self.assertEqual(result["verdict"], "refuse")
+        self.assertEqual(result["refusing_role"], "settlement-not-delivery")
+        self.assertIn("no delivery evidence", result["refusals"][0]["reason"])
+        self.assertFalse(result["payout_authorized"])
+        record["delivery_evidence"] = True
+        self.assertEqual(decide(record)["verdict"], "allow")
+
+    def test_a_missing_field_refuses_and_is_listed_as_skipped(self) -> None:
+        for role, fields in FIELDS_BY_ROLE.items():
+            for field in fields:
+                record = allow_record()
+                del record[field]
+                result = decide(record)
+                with self.subTest(field=field):
+                    self.assertEqual(result["verdict"], "refuse")
+                    self.assertEqual(result["refusing_role"], role)
+                    self.assertIn("not in evidence", result["refusals"][0]["reason"])
+                    self.assertFalse(result["payout_authorized"])
+                    outcome = result["checked"][-1]
+                    self.assertIn(field, outcome["skipped"])
+                    self.assertNotIn(field, outcome["checked"])
+        for field in OBSERVED:
+            record = allow_record()
+            del record[field]
+            result = decide(record)
+            with self.subTest(observed=field):
+                self.assertEqual(result["verdict"], "allow")
+                self.assertIn(field, result["checked"][0]["skipped"])
+
+    def test_a_record_that_is_not_an_object_refuses_as_input(self) -> None:
+        for record in (None, [], "allow", 1):
+            result = decide(record)
+            with self.subTest(record=record):
+                self.assertEqual(result["verdict"], "refuse")
+                self.assertEqual(result["refusing_role"], "input")
+                self.assertFalse(result["payout_authorized"])
 
     def test_schema_only_or_partial_check_is_not_a_full_verification(self) -> None:
         for scope in ("schema_only", "partial"):
@@ -203,21 +335,9 @@ class DecideTest(unittest.TestCase):
 
     def test_a_flag_that_is_not_a_boolean_is_not_evidence(self) -> None:
         # None means "not evaluated", never "clean"; 1 and "true" are not True.
-        cases = {
-            "gate-drought": ("pressure_requests_override",),
-            "inscription": (
-                "parses_cleanly",
-                "signature_valid",
-                "signer_verified",
-                "signer_pinned",
-                "self_attested",
-            ),
-            "settlement-not-delivery": ("settlement_visible", "delivery_evidence"),
-            "familiar-face": ("known_name_vouches", "unknown_key", "unknown_key_verified"),
-            "collapsed-time": ("must_decide_now", "receipt_thin"),
-            "one-eyed-verifier": ("reported_as_full_verification",),
-            "evidence-only": ("claim_wider_than_evidence", "quick_integration_called_traction"),
-        }
+        cases = {role: fields for role, fields in FIELDS_BY_ROLE.items()}
+        cases["gate-drought"] = cases["gate-drought"] + OBSERVED
+        cases["one-eyed-verifier"] = ("reported_as_full_verification",)
         for role, fields in cases.items():
             for field in fields:
                 for value in (None, 0, 1, "true", "false"):
@@ -227,7 +347,11 @@ class DecideTest(unittest.TestCase):
                     with self.subTest(field=field, value=value):
                         self.assertEqual(result["verdict"], "refuse")
                         self.assertEqual(result["refusing_role"], role)
+                        self.assertIn("not a boolean", result["refusals"][0]["reason"])
                         self.assertFalse(result["payout_authorized"])
+                        outcome = result["checked"][-1]
+                        self.assertIn(field, outcome["skipped"])
+                        self.assertNotIn(field, outcome["checked"])
 
     def test_deadline_or_empty_queue_does_not_loosen_a_refusal(self) -> None:
         calm = allow_record()
