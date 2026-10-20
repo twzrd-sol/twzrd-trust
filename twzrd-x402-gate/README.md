@@ -4,6 +4,59 @@ Wrap your agent's paying fetch. Refuse before its wallet signs when a quote is
 over your cap, its recipient is not allowed, or the free preflight blocks or
 cannot answer. Keep the reason in a local JSONL file.
 
+## Which entry point?
+
+| You are… | Use |
+|---|---|
+| Starting a new integration | `createBuyerFetch` (since 0.12.3; optional `expectedAmount` since 0.12.4) |
+| Already using an official `x402Client` | `installTwzrdAutoGate(client)` |
+| Using PayKit (`createPayKitClient`) | `installTwzrdAutoGate("pay-kit")` |
+| Using PayAI `createX402Client({ beforePayment })` | `installTwzrdAutoGate("x402-solana")` |
+| Using MPP (`Mppx.create({ onChallenge })`) | `installTwzrdAutoGate("mpp")` |
+| Using the `@x402/mcp` client | `twzrdOnPaymentRequested` |
+| Keeping an older integration | `createGuardedX402Fetch`, `withTwzrdGuard`, `wrapFetchWithTwzrdGate`, or `twzrd.safeFetch` |
+
+`installTwzrdAutoGate` is one function with those adapters. `twzrd.safeFetch` is
+`spendControlSafeFetch`. The other export named `safeFetch` is the advisory CLI
+pipeline in `src/safe-fetch.ts`, not this row.
+
+`createBuyerFetch` is the front door for a new buyer. `createGuardedX402Fetch`
+is legacy and stays for callers that already use it. They are not the same
+wrapper:
+
+- The hourly ledger in `createBuyerFetch` is a JSONL file (`spendLedgerFile`,
+  default `.twzrd/spend.jsonl`) shared by every fetch that points at that path,
+  including after a restart. `createGuardedX402Fetch` keeps its rolling hour in
+  memory for the life of that returned fetch and drops it when the process ends.
+- `createBuyerFetch` requires `maxPricePerCall` and `allowedRecipients`, and it
+  sets `unsupportedNetworkMode: "strict"`. A network the scorer marks unscored
+  is refused. That includes a name containing `devnet`, `testnet`, or
+  `sepolia`, and Base Sepolia. A Solana devnet named only by its CAIP-2 genesis
+  id is still treated as scored (`network.ts`) and is not refused by this rule.
+- `createGuardedX402Fetch` leaves caps and the allowlist optional. Its
+  preflight uses the shared default `unsupportedNetworkMode: "observe"`, so
+  those same unscored networks are allowed through without a reputation score.
+  If you did set a spend cap, a non-USDC asset is still refused locally.
+
+## Defaults by entry point
+
+Read from the constructors, not from the prose below. "Wash flagged" is
+`refuseWashFlagged`. `refuseWashUnknown` is off on every row in 0.12.x unless
+that call opts in. `TWZRD_AUTO_GATE=0` and `TWZRD_GATE_ENABLED=0` are a
+different switch: only `installTwzrdAutoGate` reads them, and
+`createBuyerFetch` does not.
+
+| Entry point | Preflight outage | `TWZRD_FAIL_OPEN` | Wash flagged | Unscored network |
+|---|---|---|---|---|
+| `createBuyerFetch` | fail-closed (`failOpen: false` is passed in) | no | on, and `TWZRD_REFUSE_WASH_FLAGGED` cannot turn it off | strict: refuse |
+| `installTwzrdAutoGate(client)`, `"pay-kit"`, `"x402-solana"` | fail-closed | yes | on, unless `TWZRD_REFUSE_WASH_FLAGGED` is `0` or `false` | observe: allow, then the wash check still runs |
+| `installTwzrdAutoGate("mpp")` | not this preflight. A thrown evaluation refuses and does not return a credential | not read | not this flag. No `wash_flagged` check in `mpp-hook.ts` | not observe/strict. An unknown cluster is refused; `devnet` is a known cluster |
+| `twzrdOnPaymentRequested` | fail-closed when called with no config | yes, inside the approval (`resolveConfig()`) | on, unless that env opt-out, when no config is passed | observe |
+| `createGuardedX402Fetch` | fail-closed. After the local cap check it calls `createTwzrdPayKitBeforePaymentHook`, which is `evaluateBeforePaymentCreation`. That is the same evaluator `installTwzrdAutoGate("pay-kit")` returns. The client you pass does not have to be PayKit | yes | on, unless that env opt-out | observe. A set spend cap still refuses a non-USDC asset |
+| `withTwzrdGuard` | fail-closed | yes | on, unless that env opt-out | observe |
+| `wrapFetchWithTwzrdGate()` | fail-closed when you pass no config, or pass `resolveConfig()` | yes, unless the config you pass already set `failOpen` | same as the config you pass; `resolveConfig()` is on unless that env opt-out | observe, unless the config you pass says `strict` |
+| `twzrd.safeFetch` | none, unless you pass `preflight`. A throw from that callback propagates | not read | not applied | no observe/strict mode. Optional `allowNetworks` can refuse `network_not_allowed` |
+
 ## Start here: a blocked payment, no wallet
 
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
@@ -180,7 +233,7 @@ installTwzrdAutoGate(client, { refuseWashFlagged: true });
 // then register schemes + wrapFetchWithPayment as usual
 ```
 
-**Intercept proof (0 USDC, wash seller never reaches signer):**
+**Historical intercept proof (2026-07; 0 USDC, wash seller never reaches signer):**
 
 ```bash
 cd twzrd-x402-gate && npm run autogate-block-proof   # needs network: live intel preflight
@@ -244,7 +297,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 → `toPayaiVerifyResult` to screen payers before serving. Fail-open by default.
 
 
-## Demonstrable refuse mechanism (free, fail-open, reproducible)
+## Historical: demonstrable refuse mechanism (2026-07-16; free, reproducible)
 
 **Status (2026-07-16):** mechanism proof — not adoption or demand.
 
@@ -275,7 +328,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
-### Foreign-wallet block proof (official @x402 stack, fresh key, zero history)
+### Historical: foreign-wallet block proof (2026-07-23; official @x402 stack, fresh key, zero history)
 
 **Verified 2026-07-23:** the same pre-sign block with a **brand-new wallet that has
 zero TWZRD/corpus history** — proving the mechanism is wallet-independent, not a
@@ -439,14 +492,14 @@ This doc describes **0.12.4**. Check `npm view twzrd-x402-gate version` for the 
 
 - Scored preflight runs on Solana mainnet and Base mainnet (`eip155:8453`). Other EVM networks do not run the scored preflight.
 - A missing `payTo` is never approved.
-- A buyer preflight outage does not sign unless `TWZRD_FAIL_OPEN=true`.
+- A buyer preflight outage does not sign unless `TWZRD_FAIL_OPEN=true`, except `createBuyerFetch`, which forces `failOpen: false` and does not read that variable.
 - An unevaluated seller (`null_reason: unknown_subject`) can be paid up to its card's `recommended_cap_usdc`; above the cap it does not sign. `refuseUnevaluated: true` refuses it outright (see *Unevaluated sellers* under Policy).
 - A price above `recommended_cap_usdc` does not sign.
 - Disagreeing v1/v2 price or recipient fields are refused.
 - An approved `warn` with a wired paying fetch requests `/v1/intel/quick` and does not request `/v1/intel/trust`.
 - `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`; those switches apply only to `installTwzrdAutoGate`.
 - `createTwzrdSettleGuard` stays fail-open by default, so an unavailable gate does not abort.
-- The pay path is not uniformly fail-closed in any release: `createTwzrdSettleGuard` is fail-open by default, `TWZRD_FAIL_OPEN=true` lets a buyer preflight outage sign, and unscored EVM networks default to `observe` (allow, wash check still runs).
+- The pay path is not uniformly fail-closed in any release: `createTwzrdSettleGuard` is fail-open by default, `TWZRD_FAIL_OPEN=true` lets a buyer preflight outage sign on entry points that do not force `failOpen`, and those entry points default unscored networks to `observe` (allow, wash check still runs). `createBuyerFetch` is the exception: the outage stays closed, and an unscored network is refused.
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
 (`onBeforeSettle`) — optional 0.8.1** above. Do not confuse with facilitator
@@ -709,14 +762,19 @@ This `installTwzrdAutoGate(payWrap)` seat is default **ON**. Disable that seat w
 variables. Setting them does not stop that factory from aborting a bad payment.
 
 What happens on every HTTP 402 the raw fetch returns:
-1. Reads the Solana-network entry from `accepts[]` (falls back to first entry) to get the seller wallet.
+1. Every distinct `accepts[]` entry has to pass. The guard does not keep only the Solana entry.
 2. Calls `POST /v1/intel/preflight` — free, no auth. `decision=block` (or score floor) throws — `payWrap`'s client never signs.
-3. Calls `GET /v1/intel/merchant_card/{payTo}` — free, no auth. `wash_flagged: true` refuses by default (only tightens step 2). A reachable card with no wash signal fails open (no invent). A card outage on the scored path honours `failOpen` (default fail-closed).
-4. Otherwise returns the 402 to `payWrap`'s client, which pays normally.
+3. Calls `GET /v1/intel/merchant_card/{payTo}` — free, no auth. `wash_flagged: true` refuses by default. A reachable card with no wash finding is not a refusal unless `refuseWashUnknown` is on. A card outage on the scored path honours `failOpen` (default fail-closed).
+4. An unscored network (keyword devnet, Base Sepolia, other EVM) is allowed under the default `observe` mode. The wash check still runs. `createBuyerFetch` refuses that network instead.
+5. Otherwise returns the 402 to `payWrap`'s client, which pays normally.
 
 Non-402 responses pass through unchanged.
 
-### One-line x402 fetch with local spend limits
+### Legacy: `createGuardedX402Fetch`
+
+Kept for compatibility. A new integration should use `createBuyerFetch`.
+The older wrapper's hourly budget is in memory only, its caps are optional,
+and unscored networks follow `observe` instead of `createBuyerFetch`'s `strict`.
 
 `createGuardedX402Fetch` combines a configured `@x402/core` client with the
 existing TWZRD pre-sign evaluator and local recipient / spend rules. Register
@@ -1140,7 +1198,7 @@ An approval here carries `unevaluated: true` and `score: null`, never a trust sc
 
 A price above `recommended_cap_usdc` returns a reason that starts with `twzrd_over_recommended_cap_`. A direct `createTwzrdBeforePaymentHook` abort of a block card returns reason `twzrd_decision_block`. That reason string is not `block` and is not `twzrd_fail_closed`. A missing `payTo` returns reason `twzrd_unidentifiable_payment_recipient` from `twzrdApprovePayment`. That reason is not `twzrd_missing_payTo`. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns reason `twzrd_fail_closed`. That reason is not `twzrd_preflight_fetch_error`.
 
-An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.11.2 is not uniformly fail-closed.
+An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.12.4 is not uniformly fail-closed: `createBuyerFetch` refuses that outage and does not read `TWZRD_FAIL_OPEN`, the other buyer entry points honor the env, and `createTwzrdSettleGuard` stays fail-open when `failOpen` is omitted.
 
 A 402 whose payment requirements yield **no identifiable seller wallet** (missing/empty `payTo`, or an unparseable `accepts[]`) is a different case from "unknown seller" — it always **blocks** with `reason: twzrd_unidentifiable_payment_recipient`, without ever calling the preflight network. The wallet does not sign. This is unconditional (not affected by buyer `failOpen`): that switch governs a buyer preflight outage, not a missing payTo. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort.
 
@@ -1166,7 +1224,7 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | `twzrd_unidentifiable_payment_recipient` | The requirement names no `payTo`. Intel is not called. | always |
 | `twzrd_invalid_price` | A caller passed a `priceUsdc` that is negative or not finite. Intel is not called. | always (0.11.2+) |
 | `twzrd_non_usdc_asset` | On Solana or Base, the requirement names an asset that is not USDC on that network. Intel is not called; `failOpen` does not apply. | always (0.11.1+) |
-| `network_not_scored`, `network_missing` | The network is not scored (not Solana or Base mainnet). | refused only with `unsupportedNetworkMode: "strict"`; the default `observe` allows |
+| `network_not_scored`, `network_missing` | The network is not scored (not Solana or Base mainnet). A name containing `devnet`, `testnet`, or `sepolia`, including Base Sepolia, is unscored. A Solana devnet named only by its CAIP-2 genesis id is still scored. | refused when `unsupportedNetworkMode` is `strict`. The shared default is `observe` (allow). `createBuyerFetch` sets `strict` |
 | `twzrd_decision_<decision>` | Intel's card decision is in `blockDecisions`. | `twzrd_decision_block` |
 | `twzrd_unevaluated_subject_<null_reason>` | Intel has never evaluated the seller, and `refuseUnevaluated` is set or the decision is not `allow`/`warn`. | strict mode off |
 | `twzrd_unevaluated_no_cap_<null_reason>` | Never evaluated, and the card has no finite `recommended_cap_usdc`. | always |
