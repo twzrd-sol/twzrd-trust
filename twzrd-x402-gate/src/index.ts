@@ -146,6 +146,7 @@ export {
   type X402PaymentControlOptions,
   type X402SolanaBeforePaymentContext,
 } from "./x402-client-hook.js";
+export { createBuyerFetch, BuyerFetchBlockedError, type BuyerFetchOptions } from "./buyer-fetch.js";
 export {
   createGuardedX402Fetch,
   explainCoreSpendControls,

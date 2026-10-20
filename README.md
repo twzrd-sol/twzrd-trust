@@ -1,7 +1,12 @@
 # TWZRD
 
-**Don't let your agent sign blind.**  
-Pre-spend trust for agents that buy: the x402 service they are about to pay (Solana, and Base) and the product listing they are about to buy from.
+Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
+allowlist, mandatory free preflight, and a local decision record before signing.
+
+The new `createBuyerFetch` entry point is implemented in this checkout, pending
+release; published `0.12.1` does not include it. Start with the
+[runnable buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
+The other toolkit APIs below remain available with their existing defaults.
 
 - **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable `twzrd.payment_decision.v1` record from its own decision, signed locally with your own signer.
 - **Product listings:** a free check of a store product URL and its asking price against a card TWZRD published from the store's public pages. The card is an observer card, not a merchant attestation, and a match is never permission to spend ([details](#product-listings-check-the-listing-before-you-buy)).
@@ -16,7 +21,26 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 
 ---
 
-## 60-second deterministic free demo
+## Run one blocked payment locally
+
+```bash
+npm ci
+npm run build
+npm run buyer-demo --workspace=twzrd-x402-gate
+```
+
+This uses the real x402 client against an offline 402 fixture. It prints
+`reason: price_cap_exceeded`, `signer_invocations: 0` and `usdc_spent: 0`, and
+writes `.twzrd/demo-decisions.jsonl` locally. It makes no network request and
+needs no wallet. This is internal demonstration evidence, not outside use.
+
+For an installed consumer, pack the gate and install the tarball with its
+optional `@x402/core` and `@x402/fetch` peers; then run `npx twzrd-buyer-demo`.
+See the [package README](./twzrd-x402-gate/README.md) for the install and live
+client wiring. `/quick` and `/trust` stay optional seller-score products; the
+wrapper buys neither and makes no fulfillment claim.
+
+## Hosted recorded demonstration
 
 Run this one-line command with **no wallet, no API key, and no configuration**:
 
@@ -105,7 +129,7 @@ build or demo them locally. Hosted MCP: `https://intel.twzrd.xyz/mcp`.
 
 ---
 
-## Quickstart
+## Other integration APIs
 
 ### 1. Install
 

@@ -57,6 +57,7 @@ function run() {
     indexSource: [
       "export { CLIENT_VERSION } from \"./version.js\";",
       "export {",
+      "  createBuyerFetch,",
       "  createTwzrdPayKitBeforePaymentHook,",
       "  createTwzrdBeforePaymentHook,",
       "  installTwzrdX402ClientHook,",

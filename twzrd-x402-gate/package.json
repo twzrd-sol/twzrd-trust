@@ -6,6 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
+    "twzrd-buyer-demo": "./bin/twzrd-buyer-demo.js",
     "twzrd-safe-fetch": "./bin/twzrd-safe-fetch.js",
     "twzrd-gate-eval-refuse": "./bin/twzrd-gate-eval-refuse.js",
     "twzrd-gate-doctor": "./bin/twzrd-gate-doctor.js",
@@ -45,6 +46,8 @@
     "CHANGELOG.md"
   ],
   "scripts": {
+    "buyer-consumer-smoke": "node scripts/buyer-consumer-smoke.mjs",
+    "buyer-demo": "node bin/twzrd-buyer-demo.js",
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "prepublishOnly": "npm run verify-release",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",

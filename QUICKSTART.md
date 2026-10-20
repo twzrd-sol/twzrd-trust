@@ -1,4 +1,22 @@
-# Quickstart — don't let your agent sign blind
+# Quickstart — guard the paying fetch
+
+Start with [the buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
+It runs an offline blocked payment with the official x402 client, records the
+reason locally, and shows where to put the wrapper around a configured signer.
+The new entry point is pending release; use this checkout or its verified
+tarball. Published 0.12.1 does not include `createBuyerFetch`.
+
+```bash
+npm ci
+npm run build
+npm run buyer-demo --workspace=twzrd-x402-gate
+```
+
+Expected: `mode: offline_fixture`, `reason: price_cap_exceeded`,
+`signer_invocations: 0`, `usdc_spent: 0`. No network or wallet is used.
+
+<details>
+<summary>Existing lower-level APIs and receipt verification</summary>
 
 TWZRD is the spend-control layer for agents that pay over [x402](https://x402.org)
 on Solana (and Base). One call wraps any paid fetch: it intercepts the 402,
@@ -11,8 +29,8 @@ The six-step walkthrough (directory → preflight → gated pay → verify → e
 bundle) is [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md). Free preflight does
 not enforce; AutoGate on the pay path does.
 
-Every code sample below was executed against the published package and live
-endpoints before this document was committed.
+The examples below describe existing lower-level APIs, not `createBuyerFetch`.
+Their options and defaults differ from the new front door.
 
 ## From this repo
 
@@ -135,7 +153,6 @@ curl -s -X POST https://intel.twzrd.xyz/v1/intel/resource_bind/verify \
 
 Or reimplement the leaf from the spec and recompute it — the whole procedure,
 with real mainnet transactions to check against, is in [REVIEW.md](./REVIEW.md).
-Two independent external implementations have already reproduced it.
 
 ## Where things live
 
@@ -149,3 +166,5 @@ Two independent external implementations have already reproduced it.
 
 Questions or a broken sample: open an issue on this repo. A sample that does
 not run exactly as shown is a bug.
+
+</details>

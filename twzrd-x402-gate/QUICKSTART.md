@@ -1,7 +1,95 @@
-# twzrd-x402-gate — Quickstart (15 minutes, 0 USDC)
+# Quickstart: refuse before signing
+
+This checkout adds `createBuyerFetch` and `twzrd-buyer-demo`. They are pending
+release and are **not present in npm 0.12.1**. The source and its packed artifact
+can be tested now without spending.
+
+## 1. Run one blocked payment
+
+From the repository root:
+
+```bash
+npm ci
+npm run build
+npm run buyer-demo --workspace=twzrd-x402-gate
+```
+
+The real x402 client receives a synthetic quote for 0.05 USDC. The wrapper's
+cap is 0.001 USDC. It refuses before the fixture signer is invoked and writes
+the decision to `.twzrd/demo-decisions.jsonl` in the package directory:
+
+```json
+{"mode":"offline_fixture","decision":"block","reason":"price_cap_exceeded","signer_invocations":0,"paid_requests":0,"usdc_spent":0}
+```
+
+No wallet, network, signup or API key is needed. This is a fixture run, not
+evidence of an outside agent or a live payment.
+
+## 2. Test an install
+
+Pack from this checkout's `twzrd-x402-gate/` directory:
+
+```bash
+npm pack --ignore-scripts
+```
+
+In a separate consumer directory, install the resulting tarball and peers:
+
+```bash
+npm install /path/to/twzrd-x402-gate-0.12.1.tgz @x402/core @x402/fetch
+npx twzrd-buyer-demo
+```
+
+For application code use ESM (`.mjs` or `"type": "module"`). The package does
+not silently install the optional payment peers or configure a wallet.
+
+## 3. Wrap your configured client
+
+Your agent supplies its existing official `x402Client` with a payment scheme
+and signer registered. Solana clients additionally install `@x402/svm`; Base
+clients use `@x402/evm`. Configure that dedicated client before wrapping it.
+
+```js
+import { createBuyerFetch } from "twzrd-x402-gate";
+
+const guardedFetch = createBuyerFetch({
+  client,
+  maxPricePerCall: "0.01",
+  allowedRecipients: [sellerPayTo],
+  hourlyBudgetCap: "1.00",
+  decisionFile: ".twzrd/decisions.jsonl",
+  spendLedgerFile: ".twzrd/spend.jsonl",
+});
+
+const response = await guardedFetch(resourceUrl);
+```
+
+Both cap and allowlist are required. An empty allowlist denies every payment.
+Use the selected quote's recipient; do not infer a wallet from a hostname.
+Calls over the cap, unlisted recipients, preflight blocks and check outages
+throw `BuyerFetchBlockedError`; its `reason` is a stable machine-readable code.
+Legacy bypass environment variables do not disable this entry point.
+
+Decisions are written locally and flushed before signing. Only origin,
+recipient, network and amount are retained, alongside outcome and reason.
+No decision is uploaded. The free intelligence requests still send seller,
+resource and price to intel. The spend file counts authorized attempts, not
+settlement; signer failures conservatively retain budget. Files must have one
+process owner. No paid score, receipt or delivery observation is requested.
+
+Optional `/quick` is a 0.001-USDC unsigned Solana seller score. Optional `/trust`
+is a 0.05-USDC signed V7 receipt of that score. Neither verifies a supplier's
+GPU work or a model's output.
+
+See [the package README](./README.md) for the supported networks, ledger scope,
+client ownership and error details. A packaged demo or download is not outside
+adoption; that needs evidence from an independent installed payment path.
+
+<details>
+<summary>Existing client hooks and their legacy configuration</summary>
 
 Refuses payment to a wash-flagged merchant **before your wallet signs**. Free intel, no
-API key, no signup, no config — every `TWZRD_*` env var is an optional override. If intel
+API key, no signup, no config — these older hooks accept `TWZRD_*` overrides. If intel
 is unreachable the gate never *invents* a wash flag. A failed preflight, or a merchant_card
 outage on a scored path, blocks by default (`TWZRD_FAIL_OPEN=true` to allow). A reachable
 card with no wash signal still proceeds.
@@ -186,3 +274,5 @@ Everything else (thresholds, wash caps, fail posture, settle guard): [README](./
   not a wash bypass — `wash_flagged` still refuses before sign.
 - **No delivery guarantee.** It screens the merchant before you pay, nothing after.
 - **Not a wallet.** It never holds keys or signs — it only decides if your signer runs.
+
+</details>

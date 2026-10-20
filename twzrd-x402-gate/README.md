@@ -1,14 +1,107 @@
 # twzrd-x402-gate
 
-**Don't let your agent sign blind.** TWZRD is the spend-control SDK for agents paying over x402 — and the default
-`onBeforePaymentCreation` policy engine for official x402 clients.
+Wrap your agent's paying fetch. Refuse before its wallet signs when a quote is
+over your cap, its recipient is not allowed, or the free preflight blocks or
+cannot answer. Keep the reason in a local JSONL file.
+
+## Start here: a blocked payment, no wallet
+
+`createBuyerFetch` and `twzrd-buyer-demo` are new in this checkout and are **not
+in the published 0.12.1 package**. Build this source or install its reviewed
+tarball; a registry release is still required for a normal npm install.
+
+From the repository root:
+
+```bash
+npm ci
+npm run build
+npm run buyer-demo --workspace=twzrd-x402-gate
+```
+
+The demo runs a real `@x402/fetch` client against a synthetic 402, refuses the
+over-cap quote, and writes `.twzrd/demo-decisions.jsonl` in the package directory.
+No keys, network access, or funds are used. Expected fields:
+
+```json
+{"mode":"offline_fixture","decision":"block","reason":"price_cap_exceeded","signer_invocations":0,"paid_requests":0,"usdc_spent":0}
+```
+
+To test the install outside this workspace, pack from `twzrd-x402-gate/` with
+`npm pack --ignore-scripts`. In an ESM consumer directory:
+
+```bash
+npm install /path/to/twzrd-x402-gate-0.12.1.tgz @x402/core @x402/fetch
+npx twzrd-buyer-demo
+```
+
+## Put it on your paying call
+
+Pass a dedicated official `x402Client` with your scheme and signer registered:
+
+```js
+import { createBuyerFetch } from "twzrd-x402-gate";
+
+const guardedFetch = createBuyerFetch({
+  client,                         // your configured x402Client
+  maxPricePerCall: "0.01",         // exact USDC decimal; required
+  allowedRecipients: [sellerPayTo],// explicit payTo allowlist; required
+  hourlyBudgetCap: "1.00",         // optional rolling cumulative cap
+  decisionFile: ".twzrd/decisions.jsonl",
+  spendLedgerFile: ".twzrd/spend.jsonl",
+});
+
+try {
+  const response = await guardedFetch(resourceUrl); // ordinary fetch signature
+} catch (error) {
+  console.error(error.reason ?? error.message);
+}
+```
+
+Caps and recipients are checked against the selected requirement at
+`onBeforePaymentCreation`. Supported payment assets are USDC on scored Solana
+mainnet and Base mainnet; unscored networks refuse. EVM recipient comparison
+ignores case; Solana comparison preserves case. An empty allowlist refuses all.
+
+The free preflight and merchant-card checks run before signing. This entry
+point has no fail-open or disable switch: legacy `TWZRD_FAIL_OPEN`,
+`TWZRD_AUTO_GATE`, and `TWZRD_GATE_ENABLED` cannot bypass it. A `warn` can proceed
+within local caps and the preflight's policy. A check that cannot answer refuses.
+
+Decisions are flushed locally before signing; no decision-upload request is
+made. Rows retain recipient, network, atomic amount and resource **origin**,
+not URL paths/queries, credentials, signatures or response bodies. The
+`signer_invocations: 0` field describes the decision's pre-sign point, including
+an allow row; it does not claim an allowed call stayed unsigned or settled.
+Free preflight still sends the requested seller, resource URL and price to intel.
+
+The spend ledger counts authorized signing attempts, including signer errors
+and uncertain payment outcomes. It does not claim confirmed settlement or
+refunds. A supplied hourly budget survives process restarts. Pending calls
+share reservations within one process. Use separate files per process or
+serialize externally; these ledgers are not a multi-process budget service.
+Local write failures refuse signing. HTTP redirects and pre-signed input
+headers are refused. Configure the client before wrapping it, use the returned
+fetch for payments, and do not add bypass/recovery hooks or mutate its signer
+path afterward. Core's own spend controls can impose additional restrictions.
+
+No paid score or receipt is bought by this wrapper. `/quick` (0.001 USDC) is an
+optional unsigned Solana seller score; `/trust` (0.05 USDC) is an optional signed
+V7 receipt of that score. Neither proves a GPU or model completed work.
+
+The offline demo proves a local refusal, not outside adoption. First outside
+use requires evidence from another agent using the installed wrapper on its
+own payment path.
+
+## Other integration APIs
+
+The existing APIs below retain their own defaults and optional switches.
 
 Commerce loop (directory → preflight → AutoGate → verify → evidence bundle):
 repo [docs/COMMERCE-KIT.md](../docs/COMMERCE-KIT.md). `exportEvidenceBundle` /
 `npx twzrd-evidence-bundle` writes `twzrd.evidence_bundle.v1`. This package is
 not Catena's Agent Commerce Kit.
 
-### One call (named export `twzrd`)
+### Lower-level call (named export `twzrd`)
 
 ```js
 import { twzrd } from "twzrd-x402-gate";

@@ -4,6 +4,7 @@ eliza-plugin-source/dist/
 .npm/
 *.log
 *.tgz
+.twzrd/
 .DS_Store
 
 # Proof artifacts written into the operator's checkout by the documented
