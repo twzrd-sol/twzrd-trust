@@ -3,7 +3,7 @@ name: twzrd-trust
 description: |
   Discover x402 callables then check the seller BEFORE paying. Free resource join
   (GET /v1/intel/resources) lists listed|live_402 claims; free preflight returns a
-  ReadinessCard (allow / warn / block) from the observed Solana x402 corpus. Composes
+  ReadinessCard (allow / warn / block) from the observed Solana and Base x402 corpus. Composes
   with any x402 payer skill: discover → merchant_card wash refuse → preflight →
   gate_eval (AutoGate) when you control signing → optional pay; abort on decision=block.
   Honesty: price_kind with price; leftover 0.05 is not a unit price; wash_flagged
@@ -19,7 +19,7 @@ description: |
   merchant track-record at GET /v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.05 USDC).
   TRIGGERS: should I pay this, is this wallet safe, check seller, x402 preflight, scam
   check, counterparty risk, wallet reputation, trust score, verify receipt, before
-  paying, solana wallet check, agent trust, readiness card, wash flagged, merchant card,
+  paying, solana wallet check, base wallet check, agent trust, readiness card, wash flagged, merchant card,
   resource join, discover x402, facilitator settle, merchant attach, track record,
   laso, agentX402Pay, managed wallet, product listing check, check_listing,
   shopping check, before buying a product, listing claims
@@ -27,7 +27,7 @@ homepage: https://intel.twzrd.xyz
 metadata:
   version: "1.13.36"
   canonical_url: https://intel.twzrd.xyz/skill.md
-  gate_npm: twzrd-x402-gate@0.12.2
+  gate_npm: twzrd-x402-gate@0.12.4
   x402_solana_npm: x402-solana@3.0.1
   # Floor, not an exact pin: a receipt verifier should track the newest
   # signature-checking code, and an exact pin goes stale on every publish.
@@ -51,7 +51,7 @@ metadata:
 
 # TWZRD Trust — discover callables, then evaluate the seller
 
-> **Never send path templates.** Do not paste `:pubkey`, `{pubkey}`, `{seller_wallet}`, `SELLER_WALLET` or `PAY_TO_WALLET` as a value. Substitute a real base58 payTo from `accepts[].payTo`; the preflight rejects templates with `TEMPLATE_PLACEHOLDER_NOT_REPLACED`.
+> **Never send path templates.** Do not paste `:pubkey`, `{pubkey}`, `{seller_wallet}`, `SELLER_WALLET` or `PAY_TO_WALLET` as a value. Substitute the real payTo from `accepts[].payTo` (Solana base58 or Base 0x); the preflight rejects templates with `TEMPLATE_PLACEHOLDER_NOT_REPLACED`.
 
 > **Paste-ready Path A scores TWZRD.** `GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` is TWZRD's payTo (USDC lands there) and the only example wallet we control. A paste of `/quick|/trust|/merchant/` + that address is an own-wallet smoke, not a check of the seller you are about to pay. Before a real pay, put that seller's `accepts[].payTo` in the path. `expectedPayTo` stays TWZRD.
 
@@ -121,7 +121,7 @@ Most agents stop after free discovery and believe the loop is closed. It is not.
 Complete the **protection loop** when you control signing:
 
 ```bash
-# 1) FREE preflight on the seller you might pay (real base58 payTo only)
+# 1) FREE preflight on the seller you might pay (real payTo: Solana base58 or Base 0x)
 curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
   -H 'content-type: application/json' \
   -d '{"seller_wallet":"46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe","price_usdc":0.002,"agent_intent":"preflight"}'
@@ -129,14 +129,14 @@ curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
 # 2) PRIMARY seat — stock PayAI client beforePayment (x402-solana@3.0.1).
 #    Gate runs AFTER requirement selection, BEFORE signTransaction. Do not only
 #    describe the enrollment step — seat the gate on a signer path.
-npm install twzrd-x402-gate@0.12.2 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.12.4 x402-solana@3.0.1
 # createX402Client({ wallet, network: "solana",
 #   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })
 
 # 2b) Prove refuse-before-sign (signer=0). Published tarball has no examples/;
 #     bin/ is the proof path. Optional peers are not auto-installed, so on a
 #     cold machine run the full line first:
-# npm install twzrd-x402-gate@0.12.2 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+# npm install twzrd-x402-gate@0.12.4 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 
 # 3) OPTIONAL Path A (paid intel) — start at 0.001 USDC /quick. Does not enforce.
@@ -144,7 +144,7 @@ npm install twzrd-x402-gate@0.12.2 x402-solana@3.0.1
 # offer both Base and sponsored Solana; do not assume single-rail Solana.
 # With explicit authorization and a Base accept, AgentCash can select Base and
 # cap the call at the quoted amount:
-# npx agentcash@latest fetch --payment-network base --max-amount 0.001 \
+# npx agentcash@0.17.1 fetch --payment-network base --max-amount 0.001 \
 #   'https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs'
 # Replace the path subject with the seller payTo before a real counterparty pay.
 # For a Solana accept with extra.feePayer, use a client that honors that
@@ -197,7 +197,7 @@ exist. Correct install is `clawhub install` or `npx clawhub install` above.
 **Primary (stock PayAI `x402-solana@3.0.1`):**
 
 ```bash
-npm install twzrd-x402-gate@0.12.2 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.12.4 x402-solana@3.0.1
 ```
 
 ```ts
@@ -292,7 +292,7 @@ Opt out: `requireReceipt: false` and/or `escalateOnWarn: false`.
 **Fallback CLI only** (agents that only run a script and stop do not clear W1):
 
 ```bash
-npm install twzrd-x402-gate@0.12.2 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+npm install twzrd-x402-gate@0.12.4 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 
@@ -317,8 +317,9 @@ curl -sS "https://intel.twzrd.xyz/v1/intel/marketplace" | head -c 600
 `readiness_card` or `decision`. Take
 a real `pay_to` / `accepts[].payTo` and `POST /v1/intel/preflight` — that is the
 only free surface with `readiness_card.decision`, `trust_score`, `caveats[]`,
-and `next_action.command`. Swap in any Solana seller `payTo` from a live 402
-challenge (base58 only).
+and `next_action.command`. Swap in any seller `payTo` from a live 402 challenge:
+a Solana base58 wallet or a Base 0x address. Paid /quick and /trust still need a
+Solana subject wallet.
 
 ## The rules (defaults, not optional niceties)
 
@@ -505,8 +506,8 @@ is the teaser for the **seller you are about to pay**. Portable V7 is optional.
 - If Base is not listed, there is no AgentCash command for that challenge.
 
 Before paying, prepare a payer you control. For a Base accept paid with
-AgentCash, run `npx agentcash@latest onboard`, check
-`npx agentcash@latest balance`, and fund that wallet with USDC on Base. For
+AgentCash, run `npx agentcash@0.17.1 onboard`, check
+`npx agentcash@0.17.1 balance`, and fund that wallet with USDC on Base. For
 sponsored Solana, use a compatible signer and hold USDC on Solana; the sponsor
 covers transaction fees, not USDC. A 402 is not a refusal and has not moved funds.
 
@@ -514,7 +515,7 @@ The direct commands below apply only when the 402 actually lists Base:
 
 ```bash
 # First paid hop — Base only, capped at 0.001 USDC. Replace the path subject with the seller payTo.
-npx agentcash@latest fetch --payment-network base --max-amount 0.001 \
+npx agentcash@0.17.1 fetch --payment-network base --max-amount 0.001 \
   'https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs'
 ```
 
@@ -656,7 +657,7 @@ scored `{pubkey}` subject itself is never gated.
 Cheap score-only teaser: `GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` at 0.001 USDC
 (TWZRD own-wallet smoke — substitute the seller path before a real pay:
 only use AgentCash if that live 402 lists Base, and then select Base with a 0.001 USDC cap:
-`npx agentcash@latest fetch --payment-network base --max-amount 0.001 'https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs'`).
+`npx agentcash@0.17.1 fetch --payment-network base --max-amount 0.001 'https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs'`).
 
 ## Pay from a wallet you already use
 
@@ -685,7 +686,7 @@ Replace the path subject with the seller `payTo` you are about to pay.
 Same shape for Path A: change `url` to
 `https://intel.twzrd.xyz/v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs`
 and raise `maxAmountUsdc` to `0.06` (pin the 0.05 challenge, not a guess).
-V7 receipts stay Solana-settlement only.
+/trust issues its V7 receipt on either rail (Solana or Base accept); /quick never returns a receipt. The subject wallet in the path must be a Solana address.
 
 **Completions is a different rail.**
 `POST https://api.twzrd.xyz/v1/chat/completions` is Solana USDC only
