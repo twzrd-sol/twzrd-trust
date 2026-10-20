@@ -3,7 +3,7 @@ name: twzrd-trust
 description: |
   Discover x402 callables then check the seller BEFORE paying. Free resource join
   (GET /v1/intel/resources) lists listed|live_402 claims; free preflight returns a
-  ReadinessCard (allow / warn / block) from the observed Solana x402 corpus. Composes
+  ReadinessCard (allow / warn / block) from the observed Solana and Base x402 corpus. Composes
   with any x402 payer skill: discover → merchant_card wash refuse → preflight →
   gate_eval (AutoGate) when you control signing → optional pay; abort on decision=block.
   Honesty: price_kind with price; leftover 0.05 is not a unit price; wash_flagged
@@ -19,7 +19,7 @@ description: |
   merchant track-record at GET /v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.05 USDC).
   TRIGGERS: should I pay this, is this wallet safe, check seller, x402 preflight, scam
   check, counterparty risk, wallet reputation, trust score, verify receipt, before
-  paying, solana wallet check, agent trust, readiness card, wash flagged, merchant card,
+  paying, solana wallet check, base wallet check, agent trust, readiness card, wash flagged, merchant card,
   resource join, discover x402, facilitator settle, merchant attach, track record,
   laso, agentX402Pay, managed wallet, product listing check, check_listing,
   shopping check, before buying a product, listing claims
@@ -51,7 +51,7 @@ metadata:
 
 # TWZRD Trust — discover callables, then evaluate the seller
 
-> **Never send path templates.** Do not paste `:pubkey`, `{pubkey}`, `{seller_wallet}`, `SELLER_WALLET` or `PAY_TO_WALLET` as a value. Substitute a real base58 payTo from `accepts[].payTo`; the preflight rejects templates with `TEMPLATE_PLACEHOLDER_NOT_REPLACED`.
+> **Never send path templates.** Do not paste `:pubkey`, `{pubkey}`, `{seller_wallet}`, `SELLER_WALLET` or `PAY_TO_WALLET` as a value. Substitute the real payTo from `accepts[].payTo` (Solana base58 or Base 0x); the preflight rejects templates with `TEMPLATE_PLACEHOLDER_NOT_REPLACED`.
 
 > **Paste-ready Path A scores TWZRD.** `GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` is TWZRD's payTo (USDC lands there) and the only example wallet we control. A paste of `/quick|/trust|/merchant/` + that address is an own-wallet smoke, not a check of the seller you are about to pay. Before a real pay, put that seller's `accepts[].payTo` in the path. `expectedPayTo` stays TWZRD.
 
@@ -121,7 +121,7 @@ Most agents stop after free discovery and believe the loop is closed. It is not.
 Complete the **protection loop** when you control signing:
 
 ```bash
-# 1) FREE preflight on the seller you might pay (real base58 payTo only)
+# 1) FREE preflight on the seller you might pay (real payTo: Solana base58 or Base 0x)
 curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
   -H 'content-type: application/json' \
   -d '{"seller_wallet":"46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe","price_usdc":0.002,"agent_intent":"preflight"}'
@@ -317,8 +317,9 @@ curl -sS "https://intel.twzrd.xyz/v1/intel/marketplace" | head -c 600
 `readiness_card` or `decision`. Take
 a real `pay_to` / `accepts[].payTo` and `POST /v1/intel/preflight` — that is the
 only free surface with `readiness_card.decision`, `trust_score`, `caveats[]`,
-and `next_action.command`. Swap in any Solana seller `payTo` from a live 402
-challenge (base58 only).
+and `next_action.command`. Swap in any seller `payTo` from a live 402 challenge:
+a Solana base58 wallet or a Base 0x address. Paid /quick and /trust still need a
+Solana subject wallet.
 
 ## The rules (defaults, not optional niceties)
 

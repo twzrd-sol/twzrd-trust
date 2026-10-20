@@ -12,6 +12,14 @@ The other toolkit APIs below remain available with their existing defaults.
 
 Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
+**Networks.** The free checks score x402 sellers on Solana mainnet and Base mainnet
+(`eip155:8453`), and the gate runs the scored preflight on both. The paid `/quick` and
+`/trust` hops accept payment on either chain but score a Solana seller wallet only, so
+signed V7 receipts cover Solana sellers. Other EVM chains are recognized but not scored.
+The examples below use the Solana seat; see the gate's
+[network table](./twzrd-x402-gate/README.md#networks-solana-mainnet-and-base-mainnet-scored)
+for Base.
+
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
 **Spend-control SDK (npm)** • [`twzrd-x402-gate@0.12.3`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.1`](https://www.npmjs.com/package/x402-solana)  
 **Live MCP** • https://intel.twzrd.xyz/mcp (streamable HTTP; free tools for x402 service checks and product-listing checks)  
