@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import importlib
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from counsel_orchestration import decide, discover_agents
+
+# The package re-exports decide(), which shadows the submodule attribute.
+FOLD = importlib.import_module("counsel_orchestration.decide")
 
 RULES = (
     "refusal belongs in the gate and not in the mood of an empty queue or a deadline",
@@ -63,6 +70,21 @@ class DiscoverTest(unittest.TestCase):
         self.assertEqual(bodies, other)
         for rule in RULES:
             self.assertIn(rule, bodies)
+
+    def test_unreadable_order_refuses_instead_of_raising(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for agent in discover_agents():
+                source = Path(agent["path"])
+                text = source.read_text(encoding="utf-8")
+                if agent["name"] == "familiar-face":
+                    text = text.replace("order: 4", "order: four")
+                (root / source.name).write_text(text, encoding="utf-8")
+            with mock.patch.object(FOLD, "agents_dir", return_value=root):
+                result = decide(allow_record())
+        self.assertEqual(result["verdict"], "refuse")
+        self.assertEqual(result["refusing_role"], "discovery")
+        self.assertFalse(result["payout_authorized"])
 
 
 class DecideTest(unittest.TestCase):
@@ -178,6 +200,34 @@ class DecideTest(unittest.TestCase):
             self.assertEqual(first["refusing_role"], "evidence-only")
             self.assertEqual(first["skipped"], [])
             self.assertFalse(first["payout_authorized"])
+
+    def test_a_flag_that_is_not_a_boolean_is_not_evidence(self) -> None:
+        # None means "not evaluated", never "clean"; 1 and "true" are not True.
+        cases = {
+            "gate-drought": ("pressure_requests_override",),
+            "inscription": (
+                "parses_cleanly",
+                "signature_valid",
+                "signer_verified",
+                "signer_pinned",
+                "self_attested",
+            ),
+            "settlement-not-delivery": ("settlement_visible", "delivery_evidence"),
+            "familiar-face": ("known_name_vouches", "unknown_key", "unknown_key_verified"),
+            "collapsed-time": ("must_decide_now", "receipt_thin"),
+            "one-eyed-verifier": ("reported_as_full_verification",),
+            "evidence-only": ("claim_wider_than_evidence", "quick_integration_called_traction"),
+        }
+        for role, fields in cases.items():
+            for field in fields:
+                for value in (None, 0, 1, "true", "false"):
+                    record = allow_record()
+                    record[field] = value
+                    result = decide(record)
+                    with self.subTest(field=field, value=value):
+                        self.assertEqual(result["verdict"], "refuse")
+                        self.assertEqual(result["refusing_role"], role)
+                        self.assertFalse(result["payout_authorized"])
 
     def test_deadline_or_empty_queue_does_not_loosen_a_refusal(self) -> None:
         calm = allow_record()

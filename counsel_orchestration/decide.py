@@ -28,7 +28,9 @@ evidence-only
     traction.
 
 Allow only when every role allows. The first refusal or hand-to-human stops
-the fold and names the roles that were not reached.
+the fold and names the roles that were not reached. A flag that is present
+but not a boolean is not evidence: None means "not evaluated", never "clean",
+so the role reading it refuses.
 """
 
 from __future__ import annotations
@@ -71,9 +73,13 @@ def _parse_agent(text: str, path: Path) -> dict:
     body = text[end + len("\n---\n") :]
     if "name" not in meta or "order" not in meta:
         raise DiscoveryError(f"{path.name} is missing name or order")
+    try:
+        order = int(meta["order"])
+    except ValueError:
+        raise DiscoveryError(f"{path.name} order is not an integer") from None
     return {
         "name": meta["name"],
-        "order": int(meta["order"]),
+        "order": order,
         "body": body,
         "path": str(path),
     }
@@ -134,6 +140,20 @@ def _refuse_missing(role: str, missing: list[str], present: list[str]) -> dict:
     )
 
 
+def _not_bool(record: dict, fields: tuple[str, ...]) -> list[str]:
+    return [field for field in fields if not isinstance(record[field], bool)]
+
+
+def _refuse_not_bool(role: str, untyped: list[str], present: list[str]) -> dict:
+    return _outcome(
+        role,
+        "refuse",
+        "not a boolean, so not evidence: " + ", ".join(untyped),
+        present,
+        [],
+    )
+
+
 def gate_drought(record: dict) -> dict:
     role = "gate-drought"
     required = ("pressure_requests_override",)
@@ -173,6 +193,9 @@ def inscription(record: dict) -> dict:
     present = [field for field in fields if field in record]
     if missing:
         return _refuse_missing(role, missing, present)
+    untyped = _not_bool(record, fields)
+    if untyped:
+        return _refuse_not_bool(role, untyped, present)
     pinned = record["signer_pinned"] is True
     self_attested = record["self_attested"] is True
     structurally_valid = (
@@ -208,6 +231,9 @@ def settlement_not_delivery(record: dict) -> dict:
     present = [field for field in fields if field in record]
     if missing:
         return _refuse_missing(role, missing, present)
+    untyped = _not_bool(record, fields)
+    if untyped:
+        return _refuse_not_bool(role, untyped, present)
     if record["settlement_visible"] is True and record["delivery_evidence"] is not True:
         return _outcome(
             role,
@@ -232,6 +258,9 @@ def familiar_face(record: dict) -> dict:
     present = [field for field in fields if field in record]
     if missing:
         return _refuse_missing(role, missing, present)
+    untyped = _not_bool(record, fields)
+    if untyped:
+        return _refuse_not_bool(role, untyped, present)
     if record["unknown_key"] is True and record["unknown_key_verified"] is not True:
         return _outcome(
             role,
@@ -256,6 +285,9 @@ def collapsed_time(record: dict) -> dict:
     present = [field for field in fields if field in record]
     if missing:
         return _refuse_missing(role, missing, present)
+    untyped = _not_bool(record, fields)
+    if untyped:
+        return _refuse_not_bool(role, untyped, present)
     if record["must_decide_now"] is True:
         return _outcome(
             role,
@@ -274,6 +306,9 @@ def one_eyed_verifier(record: dict) -> dict:
     present = [field for field in fields if field in record]
     if missing:
         return _refuse_missing(role, missing, present)
+    untyped = _not_bool(record, ("reported_as_full_verification",))
+    if untyped:
+        return _refuse_not_bool(role, untyped, present)
     scope = record["check_scope"]
     if scope != "full":
         return _outcome(
@@ -293,6 +328,9 @@ def evidence_only(record: dict) -> dict:
     present = [field for field in fields if field in record]
     if missing:
         return _refuse_missing(role, missing, present)
+    untyped = _not_bool(record, fields)
+    if untyped:
+        return _refuse_not_bool(role, untyped, present)
     if (
         record["claim_wider_than_evidence"] is True
         or record["quick_integration_called_traction"] is True
