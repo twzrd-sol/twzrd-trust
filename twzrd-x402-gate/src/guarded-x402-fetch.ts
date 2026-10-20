@@ -1,4 +1,5 @@
 import { isTwzrdAutoGateDisabled } from "./auto-gate.js";
+import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
 import { toMicroUsd } from "./intent.js";
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
 import {
@@ -27,6 +28,13 @@ export type GuardedX402FetchOptions = {
   twzrd?: Omit<InstallX402ClientHookOptions, "x402Fetch"> & { disabled?: boolean };
   /** Injectable clock for deterministic host-side integrations. */
   now?: () => number;
+  /**
+   * Opt-in local fulfillment record for each paid call: who was paid, the
+   * settlement tx, who the seller says served, and readiness. Never sent
+   * anywhere; never changes what is allowed or refused. Pass
+   * `createFileFulfillmentLog(path).record` to keep a JSONL file.
+   */
+  onFulfillment?: (record: FulfillmentRecord) => void;
 };
 
 type SpendEntry = { at: number; micro: bigint };
@@ -81,7 +89,10 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   const maxPerCall = parseLimit(options.maxPricePerCall, "maxPricePerCall");
   const hourlyCap = parseLimit(options.hourlyBudgetCap, "hourlyBudgetCap");
   const recipients = options.allowedRecipients;
-  const fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const transport = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const fetchImpl = options.onFulfillment
+    ? wrapFetchRecordFulfillment(transport, options.onFulfillment)
+    : transport;
   const now = options.now ?? Date.now;
   const entries: SpendEntry[] = [];
   let pendingMicro = 0n;
