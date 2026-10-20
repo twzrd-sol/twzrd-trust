@@ -4,7 +4,7 @@ Start with [the buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
 It runs an offline blocked payment with the official x402 client, records the
 reason locally, and shows where to put the wrapper around a configured signer.
 The new entry point is pending release; use this checkout or its verified
-tarball. Published 0.12.1 does not include `createBuyerFetch`.
+tarball. Published 0.12.2 does not include `createBuyerFetch`.
 
 ```bash
 npm ci

@@ -4,7 +4,7 @@ Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
 allowlist, mandatory free preflight, and a local decision record before signing.
 
 The new `createBuyerFetch` entry point is implemented in this checkout, pending
-release; published `0.12.1` does not include it. Start with the
+release; published `0.12.2` does not include it. Start with the
 [runnable buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
 The other toolkit APIs below remain available with their existing defaults.
 
