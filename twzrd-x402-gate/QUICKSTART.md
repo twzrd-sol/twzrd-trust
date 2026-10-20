@@ -1,12 +1,18 @@
 # Quickstart: refuse before signing
 
-This checkout adds `createBuyerFetch` and `twzrd-buyer-demo`. They are pending
-release and are **not present in npm 0.12.2**. The source and its packed artifact
-can be tested now without spending.
+`createBuyerFetch` and `twzrd-buyer-demo` ship in `twzrd-x402-gate@0.12.3`. Both
+run without spending.
 
 ## 1. Run one blocked payment
 
-From the repository root:
+In an ESM project:
+
+```bash
+npm install twzrd-x402-gate@0.12.3 @x402/core @x402/fetch
+npx twzrd-buyer-demo
+```
+
+Or from a clone of this repository:
 
 ```bash
 npm ci
@@ -25,9 +31,10 @@ the decision to `.twzrd/demo-decisions.jsonl` in the package directory:
 No wallet, network, signup or API key is needed. This is a fixture run, not
 evidence of an outside agent or a live payment.
 
-## 2. Test an install
+## 2. Test an unpublished build
 
-Pack from this checkout's `twzrd-x402-gate/` directory:
+To try a change before it reaches npm, pack from this checkout's
+`twzrd-x402-gate/` directory:
 
 ```bash
 npm pack --ignore-scripts
@@ -36,7 +43,7 @@ npm pack --ignore-scripts
 In a separate consumer directory, install the resulting tarball and peers:
 
 ```bash
-npm install /path/to/twzrd-x402-gate-0.12.2.tgz @x402/core @x402/fetch
+npm install /path/to/twzrd-x402-gate-0.12.3.tgz @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -94,13 +101,13 @@ is unreachable the gate never *invents* a wash flag. A failed preflight, or a me
 outage on a scored path, blocks by default (`TWZRD_FAIL_OPEN=true` to allow). A reachable
 card with no wash signal still proceeds.
 
-**Pin:** `twzrd-x402-gate@0.12.2` + stock PayAI client `x402-solana@3.0.1` (official
+**Pin:** `twzrd-x402-gate@0.12.3` + stock PayAI client `x402-solana@3.0.1` (official
 `beforePayment` seat). `@x402/core` Path E remains supported; refuse script is fallback.
 
 ## 1. Stock PayAI client (default seat — copy-paste)
 
 ```bash
-npm install twzrd-x402-gate@0.12.2 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.12.3 x402-solana@3.0.1
 ```
 
 > **ESM-only.** The package ships `import` conditions only — a CommonJS
@@ -125,7 +132,7 @@ Then: `await client.fetch("https://merchant.example/paid");`
 ## 1b. Official `@x402/core` client (Path E)
 
 ```bash
-npm install twzrd-x402-gate@0.12.2 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.12.3 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
