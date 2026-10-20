@@ -11,10 +11,10 @@
 >   Paid `GET /v1/intel/checkout-brief` ($0.001) binds your cart_hash. Purchase completion and delivery are not verified.
 
 > Primary settlement rail: **Solana**. Free read-only scoring also covers **Base**
-> (EIP-3009 USDC settlements, high-confidence bucket). Paid V7 receipts remain
-> Solana-settlement only.
-> Some paid x402 routes also accept Base USDC. Each 402 challenge is authoritative
-> for that call's network, asset, amount, and payTo; select a complete accepts[] entry.
+> (EIP-3009 USDC). /quick (no receipt) and /trust take a Solana subject wallet only;
+> both settle on Solana or Base and /trust issues its V7 receipt on either rail.
+> Each 402 challenge is authoritative for network, asset, amount and payTo; select a
+> complete accepts[] entry.
 
 > TWZRD is a pre-sign risk-policy layer for x402 payments: observed settlement
 > reputation feeds `allow | warn | block` before the wallet signs.
@@ -29,15 +29,15 @@
 
 Install the gate in your x402 client so a `block` verdict refuses the payment
 before your wallet ever signs - the refusal itself is the product working.
-Primary seat: `twzrd-x402-gate@0.12.0` + `x402-solana@3.0.1`. Hook runs after
+Primary seat: `twzrd-x402-gate@0.12.3` + `x402-solana@3.0.1`. Hook runs after
 requirement selection, before `signTransaction`. Path B success = refuse
 transcript (`signer_invocation_count=0`), not `day0.gate_evals` or free_card_hits.
 
 ```bash
-npm install twzrd-x402-gate@0.12.0 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.12.3 x402-solana@3.0.1
 # Prove refuse-before-sign. The gate's OPTIONAL peers are not auto-installed by
 # npm, so on a cold machine run the full line first:
-#   npm install twzrd-x402-gate@0.12.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+#   npm install twzrd-x402-gate@0.12.3 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 
@@ -186,8 +186,7 @@ Optional Path A curl examples: /llms-full.txt.
 - `GET /v1/intel/checkout-brief?product=&cart_hash=&declared_unit_price=` — 0.001 USDC. One listing next_hop. Does not pay the merchant.
 
 `seller_wallet=` or `X-TWZRD-Seller-Wallet` identifies the settle-gate counterparty
-on trust routes; market routes use `merchant=`. Omit them and the gate has nothing
-to evaluate. x402 v2: unpaid → `payment-required`; sign an `accepts` entry; retry
+on trust routes; market routes use `merchant=`. Omit them and the gate cannot evaluate. x402 v2: unpaid → `payment-required`; sign an `accepts` entry; retry
 with `payment-signature`. Payer holds USDC; fee payer sponsors gas only.
 
 ### Market-data discovery
@@ -211,14 +210,14 @@ logs a would-block and still settles). Path B = buyer AutoGate refuse.
 
 ### Receipt and re-call contract
 
-V7 (current issuance; V5 and V6 still verify) = keccak256 leaf + Ed25519 over raw
+V7 (current issuance; V5/V6 still verify) = keccak256 leaf + Ed25519 over the
 leaf bytes. Verify offline with
 `npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS` or
 `POST /v1/receipts/verify`. Freshness
-(`recheck_after_unix`, `staleness_days`, `score_decay_model`) is untrusted
-(not leaf-bound; `unauthenticated_fields`). `evaluateRecall(receipt)` is the
-consumer gate (`action: untrusted-recheck` on earlier V5/V6 receipts). Do not treat raw
-`recheck_after_unix` / `due` as a trusted allow. Stale ≠ invalid.
+(`recheck_after_unix`, `staleness_days`, `score_decay_model`): leaf-bound on V7
+(edits fail verification, `unauthenticated_fields` empty); unbound and listed
+there on V5/V6. `evaluateRecall` gates re-calls (`untrusted-recheck` on V5/V6).
+Never treat `recheck_after_unix` / `due` as a trusted allow. Stale ≠ invalid.
 Watch lane: `twzrd_watch_add` / `POST /v1/intel/watch` (twzrd-watch/v1 control proof) re-check when due and POST `twzrd.watch.recheck_due` on change; detail on /llms-full.txt.
 
 ### Trust gate semantics (twzrd-agent-intel service v0.5.13)
