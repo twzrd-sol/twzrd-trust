@@ -28,7 +28,7 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## Unreleased
+## 0.12.2 - 2026-10-20 (opt-in local fulfillment record)
 
 - **New opt-in `onFulfillment` option on `createGuardedX402Fetch`.** After a paid call it builds one local record: `paid_to`, `network` and `amount_atomic` from the signed requirement, `tx` and `settled` from `PAYMENT-RESPONSE`, and the seller-reported `served_by` (`provider` or `model`), `failover_hops`, `ready`, `job_status` and `job_id`, with a `verdict` of `match`, `pending`, `mismatch` (with `reasons`) or `not_reported`. `ready: false` with a non-terminal status is `pending`, not a failure. It makes no network call and changes no allow/refuse outcome; without the option nothing is recorded.
 - **New exports:** `buildFulfillmentRecord`, `wrapFetchRecordFulfillment`, `createFileFulfillmentLog` (append-only JSONL), `modelMatches`, `FULFILLMENT_RECORD_SCHEMA` (`twzrd.fulfillment.v1`), `FULFILLMENT_MAX_BODY_BYTES` and their types. Only named fields are copied from a response body, the resource is kept as its origin, event streams and JSON bodies over 1 MiB record header fields only, and a failing sink never reaches the pay path.

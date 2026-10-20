@@ -1,7 +1,7 @@
 # TWZRD Security & Trust Assurance
 
-**Applies to:** `twzrd-x402-gate@0.12.1`, TWZRD Agent Intelligence, and V7 trust receipts  
-**Last verified:** 2026-09-12, against 0.11.2. The install pin is now 0.12.1 (docs and metadata only over 0.12.0), which carries the 0.11.3 and 0.11.4 security fixes and the 0.12.0 opt-in refusal of unknown wash coverage, `refuseWashUnknown` (gate `CHANGELOG.md`) and requires `x402-solana@>=3.0.1`; 0.11.2 and 0.11.3 are deprecated on npm.  
+**Applies to:** `twzrd-x402-gate@0.12.2`, TWZRD Agent Intelligence, and V7 trust receipts  
+**Last verified:** 2026-09-12, against 0.11.2. The install pin is now 0.12.2 (opt-in local fulfillment record over 0.12.1; no allow/refuse change), which carries the 0.11.3 and 0.11.4 security fixes and the 0.12.0 opt-in refusal of unknown wash coverage, `refuseWashUnknown` (gate `CHANGELOG.md`) and requires `x402-solana@>=3.0.1`; 0.11.2 and 0.11.3 are deprecated on npm.  
 **Disclosure Policy:** [SECURITY.md](../SECURITY.md)
 
 This document states the security properties TWZRD implements, the evidence an evaluator can independently reproduce, and the explicit trust boundaries of the system.
