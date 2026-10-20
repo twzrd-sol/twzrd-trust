@@ -12,6 +12,7 @@ import {
   classifyNetwork,
   decideUnsupportedNetwork,
   logUnsupportedNetwork,
+  solanaCluster,
 } from "./network.js";
 import { randomUUID } from "node:crypto";
 import { withDeadline } from "./deadline.js";
@@ -24,6 +25,19 @@ import type {
   TwzrdPreflightInput,
   TwzrdReadinessCard,
 } from "./types.js";
+
+/**
+ * True only for a Solana devnet or testnet named by its CAIP-2 genesis id,
+ * bare or `solana:`-prefixed, with no devnet/testnet/localnet keyword.
+ * Keyword forms are already unscored in classifyNetwork.
+ */
+function strictRefusesGenesisCluster(network: string | undefined | null): boolean {
+  if (network == null) return false;
+  const n = String(network).trim().toLowerCase();
+  if (!n || n.includes("devnet") || n.includes("testnet") || n.includes("localnet")) return false;
+  const cluster = solanaCluster(network);
+  return cluster === "devnet" || cluster === "testnet";
+}
 
 /** First paid hop on warn. Ignore live paid_trust_endpoint ($0.05 V7). */
 function warnUpsellHop(
@@ -444,7 +458,15 @@ export async function twzrdApprovePayment(
   // (eip155:8453) are scored. Other EVM networks are not: they do not run
   // twzrdPreflight. Observe still runs wash. A wash_flagged payTo on an
   // unscored network still refuses before sign.
-  const netCls = classifyNetwork(context.chain, context.payTo ?? context.sellerWallet);
+  const classified = classifyNetwork(context.chain, context.payTo ?? context.sellerWallet);
+  // classifyNetwork keeps a bare Solana devnet/testnet CAIP-2 genesis id scored
+  // so harnesses and the USDC table still share solanaCluster. Strict mode
+  // refuses that id before preflight. Keyword devnet/testnet/localnet is
+  // already unscored and does not take this branch. Observe never does.
+  const netCls =
+    cfg.unsupportedNetworkMode === "strict" && strictRefusesGenesisCluster(context.chain)
+      ? { ...classified, reputationScored: false, reason: "network_not_scored" }
+      : classified;
   if (!netCls.reputationScored) {
     const undecided = decideUnsupportedNetwork(netCls, cfg.unsupportedNetworkMode);
     const unsupportedLog = (policyAction: "allow" | "block") =>

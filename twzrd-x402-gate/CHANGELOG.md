@@ -28,6 +28,23 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.12.5 (strict mode refuses a Solana devnet or testnet genesis id)
+
+A patch under the security-defect rule above. Not 0.13.0. Default `observe`
+outcomes do not change. The `refuseWashUnknown` default flip stays reserved
+for 0.13.0.
+
+- **Strict mode refuses a Solana devnet or testnet named only by its CAIP-2
+  genesis id** (`etwtrabzayq6imfeykouru166vu2xqa1`,
+  `4uhcvjyu9pjkvqys88urdiswhxscky3z`, bare or `solana:`-prefixed, any case)
+  with `network_not_scored` before preflight. `classifyNetwork` still reports
+  those ids as reputation-scored, so harnesses on the default `observe` path
+  still reach preflight, and devnet USDC mint matching is unchanged. A name
+  that contains `devnet`, `testnet`, or `localnet` was already unscored. The
+  mainnet genesis id stays scored under strict. `createBuyerFetch` hard-codes
+  strict, so it picks this refusal up. Other entry points pick it up only when
+  they set `unsupportedNetworkMode: "strict"`.
+
 ## 0.12.4 - 2026-10-20 (createBuyerFetch expectedAmount)
 
 A patch release under the policy above: the two refusals (`expected_amount_mismatch`,

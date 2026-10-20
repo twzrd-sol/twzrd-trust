@@ -329,6 +329,99 @@ async function run() {
     assert.equal(signed, 0);
   }
 
+  // --- strict refuses a Solana devnet/testnet named only by its CAIP-2 genesis id ---
+  // classifyNetwork still scores those ids. Observe still reaches preflight.
+  {
+    const DEVNET_ID = "etwtrabzayq6imfeykouru166vu2xqa1";
+    const TESTNET_ID = "4uhcvjyu9pjkvqys88urdiswhxscky3z";
+    const MAINNET_ID = "5eykt4usfv8p8njdtrepy1vzqkqzkvdp";
+    const seller = "SeLLeRWa11et1111111111111111111111111111111";
+    for (const id of [DEVNET_ID, `solana:${DEVNET_ID}`, TESTNET_ID, `solana:${TESTNET_ID}`]) {
+      assert.equal(classifyNetwork(id).reputationScored, true, id);
+      assert.equal(classifyNetwork(id.toUpperCase()).reputationScored, true, id);
+    }
+    assert.equal(classifyNetwork("solana:devnet").reputationScored, false);
+    assert.equal(classifyNetwork(MAINNET_ID).reputationScored, true);
+
+    const probe = (mode: "strict" | "observe") => {
+      let preflight = 0;
+      const fetchImpl: typeof fetch = async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/intel/preflight")) {
+          preflight += 1;
+          return new Response(
+            JSON.stringify({
+              readiness_card: {
+                decision: "allow",
+                trust_score: 90,
+                can_spend: true,
+                recommended_cap_usdc: 1,
+                seller_wallet: seller,
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ wash_flagged: false, confidence: "full", ring_evaluated: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      };
+      return {
+        cfg: resolveConfig({
+          unsupportedNetworkMode: mode,
+          failOpen: false,
+          refuseWashFlagged: true,
+          fetch: fetchImpl,
+        }),
+        preflight: () => preflight,
+      };
+    };
+
+    for (const chain of [
+      DEVNET_ID,
+      `solana:${DEVNET_ID}`,
+      `SOLANA:${DEVNET_ID.toUpperCase()}`,
+      TESTNET_ID,
+      `solana:${TESTNET_ID.toUpperCase()}`,
+    ]) {
+      const { cfg, preflight } = probe("strict");
+      const r = await twzrdApprovePayment(
+        { payTo: seller, chain, priceUsdc: 0.001, agentIntent: "genesis_strict" },
+        cfg,
+      );
+      assert.equal(r.approved, false, chain);
+      assert.equal(r.reason, "network_not_scored", chain);
+      assert.equal(preflight(), 0, chain);
+    }
+
+    const observe = probe("observe");
+    const allowed = await twzrdApprovePayment(
+      { payTo: seller, chain: `solana:${DEVNET_ID}`, priceUsdc: 0.001, agentIntent: "genesis_observe" },
+      observe.cfg,
+    );
+    assert.equal(observe.preflight(), 1);
+    assert.notEqual(allowed.reason, "network_not_scored");
+
+    const keyword = probe("strict");
+    const kw = await twzrdApprovePayment(
+      { payTo: seller, chain: "solana:devnet", priceUsdc: 0.001, agentIntent: "keyword_devnet" },
+      keyword.cfg,
+    );
+    assert.equal(kw.approved, false);
+    assert.equal(kw.reason, "network_not_scored");
+    assert.equal(keyword.preflight(), 0);
+
+    const mainnet = probe("strict");
+    const main = await twzrdApprovePayment(
+      { payTo: seller, chain: `solana:${MAINNET_ID.toUpperCase()}`, priceUsdc: 0.001, agentIntent: "mainnet_genesis_strict" },
+      mainnet.cfg,
+    );
+    assert.notEqual(main.reason, "network_not_scored");
+    assert.notEqual(main.reason, "network_missing");
+    assert.equal(mainnet.preflight(), 1);
+  }
+
   console.log("network.test.ts: ALL PASSED");
 }
 
