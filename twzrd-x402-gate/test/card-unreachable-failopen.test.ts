@@ -17,7 +17,7 @@
  * The two unknowns are NOT the same and this pins both:
  *   unreachable        -> decided by failOpen (fail-closed by default)
  *   reachable, no flag -> allow by default (the no-invent rule). With the opt-in
- *                         refuseWashUnknown (0.12.0; default in a later minor) it refuses as
+ *                         refuseWashUnknown (0.12.0; default from 0.13.0) it refuses as
  *                         twzrd_wash_unknown. Never reported as an outage, failOpen does
  *                         not decide it, and washFlagged stays null either way.
  *

@@ -12,7 +12,7 @@ export type ResolvedTwzrdGateConfig = {
   intelTimeoutMs: number;
   /** Default true: refuse when free merchant_card.wash_flagged */
   refuseWashFlagged: boolean;
-  /** Default false (opt in; planned default in a later minor, see CHANGELOG): refuse a reachable card whose wash coverage is missing, partial or stale. */
+  /** Default false in 0.12.x (opt in; planned default in 0.13.0): refuse a reachable card whose wash coverage is missing, partial or stale. */
   refuseWashUnknown: boolean;
   /** Soft cap USDC when wash_flagged; null = hard refuse */
   washMaxUsdc: number | null;
@@ -121,7 +121,7 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
   // answered the wash question (no card, partial/unknown confidence, ring not
   // evaluated, stale) refuses with twzrd_wash_unknown, the rule wash-default.ts
   // already applies. Default off because intel reports partial coverage for every
-  // scored Solana seller today; the default flips in a later minor (see CHANGELOG).
+  // scored Solana seller today; the default flips in 0.13.0 (see CHANGELOG).
   // Opt in: refuseWashUnknown:true or TWZRD_REFUSE_WASH_UNKNOWN=1|true.
   const refuseWashUnknown = strictFlag(overrides?.refuseWashUnknown, process.env.TWZRD_REFUSE_WASH_UNKNOWN);
 

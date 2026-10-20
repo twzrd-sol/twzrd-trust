@@ -28,11 +28,12 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## 0.13.0 - 2026-10-20 (createBuyerFetch expectedAmount)
+## 0.12.4 - 2026-10-20 (createBuyerFetch expectedAmount)
 
-A minor release because it adds refusals (`expected_amount_mismatch`,
-`expected_amount_unavailable`). They apply only when `expectedAmount` is set;
-no other entry point and no existing default changes.
+A patch release under the policy above: the two refusals (`expected_amount_mismatch`,
+`expected_amount_unavailable`) apply only when `expectedAmount` is set. No other entry
+point and no existing default changes. The 0.13.0 minor stays reserved for the
+`refuseWashUnknown` default flip.
 
 - **`createBuyerFetch` takes an optional `expectedAmount`.** `maxPricePerCall` is
   a ceiling, so a $1,000 challenge passed a $1,000 cap. With `expectedAmount`
@@ -49,10 +50,10 @@ no other entry point and no existing default changes.
   refusal-codes doc test reads `src/buyer-fetch.ts`, so its reasons cannot go
   undocumented again.
 - **The `refuseWashUnknown` default does not flip here.** The 0.12.0 entry
-  scheduled that flip for 0.13.0. It moves to a later minor release (0.14.0 at
-  the earliest), under the same condition: intel reports full coverage for
-  scored sellers without a wash finding, measured on the same sample. In 0.13.0
-  it stays off by default; strict consumers opt in as before.
+  scheduled that flip for 0.13.0, and this release leaves it there. The flip
+  ships in 0.13.0 under the same condition: intel reports full coverage for
+  scored sellers without a wash finding, measured on the same sample. Until
+  then, strict consumers opt in as before.
 
 ## 0.12.3 - 2026-10-20 (buyer front door: createBuyerFetch)
 
@@ -88,7 +89,7 @@ no other entry point and no existing default changes.
 
 - **New `refuseWashUnknown` option, default `false` in 0.12.x.** Opted in, on the reputation-scored path a merchant card that answered but has not fully answered the wash question refuses with `twzrd_wash_unknown`: no card (including a 4xx), wash confidence other than `full` (`partial_inbound_only`, `base_2cycle`, `unknown`, ...), `ring_evaluated: false`, or `wash_stale: true`. This is the rule `createTwzrdWashBeforePaymentHook` already applies; the full-preflight entry points (`createTwzrdBeforePaymentHook`, `wrapFetchWithTwzrdGate`, `evaluate_x402_resource`, `safeFetch`, `withTwzrdGuard`, auto-gate seats) can now apply it too. Measured wash keeps `twzrd_wash_flagged` and is checked first. Opt in with `refuseWashUnknown: true` or `TWZRD_REFUSE_WASH_UNKNOWN=1|true|yes|on`; an explicit option wins over the env. It only applies while `refuseWashFlagged` is on.
 - **Why it is off by default: partial coverage is the normal state for clean scored sellers today.** Sample, 2026-10-10: the first page of `/v1/intel/resources` (200 of 28,925 active resources, 122 distinct sellers), each seller's merchant card read live. Of the 27 sellers with a 90-day settlement graph, none has full coverage without a wash finding: 19 report `partial_inbound_only` with no wash flag, 7 report `partial_inbound_only` and are wash-flagged, and the only one with full coverage is itself wash-flagged. The catalog's only tier-B provider (83 payers in 90 days) is among the 19. Of the 95 sellers with no settlement graph, 81 cards report `full` (77 with `wash_flagged: false`). Turned on today, the check would refuse every scored seller that has no wash finding while passing most sellers nobody has paid.
-- **Flip schedule.** `refuseWashUnknown` becomes `true` by default in **0.13.0**, a minor release with its own entry here, so `^0.12.0` never receives the new default. 0.13.0 ships only when intel reports full coverage (`full`, ring evaluated, not stale) for scored sellers without a wash finding, measured on the same sample. Until then, strict consumers opt in. (Moved: 0.13.0 shipped `expectedAmount` without the flip; see the 0.13.0 entry.)
+- **Flip schedule.** `refuseWashUnknown` becomes `true` by default in **0.13.0**, a minor release with its own entry here, so `^0.12.0` never receives the new default. 0.13.0 ships only when intel reports full coverage (`full`, ring evaluated, not stale) for scored sellers without a wash finding, measured on the same sample. Until then, strict consumers opt in.
 - **Not an outage.** Opted in, a card that answered is never reported as `twzrd_card_unreachable_fail_closed`, and `failOpen` does not open `twzrd_wash_unknown`. An unreachable card (5xx, 429, non-JSON, throw, timeout) is still decided by `failOpen`. The unsupported-network observe path is never refused for coverage.
 - **Wash seat timeout 3000 -> 2000 ms** (`createTwzrdWashBeforePaymentHook` default and the `TWZRD_WASH_TIMEOUT_MS` fallback), matching the gate's `intelTimeoutMs`. A lookup slower than 2 s is an outage, decided by `failOpen` (fail-closed by default); this is the allow/refuse change that makes 0.12.0 a minor release.
 - **`decideSolanaConsumerAction` (consumer-adjacency router, not exported) fails closed**: wash, unknown wash (`washFlagged` null or absent) and a missing or unknown preflight decision refuse; only a clean `warn` pays capped. It previously paid on a missing decision and capped on wash.

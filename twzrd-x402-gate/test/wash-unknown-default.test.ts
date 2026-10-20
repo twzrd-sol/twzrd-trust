@@ -1,5 +1,5 @@
 /**
- * 0.12.0: refuseWashUnknown (opt in; default false until a later minor flips it, see CHANGELOG).
+ * 0.12.0: refuseWashUnknown (opt in; default false in 0.12.x, true from 0.13.0).
  * When on, a merchant card on the reputation-scored path that answered but has not
  * fully answered the wash question refuses with twzrd_wash_unknown, the rule
  * wash-default.ts already applies. Off, partial coverage passes as in 0.11.x. An
