@@ -41,6 +41,11 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - Decision-ledger background flush failures remain observable through an
   awaited `flush()` without an unhandled rejection; callers that explicitly
   flush can opt out of the process `beforeExit` listener.
+- `createBuyerFetch` accepts the same opt-in `onFulfillment` as
+  `createGuardedX402Fetch`: one local row per paid call, recorded on the raw
+  transport under the front door. No network call; no allow/refuse change.
+- Two fail-closed warnings in `twzrdApprovePayment` no longer suggest setting
+  `TWZRD_FAIL_OPEN=true`; the outcome is unchanged.
 
 ## 0.12.2 - 2026-10-20 (opt-in local fulfillment record)
 

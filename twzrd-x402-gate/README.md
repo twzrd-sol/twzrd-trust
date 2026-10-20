@@ -7,7 +7,7 @@ cannot answer. Keep the reason in a local JSONL file.
 ## Start here: a blocked payment, no wallet
 
 `createBuyerFetch` and `twzrd-buyer-demo` are new in this checkout and are **not
-in the published 0.12.1 package**. Build this source or install its reviewed
+in the published 0.12.2 package**. Build this source or install its reviewed
 tarball; a registry release is still required for a normal npm install.
 
 From the repository root:
@@ -30,7 +30,7 @@ To test the install outside this workspace, pack from `twzrd-x402-gate/` with
 `npm pack --ignore-scripts`. In an ESM consumer directory:
 
 ```bash
-npm install /path/to/twzrd-x402-gate-0.12.1.tgz @x402/core @x402/fetch
+npm install /path/to/twzrd-x402-gate-0.12.2.tgz @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 

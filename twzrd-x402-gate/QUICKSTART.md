@@ -1,7 +1,7 @@
 # Quickstart: refuse before signing
 
 This checkout adds `createBuyerFetch` and `twzrd-buyer-demo`. They are pending
-release and are **not present in npm 0.12.1**. The source and its packed artifact
+release and are **not present in npm 0.12.2**. The source and its packed artifact
 can be tested now without spending.
 
 ## 1. Run one blocked payment
@@ -36,7 +36,7 @@ npm pack --ignore-scripts
 In a separate consumer directory, install the resulting tarball and peers:
 
 ```bash
-npm install /path/to/twzrd-x402-gate-0.12.1.tgz @x402/core @x402/fetch
+npm install /path/to/twzrd-x402-gate-0.12.2.tgz @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 

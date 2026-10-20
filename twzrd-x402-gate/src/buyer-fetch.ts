@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { resolve } from "node:path";
 import { resolveConfig } from "./config.js";
 import { createFileDecisionLedger, type DecisionLedgerRow } from "./decision-ledger-file.js";
+import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
 import { toMicroUsd } from "./intent.js";
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
@@ -31,6 +32,11 @@ export type BuyerFetchOptions = {
   intelBase?: string;
   /** Timeout for each free intelligence call. Default: 2000ms. */
   intelTimeoutMs?: number;
+  /**
+   * Opt-in local fulfillment record for each paid call, as on
+   * `createGuardedX402Fetch`. Never sent anywhere; never changes a decision.
+   */
+  onFulfillment?: (record: FulfillmentRecord) => void;
 };
 
 export class BuyerFetchBlockedError extends Error {
@@ -95,12 +101,13 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
   if (!reservations) pending.set(ledger, (reservations = new Map()));
   const inFlight = reservations;
   const attempts = new AsyncLocalStorage<Attempt>();
-  const raw = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const base = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const raw = options.onFulfillment ? wrapFetchRecordFulfillment(base, options.onFulfillment) : base;
   // These guarantees are explicit, independent of legacy TWZRD_* bypasses.
   const cfg = resolveConfig({
     intelBase: options.intelBase ?? "https://intel.twzrd.xyz",
     intelTimeoutMs: options.intelTimeoutMs ?? 2000,
-    fetch: options.preflightFetch ?? raw,
+    fetch: options.preflightFetch ?? base,
     failOpen: false,
     blockDecisions: ["block"],
     preflightMinScore: 40,

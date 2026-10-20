@@ -6,6 +6,7 @@ import test from "node:test";
 import { x402Client } from "@x402/fetch";
 import type { PaymentRequired, SchemeNetworkClient } from "@x402/core/types";
 import { createBuyerFetch, BuyerFetchBlockedError } from "../src/buyer-fetch.js";
+import type { FulfillmentRecord } from "../src/fulfillment-record.js";
 import { createFileSpendLedger, __resetSharedFileSpendLedgers } from "../src/spend-ledger-file.js";
 
 const NETWORK = "eip155:8453" as const;
@@ -274,4 +275,43 @@ test("Solana mainnet USDC uses the same pre-sign policy and preserves recipient 
       assert.equal(h.state.signs, 0);
     }
   }
+});
+
+test("onFulfillment keeps one local row for an approved paid call and none for a refusal", async () => {
+  const tx = "0x" + "ab".repeat(32);
+  const settle = Buffer.from(JSON.stringify({ success: true, transaction: tx, network: NETWORK })).toString("base64");
+  const withSettle = (inner: typeof fetch): typeof fetch => async (input, init) => {
+    const response = await inner(input, init);
+    if (!new Request(input, init).headers.has("payment-signature")) return response;
+    return new Response(JSON.stringify({ model: "m-1" }), {
+      status: 200, headers: { "content-type": "application/json", "PAYMENT-RESPONSE": settle },
+    });
+  };
+  const nextRecord = (records: FulfillmentRecord[]) => new Promise<void>((resolve, reject) => {
+    const poll = setInterval(() => { if (records.length) { clearTimeout(timer); clearInterval(poll); resolve(); } }, 5);
+    const timer = setTimeout(() => { clearInterval(poll); reject(new Error("no fulfillment record within 2s")); }, 2000);
+  });
+
+  const h = setup();
+  const records: FulfillmentRecord[] = [];
+  const guarded = createBuyerFetch({ ...h.config, fetch: withSettle(h.transport), onFulfillment: r => records.push(r) });
+  assert.equal((await guarded(URL)).status, 200);
+  await nextRecord(records);
+  assert.equal(records.length, 1, "the free preflight is not a paid call");
+  assert.equal(records[0].paid_to, SELLER);
+  assert.equal(records[0].tx, tx);
+  assert.equal(records[0].served_by, "m-1");
+  assert.equal(records[0].resource_origin, "https://merchant.example");
+  assert.equal(JSON.stringify(records[0]).includes("must-not-be-logged"), false);
+  assert.equal(h.state.signs, 1);
+
+  const over = setup({ amount: "50001" });
+  const none: FulfillmentRecord[] = [];
+  await assert.rejects(
+    createBuyerFetch({ ...over.config, fetch: withSettle(over.transport), onFulfillment: r => none.push(r) })(URL),
+    /price_cap_exceeded/,
+  );
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(none.length, 0);
+  assert.equal(over.state.signs, 0);
 });
