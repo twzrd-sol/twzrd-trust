@@ -56,9 +56,11 @@ export async function checkTrust(sellerWallet, config = {}) {
             : decision === "block"
                 ? `TWZRD preflight blocked (trust_score=${trustScore})`
                 : `trust_score ${trustScore} below min ${minScore}`;
+        const teaser = (card.paid_teaser ?? card.paid_quick_endpoint);
         const paidDeepDive = decision === "warn"
-            ? card.paid_trust_endpoint ??
-                `/v1/intel/trust/${sellerWallet}`
+            ? typeof teaser === "string" && teaser.includes("/quick")
+                ? teaser
+                : `/v1/intel/quick/${sellerWallet}`
             : undefined;
         const preflightId = typeof body.preflight_id === "number" ? body.preflight_id : undefined;
         return { sellerWallet, decision, trustScore, canSpend, blocked, reason, gateAvailable: true, paidDeepDive, preflightId };

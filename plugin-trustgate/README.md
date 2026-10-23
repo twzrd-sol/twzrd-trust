@@ -10,7 +10,7 @@ Buyer-side **x402 trust gate** for elizaOS agents. Before your agent signs a pay
 Current compatible fetch-gate release:
 
 ```bash
-npm install twzrd-x402-gate@0.12.4
+npm install twzrd-x402-gate@0.12.5
 ```
 
 The results below were captured on 2026-07-16, before `0.8.2` was published.
@@ -32,7 +32,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Transcript: gist above. Gate release at capture: `twzrd-x402-gate@0.8.6`.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Transcript: gist above. Repro: Gate release at capture: `twzrd-x402-gate@0.8.6`.
 
 This transcript demonstrates that the free gate blocked known wash sellers with
 stamped `preflight_id`s and zero spend on that date. It is **not** proof that
@@ -45,15 +45,18 @@ TWZRD's full free buyer sequence on the marketplace is:
 
 1. Free **preflight** ReadinessCard (this package implements this)
 2. Free **merchant_card** `wash_flagged` refuse (default on the product stack)
-3. Optional paid **V7 trust receipt** (~0.05 USDC)
-4. Optional facilitator **settle attach** when settle is routed through `intel.twzrd.xyz`
+3. First paid hop **GET /v1/intel/quick** (~0.001 USDC)
+4. Optional paid **V7 trust receipt** GET /v1/intel/trust (~0.05 USDC)
+5. Optional facilitator **settle attach** when settle is routed through `intel.twzrd.xyz`
 
 **This package only implements step 1** (preflight) + opt-in enforcement primitives.
 It does **not** call `GET /v1/intel/merchant_card` and does **not** auto-refuse on
-`wash_flagged` by itself. For merchant_card + wash refuse + paid trust actions, use
+`wash_flagged` by itself. For merchant_card + wash refuse + first paid hop `/quick`, use
 [`@wzrd_sol/eliza-plugin`](https://www.npmjs.com/package/@wzrd_sol/eliza-plugin)
 (`preSpendGate`, `WZRD_MERCHANT_CARD`). For fetch-level wrap of every 402, use
 [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate).
+
+> **0.3.10:** the first paid hop is now `GET /v1/intel/quick/{seller_payTo}` (0.001 USDC) instead of `/v1/intel/trust` (0.05 USDC); V7 `/trust` stays optional. Fail-closed behavior is unchanged. See [CHANGELOG.md](./CHANGELOG.md).
 
 ## Install
 
@@ -63,7 +66,7 @@ npm install @wzrd_sol/plugin-trustgate
 
 Compatibility: `@elizaos/core >=1.0.0`. The package has no direct dependency on
 `twzrd-x402-gate`; the reproducible fetch-gate example above is pinned to the
-current `twzrd-x402-gate@0.12.4` release.
+current `twzrd-x402-gate@0.12.5` release.
 
 ## Use (3 lines)
 
@@ -73,11 +76,9 @@ const agent = { plugins: [trustGatePlugin /* ...your others */] };   // 1. agent
 if (!(await canSpendSafely(payTo))) throw new Error("TWZRD: blocked seller"); // 2. hard stop before signing
 ```
 
-This directory in the public mirror is **`dist/` only** — there is no
-`examples/` tree here. Install the published package
-(`npm install @wzrd_sol/plugin-trustgate`) or use hosted MCP
-`https://intel.twzrd.xyz/mcp`. Do not run `npx tsx examples/first-installer.ts`
-from this checkout.
+Runnable end-to-end (no auth, no key): [`examples/first-installer.ts`](./examples/first-installer.ts) -
+`npx tsx examples/first-installer.ts`. Against the live gate it blocks a real
+wash-flagged seller (decision `block`) and proceeds on a clean one (decision `warn`).
 
 ## How it works
 
@@ -137,11 +138,8 @@ outage. Solana-only by default. Throws `TwzrdPayerChooserBlockedError` when all
 scoreable candidates are blocked — **no signature**.
 
 ```bash
-# published package only — this mirror has no examples/
-# npm run demo:faremeter-chooser --workspace=@wzrd_sol/plugin-trustgate
+npm run demo:faremeter-chooser --workspace=packages/plugin-trustgate
 ```
-
-That script is not startable from this public-mirror checkout.
 
 ## Facilitator operators
 
@@ -180,4 +178,4 @@ if (!(await canSpendSafely(payTo))) { /* refuse to settle */ }
 
 Optional product pitch (not implemented in this package): settling **through** TWZRD
 (`POST https://intel.twzrd.xyz/settle`) may attach free merchant intel + receipt for
-`payTo` - see live `GET /supported` `twzrd` block.
+`payTo` - see live `GET /supported` `twzrd` block. Note: as of 2026-08-19 that settle rail also runs a server-side trust gate - below-threshold sellers are refused (402, `charged:false`, no tx), not only attach-enriched. Read `settle_gate_enforcing` on `/health`.
