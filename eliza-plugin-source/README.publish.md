@@ -145,8 +145,8 @@ Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
   `getWzrdClient` and `clearClientCache`. The plugin no longer reads `SOLANA_PRIVATE_KEY` or `WZRD_API_URL`.
 - `WZRD_INTEL_TRUST` spends only with `WZRD_INTEL_ALLOW_PAID=true` or `confirm_spend: true`.
 - `WZRD_MERCHANT_CARD` is fail-closed when the card is unavailable (`refuse_pay: true`).
-- A paid trust lookup also refuses, with no spend, when that card lookup does not answer. A card that answers with incomplete wash coverage is reported, not refused, on gate 0.12.0 (`refuseWashUnknown` stays opt-in until 0.13.0).
-- Depends on `twzrd-x402-gate` exactly `0.12.0`. Fetches this plugin owns stamp `X-Twzrd-Caller: eliza-plugin/<version>@0.12.0`.
+- A paid trust lookup also refuses, with no spend, when that card lookup does not answer. A card that answers with incomplete wash coverage is reported, not refused, on gate 0.12.5 (`refuseWashUnknown` stays opt-in until 0.13.0).
+- Depends on `twzrd-x402-gate` exactly `0.12.5`. Fetches this plugin owns stamp `X-Twzrd-Caller: eliza-plugin/<version>@0.12.5`.
 
 ## Programmatic SDK usage
 

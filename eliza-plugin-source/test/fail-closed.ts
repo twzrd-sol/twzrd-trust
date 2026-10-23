@@ -144,8 +144,8 @@ describe('merchant_card is fail-closed', () => {
         cb,
       );
       assert.ok(headers);
-      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.8.0@${GATE_PIN}`);
-      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.8.0');
+      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.8.1@${GATE_PIN}`);
+      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.8.1');
       assert.equal(headers.get('X-TWZRD-Client'), `twzrd-x402-gate/${GATE_PIN}`);
       assert.ok((headers.get('X-TWZRD-Run-Id') ?? '').length > 0);
     } finally {
@@ -288,12 +288,12 @@ describe('paid trust needs a spend confirmation', () => {
 });
 
 describe('gate pin', () => {
-  it('depends on twzrd-x402-gate exactly 0.12.0', () => {
+  it('depends on twzrd-x402-gate exactly 0.12.5', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.12.0');
-    assert.equal(GATE_PIN, '0.12.0');
+    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.12.5');
+    assert.equal(GATE_PIN, '0.12.5');
   });
 });
 
