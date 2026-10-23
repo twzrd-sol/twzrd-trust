@@ -6,11 +6,11 @@ const require = createRequire(import.meta.url);
 /** This package's version, stamped into X-TWZRD-Integration on gate lookups. */
 export const PLUGIN_VERSION = require('../package.json').version;
 /** Exact twzrd-x402-gate pin. A caret would float onto a later line. */
-export const GATE_PIN = '0.12.0';
+export const GATE_PIN = '0.12.5';
 export function integrationTag() {
     return `eliza-plugin/${PLUGIN_VERSION}`;
 }
-/** Seat stamp: X-Twzrd-Caller eliza-plugin/<version>@0.12.0. */
+/** Seat stamp: X-Twzrd-Caller eliza-plugin/<version>@0.12.5. */
 export function callerTag() {
     return `${integrationTag()}@${GATE_PIN}`;
 }

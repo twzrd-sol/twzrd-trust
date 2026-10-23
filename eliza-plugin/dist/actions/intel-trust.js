@@ -85,7 +85,7 @@ export const intelTrustAction = {
                 };
             }
             // The SDK returns allow=true with merchantCard=null when the card lookup
-            // cannot finish. 0.12.0 does not refuse unknown coverage; a missing card does.
+            // cannot finish. 0.12.x does not refuse unknown coverage; a missing card does.
             if (gate.merchantCard == null) {
                 await callback?.({
                     text: `Merchant card unavailable for ${pubkey}, so the wash check could not finish. ` +

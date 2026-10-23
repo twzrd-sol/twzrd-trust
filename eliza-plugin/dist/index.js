@@ -8,7 +8,7 @@ export const intelActions = [
     intelTrustAction,
     verifyReceiptAction,
 ];
-const INTEL_DESCRIPTION = 'WZRD Agent Intel — free ReadinessCard preflight + free merchant_card wash refuse (default), ' +
+const INTEL_DESCRIPTION = 'TWZRD Agent Intel — free ReadinessCard preflight + free merchant_card wash refuse (default), ' +
     'then optional x402-paid V7 trust receipt (~0.05 USDC, needs WZRD_INTEL_ALLOW_PAID or confirm_spend) + ' +
     'offline verify via twzrd-receipt-verifier. ' +
     'Legacy V6 verification is labeled freshness=derived_from_timestamp. ' +
