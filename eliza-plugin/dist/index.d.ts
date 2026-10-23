@@ -1,5 +1,5 @@
 /**
- * @wzrd_sol/eliza-plugin-source — V7-migrated WZRD Agent Intel for ElizaOS
+ * @wzrd_sol/eliza-plugin-source — V7-migrated TWZRD Agent Intel for ElizaOS
  *
  * Intel lane (default https://intel.twzrd.xyz):
  *   WZRD_INTEL_PREFLIGHT → WZRD_MERCHANT_CARD → WZRD_INTEL_TRUST → WZRD_VERIFY_RECEIPT
