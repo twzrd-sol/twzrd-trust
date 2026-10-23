@@ -121,16 +121,6 @@ jobs:
           npm publish --access public --provenance
 
       - name: Verify against the live registry
-        run: |
-          EXPECTED="${{ steps.ver.outputs.expected }}"
-          for i in $(seq 1 18); do
-            LIVE=$(npm view @wzrd_sol/eliza-plugin@"$EXPECTED" version 2>/dev/null || true)
-            if [ "$LIVE" = "$EXPECTED" ]; then
-              echo "Verified live: @wzrd_sol/eliza-plugin@$LIVE (attempt $i)"
-              exit 0
-            fi
-            echo "Attempt $i/18: registry does not show $EXPECTED yet, retrying in 10s..."
-            sleep 10
-          done
-          echo "::error::Registry still does not show $EXPECTED after 3 minutes -- publish may have failed."
-          exit 1
+        # Run 39886755826: 18×10s ended 2026-10-23T01:59:31Z; npm recorded
+        # 0.8.1 at 2026-10-23T02:00:32Z. The script's default 36×10s covers that.
+        run: bash scripts/verify-live-npm-version.sh @wzrd_sol/eliza-plugin "${{ steps.ver.outputs.expected }}"
