@@ -3,8 +3,8 @@
 Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
 allowlist, mandatory free preflight, and a local decision record before signing.
 
-The `createBuyerFetch` entry point ships from `twzrd-x402-gate@0.12.3`; its `expectedAmount`
-quote binding needs `twzrd-x402-gate@0.12.4`. Start with the
+The `createBuyerFetch` entry point and its `expectedAmount` quote binding ship in
+`twzrd-x402-gate@0.12.5`. Start with the
 [runnable buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
 The other toolkit APIs below remain available with their existing defaults.
 
@@ -21,11 +21,18 @@ The examples below use the Solana seat; see the gate's
 [network table](./twzrd-x402-gate/README.md#networks-solana-mainnet-and-base-mainnet-scored)
 for Base.
 
-**Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
+**Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · ClawHub skill `twzrd-trust`  
 **Spend-control SDK (npm)** • [`twzrd-x402-gate@0.12.5`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.1`](https://www.npmjs.com/package/x402-solana)<br>
 **Live MCP** • https://intel.twzrd.xyz/mcp (streamable HTTP; free tools for x402 service checks and product-listing checks)  
 **Shopping check** • free `check_listing` on the hosted MCP · report: https://twzrd.xyz/shopping-check/vuori-kore/  
 **Agent contract** • https://intel.twzrd.xyz/llms.txt · https://intel.twzrd.xyz/.well-known/agent.json
+
+### What's live, what's a pilot
+
+- **Live on mainnet:** the hosted checks (`https://intel.twzrd.xyz/mcp` and the REST routes below), `twzrd-x402-gate` on npm, the offline `twzrd-receipt-verifier`, and the no-spend demo at `/v1/intel/demo-gate`.
+- **Solana first:** the free checks score sellers on Solana and Base, but the paid `/quick` and `/trust` hops score a Solana seller wallet only, so signed V7 receipts cover Solana sellers.
+- **Pilot:** product-listing checks run against a single listing-evidence pilot card; vouch-mode calibration ([#5](https://github.com/twzrd-sol/twzrd-trust/issues/5)) and token-safety previews ([#207](https://github.com/twzrd-sol/twzrd-trust/issues/207), [#214](https://github.com/twzrd-sol/twzrd-trust/issues/214)) are open work.
+- **Not claimed:** identity of a person, company or agent; checkout, purchase completion or delivery. See [What TWZRD does not claim](#how-the-pieces-fit).
 
 ---
 
@@ -226,6 +233,8 @@ curl -sS https://intel.twzrd.xyz/mcp \
   | jq '.result.structuredContent | {result, reason, price_check, needs_approval, authorizes_spend}'
 ```
 
+This example assumes the reference card is current. If it has lapsed, the call returns `result: "expired"` instead.
+
 Expected output while the reference card is current and advertises $78:
 ```json
 {
@@ -262,7 +271,7 @@ What a card is, and what it is not:
   sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
   ```
 
-- **Paid, optional:** `GET https://intel.twzrd.xyz/v1/intel/checkout-brief` ($0.001 USDC via x402) returns a brief tied to the card, with your `cart_hash` copied in, for a buyer-approved Shop Pay checkout. TWZRD does not check the hash against any cart. The brief carries `needs_approval` and `authorizes_spend: false`, and it does not pay the merchant. A product URL that does not match the card, or an expired card, returns 404 before any 402; a declared price above the advertised one returns 409 before any 402.
+- **Paid, optional:** `GET https://intel.twzrd.xyz/v1/intel/checkout-brief` ($0.001 USDC via x402) returns a brief tied to the card, with your `cart_hash` copied in, for a human to review before they check out. TWZRD never opens or completes a checkout. TWZRD does not check the hash against any cart. The brief carries `needs_approval` and `authorizes_spend: false`, and it does not pay the merchant. A product URL that does not match the card, or an expired card, returns 404 before any 402; a declared price above the advertised one returns 409 before any 402.
 
 ---
 
@@ -273,8 +282,8 @@ What a card is, and what it is not:
 | `twzrd-x402-gate` | **@0.12.5** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
-| `twzrd-mcp-server` | **@0.5.7** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
-| `@wzrd_sol/plugin-trustgate` | **@^0.3.9** | Eliza / facilitator adapter |
+| `twzrd-mcp-server` | **@0.6.0** (npm; this tree mirrors 0.5.7) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
+| `@wzrd_sol/plugin-trustgate` | **@^0.3.10** | Eliza / facilitator adapter |
 
 - **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 - **Step-by-step Guide:** [QUICKSTART.md](./QUICKSTART.md)
