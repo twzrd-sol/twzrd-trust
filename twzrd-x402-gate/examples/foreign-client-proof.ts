@@ -50,7 +50,7 @@ import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 
-import { installTwzrdX402ClientHook } from "../src/x402-client-hook.js";
+import { createTwzrdBeforePaymentHook, installTwzrdX402ClientHook, type InstallX402ClientHookOptions } from "../src/x402-client-hook.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const addr = (fill: number) => getAddressDecoder().decode(new Uint8Array(32).fill(fill));
@@ -62,6 +62,12 @@ export const SELLER_REFUSE = addr(4);
 /** USDC devnet mint, matching the fixtures' devnet network so @x402/core (>=2.23) spend controls
  *  recognize it as a default asset and the TWZRD hook is what decides. Nothing is read from chain. */
 export const ASSET = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+export const MAINNET_ASSET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+export const MAINNET_NETWORK = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+// Both mainnet fixture sellers are on-curve, as the stock client's ATA builder requires.
+export const MAINNET_SELLER_REFUSE = addr(6);
+export type ProofClient = "official" | "x402-solana";
+export type FixtureProfile = "devnet" | "mainnet";
 const MINT_DECIMALS = 6;
 /** 82-byte SPL mint account the fixture RPC serves for ASSET. */
 const MINT_ACCOUNT_B64 = getBase64Decoder().decode(
@@ -87,6 +93,7 @@ export type X402Requirement = {
   asset: string;
   amount: string;
   payTo: string;
+  maxTimeoutSeconds: number;
   extra?: Record<string, unknown>;
 };
 
@@ -99,10 +106,14 @@ export type SignerCall = {
   amountMicro: string;
 };
 
-export type GateDecision = { approved: boolean; reason: string; payTo?: string; network?: string; amountMicro?: string };
+export type GateDecision = { approved: boolean; reason: string; verdict: string; payTo?: string; network?: string; amountMicro?: string };
 
 export type ProofRun = {
   kind: "allow" | "refuse";
+  client: ProofClient;
+  fixtureProfile: FixtureProfile;
+  resource: string;
+  rpcMethods: string[];
   requirement: X402Requirement;
   /** ATA of the payTo the gate approved — what an unswapped signature must target. */
   expectedDestinationAta: string;
@@ -145,15 +156,18 @@ function b64(value: unknown): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64");
 }
 
-function loadFixture(kind: "allow" | "refuse", origin: string): { x402Version: number; resource: { url: string }; accepts: X402Requirement[] } {
-  const raw = readFileSync(join(HERE, "..", "test", "fixtures", `foreign-402-${kind}.json`), "utf8");
+function loadFixture(kind: "allow" | "refuse", origin: string, profile: FixtureProfile = "devnet"): { x402Version: number; resource: { url: string }; accepts: X402Requirement[] } {
+  const suffix = profile === "mainnet" ? "-mainnet" : "";
+  const raw = readFileSync(join(HERE, "..", "test", "fixtures", `foreign-402-${kind}${suffix}.json`), "utf8");
   const parsed = JSON.parse(raw.replaceAll("{{ORIGIN}}", origin)) as { x402Version: number; resource: { url: string }; accepts: X402Requirement[] };
   // Drift guard: the fixture must name the asset the fixture RPC actually
   // serves and the merchant the INTEL table has a card for. Without this a
   // fixture edit turns the proof green for the wrong reason.
   const req = parsed.accepts[0];
-  const expectedPayTo = kind === "allow" ? SELLER_ALLOW : SELLER_REFUSE;
-  if (req?.asset !== ASSET) throw new Error(`fixture ${kind}: asset ${req?.asset} != served mint ${ASSET}`);
+  const expectedPayTo = kind === "allow" ? SELLER_ALLOW : profile === "mainnet" ? MAINNET_SELLER_REFUSE : SELLER_REFUSE;
+  const expectedAsset = profile === "mainnet" ? MAINNET_ASSET : ASSET;
+  if (req?.asset !== expectedAsset) throw new Error(`fixture ${kind}: asset ${req?.asset} != served mint ${expectedAsset}`);
+  if (profile === "mainnet" && req.network !== MAINNET_NETWORK) throw new Error(`fixture ${kind}: wrong mainnet network`);
   if (req?.payTo !== expectedPayTo) throw new Error(`fixture ${kind}: payTo ${req?.payTo} has no INTEL card (expected ${expectedPayTo})`);
   return parsed;
 }
@@ -163,9 +177,10 @@ function loadFixture(kind: "allow" | "refuse", origin: string): { x402Version: n
  * the paid merchant (spec-shaped 402, then 200 once a PAYMENT-SIGNATURE
  * arrives) and the Solana JSON-RPC that ExactSvmScheme reads the mint from.
  */
-async function startOrigin(kind: "allow" | "refuse") {
+async function startOrigin(kind: "allow" | "refuse", profile: FixtureProfile) {
   let signedRequests = 0;
   let accepted: X402Requirement | null = null;
+  const rpcMethods: string[] = [];
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
@@ -175,28 +190,33 @@ async function startOrigin(kind: "allow" | "refuse") {
         res.writeHead(status, { "content-type": "application/json", ...headers }).end(JSON.stringify(body));
 
       if (req.method === "POST" && req.url === "/rpc") {
-        const rpc = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { id: number; method: string };
-        const result =
-          rpc.method === "getAccountInfo"
+        const rpc = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { id: number; method: string; params?: string[] };
+        rpcMethods.push(rpc.method);
+        const asset = profile === "mainnet" ? MAINNET_ASSET : ASSET;
+        const result = rpc.method === "getLatestBlockhash"
+          ? { context: { slot: 1 }, value: { blockhash: addr(7), lastValidBlockHeight: 100 } }
+          : rpc.method === "getAccountInfo"
             ? {
                 context: { apiVersion: "offline-fixture", slot: 1 },
                 value: {
-                  data: [MINT_ACCOUNT_B64, "base64"],
+                  data: [rpc.params?.[0] === asset ? MINT_ACCOUNT_B64 : Buffer.alloc(165).toString("base64"), "base64"],
                   executable: false,
                   lamports: 1_000_000,
                   owner: TOKEN_PROGRAM_ADDRESS,
                   rentEpoch: 0,
-                  space: 82,
+                  space: rpc.params?.[0] === asset ? 82 : 165,
                 },
               }
             : null;
-        return json(200, { jsonrpc: "2.0", id: rpc.id, result });
+        return result === null
+          ? json(200, { jsonrpc: "2.0", id: rpc.id, error: { code: -32601, message: "offline fixture: unsupported RPC method" } })
+          : json(200, { jsonrpc: "2.0", id: rpc.id, result });
       }
 
       if (req.url === `/paid/${kind}`) {
         const signature = req.headers["payment-signature"];
         if (!signature) {
-          const required = loadFixture(kind, origin);
+          const required = loadFixture(kind, origin, profile);
           return json(402, required, { "PAYMENT-REQUIRED": b64(required) });
         }
         signedRequests += 1;
@@ -211,21 +231,32 @@ async function startOrigin(kind: "allow" | "refuse") {
       res.writeHead(404).end();
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
     origin,
     signedRequests: () => signedRequests,
     accepted: () => accepted,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    rpcMethods,
+    close: () => new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+      server.closeAllConnections();
+    }),
   };
 }
 
 /** Stubbed TWZRD intel: answers /v1/intel/preflight from the INTEL table. No egress. */
-function intelStub(): typeof fetch {
+function intelStub(profile: FixtureProfile): typeof fetch {
   return (async (_url: string, init?: RequestInit) => {
+    if (new URL(String(_url)).pathname !== "/v1/intel/preflight") throw new Error("unexpected fixture intel endpoint");
     const body = JSON.parse(String(init?.body ?? "{}")) as { seller_wallet?: string };
-    const card = INTEL[body.seller_wallet ?? ""] ?? { decision: "warn", can_spend: false, trust_score: 0 };
+    const card = profile === "mainnet" && body.seller_wallet === MAINNET_SELLER_REFUSE
+      ? { decision: "block", can_spend: false, trust_score: 10, seller_wallet: MAINNET_SELLER_REFUSE }
+      : INTEL[body.seller_wallet ?? ""];
+    if (!card) throw new Error("fixture seller has no intel card");
     return new Response(JSON.stringify({ readiness_card: card }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -243,79 +274,117 @@ function intelStub(): typeof fetch {
  */
 export async function runForeignClientProof(
   kind: "allow" | "refuse",
-  opts: { installGate?: boolean; tamperAfterGate?: boolean } = {},
+  opts: { installGate?: boolean; tamperAfterGate?: boolean; client?: ProofClient; fixtureProfile?: FixtureProfile } = {},
 ): Promise<ProofRun> {
-  const fixtureOrigin = await startOrigin(kind);
-  const decisions: GateDecision[] = [];
-  const signerCalls: SignerCall[] = [];
-  let signerInvocations = 0;
-
-  const countingSigner = {
-    address: BUYER,
-    async signTransactions(transactions: ReadonlyArray<{ messageBytes: Uint8Array }>) {
-      signerInvocations += 1;
-      for (const tx of transactions) signerCalls.push(decodeTransferChecked(tx.messageBytes));
-      return transactions.map(() => ({ [BUYER]: new Uint8Array(64) }));
-    },
-  };
-
-  const requirement = loadFixture(kind, fixtureOrigin.origin).accepts[0];
-  const [expectedDestinationAta] = await findAssociatedTokenPda({
-    mint: requirement.asset as never,
-    owner: requirement.payTo as never,
-    tokenProgram: TOKEN_PROGRAM_ADDRESS,
-  });
-
-  const client = new x402Client();
-  client.register(requirement.network as never, new ExactSvmScheme(countingSigner as never, { rpcUrl: `${fixtureOrigin.origin}/rpc` }));
-  if (opts.installGate !== false) {
-    installTwzrdX402ClientHook(client as never, {
-      gateOnCanSpend: true,
-      refuseWashFlagged: false,
-      preflightMinScore: 40,
-      fetch: intelStub(),
-      onDecision: (d) =>
-        decisions.push({ approved: d.approved, reason: d.reason, payTo: d.payTo, network: d.network, amountMicro: d.amountMicro }),
-    });
+  const fixtureProfile = opts.fixtureProfile ?? "devnet";
+  const clientKind = opts.client ?? "official";
+  if (clientKind === "x402-solana" && (fixtureProfile !== "mainnet" || opts.tamperAfterGate)) {
+    throw new Error("stock-client proof supports the mainnet fixture without hook-chain mutation only");
   }
-
-  // TOCTOU control. @x402/core runs beforePaymentCreation hooks in registration
-  // order and then appends the SCHEME's own hook after every manual one
-  // (getLabeledHooks in @x402/core/client), so code can always run after TWZRD.
-  // installTwzrdX402ClientHook evaluates a shallow COPY of selectedRequirements
-  // (pickReq, src/x402-client-hook.ts:202) while the client keeps the mutable
-  // original, so a later hook can rewrite the recipient after approval. This
-  // flag reproduces that; it is a documented limitation, not a TWZRD entry point.
-  if (opts.tamperAfterGate) {
-    (client as unknown as { onBeforePaymentCreation: (h: (c: { selectedRequirements: Record<string, unknown> }) => Promise<void>) => void })
-      .onBeforePaymentCreation(async (ctx) => {
-        ctx.selectedRequirements.payTo = SELLER_REFUSE;
-      });
-  }
-  const paidFetch = wrapFetchWithPayment(fetch, client as never);
-  let status: number | null = null;
-  let error: string | null = null;
+  const fixtureOrigin = await startOrigin(kind, fixtureProfile);
   try {
-    status = (await paidFetch(`${fixtureOrigin.origin}/paid/${kind}`, { method: "GET" })).status;
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
-  }
-  const originSignedRequests = fixtureOrigin.signedRequests();
-  const originAccepted = fixtureOrigin.accepted();
-  await fixtureOrigin.close();
+    const decisions: GateDecision[] = [];
+    const signerCalls: SignerCall[] = [];
+    let signerInvocations = 0;
 
-  return {
-    kind,
-    requirement,
-    expectedDestinationAta,
-    decisions,
-    signerInvocations,
-    signerCalls,
-    originSignedRequests,
-    originAccepted,
-    status,
-    error,
-  };
+    const countingSigner = {
+      address: BUYER,
+      async signTransactions(transactions: ReadonlyArray<{ messageBytes: Uint8Array }>) {
+        signerInvocations += 1;
+        for (const tx of transactions) signerCalls.push(decodeTransferChecked(tx.messageBytes));
+        return transactions.map(() => ({ [BUYER]: new Uint8Array(64) }));
+      },
+    };
+
+    const fixture = loadFixture(kind, fixtureOrigin.origin, fixtureProfile);
+    const requirement = fixture.accepts[0];
+    const [expectedDestinationAta] = await findAssociatedTokenPda({
+      mint: requirement.asset as never,
+      owner: requirement.payTo as never,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+
+    const gateOptions: InstallX402ClientHookOptions = {
+        gateOnCanSpend: true,
+        blockDecisions: ["block"],
+        failOpen: false,
+        refuseUnevaluated: false,
+        refuseWashFlagged: false,
+        refuseWashUnknown: false,
+        unsupportedNetworkMode: fixtureProfile === "mainnet" ? "strict" : "observe",
+        preflightMinScore: 40,
+        intelBase: "https://offline-fixture.invalid",
+        fetch: intelStub(fixtureProfile),
+        requireReceipt: false,
+        escalateOnWarn: false,
+        onDecision: (d) =>
+          decisions.push({ approved: d.approved, reason: d.reason, verdict: d.verdict, payTo: d.payTo, network: d.network, amountMicro: d.amountMicro }),
+    };
+    const client = new x402Client();
+    client.register(requirement.network as never, new ExactSvmScheme(countingSigner as never, { rpcUrl: `${fixtureOrigin.origin}/rpc` }));
+    if (opts.installGate !== false) installTwzrdX402ClientHook(client, gateOptions);
+
+    // TOCTOU control. @x402/core runs beforePaymentCreation hooks in registration
+    // order and then appends the SCHEME's own hook after every manual one
+    // (getLabeledHooks in @x402/core/client), so code can always run after TWZRD.
+    // installTwzrdX402ClientHook evaluates a shallow COPY of selectedRequirements
+    // (pickReq, src/x402-client-hook.ts:202) while the client keeps the mutable
+    // original, so a later hook can rewrite the recipient after approval. This
+    // flag reproduces that; it is a documented limitation, not a TWZRD entry point.
+    if (opts.tamperAfterGate) {
+      (client as unknown as { onBeforePaymentCreation: (h: (c: { selectedRequirements: Record<string, unknown> }) => Promise<void>) => void })
+        .onBeforePaymentCreation(async (ctx) => {
+          ctx.selectedRequirements.payTo = SELLER_REFUSE;
+        });
+    }
+    let paidFetch: (input: string, init?: RequestInit) => Promise<Response> = wrapFetchWithPayment(fetch, client);
+    if (clientKind === "x402-solana") {
+      const { createX402Client } = await import("x402-solana/client");
+      const stock = createX402Client({
+        network: "solana",
+        rpcUrl: `${fixtureOrigin.origin}/rpc`,
+        customFetch: fetch,
+        wallet: {
+          address: BUYER,
+          async signTransaction(transaction) {
+            signerInvocations += 1;
+            signerCalls.push(decodeTransferChecked(transaction.message.serialize()));
+            // The supplied transaction has zero-filled signatures. No private key exists here.
+            return transaction;
+          },
+        },
+        ...(opts.installGate === false ? {} : { beforePayment: createTwzrdBeforePaymentHook(gateOptions) }),
+      });
+      paidFetch = (input, init) => stock.fetch(input, init);
+    }
+    let status: number | null = null;
+    let error: string | null = null;
+    try {
+      status = (await paidFetch(`${fixtureOrigin.origin}/paid/${kind}`, { method: "GET" })).status;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+    const originSignedRequests = fixtureOrigin.signedRequests();
+    const originAccepted = fixtureOrigin.accepted();
+    return {
+      kind,
+      client: clientKind,
+      fixtureProfile,
+      resource: fixture.resource.url,
+      rpcMethods: fixtureOrigin.rpcMethods,
+      requirement,
+      expectedDestinationAta,
+      decisions,
+      signerInvocations,
+      signerCalls,
+      originSignedRequests,
+      originAccepted,
+      status,
+      error,
+    };
+  } finally {
+    await fixtureOrigin.close();
+  }
 }
 
 export type Check = { name: string; ok: boolean; detail: string };
@@ -339,7 +408,9 @@ export function verifyForeignClientProof(run: ProofRun): Check[] {
       check("nothing_was_signed", run.signerCalls.length === 0, `signedMessages=${run.signerCalls.length}`),
       check("no_paid_request_reached_merchant", run.originSignedRequests === 0, `signedRequests=${run.originSignedRequests}`),
       check("no_payload_reached_merchant", run.originAccepted === null, `accepted=${JSON.stringify(run.originAccepted)}`),
-      check("refusal_surfaced_to_caller", run.status === null && /Payment creation aborted/.test(run.error ?? ""), `error=${run.error ?? "<none>"}`),
+      check("refusal_surfaced_to_caller", run.status === null && (run.client === "x402-solana"
+        ? /Payment aborted by beforePayment hook: \[twzrd\]/
+        : /Payment creation aborted/).test(run.error ?? ""), `error=${run.error ?? "<none>"}`),
       check("refusal_names_the_merchant", (run.error ?? "").includes(run.requirement.payTo), `payTo=${run.requirement.payTo}`),
     ];
   }
