@@ -14,7 +14,7 @@ mirrors, **not** buildable source:
 - `eliza-plugin-source/` — restored V7 Eliza plugin TypeScript (issue #90). Real
   `src/` + `test/`. Lint: `npm run typecheck --workspace=@wzrd_sol/eliza-plugin-source`.
   Test: `npm test --workspace=@wzrd_sol/eliza-plugin-source`. This is **not** the
-  public artifact. `@wzrd_sol/eliza-plugin@0.7.1` is the live npm line. Pack with
+  public artifact. `@wzrd_sol/eliza-plugin@0.8.1` is the live npm line. Pack with
   `npm run pack:eliza`. Publish via `.github/workflows/publish-eliza-plugin.yml`
   or an `eliza-plugin-v*` tag. Resync the mirror only from the live tarball:
   `node scripts/resync-eliza-plugin.mjs --version <live>`.
@@ -81,6 +81,6 @@ needs to re-sync divergence between the two packages, start from that PR.
   egress; they spend **no** USDC. If egress is blocked these demos fail even
   though unit tests pass.
 - `x402-solana` is an optional peer. Consumers install
-  `twzrd-x402-gate@0.12.4 x402-solana@3.0.1`. This checkout lists `x402-solana`
+  `twzrd-x402-gate@0.12.5 x402-solana@3.0.1`. This checkout lists `x402-solana`
   as a gate **devDependency** so the seat is present after root `npm ci`. It is
   still not required to typecheck, build, or run `gate-eval-refuse`.

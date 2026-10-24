@@ -1,5 +1,7 @@
 # Seller graph + pay-guard closeout (2026-07-12)
 
+> **Historical proof (package 0.5.4).** Mechanism evidence of its date, TWZRD-operated. The current package is `twzrd-x402-gate@0.12.5`; the current no-spend demonstration is `GET https://intel.twzrd.xyz/v1/intel/demo-gate`.
+
 **Status:** production-validated on `https://intel.twzrd.xyz` (package `0.5.4`; seatbelt unchanged from `0.5.3`).
 **Scope:** free discovery → merchant card → `next_action` → AutoGate block before sign.  
 **Not claimed:** settlement reliability, real funded allow-path, or third-party independent run (see scoreboard).

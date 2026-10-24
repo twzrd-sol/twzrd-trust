@@ -1,7 +1,7 @@
 # TWZRD Security & Trust Assurance
 
-**Applies to:** `twzrd-x402-gate@0.12.4`, TWZRD Agent Intelligence, and V7 trust receipts  
-**Last verified:** 2026-09-12, against 0.11.2. The install pin is now 0.12.4 (adds the opt-in `expectedAmount` refusal to `createBuyerFetch`; no allow/refuse change to the other entry points; 0.12.3 added the `createBuyerFetch` entry point and 0.12.2 the opt-in local fulfillment record), which carries the 0.11.3 and 0.11.4 security fixes and the 0.12.0 opt-in refusal of unknown wash coverage, `refuseWashUnknown` (gate `CHANGELOG.md`) and requires `x402-solana@>=3.0.1`; 0.11.2 and 0.11.3 are deprecated on npm.  
+**Applies to:** `twzrd-x402-gate@0.12.5`, TWZRD Agent Intelligence, and V7 trust receipts  
+**Last verified:** 2026-10-24 (live surfaces, registry versions, transparency-log anchors). The gate properties below were last re-verified against 0.11.2 on 2026-09-12. The install pin is now 0.12.5 (0.12.4 adds the opt-in `expectedAmount` refusal to `createBuyerFetch`; no allow/refuse change to the other entry points; 0.12.3 added the `createBuyerFetch` entry point and 0.12.2 the opt-in local fulfillment record), which carries the 0.11.3 and 0.11.4 security fixes and the 0.12.0 opt-in refusal of unknown wash coverage, `refuseWashUnknown` (gate `CHANGELOG.md`) and requires `x402-solana@>=3.0.1`; 0.11.2 and 0.11.3 are deprecated on npm.  
 **Disclosure Policy:** [SECURITY.md](../SECURITY.md)
 
 This document states the security properties TWZRD implements, the evidence an evaluator can independently reproduce, and the explicit trust boundaries of the system.
@@ -70,7 +70,7 @@ A valid receipt proves authorship and cryptographic integrity of the signed fiel
 - An unindexed seller is safe.
 - An off-chain resource delivered the promised data after settlement.
 - Unauthenticated advisory metadata (`recheck_after_unix`, `staleness_days`, `score_decay_model`) is current without comparing the signed `timestamp_unix` against relying-party max age policies.
-- The issuer did not equivocate. Non-equivocation requires the Receipt Transparency log, which is **live** under spec v0.1 (genesis 2026-09-03; `/v1/log/sth`, `/v1/log/proof/inclusion`, and inline `log_inclusion` on paid responses) — verify with [`twzrd-log-verifier`](../twzrd-log-verifier/). A receipt whose inclusion has not been verified still proves only authorship and integrity.
+- The issuer did not equivocate. Non-equivocation requires the Receipt Transparency log, which is **live** under spec v0.1 (genesis 2026-09-03; `/v1/log/sth`, `/v1/log/proof/inclusion`, `/v1/log/anchors`, and inline `log_inclusion` on paid responses) — verify inclusion and consistency with [`twzrd-log-verifier`](../twzrd-log-verifier/). A receipt whose inclusion has not been verified still proves only authorship and integrity.
 
 ---
 
@@ -78,4 +78,6 @@ A valid receipt proves authorship and cryptographic integrity of the signed fiel
 
 - No completed independent third-party SOC2 or smart contract audit is claimed (TWZRD runs zero smart contracts; all transfers use standard SPL Token).
 - Scoring coverage is focused on observed Solana x402 transactions. Unseen sellers receive conservative default treatment.
-- Receipt transparency is **live under spec v0.1 only** ([spec](./transparency-log.md), [`twzrd-log-verifier`](../twzrd-log-verifier/)): heads are signed under the single-key v0.1 domain by the receipt issuer key, and the descriptor carries no key directory, so the v0.2 rotation guarantees (`key_id` bound into the head; retired keys verify-only) are **not yet in force** — a key rotation today would require re-pinning. Nothing is **anchored on Solana** yet (`anchor_authority` is null): inclusion proves what the log committed to, not yet *when*, so backdating is not yet detectable. `twzrd-log-verifier` is not yet published to npm; run it from this repository.
+- Receipt transparency is **live under spec v0.1 only** ([spec](./transparency-log.md), [`twzrd-log-verifier`](../twzrd-log-verifier/)): heads are signed under the single-key v0.1 domain by the receipt issuer key, and the descriptor carries no key directory, so the v0.2 rotation guarantees (`key_id` bound into the head; retired keys verify-only) are **not yet in force** — a key rotation today would require re-pinning.
+- Tree heads **are anchored on Solana mainnet** (verified 2026-10-24: the descriptor names `anchor_authority`, `anchor_program_id` and `anchor_ledger_pda` with a 3600 s cadence, and `GET /v1/log/anchors` lists one anchor transaction per advanced tree head, the newest for `tree_size` 15). An anchored root bounds *when* a receipt existed, so backdating past an anchor is detectable. The live anchors are written through that on-chain program with the authority as signer; they carry no SPL Memo. The `anchor` subcommand of the in-repo `twzrd-log-verifier` checks the memo form described in the v0.2 spec draft and does not yet read the program form, so today an anchor is confirmed by reading the listed transaction on any mainnet RPC, not by that subcommand. Inclusion and consistency proofs verify as documented.
+- `twzrd-log-verifier` is not yet published to npm; run it from this repository.
