@@ -9,7 +9,8 @@
  *     signatures - you wire the guard into your spend path.
  *
  * Scores via FREE TWZRD preflight only (ReadinessCard). Does NOT call merchant_card;
- * for wash_flagged refuse + paid V6 trust, use @wzrd_sol/eliza-plugin or twzrd-x402-gate.
+ * for wash_flagged refuse + first paid hop GET /quick $0.001 (optional V7 /trust),
+ * use @wzrd_sol/eliza-plugin or twzrd-x402-gate.
  * Fail-closed by default (failOpen:false = block on preflight outage).
  *
  *   import { trustGatePlugin, canSpendSafely } from "@wzrd_sol/plugin-trustgate";

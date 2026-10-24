@@ -45,7 +45,7 @@ export function createTrustGateProvider(config = {}) {
             const v = await checkTrust(seller, config);
             const flag = v.blocked ? "BLOCK - do NOT pay" : v.decision.toUpperCase();
             const upsellHint = v.decision === "warn" && v.paidDeepDive
-                ? ` [upgrade: POST https://intel.twzrd.xyz${v.paidDeepDive} ($0.05 USDC) for full trust proof]`
+                ? ` [first paid hop: GET https://intel.twzrd.xyz${v.paidDeepDive} ($0.001 USDC). Optional V7 GET /v1/intel/trust $0.05]`
                 : "";
             return {
                 text: `TWZRD trust-gate: seller ${seller.slice(0, 6)}... -> ${flag} (score ${v.trustScore ?? "n/a"}). ${v.reason}${upsellHint}`,
