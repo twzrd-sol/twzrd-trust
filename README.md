@@ -28,7 +28,7 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 
 ## What is live, what is a pilot, what is not claimed
 
-- **Live on mainnet:** the hosted checks (`https://intel.twzrd.xyz/mcp` and the REST routes below), `twzrd-x402-gate` on npm, the offline `twzrd-receipt-verifier`, the receipt transparency log with hourly on-chain anchors, and the no-spend recorded demonstration at `/v1/intel/demo-gate`.
+- **Live on mainnet:** the hosted checks (`https://intel.twzrd.xyz/mcp` and the REST routes below), `twzrd-x402-gate` on npm, the offline `twzrd-receipt-verifier`, the receipt transparency log with on-chain anchors (one per advanced tree head, hourly cadence), and the no-spend recorded demonstration at `/v1/intel/demo-gate`.
 - **Networks:** the free checks score x402 sellers on Solana mainnet and Base mainnet (`eip155:8453`), and the gate runs the scored preflight on both. The paid `/quick` and `/trust` hops accept payment on either chain but score a Solana seller wallet only, so signed V7 receipts cover Solana sellers. Other EVM chains are recognized but not scored. The examples below use the Solana seat; see the gate's [network table](./twzrd-x402-gate/README.md#networks-solana-mainnet-and-base-mainnet-scored) for Base.
 - **Pilot:** the product-listing lane runs against a single listing-evidence card (Vuori Kore Short, Ink, US). Vouch-mode calibration ([#5](https://github.com/twzrd-sol/twzrd-trust/issues/5)) and token-safety previews ([#207](https://github.com/twzrd-sol/twzrd-trust/issues/207), [#214](https://github.com/twzrd-sol/twzrd-trust/issues/214)) are open work, not shipped features.
 - **Not yet attempted:** the [seven-day external integration milestone](./MILESTONE.md). Every proof in this repository is TWZRD-operated mechanism evidence, not outside adoption.
@@ -322,7 +322,7 @@ What a card is, and what it is not:
 
 ## Contributing and change control
 
-Issues and pull requests on this repository. A sample that does not run exactly as shown is a bug. Releases of `twzrd-x402-gate` ship only from the manual `publish` workflow with an `expected_version` check; a change to what the gate allows or refuses ships in a minor release with a `CHANGELOG.md` entry ([policy](./twzrd-x402-gate/CHANGELOG.md#versioning-policy-from-0110)). Artifact directories are resynced from the published tarball, never hand-edited ([AGENTS.md](./AGENTS.md)). Tests pin the documentation: the current install pin, the pay-path contract, the refusal-code tables and the generated ecosystem block are all asserted by `npm test`, so a doc that drifts from the code fails CI.
+Issues and pull requests on this repository. A sample that does not run exactly as shown is a bug. The release policy for `twzrd-x402-gate` is the manual `publish` workflow with an `expected_version` check and npm provenance; the published 0.12.5 carries a provenance attestation from this repository (`npm view twzrd-x402-gate@0.12.5 dist.attestations`). Earlier releases did not all follow that path; [AGENTS.md](./AGENTS.md) records the fork history. A change to what the gate allows or refuses ships in a minor release with a `CHANGELOG.md` entry ([policy](./twzrd-x402-gate/CHANGELOG.md#versioning-policy-from-0110)). Artifact directories are resynced from the published tarball, never hand-edited ([AGENTS.md](./AGENTS.md)). Tests pin the documentation: the current install pin, the pay-path contract, the refusal-code tables and the generated ecosystem block are all asserted by `npm test`, so a doc that drifts from the code fails CI.
 
 ## License
 

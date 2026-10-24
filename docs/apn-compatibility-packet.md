@@ -8,7 +8,8 @@ mode consults the Base corpus and allows a clean, scored seller.
 > **Updated 2026-10-24.** When this packet was written, Base had no corpus and the
 > clean fixtures recorded `unavailable` / `NETWORK_NOT_SCORED`. Base mainnet is
 > scored now (free preflight plus merchant card), and `test/apn-prepare-approve.test.ts`
-> asserts the table below as it stands today.
+> asserts the decisions in the table below as they stand today (the counters for
+> fixture C come from the example run, not from an assertion).
 
 Targets `nuanu-ai/agent-payment-node` 0.5.x (`inspect -> prepare -> approve`).
 Nothing here is a claim about APN internals beyond its public shapes
@@ -42,7 +43,7 @@ Path A $0.05 V7 intel is not this packet.
 |---|---|---|---|---|---|---|
 | A. clean Base merchant | `wash_flagged: false` | scored `warn`, policy allow (one preflight, one wash read) | 1 | 1 | 1 | amount |
 | B. flagged Base merchant | `wash_flagged: true` | `block` / `WASH_FLAGGED` | 0 | 0 | 0 | 0 |
-| C. strict, clean Base merchant | `wash_flagged: false` | scored, policy allow; `reason_code` is not `NETWORK_NOT_SCORED` | 1 | 1 | 1 | amount |
+| C. strict, clean Base merchant | `wash_flagged: false` | scored, policy allow; `reason_code` is not `NETWORK_NOT_SCORED` | proceeds | as A | as A | as A |
 
 Both records verify offline with the issuer's public key and carry no score,
 no resource URL, no authorization bytes.

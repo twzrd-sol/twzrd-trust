@@ -1,6 +1,6 @@
 # TWZRD Receipt Transparency Log (TRT) — Spec v0.2
 
-**Status:** v0.1 domain **live** since 2026-09-03 (genesis, `tree_size` 1); on-chain anchoring **live** (program form, hourly); v0.2 key directory not yet deployed · **Applies to:** V6 and V7 trust receipts, AgentReadinessReceipt V1
+**Status:** v0.1 domain **live** since 2026-09-03 (genesis, `tree_size` 1); on-chain anchoring **live** (program form, one anchor per advanced head on a 3600 s cadence); v0.2 key directory not yet deployed · **Applies to:** V6 and V7 trust receipts, AgentReadinessReceipt V1
 **Verifier:** [`twzrd-log-verifier`](../twzrd-log-verifier/) (source in this repo)
 **Last updated:** 2026-10-24 (status header and anchoring note); spec body last revised 2026-09-04
 

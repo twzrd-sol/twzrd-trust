@@ -49,7 +49,7 @@ where the current state lives.
 | [receipt-v6-spec.md](./receipt-v6-spec.md) | canonical | AO-Receipt V6 layout and the V7 migration (V7 is what is issued today; V5 and V6 still verify) |
 | [payment-decision-v1-spec.md](./payment-decision-v1-spec.md) | canonical, frozen | `twzrd.payment_decision.v1`: the portable decision record the gate signs with your own key |
 | [resource-bind-v2-spec.md](./resource-bind-v2-spec.md) | canonical, client only | `rb2:` folds the decision id into the bound leaf; `rb1:` is frozen |
-| [transparency-log.md](./transparency-log.md) | canonical, v0.2 draft over a live v0.1 log | Receipt transparency log: what is live (signed heads, inclusion and consistency proofs, hourly on-chain anchors) and what v0.2 adds (key directory) |
+| [transparency-log.md](./transparency-log.md) | canonical, v0.2 draft over a live v0.1 log | Receipt transparency log: what is live (signed heads, inclusion and consistency proofs, on-chain anchors as the tree advances) and what v0.2 adds (key directory) |
 | [security-assurance.md](./security-assurance.md) | canonical | Security properties, the reproducible receipt proof, trust boundaries and non-claims |
 | [twzrd-log-verifier/README.md](../twzrd-log-verifier/README.md) | canonical | Offline verifier for the transparency log; source here, not on npm. Its anchor check reads the memo form; live anchors use a program |
 
