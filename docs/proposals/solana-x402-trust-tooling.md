@@ -1,5 +1,7 @@
 # Solana x402 Trust Tooling — Developer Tooling Proposal
 
+> **Historical document (August 2026).** Kept as the record of a public proposal as written then; its pins, corpus numbers and receipt version (V6) are of that date. It is not a description of the current product and is not maintained. Current state: [README](../../README.md).
+
 **Project:** TWZRD Agent Intelligence  
 **Wishlist:** Solana x402 Trust Tooling  
 **Category:** Developer Tooling  
