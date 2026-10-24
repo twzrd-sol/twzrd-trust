@@ -919,9 +919,10 @@ knob gates receipts, it does not override your threshold.
 
 Two things to know today: a leaf is merged within one anchor period, so a receipt paid for
 *just now* may not yet carry `log_inclusion` — the fetch fallback above then reports `pending`,
-and `onPending` decides. And nothing is **anchored** on Solana yet (`anchor_authority` is null),
-so inclusion currently proves *what the log committed to*, not yet *when* — the anchor is what
-makes backdating detectable.
+and `onPending` decides. And heads are **anchored** on Solana mainnet as the tree advances, on an hourly cadence (the descriptor names
+`anchor_authority` and `anchor_program_id`; `GET /v1/log/anchors` lists the transactions), so an
+inclusion proof under an anchored root also bounds *when* the receipt existed. The gate does not
+read anchors itself; see `docs/transparency-log.md` for what the in-repo verifier checks today.
 
 Dual-chain accepts still prefer the Solana entry for scoring (same as payment clients that
 prefer Solana when available).

@@ -18,4 +18,4 @@
 
 ## Operational Metrics & Success Criteria
 - **North Star:** Pre-spend preflight evaluation traffic and zero-spend block enforcement on live agent networks.
-- **Verification Gates:** Automated CI coverage across clean clone, full test suite, deterministic demo execution, and portable V6 tamper proof.
+- **Verification Gates:** Automated CI coverage across clean clone, full test suite, deterministic demo execution, and portable V7 receipt tamper proof (V5 and V6 still verify).
