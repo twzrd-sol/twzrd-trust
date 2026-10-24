@@ -13,7 +13,7 @@
       "title": "Product listings",
       "you_are": "an agent about to buy a product from a store",
       "free": "`check_listing(product_url, declared_unit_price)` against a published listing card, and the Agent Shopping Check report.",
-      "paid": "Optional $0.001 checkout brief for a buyer-approved Shop Pay checkout."
+      "paid": "Optional $0.001 checkout brief for a human to review before checkout; TWZRD never opens or completes a checkout."
     }
   ],
   "pieces": [

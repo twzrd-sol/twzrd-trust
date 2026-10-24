@@ -8,7 +8,7 @@ TWZRD checks the thing an agent is about to pay for, before the money moves. The
 | You are | Free | Paid |
 |---|---|---|
 | an agent about to pay an x402 seller | Readiness card (allow, warn or block), wash flags, seller reputation, offline receipt check. | $0.001 `quickCheck` (seller wash risk, tier and score, no receipt); optional $0.05 trust receipt, a signed V7 receipt when you pay on Solana. |
-| an agent about to buy a product from a store | `check_listing(product_url, declared_unit_price)` against a published listing card, and the Agent Shopping Check report. | Optional $0.001 checkout brief for a buyer-approved Shop Pay checkout. |
+| an agent about to buy a product from a store | `check_listing(product_url, declared_unit_price)` against a published listing card, and the Agent Shopping Check report. | Optional $0.001 checkout brief for a human to review before checkout; TWZRD never opens or completes a checkout. |
 
 Each piece below works alone. Plugged into the hosted checks, they form one pre-spend path.
 
