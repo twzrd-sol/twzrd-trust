@@ -53,5 +53,5 @@ and adoption over time is visible in aggregate on the ledger surfaces.
 
 ## Status
 
-Not yet attempted. Start here: [QUICKSTART.md](./QUICKSTART.md). If you run
+Not yet attempted as of 2026-10-24. No external operator has run a gated week; every transcript in this repository is TWZRD-operated mechanism evidence. Start here: [QUICKSTART.md](./QUICKSTART.md). If you run
 a funded agent and want to be the first week, open an issue on this repo.

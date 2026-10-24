@@ -8,7 +8,7 @@ Verifies, with **no trust in TWZRD's servers or code**, that:
 
 - a receipt leaf is included in a signed tree head (**inclusion proof**);
 - a newer tree head only appended to an older one (**consistency proof**);
-- a tree head was **anchored on Solana** by the published anchor authority;
+- a tree head was **anchored on Solana** by the published anchor authority (memo form; see the note below, the live log anchors through a program instead);
 - heads stay verifiable **across key rotations**, via a pinned key directory;
 - two contradictory signed tree heads are a portable **misbehavior proof**
   (**equivocation detection**) — including when different keys signed them.
@@ -52,7 +52,10 @@ twzrd-log-verifier inclusion --proof paid-response.json
 # Did the log only append between two heads I saw at different times?
 twzrd-log-verifier consistency --old sth-old.json --new sth-new.json --proof proof.json
 
-# Was this head anchored on Solana by the published authority?
+# Was this head anchored on Solana by the published authority? (memo-form anchors only;
+# the live log's anchors since 2026-09 are program instructions with no memo, so this
+# subcommand reports "no memo instruction" on them. Read the tx listed by /v1/log/anchors
+# on a mainnet RPC instead until the program form is implemented here.)
 twzrd-log-verifier anchor --sth sth.json --tx <tx-signature> --authority <b58> [--rpc <url>]
 
 # Do two heads contradict each other? (a positive result is publishable proof)

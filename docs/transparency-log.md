@@ -1,8 +1,10 @@
 # TWZRD Receipt Transparency Log (TRT) — Spec v0.2
 
-**Status:** v0.1 domain **live** since 2026-09-03 (genesis, `tree_size` 1); v0.2 key directory not yet deployed · **Applies to:** V6 trust receipts, AgentReadinessReceipt V1
+**Status:** v0.1 domain **live** since 2026-09-03 (genesis, `tree_size` 1); on-chain anchoring **live** (program form, one anchor per advanced head on a 3600 s cadence); v0.2 key directory not yet deployed · **Applies to:** V6 and V7 trust receipts, AgentReadinessReceipt V1
 **Verifier:** [`twzrd-log-verifier`](../twzrd-log-verifier/) (source in this repo)
-**Last updated:** 2026-09-04
+**Last updated:** 2026-10-24 (status header and anchoring note); spec body last revised 2026-09-04
+
+> **Status 2026-10-24.** The live log has advanced to `tree_size` 15 and is anchored on Solana mainnet: `/.well-known/twzrd-log` now carries `anchor_authority`, `anchor_program_id`, `anchor_ledger_pda` and `anchor_cadence_seconds: 3600`, and `GET /v1/log/anchors` lists one anchor transaction per anchored head. The anchors are written through that program with the authority as signer, not as the SPL Memo string this draft specifies below, and the descriptor still has no `anchor_memo_prefix`. The `anchor` subcommand of `twzrd-log-verifier` therefore cannot confirm a live anchor yet; read the listed transaction on a mainnet RPC instead. Heads are still signed under the v0.1 domain with no `key_id`, and the descriptor is still the single-key form. The paragraph below records what was live on 2026-09-04 and is kept for history.
 
 > **What is live (verified 2026-09-04).** `https://intel.twzrd.xyz/v1/log/sth`
 > serves a head under the **v0.1 domain** `TWZRD:RECEIPT_LOG_STH_V1` for `log_id`
@@ -220,8 +222,9 @@ anchored root existed **no later than** that anchor's on-chain block time.
 ## Log descriptor (well-known)
 
 Served at `https://intel.twzrd.xyz/.well-known/twzrd-log`. This is the v0.2 form; the
-live descriptor is still the v0.1 single-key form (`sth_pubkey` in place of `keys`,
-`anchor_authority` null), which the verifier also accepts:
+live descriptor is still the v0.1 single-key form (`sth_pubkey` in place of `keys`) and,
+since anchoring went live, carries `anchor_authority`, `anchor_program_id`, `anchor_ledger_pda`
+and `anchor_cadence_seconds` but no `anchor_memo_prefix`. The verifier accepts both forms:
 
 ```json
 {

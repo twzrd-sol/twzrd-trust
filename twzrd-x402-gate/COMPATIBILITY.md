@@ -1,4 +1,4 @@
-# Compatibility note — twzrd-x402-gate 0.9.3 → 0.9.4
+# Compatibility notes — twzrd-x402-gate (current release first; the 0.9.3 → 0.9.4 default change follows)
 
 0.12.5 is the released identity of this package. It adds one strict-mode refusal: a Solana devnet or testnet named only by its CAIP-2 genesis id is `network_not_scored` before preflight. Default observe outcomes do not change, `classifyNetwork` still scores those ids, and this is not the 0.13.0 `refuseWashUnknown` flip. 0.12.4 added an opt-in `expectedAmount` to `createBuyerFetch`, with two new refusals (`expected_amount_mismatch`, `expected_amount_unavailable`); without the option, no allow/refuse outcome changes, and no other entry point changes. 0.12.3 added the `createBuyerFetch` entry point (and the `twzrd-buyer-demo` bin); 0.12.2 added an opt-in local fulfillment record; 0.12.1 was docs and package metadata only over 0.12.0. 0.11.2 and 0.11.3 are deprecated on npm. The `paying-client-fail-closed` dist-tag is moved by hand after a publish; check `npm view twzrd-x402-gate dist-tags` for where it points.
 
