@@ -43,7 +43,7 @@ npm pack --ignore-scripts
 In a separate consumer directory, install the resulting tarball and peers:
 
 ```bash
-npm install /path/to/twzrd-x402-gate-0.12.4.tgz @x402/core @x402/fetch
+npm install /path/to/twzrd-x402-gate-0.12.5.tgz @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
