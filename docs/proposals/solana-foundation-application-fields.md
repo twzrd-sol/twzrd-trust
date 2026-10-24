@@ -1,5 +1,7 @@
 # Solana Foundation Application Fields
 
+> **Historical document (August 2026).** Companion to the proposal of the same date; kept for the record and not maintained.
+
 Form-paste companion to [`solana-x402-trust-tooling.md`](./solana-x402-trust-tooling.md).
 
 Source form: https://share.hsforms.com/1GE1hYdApQGaDiCgaiWMXHA5lohw

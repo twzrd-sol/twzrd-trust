@@ -1,5 +1,7 @@
 # Settle-gate enforce activation — dated note, 2026-08-19
 
+> **Historical record.** The enforce posture it describes is still in effect (`GET /health` reports `settle_gate_enforcing: true`, read 2026-10-24); the numbers and references are of 2026-08-19.
+
 **What changed.** On 2026-08-19 the hosted settlement path (`intel.twzrd.xyz`)
 moved from shadow to enforce. `GET /health` now reports
 `settle_gate_enabled: true`, `settle_gate_shadow: false`,
