@@ -1,5 +1,7 @@
 # Consumer adjacency — Muse / Instinct / OpenClaw-class
 
+Muse, Instinct and OpenClaw here name third-party consumer agent apps, the clients TWZRD sits beside. None of them is a TWZRD product or a TWZRD evidence issuer.
+
 Skill pack for agents that might see **both** Stripe Link-style card rails and
 Solana x402 `accepts[]` on the open web. TWZRD sits **beside** Stripe Link /
 `mpp-agent` / `stripe-link-cli`, never instead of them.

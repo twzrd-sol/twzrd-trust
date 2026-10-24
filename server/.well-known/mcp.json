@@ -374,7 +374,7 @@
   "package_version": "0.5.13",
   "gate_npm": "twzrd-x402-gate@0.12.5",
   "build": {
-    "sha": "e55135658",
-    "image_digest": "sha256:a1c86aa9e2828c24e950b8fcd1749239062652f042a20f6ba8bd5d4c67ff41e5"
+    "sha": "c3f661171",
+    "image_digest": "sha256:02b78f0aa2e60f8cea362c0e2c250627a047e981d768732cdd71a5c22e9d5dc8"
   }
 }

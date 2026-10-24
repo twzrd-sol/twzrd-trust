@@ -1,31 +1,65 @@
 # TWZRD
 
+Pre-spend trust for agents that buy. Before an agent pays an x402 seller or
+buys a product from a store, TWZRD answers one question from public evidence:
+should this payment go ahead? The buyer-side gate turns that answer into a
+refusal before the wallet signs. This repository is the public source of truth
+for the hosted checks, the npm packages, the receipt and record formats, and
+the proofs behind them.
+
 Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
 allowlist, mandatory free preflight, and a local decision record before signing.
-
-The `createBuyerFetch` entry point ships from `twzrd-x402-gate@0.12.3`; its `expectedAmount`
-quote binding needs `twzrd-x402-gate@0.12.4`. Start with the
+`createBuyerFetch` is the front door (since `twzrd-x402-gate@0.12.3`); its
+`expectedAmount` quote binding needs `twzrd-x402-gate@0.12.4` or later. Install
+the current release, `twzrd-x402-gate@0.12.5`, and start with the
 [runnable buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
 The other toolkit APIs below remain available with their existing defaults.
 
-- **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1** — verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable `twzrd.payment_decision.v1` record from its own decision, signed locally with your own signer.
+- **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1**, verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** USDC, paid by the buyer over x402 (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable [`twzrd.payment_decision.v1`](./docs/payment-decision-v1-spec.md) record from its own decision, signed locally with your own signer; TWZRD never holds a key.
 - **Product listings:** a free check of a store product URL and its asking price against a card TWZRD published from the store's public pages. The card is an observer card, not a merchant attestation, and a match is never permission to spend ([details](#product-listings-check-the-listing-before-you-buy)).
 
 Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
-**Networks.** The free checks score x402 sellers on Solana mainnet and Base mainnet
-(`eip155:8453`), and the gate runs the scored preflight on both. The paid `/quick` and
-`/trust` hops accept payment on either chain but score a Solana seller wallet only, so
-signed V7 receipts cover Solana sellers. Other EVM chains are recognized but not scored.
-The examples below use the Solana seat; see the gate's
-[network table](./twzrd-x402-gate/README.md#networks-solana-mainnet-and-base-mainnet-scored)
-for Base.
-
-**Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · [ClawHub `twzrd-trust`](https://clawhub.ai)  
+**Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · ClawHub skill `twzrd-trust`  
 **Spend-control SDK (npm)** • [`twzrd-x402-gate@0.12.5`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.1`](https://www.npmjs.com/package/x402-solana)<br>
 **Live MCP** • https://intel.twzrd.xyz/mcp (streamable HTTP; free tools for x402 service checks and product-listing checks)  
 **Shopping check** • free `check_listing` on the hosted MCP · report: https://twzrd.xyz/shopping-check/vuori-kore/  
 **Agent contract** • https://intel.twzrd.xyz/llms.txt · https://intel.twzrd.xyz/.well-known/agent.json
+
+## What is live, what is a pilot, what is not claimed
+
+- **Live on mainnet:** the hosted checks (`https://intel.twzrd.xyz/mcp` and the REST routes below), `twzrd-x402-gate` on npm, the offline `twzrd-receipt-verifier`, the receipt transparency log with on-chain anchors (one per advanced tree head, hourly cadence), and the no-spend recorded demonstration at `/v1/intel/demo-gate`.
+- **Networks:** the free checks score x402 sellers on Solana mainnet and Base mainnet (`eip155:8453`), and the gate runs the scored preflight on both. The paid `/quick` and `/trust` endpoints accept the buyer's $0.001 or $0.05 USDC payment on either chain but score a Solana seller wallet only, so signed V7 receipts cover Solana sellers. EVM chains other than Base are recognized but not scored. The examples below use the Solana seat; see the gate's [network table](./twzrd-x402-gate/README.md#networks-solana-mainnet-and-base-mainnet-scored) for Base.
+- **Pilot:** the product-listing lane runs against a single listing-evidence card (Vuori Kore Short, Ink, US). Vouch-mode calibration ([#5](https://github.com/twzrd-sol/twzrd-trust/issues/5)) and token-safety previews ([#207](https://github.com/twzrd-sol/twzrd-trust/issues/207), [#214](https://github.com/twzrd-sol/twzrd-trust/issues/214)) are open work, not shipped features.
+- **Not yet attempted:** the [seven-day external integration milestone](./MILESTONE.md). Every proof in this repository is TWZRD-operated mechanism evidence, not outside adoption.
+- **Not claimed:** identity of a person, company or agent; checkout, purchase completion or delivery; permission to spend (`authorizes_spend` is always false). See [What TWZRD does not claim](#how-the-pieces-fit).
+
+## Start here, by what you came to do
+
+| You want to | Do this |
+|---|---|
+| See a refusal with nothing installed | Run the [hosted recorded demonstration](#hosted-recorded-demonstration) below: one `curl`, no wallet, no key. |
+| Put the gate on a paying agent | [`twzrd-x402-gate/QUICKSTART.md`](./twzrd-x402-gate/QUICKSTART.md), then the [package README](./twzrd-x402-gate/README.md) for entry points and defaults. |
+| Call the checks from an MCP client | Add `https://intel.twzrd.xyz/mcp`; the tool list is live (`tools/list`). Agent contract: [llms.txt](https://intel.twzrd.xyz/llms.txt). |
+| Review the cryptography and the claims | [REVIEW.md](./REVIEW.md) (bind-v1, with mainnet ground truth), [docs/security-assurance.md](./docs/security-assurance.md), [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md), [docs/transparency-log.md](./docs/transparency-log.md), [SECURITY.md](./SECURITY.md). |
+| Know which document is current | [docs/README.md](./docs/README.md): every document in this repository, labeled canonical, historical or internal, with the versions verified on the date shown. |
+| Build or publish from this checkout | [AGENTS.md](./AGENTS.md): what is source and what is a published-artifact mirror, the one supported install, and the fork relationship with the upstream monorepo. |
+
+## Versions, verified 2026-10-24
+
+Registry `latest` as read on that date. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
+
+| Package | Registry | This tree | Role |
+|---|---|---|---|
+| `twzrd-x402-gate` | npm **0.12.5** | 0.12.5 | Buyer-side gate SDK and CLIs; the one package with source here |
+| `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
+| `twzrd-receipt-verifier` | npm and PyPI 1.4.4 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
+| `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.0 / PyPI 0.2.3 | 0.6.0 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
+| `@wzrd_sol/eliza-plugin` | npm 0.8.1 | 0.8.1 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
+| `@wzrd_sol/plugin-trustgate` | npm 0.3.10 | 0.3.9 (resync open) | elizaOS and facilitator settle hook |
+| `twzrd-preflight` | npm 0.4.3 | separate repository | OpenClaw wrapped-fetch adapter |
+| `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
+| `twzrd-log-verifier` | not published | 0.2.1 (source here) | Offline transparency-log verifier; run from this repository |
 
 ---
 
@@ -81,7 +115,7 @@ Expected output:
 | You are | Free | Paid |
 |---|---|---|
 | an agent about to pay an x402 seller | Readiness card (allow, warn or block), wash flags, seller reputation, offline receipt check. | $0.001 `quickCheck` (seller wash risk, tier and score, no receipt); optional $0.05 trust receipt, a signed V7 receipt when you pay on Solana. |
-| an agent about to buy a product from a store | `check_listing(product_url, declared_unit_price)` against a published listing card, and the Agent Shopping Check report. | Optional $0.001 checkout brief for a buyer-approved Shop Pay checkout. |
+| an agent about to buy a product from a store | `check_listing(product_url, declared_unit_price)` against a published listing card, and the Agent Shopping Check report. | Optional $0.001 checkout brief for a human to review before checkout; TWZRD never opens or completes a checkout. |
 
 Each piece below works alone. Plugged into the hosted checks, they form one pre-spend path.
 
@@ -226,7 +260,7 @@ curl -sS https://intel.twzrd.xyz/mcp \
   | jq '.result.structuredContent | {result, reason, price_check, needs_approval, authorizes_spend}'
 ```
 
-Expected output while the reference card is current and advertises $78:
+This example assumes the reference card is current. Each published card carries an `expires_at`; once it has lapsed, the same call returns `result: "expired"` with `needs_approval: true` until a fresh card is published. Output while the reference card is current and advertises $78:
 ```json
 {
   "result": "check_failed",
@@ -262,7 +296,7 @@ What a card is, and what it is not:
   sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
   ```
 
-- **Paid, optional:** `GET https://intel.twzrd.xyz/v1/intel/checkout-brief` ($0.001 USDC via x402) returns a brief tied to the card, with your `cart_hash` copied in, for a buyer-approved Shop Pay checkout. TWZRD does not check the hash against any cart. The brief carries `needs_approval` and `authorizes_spend: false`, and it does not pay the merchant. A product URL that does not match the card, or an expired card, returns 404 before any 402; a declared price above the advertised one returns 409 before any 402.
+- **Paid, optional:** `GET https://intel.twzrd.xyz/v1/intel/checkout-brief` ($0.001 USDC via x402) returns a brief tied to the card, with your `cart_hash` copied in, for a human to review before they check out. TWZRD never opens or completes a checkout, and it does not check the hash against any cart. The brief carries `needs_approval` and `authorizes_spend: false`, and it does not pay the merchant. A product URL that does not match the card, or an expired card, returns 404 before any 402; a declared price above the advertised one returns 409 before any 402.
 
 ---
 
@@ -273,16 +307,22 @@ What a card is, and what it is not:
 | `twzrd-x402-gate` | **@0.12.5** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
-| `twzrd-mcp-server` | **@0.5.7** (this tree) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
-| `@wzrd_sol/plugin-trustgate` | **@^0.3.9** | Eliza / facilitator adapter |
+| `twzrd-mcp-server` | **@0.6.0** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
+| `@wzrd_sol/plugin-trustgate` | **@^0.3.10** (this tree mirrors 0.3.9) | Eliza / facilitator adapter |
 
+- **Document index (what is current, what is history):** [docs/README.md](./docs/README.md)
 - **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 - **Step-by-step Guide:** [QUICKSTART.md](./QUICKSTART.md)
 - **Concepts & Architecture:** [docs/taxonomy.md](./docs/taxonomy.md)
 - **Receipt Specification (V7, with the V6 lineage):** [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md)
-- **Receipt Transparency Log:** [docs/transparency-log.md](./docs/transparency-log.md) (in-repo `twzrd-log-verifier` — not on npm)
+- **Receipt Transparency Log:** [docs/transparency-log.md](./docs/transparency-log.md) (in-repo `twzrd-log-verifier`, not on npm)
 - **Receipt Verification & Ground Truth:** [REVIEW.md](./REVIEW.md)
+- **Supported path and ownership:** [docs/SUPPORT_MATRIX.md](./docs/SUPPORT_MATRIX.md) · [docs/ACCESS_AND_RECOVERY.md](./docs/ACCESS_AND_RECOVERY.md)
 - **Security Policy:** [SECURITY.md](./SECURITY.md) · [docs/security-assurance.md](./docs/security-assurance.md)
+
+## Contributing and change control
+
+Issues and pull requests on this repository. A sample that does not run exactly as shown is a bug. The release policy for `twzrd-x402-gate` is the manual `publish` workflow with an `expected_version` check and npm provenance; the published 0.12.5 carries a provenance attestation from this repository (`npm view twzrd-x402-gate@0.12.5 dist.attestations`). Earlier releases did not all follow that path; [AGENTS.md](./AGENTS.md) records the fork history. A change to what the gate allows or refuses ships in a minor release with a `CHANGELOG.md` entry ([policy](./twzrd-x402-gate/CHANGELOG.md#versioning-policy-from-0110)). Artifact directories are resynced from the published tarball, never hand-edited ([AGENTS.md](./AGENTS.md)). Tests pin the documentation: the current install pin, the pay-path contract, the refusal-code tables and the generated ecosystem block are all asserted by `npm test`, so a doc that drifts from the code fails CI.
 
 ## License
 

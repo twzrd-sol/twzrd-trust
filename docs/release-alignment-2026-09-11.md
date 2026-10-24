@@ -1,5 +1,7 @@
 # Release alignment audit — 2026-09-11
 
+> **Historical record.** Versions below are as observed on 2026-09-11. Current versions are in the [README](../README.md#versions-verified-2026-10-24) and [docs/README.md](./README.md).
+
 This note records the public-mirror alignment check across `twzrd-trust`, the
 published ElizaOS packages, and the sibling `witness` and `outbid` repositories.
 It is an audit of release surfaces, not a claim that the sibling repositories

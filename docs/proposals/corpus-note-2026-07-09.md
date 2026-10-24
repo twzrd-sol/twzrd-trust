@@ -1,5 +1,7 @@
 # Corpus Note — Solana x402 Settlement Corpus, refresh of 2026-07-09
 
+> **Historical snapshot.** Corpus values as of 2026-07-09; superseded by the 2026-08-18 note, itself a dated record. Live values come from the hosted checks, not from this note.
+
 Supporting note for the corpus values cited in
 [`solana-x402-trust-tooling.md`](./solana-x402-trust-tooling.md). Written 2026-08-19.
 

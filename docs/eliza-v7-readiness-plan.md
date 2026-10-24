@@ -1,6 +1,8 @@
 # Eliza V7 readiness plan
 
-Status: `@wzrd_sol/eliza-plugin@0.7.0` is live on npm (V7 receipt surface).
+> **Status 2026-10-24: historical.** The migration this plan describes is done. `@wzrd_sol/eliza-plugin@0.8.1` is live on npm (V7 receipts, pinned to `twzrd-x402-gate` 0.12.5; the retired earn actions were removed in 0.8.0). The mirror in `eliza-plugin/` is byte-identical to that tarball. Current state lives in [`eliza-plugin/README.md`](../eliza-plugin/README.md) and [`eliza-plugin-source/README.md`](../eliza-plugin-source/README.md); the pins quoted below are the ones in force when the plan was written.
+
+Status when written: `@wzrd_sol/eliza-plugin@0.7.0` is live on npm (V7 receipt surface).
 Source lives in `eliza-plugin-source/`. The public `eliza-plugin/` mirror is
 resynced from the published tarball via `scripts/resync-eliza-plugin.mjs`.
 

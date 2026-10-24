@@ -3,7 +3,7 @@
 Start with [the buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
 It runs an offline blocked payment with the official x402 client, records the
 reason locally, and shows where to put the wrapper around a configured signer.
-`createBuyerFetch` ships from `twzrd-x402-gate@0.12.3`; `expectedAmount` needs 0.12.4. In an ESM project:
+`createBuyerFetch` ships from `twzrd-x402-gate@0.12.3`; `expectedAmount` needs 0.12.4 or later. The current release is `twzrd-x402-gate@0.12.5`. In an ESM project:
 
 ```bash
 npm install twzrd-x402-gate@0.12.5 @x402/core @x402/fetch
