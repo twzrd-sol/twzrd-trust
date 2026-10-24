@@ -41,11 +41,11 @@ export interface TrustVerdict {
     reason: string;
     /** false when the preflight was unreachable (the verdict came from the fail-open/closed path). */
     gateAvailable: boolean;
-    /** On warn verdict: path to the paid trust receipt endpoint, e.g. /v1/intel/trust/{wallet}. */
+    /** On warn verdict: first paid hop, e.g. /v1/intel/quick/{wallet} at $0.001. */
     paidDeepDive?: string;
     /**
      * Server-issued preflight id from the free preflight response (top-level `preflight_id`).
-     * Echo it as the `x-twzrd-preflight-id` header on the paid /v1/intel/trust call so the
+     * Echo it as the `x-twzrd-preflight-id` header on the paid /v1/intel/quick call so the
      * verify->act funnel can attribute the paid call back to this preflight.
      */
     preflightId?: number;
