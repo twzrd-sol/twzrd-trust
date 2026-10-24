@@ -1,0 +1,22 @@
+{
+  "_comment": "Offline x402 v2 mainnet-USDC requirement. {{ORIGIN}} becomes a loopback fixture URL. Addresses, RPC state and signatures are synthetic; no wallet, chain broadcast, or spend.",
+  "x402Version": 2,
+  "resource": {
+    "url": "{{ORIGIN}}/paid/refuse"
+  },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amount": "2500",
+      "payTo": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+      "maxTimeoutSeconds": 60,
+      "extra": {
+        "feePayer": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+        "recentBlockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+        "lastValidBlockHeight": "100"
+      }
+    }
+  ]
+}

@@ -12,6 +12,31 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  offline-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node --import tsx --test twzrd-x402-gate/test/offline-refusal-proof.test.ts
+      - run: node --test scripts/check-gate-release-drift.test.mjs
+      - name: Record offline proof (loopback traffic only)
+        run: node twzrd-x402-gate/scripts/run-offline-refusal-proof.mjs > offline-refusal-proof.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-refusal-proof-node-${{ matrix.node }}
+          path: offline-refusal-proof.json
+          if-no-files-found: error
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15

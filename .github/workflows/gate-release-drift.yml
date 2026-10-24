@@ -1,0 +1,23 @@
+name: Gate release drift
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 8 * * *'
+  push:
+    branches: [main]
+    paths:
+      - twzrd-x402-gate/package.json
+      - scripts/check-gate-release-drift.mjs
+      - .github/workflows/gate-release-drift.yml
+permissions:
+  contents: read
+jobs:
+  release-pins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/check-gate-release-drift.mjs
