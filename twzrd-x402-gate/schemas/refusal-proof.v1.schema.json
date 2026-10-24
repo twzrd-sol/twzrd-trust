@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:twzrd:offline_refusal_proof:v1",
+  "title": "Offline Solana refusal proof",
+  "description": "Synthetic local mechanism evidence. Real chain broadcast and spend are absent; simulated settlement and independent adoption are labeled separately.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "twzrd.offline_refusal_proof.v1"
+    },
+    "mode": {
+      "const": "offline_fixture"
+    },
+    "external_adoption": {
+      "const": false
+    },
+    "gate_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+"
+    },
+    "node_version": {
+      "type": "string"
+    },
+    "packages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "required": [
+        "@x402/core",
+        "@x402/fetch",
+        "@x402/svm",
+        "@solana/kit",
+        "x402-solana"
+      ]
+    },
+    "network_guard": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "const": true
+        },
+        "denied_egress_attempt_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "enabled",
+        "denied_egress_attempt_count"
+      ],
+      "additionalProperties": false
+    },
+    "settlement": {
+      "const": "simulated_only"
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    },
+    "verified": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema",
+    "mode",
+    "external_adoption",
+    "gate_version",
+    "node_version",
+    "packages",
+    "network_guard",
+    "settlement",
+    "runs",
+    "verified"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "requirement": {
+      "type": "object",
+      "properties": {
+        "scheme": {
+          "const": "exact"
+        },
+        "network": {
+          "const": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+        },
+        "asset": {
+          "const": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "payTo": {
+          "type": "string"
+        },
+        "maxTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "extra": {
+          "type": "object"
+        },
+        "resource": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scheme",
+        "network",
+        "asset",
+        "amount",
+        "payTo",
+        "maxTimeoutSeconds",
+        "extra",
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "ok",
+        "detail"
+      ],
+      "additionalProperties": false
+    },
+    "signer_call": {
+      "type": "object",
+      "properties": {
+        "feePayer": {
+          "type": "string"
+        },
+        "authority": {
+          "type": "string"
+        },
+        "mint": {
+          "type": "string"
+        },
+        "destinationAta": {
+          "type": "string"
+        },
+        "amountMicro": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "feePayer",
+        "authority",
+        "mint",
+        "destinationAta",
+        "amountMicro"
+      ],
+      "additionalProperties": false
+    },
+    "run": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "enum": [
+            "official",
+            "x402-solana"
+          ]
+        },
+        "hook": {
+          "enum": [
+            "onBeforePaymentCreation",
+            "beforePayment"
+          ]
+        },
+        "case": {
+          "enum": [
+            "block",
+            "clean_control",
+            "gate_absent",
+            "post_approval_tamper"
+          ]
+        },
+        "selected_requirement": {
+          "$ref": "#/$defs/requirement"
+        },
+        "decision": {
+          "enum": [
+            "block",
+            "allow",
+            null
+          ]
+        },
+        "approved": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signer_invocation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transaction_broadcast_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "payment_retry_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "simulated_settlement_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "usdc_spent": {
+          "const": 0
+        },
+        "signer_calls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signer_call"
+          }
+        },
+        "rpc_methods": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "observed_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "client",
+        "hook",
+        "case",
+        "selected_requirement",
+        "decision",
+        "approved",
+        "reason",
+        "signer_invocation_count",
+        "transaction_broadcast_count",
+        "payment_retry_count",
+        "simulated_settlement_count",
+        "usdc_spent",
+        "signer_calls",
+        "rpc_methods",
+        "observed_error",
+        "checks",
+        "verified"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
