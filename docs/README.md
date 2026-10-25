@@ -3,8 +3,8 @@
 Every Markdown document in this repository, what it is for, and whether it is
 **canonical** (describes the product as it is), **historical** (a dated record,
 kept as written) or **internal** (maintainer notes, not integrator guidance).
-Versions and live-surface facts were verified on **2026-10-24**; the
-[README](../README.md#versions-verified-2026-10-24) carries the version table.
+Versions were verified on **2026-10-25** and live-surface facts on **2026-10-24**; the
+[README](../README.md#versions-verified-2026-10-25) carries the version table.
 
 A canonical document that disagrees with the code is a bug: open an issue. A
 historical document is not updated when the product moves; its banner says

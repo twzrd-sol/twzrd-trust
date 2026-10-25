@@ -2,6 +2,15 @@
  * Current install and latest pins follow package.json. A line that only
  * records that a feature has existed since 0.12.4, or that 0.12.4 added it,
  * is not a current pin.
+ *
+ * Every `twzrd-x402-gate@<version>` in a doc this repository owns names
+ * package.json's version, unless it records when a feature arrived ("since",
+ * "ships from", "needs ... or later"). Dated records under docs/proofs and
+ * docs/proposals keep the pins they were written with. Mirrors follow their
+ * source instead and only have to sit between 0.12.5 and package.json's
+ * version: SKILL.md and server/.well-known/mcp.json copy live intel
+ * (check-gate-release-drift compares intel's advertised pin to this package),
+ * and plugin-trustgate/README.md is that package's published text.
  * Run: npx tsx test/current-pin.test.ts
  */
 import assert from "node:assert/strict";
@@ -138,3 +147,49 @@ function assertPinsInRange(file: string) {
 assertPinsInRange(join(repoRoot, "README.md"));
 assertPinsInRange(join(repoRoot, "server/.well-known/mcp.json"));
 assertPinsInRange(join(repoRoot, "plugin-trustgate/README.md"));
+assertPinsInRange(join(repoRoot, "SKILL.md"));
+
+assert.match(rootReadme, new RegExp(`twzrd-x402-gate@${versionPattern}`));
+
+const owned = [
+  join(repoRoot, "README.md"),
+  join(repoRoot, "QUICKSTART.md"),
+  join(repoRoot, "AGENTS.md"),
+  join(pkgRoot, "COMPATIBILITY.md"),
+  join(pkgRoot, "README.md"),
+  join(pkgRoot, "QUICKSTART.md"),
+  ...walk(join(repoRoot, "docs")).filter(
+    (f) => !/[\\/]docs[\\/](proofs|proposals)[\\/]/.test(f),
+  ),
+];
+
+/** A pin preceded by one of these records when a feature arrived, not what to install. */
+const HISTORY_PREFIX = /(?:since|ships from|needs|added in|from) `?$/;
+
+/** Every exact pin on a line that a reader would take as the version to install now. */
+function currentPins(line: string): string[] {
+  const out: string[] = [];
+  for (const m of line.matchAll(/twzrd-x402-gate@(\d+\.\d+\.\d+)/g)) {
+    const before = line.slice(Math.max(0, (m.index ?? 0) - 16), m.index);
+    if (!HISTORY_PREFIX.test(before)) out.push(m[1]);
+  }
+  return out;
+}
+
+const behind: string[] = [];
+for (const file of owned) {
+  const rel = file.slice(repoRoot.length + 1);
+  readFileSync(file, "utf8")
+    .split("\n")
+    .forEach((line, i) => {
+      for (const v of currentPins(line)) {
+        if (v !== pkg.version) behind.push(`${rel}:${i + 1}: ${v}`);
+      }
+    });
+}
+assert.deepEqual(behind, [], `current pins in owned docs must name ${pkg.version}`);
+
+assert.deepEqual(currentPins("`createBuyerFetch` ships from `twzrd-x402-gate@0.12.3`; The current release is `twzrd-x402-gate@9.9.9`."), ["9.9.9"]);
+assert.deepEqual(currentPins("is the front door (since `twzrd-x402-gate@0.12.3`); its"), []);
+assert.deepEqual(currentPins("`expectedAmount` quote binding needs `twzrd-x402-gate@0.12.4` or later. Install"), []);
+assert.deepEqual(currentPins("npm install twzrd-x402-gate@0.12.5 x402-solana@3.0.1"), ["0.12.5"]);
