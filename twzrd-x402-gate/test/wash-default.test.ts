@@ -428,6 +428,14 @@ async function runV16SchemaRegression() {
   assert.equal(washEvidenceFromCard(ringFalse).ringEvaluated, false);
   assert.equal(isWashCoverageAdequate(washEvidenceFromCard(ringFalse)), false);
 
+  // No wash_flagged boolean is no wash answer, even beside confidence full (0.13.0).
+  // Live intel sends wash_flagged: null, which TwzrdMerchantCard does not type.
+  for (const noAnswer of [{ confidence: "full" }, { wash_flagged: null, wash_confidence: "full" }] as never[]) {
+    assert.equal(washEvidenceFromCard(noAnswer).washFlagged, null);
+    assert.equal(isWashCoverageAdequate(washEvidenceFromCard(noAnswer)), false);
+  }
+  assert.equal(isWashCoverageAdequate({ washConfidence: "full" }), false, "an omitted washFlagged is no answer");
+
   // A flagged seller hard-stops regardless of which confidence key is used.
   assert.equal(washEvidenceFromCard({ wash_flagged: true, confidence: "full" }).washFlagged, true);
 

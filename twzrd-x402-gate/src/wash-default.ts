@@ -66,10 +66,14 @@ export function washEvidenceFromCard(card: TwzrdMerchantCard): WashEvidence {
 }
 
 export function isWashCoverageAdequate(ev: {
+  washFlagged?: boolean | null;
   washConfidence?: string | null;
   ringEvaluated?: boolean | null;
   stale?: boolean | null;
 }): boolean {
+  // No wash_flagged boolean is no wash answer, whatever the confidence says
+  // (0.13.0). washEvidenceFromCard reports a missing or non-boolean field as null.
+  if (typeof ev.washFlagged !== "boolean") return false;
   if (ev.stale === true) return false;
   if (ev.ringEvaluated === false) return false;
   const c = (ev.washConfidence ?? "").trim().toLowerCase();

@@ -287,7 +287,7 @@ async function run() {
       fetch: (async () =>
         new Response(
           JSON.stringify({
-            readiness_card: { decision: "warn", can_spend: true, trust_score: 50, seller_wallet: SELLER },
+            readiness_card: { decision: "warn", can_spend: true, trust_score: 50, recommended_cap_usdc: 1000, seller_wallet: SELLER },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         )) as typeof fetch,

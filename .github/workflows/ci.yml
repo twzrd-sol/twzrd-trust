@@ -29,6 +29,8 @@ jobs:
       - run: npm run build
       - run: node --import tsx --test twzrd-x402-gate/test/offline-refusal-proof.test.ts
       - run: node --test scripts/check-gate-release-drift.test.mjs
+      - run: node --import tsx --test twzrd-x402-gate/test/guard-vectors.test.ts
+      - run: node --test scripts/guard-vectors-trustgate.test.mjs
       - name: Record offline proof (loopback traffic only)
         run: node twzrd-x402-gate/scripts/run-offline-refusal-proof.mjs > offline-refusal-proof.json
       - uses: actions/upload-artifact@v4

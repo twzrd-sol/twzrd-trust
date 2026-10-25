@@ -276,7 +276,7 @@ async function run() {
     const x402Fetch = (async (u: string | URL) => { paid.push(String(u)); return json({}); }) as unknown as typeof fetch;
     const r = await evaluateBeforePaymentCreation(
       { payTo: SOL_SELLER, network: MAINNET, amount: "50000", asset: USDC_SOL, resource: "https://s/x" },
-      { fetch: intel({}, unknownCard(0.1)), x402Fetch, requireReceipt: { minSpendUsdc: 0 } },
+      { fetch: intel({}, unknownCard(0.1)), x402Fetch, requireReceipt: { minSpendUsdc: 0 }, refuseUnevaluated: false },
     );
     assert.ok(!r || r.abort !== true, `within-cap unevaluated refused: ${JSON.stringify(r)}`);
     assert.equal(paid.length, 0, "no paid hop for an unevaluated seller");
@@ -289,9 +289,11 @@ async function run() {
       assert.equal(resolveConfig({ refuseUnevaluated: v as boolean }).refuseUnevaluated, true, `refuseUnevaluated ${String(v)}`);
       assert.equal(resolveConfig({ gateOnCanSpend: v as boolean }).gateOnCanSpend, true, `gateOnCanSpend ${String(v)}`);
     }
-    for (const v of [false, "false", "0", 0, "", "no"] as unknown[]) {
+    // refuseUnevaluated is on by default from 0.13.0: only an explicit off turns it off.
+    for (const v of [false, "false", "0", 0, "no", "OFF"] as unknown[]) {
       assert.equal(resolveConfig({ refuseUnevaluated: v as boolean }).refuseUnevaluated, false, `refuseUnevaluated ${String(v)}`);
     }
+    assert.equal(resolveConfig({ refuseUnevaluated: "" as unknown as boolean }).refuseUnevaluated, true, "empty is not off");
     for (const v of ["TRUE", "Yes", "on", "1"]) {
       process.env.TWZRD_REFUSE_UNEVALUATED = v;
       process.env.TWZRD_GATE_ON_CAN_SPEND = v;

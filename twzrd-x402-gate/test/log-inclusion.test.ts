@@ -27,7 +27,7 @@ const REQS: X402PaymentRequirements = {
 
 const preflight = (card: Record<string, unknown>): typeof fetch =>
   (async () =>
-    new Response(JSON.stringify({ readiness_card: card, confidence: "full" }), {
+    new Response(JSON.stringify({ readiness_card: card, wash_flagged: false, confidence: "full" }), {
       status: 200,
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;
@@ -59,7 +59,7 @@ function verifierMock(result: LogInclusionVerdict | Error) {
 }
 
 const RECEIPT = { leaf: "0x" + "ab".repeat(32), preimage: { settlement_tx: "TX_PRE" } };
-const WARN = { decision: "warn", trust_score: 45, can_spend: false };
+const WARN = { decision: "warn", trust_score: 45, can_spend: false, recommended_cap_usdc: 1000 };
 const PROVEN: LogInclusionVerdict = {
   valid: true,
   errors: [],
