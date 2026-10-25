@@ -34,6 +34,13 @@ A minor release under the policy above: every change below adds a default
 refusal, and each has a named opt-out that restores the 0.12.5 outcome.
 `^0.12.0` installs never receive it. Not published yet.
 
+- **`decisionFromApproval` records a seller intel never evaluated as a verdict.**
+  A refusal projects to `block` / `UNKNOWN_ABOVE_LIMIT` and a within-cap approval to
+  `warn` / `UNKNOWN_UNDER_LIMIT`, the policy runtime's unknown-counterparty codes.
+  Up to 0.12.5 the refusal projected to `unavailable` / `NETWORK_NOT_SCORED` on Solana
+  and Base mainnet, which are scored, because the gate reports an unevaluated seller with
+  `verdict: "unknown"`. The within-cap approval projected to `INTEL_WARN`. What the gate
+  allows or refuses does not change; only the `payment_decision.v1` record does.
 - **`createBuyerFetch` records `policy_version: "buyer-fetch.v2"`** in its local
   decision ledger (was `buyer-fetch.v1`), because the refusals below change
   what it allows. Its knobs stay pinned and independent of the env.

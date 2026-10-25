@@ -419,10 +419,16 @@ export async function paymentDecisionRecordFromToken(
  * Those are the SAME fact for a relying party — no verdict was produced — and
  * the record says so. An unscored network (`verdict:"unknown"`) is likewise
  * unavailable, never block or allow.
+ *
+ * A seller intel never evaluated (`unevaluated: true`) also carries
+ * `verdict:"unknown"`, on a scored network. That is intel's answer, not a
+ * missing one: it projects onto the policy runtime's unknown-counterparty
+ * codes, `UNKNOWN_UNDER_LIMIT` (paid within the card's cap) or
+ * `UNKNOWN_ABOVE_LIMIT` (refused), never `NETWORK_NOT_SCORED`.
  */
 export function decisionFromApproval(
   result: Pick<TwzrdApprovalResult, "verdict" | "reason" | "approved"> &
-    Partial<Pick<TwzrdApprovalResult, "failOpen" | "washFlagged" | "reputationScored">>,
+    Partial<Pick<TwzrdApprovalResult, "failOpen" | "washFlagged" | "reputationScored" | "unevaluated">>,
 ): { decision: PaymentDecisionRecordDecision; reason_code: PaymentDecisionReasonCode } {
   const reason = String(result.reason ?? "");
   if (
@@ -439,6 +445,16 @@ export function decisionFromApproval(
   }
   if (/twzrd_budget_exceeded|POLICY_MAX_AMOUNT|POLICY_DAILY_CEILING|MANDATE_MONTHLY_CEILING|MANDATE_MAX_PER_TX/.test(reason)) {
     return { decision: "block", reason_code: "twzrd_budget_exceeded" };
+  }
+  // Before the unscored-network check: evaluateUnevaluatedCard reports verdict
+  // "unknown" too. Until 0.13.0 a refusal here projected as unavailable /
+  // NETWORK_NOT_SCORED and a within-cap approval as INTEL_WARN.
+  if (result.unevaluated === true && result.reputationScored !== false) {
+    if (result.approved) return { decision: "warn", reason_code: "UNKNOWN_UNDER_LIMIT" };
+    return {
+      decision: "block",
+      reason_code: /^twzrd_unevaluated_/.test(reason) ? "UNKNOWN_ABOVE_LIMIT" : "INTEL_BLOCK",
+    };
   }
   if (result.verdict === "unknown" || result.reputationScored === false) {
     return { decision: "unavailable", reason_code: "NETWORK_NOT_SCORED" };

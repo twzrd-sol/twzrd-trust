@@ -211,6 +211,13 @@ otherwise incoherent (`decision_conflict`), and a record that omits `decision`
 (`decision_missing`) or gives it any value other than exactly one of the four
 strings (`decision_invalid`).
 
+A seller the evaluator has never evaluated is **not** `unavailable`: the
+evaluator answered, and its answer is that it has no evidence about this
+seller. A producer projects a refusal of such a seller as `block` /
+`UNKNOWN_ABOVE_LIMIT`, and a payment allowed within the seller's cap as `warn` /
+`UNKNOWN_UNDER_LIMIT`. These are the codes the policy runtime already emits for
+an unknown counterparty.
+
 ### 5.2 Reason codes
 
 The enum is closed. Every code except the four `unavailable` codes is a string
