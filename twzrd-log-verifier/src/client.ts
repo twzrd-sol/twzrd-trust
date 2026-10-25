@@ -33,6 +33,9 @@ export interface LogDescriptor {
   /** v0.1 single-key form, still accepted. */
   sth_pubkey?: string;
   anchor_authority?: string;
+  /** The program the anchors go through, and the log's ledger account on it. */
+  anchor_program_id?: string;
+  anchor_ledger_pda?: string;
   anchor_memo_prefix?: string;
   anchor_cadence_seconds?: number;
   endpoints?: Partial<Record<keyof typeof DEFAULT_ENDPOINTS, string>>;

@@ -85,13 +85,18 @@ export {
   ANCHOR_MEMO_PREFIX,
   MEMO_PROGRAM_IDS,
   DEFAULT_RPC_URL,
+  EVIDENCE_LEDGER_PROGRAM_ID,
+  ANCHOR_HEAD_DISCRIMINATOR,
   parseAnchorMemo,
+  parseAnchorHeadData,
   formatAnchorMemo,
   anchorMatchesSth,
   fetchAnchorTransaction,
   verifyAnchor,
   type AnchorPayload,
+  type AnchorHeadPayload,
   type AnchorVerifyResult,
+  type FetchedAnchorHead,
   type FetchedAnchorTx,
 } from "./anchor.js";
 export { checkEquivocation, type EquivocationResult } from "./equivocation.js";
