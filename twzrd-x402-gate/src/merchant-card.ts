@@ -55,7 +55,7 @@ export type TwzrdMerchantCard = {
  * `reachable: true` means intel answered — a JSON object, or a 4xx that is the
  * service saying "nothing for this wallet". `card` may still carry no
  * wash_flagged, which is a real unknown: never an outage, and refused as
- * twzrd_wash_unknown only when refuseWashUnknown is on (opt-in in 0.12.x).
+ * twzrd_wash_unknown while refuseWashUnknown is on (the default from 0.13.0).
  * `reachable: false` means the lookup itself did not complete: 5xx, 429, a
  * body that is not a JSON object, or a thrown fetch (network, abort, timeout).
  */

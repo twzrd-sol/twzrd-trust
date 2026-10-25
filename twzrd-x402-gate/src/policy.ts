@@ -61,12 +61,18 @@ export type PolicyEvaluateInput = {
   /** Deny on can_spend=false. Default FALSE when omitted (decision-only gating). */
   gateOnCanSpend?: boolean;
   /**
-   * Refuse every unevaluated seller (the 0.9.9–0.9.16 behaviour). Default FALSE
-   * when omitted: an unevaluated seller is allowed up to the card's
-   * recommended_cap_usdc when `priceUsdc` is known and within it.
+   * Refuse every unevaluated seller. Default TRUE when omitted (0.13.0); pass
+   * false for the 0.11.0–0.12.x behaviour, which allows an unevaluated seller up
+   * to the card's recommended_cap_usdc when `priceUsdc` is known and within it.
    */
   refuseUnevaluated?: boolean;
-  /** Price of this payment in USDC. Required to allow an unevaluated seller. */
+  /**
+   * Refuse an evaluated warn that has no finite recommended_cap_usdc or no known
+   * price. Default TRUE when omitted (0.13.0); pass false for the 0.12.x
+   * behaviour, which paid such a warn with no ceiling.
+   */
+  refuseUncappedWarn?: boolean;
+  /** Price of this payment in USDC. Required to allow an unevaluated seller or a warn. */
   priceUsdc?: number;
 };
 
@@ -95,7 +101,7 @@ export function isUnevaluatedCard(card: TwzrdReadinessCard): boolean {
 }
 
 export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEvaluation {
-  const { card, preflightMinScore, blockDecisions, gateOnCanSpend, refuseUnevaluated } = input;
+  const { card, preflightMinScore, blockDecisions, gateOnCanSpend, refuseUnevaluated, refuseUncappedWarn } = input;
   const decision = card.decision ?? "warn";
   const score = card.trust_score ?? 0;
 
@@ -109,7 +115,7 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
   // omits trust_score would otherwise read as score 0.
   if (isUnevaluatedCard(card)) {
     return evaluateUnevaluatedCard(card, decision, input.priceUsdc, {
-      refuseUnevaluated: refuseUnevaluated === true,
+      refuseUnevaluated: refuseUnevaluated !== false,
       gateOnCanSpend: gateOnCanSpend === true,
     });
   }
@@ -131,6 +137,28 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
       reason: `twzrd_score_${score}_below_${preflightMinScore}`,
     };
   }
+  const recommendedCap =
+    typeof card.recommended_cap_usdc === "number" &&
+    Number.isFinite(card.recommended_cap_usdc) &&
+    card.recommended_cap_usdc >= 0
+      ? card.recommended_cap_usdc
+      : undefined;
+  // A warn is paid only under the card's own ceiling (0.13.0): intel's can_spend
+  // rule for warn, and the bound the unevaluated branch already enforces. A price
+  // above a known cap is refused by twzrdApprovePayment (twzrd_over_recommended_cap_*).
+  if (decision === "warn" && refuseUncappedWarn !== false) {
+    const refuse = (reason: string): TwzrdCardEvaluation => ({
+      approved: false,
+      verdict: "block",
+      score: card.trust_score ?? null,
+      card,
+      reason,
+    });
+    if (recommendedCap === undefined) return refuse("twzrd_warn_no_cap");
+    if (typeof input.priceUsdc !== "number" || !Number.isFinite(input.priceUsdc)) {
+      return refuse("twzrd_warn_unknown_price");
+    }
+  }
   return {
     approved: true,
     verdict: (decision === "warn" ? "warn" : "allow") as TwzrdDecision,
@@ -150,11 +178,12 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
  * The server still answers with a decision and a ceiling (`recommended_cap_usdc`).
  * For a seller it has never seen, live intel (2026-09-28) grades the floor score
  * to its lowest warn tier, $0.10, and reports min($0.10, requested price). Refusing every such seller stopped agents from paying anyone new,
- * including when the server itself said "warn, within cap". So by default the
+ * including when the server itself said "warn, within cap". So with
+ * refuseUnevaluated:false (the 0.11.0-0.12.x default; 0.13.0 refuses) the
  * gate follows the server: allow at or under the cap, refuse above it. Every
  * case where the bound cannot be checked still refuses:
  *
- *   refuseUnevaluated: true         -> twzrd_unevaluated_subject_<null_reason>
+ *   refuseUnevaluated (default)     -> twzrd_unevaluated_subject_<null_reason>
  *   decision not allow / warn       -> twzrd_unevaluated_subject_<null_reason>
  *   can_spend false + gateOnCanSpend -> twzrd_can_spend_false
  *   no finite recommended_cap_usdc  -> twzrd_unevaluated_no_cap_<null_reason>
@@ -564,6 +593,7 @@ export async function twzrdApprovePayment(
       blockDecisions: cfg.blockDecisions,
       gateOnCanSpend: cfg.gateOnCanSpend,
       refuseUnevaluated: cfg.refuseUnevaluated,
+      refuseUncappedWarn: cfg.refuseUncappedWarn,
       priceUsdc: context.priceUsdc,
     });
     // Fire upsell hook on warn (unknown/low-corpus seller) — fire-and-forget

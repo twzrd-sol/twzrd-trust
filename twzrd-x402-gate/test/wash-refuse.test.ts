@@ -232,24 +232,24 @@ async function run() {
   assert.equal(softCapPartial.approved, false, "soft cap does not excuse partial coverage");
   assert.equal(softCapPartial.reason, "twzrd_wash_unknown");
 
-  // A reachable card with no wash answer: allowed by default (0.12.x), refused
-  // twzrd_wash_unknown when opted in to refuseWashUnknown.
-  const noSignalDefault = await twzrdApprovePayment(
-    { payTo: "CLEAN", priceUsdc: 0.01 },
-    resolveConfig({
-      fetch: routedFetch({ preflightCard: allowCard, merchantCard: { merchant: "CLEAN" } }),
-    }),
-  );
-  assert.equal(noSignalDefault.approved, true, `no wash answer allows by default: ${noSignalDefault.reason}`);
+  // A reachable card with no wash answer: refused twzrd_wash_unknown by default
+  // (0.13.0), allowed when opted out of refuseWashUnknown (the 0.12.x default).
   const noSignal = await twzrdApprovePayment(
     { payTo: "CLEAN", priceUsdc: 0.01 },
     resolveConfig({
-      refuseWashUnknown: true,
       fetch: routedFetch({ preflightCard: allowCard, merchantCard: { merchant: "CLEAN" } }),
     }),
   );
-  assert.equal(noSignal.approved, false, "opted in, no wash answer refuses");
+  assert.equal(noSignal.approved, false, "by default, no wash answer refuses");
   assert.equal(noSignal.reason, "twzrd_wash_unknown");
+  const noSignalOptOut = await twzrdApprovePayment(
+    { payTo: "CLEAN", priceUsdc: 0.01 },
+    resolveConfig({
+      refuseWashUnknown: false,
+      fetch: routedFetch({ preflightCard: allowCard, merchantCard: { merchant: "CLEAN" } }),
+    }),
+  );
+  assert.equal(noSignalOptOut.approved, true, `opted out, no wash answer allows: ${noSignalOptOut.reason}`);
 
   console.log("wash-refuse.test.ts: ALL PASSED");
 }

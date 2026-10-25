@@ -230,8 +230,9 @@ async function main() {
   }
 
   // E. A seller intel never evaluated (the card live intel serves for a new wallet):
-  //    0.11.0 follows the card's cap. Within it the payment signs once; above it,
-  //    with no cap, or with refuseUnevaluated: true, nothing is signed.
+  //    0.13.0 refuses it by default. With refuseUnevaluated: false (the 0.11.0-0.12.x
+  //    default) it follows the card's cap: within it the payment signs once; above
+  //    it or with no cap, nothing is signed.
   {
     const unknown = (cap?: number) => ({
       decision: "warn",
@@ -243,8 +244,9 @@ async function main() {
       ...(cap === undefined ? {} : { recommended_cap_usdc: cap }),
     });
 
-    // The cap ladder runs with the coverage check off; E5 asserts the default.
-    const ladder = { refuseWashUnknown: false };
+    // The cap ladder runs on the opt-out path with the coverage check off; E4 and
+    // E5 assert the defaults.
+    const ladder = { refuseWashUnknown: false, refuseUnevaluated: false };
     const within = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: ladder });
     show("E1 unknown seller, $0.001 within a $0.01 cap", within);
     assertWire(within, SELLER_CLEAN);
@@ -266,14 +268,14 @@ async function main() {
     assert.match(String(noCap.decisions[0]?.reason), /twzrd_unevaluated_no_cap_unknown_subject/);
     assert.equal(noCap.signerInvocations, 0, "CRITICAL: an unevaluated seller with no cap must never reach the signer");
 
-    const strict = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: { refuseUnevaluated: true } });
-    show("E4 unknown seller, refuseUnevaluated: true", strict);
+    const strict = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: {} });
+    show("E4 unknown seller within cap, refuseUnevaluated default (0.13.0)", strict);
     assert.equal(strict.decisions[0]?.approved, false);
     assert.match(String(strict.decisions[0]?.reason), /twzrd_unevaluated_subject_unknown_subject/);
     assert.equal(strict.signerInvocations, 0, "CRITICAL: refuseUnevaluated must refuse before the signer");
 
-    const coverage = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: { refuseWashUnknown: true } });
-    show("E5 unknown seller within cap, refuseWashUnknown opted in", coverage);
+    const coverage = await run({ payTo: SELLER_CLEAN, card: unknown(0.01), twzrd: { refuseUnevaluated: false } });
+    show("E5 unknown seller within cap, refuseUnevaluated: false, refuseWashUnknown default", coverage);
     assert.equal(coverage.decisions[0]?.approved, false);
     assert.match(String(coverage.decisions[0]?.reason), /twzrd_wash_unknown/);
     assert.equal(coverage.signerInvocations, 0, "CRITICAL: unknown wash coverage must refuse before the signer");

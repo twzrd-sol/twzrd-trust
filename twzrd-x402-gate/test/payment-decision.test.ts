@@ -254,6 +254,52 @@ async function run() {
     decisionFromApproval({ verdict: "allow", approved: true, reason: "twzrd_allow" }),
     { decision: "allow", reason_code: "ALLOW" },
   );
+  // A seller intel never evaluated, on a scored network: intel answered, so this
+  // is a verdict, not NETWORK_NOT_SCORED (the shapes evaluateUnevaluatedCard returns).
+  assert.deepEqual(
+    decisionFromApproval({
+      verdict: "unknown",
+      approved: false,
+      reason: "twzrd_unevaluated_subject_unknown_subject",
+      unevaluated: true,
+      reputationScored: true,
+    }),
+    { decision: "block", reason_code: "UNKNOWN_ABOVE_LIMIT" },
+  );
+  assert.deepEqual(
+    decisionFromApproval({
+      verdict: "unknown",
+      approved: false,
+      reason: "twzrd_unevaluated_over_cap_0.2_gt_0.1",
+      unevaluated: true,
+    }),
+    { decision: "block", reason_code: "UNKNOWN_ABOVE_LIMIT" },
+  );
+  assert.deepEqual(
+    decisionFromApproval({
+      verdict: "warn",
+      approved: true,
+      reason: "twzrd_unevaluated_within_cap_0.001_le_0.1",
+      unevaluated: true,
+      reputationScored: true,
+    }),
+    { decision: "warn", reason_code: "UNKNOWN_UNDER_LIMIT" },
+  );
+  assert.deepEqual(
+    decisionFromApproval({ verdict: "unknown", approved: false, reason: "twzrd_can_spend_false", unevaluated: true }),
+    { decision: "block", reason_code: "INTEL_BLOCK" },
+  );
+  assert.deepEqual(
+    decisionFromApproval({
+      verdict: "unknown",
+      approved: false,
+      reason: "twzrd_wash_flagged",
+      washFlagged: true,
+      unevaluated: true,
+    }),
+    { decision: "block", reason_code: "WASH_FLAGGED" },
+    "measured wash still names the wash finding",
+  );
 
   /* ---------- 4. unavailable is NOT block ---------- */
   {
