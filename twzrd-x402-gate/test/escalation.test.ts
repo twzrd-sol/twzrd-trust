@@ -49,7 +49,7 @@ async function run() {
   {
     const x402 = quickX402(28);
     const r = await evaluate_x402_resource(URL_, REQ, {
-      fetch: preflightFetch({ decision: "warn", trust_score: 45 }),
+      fetch: preflightFetch({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       escalateOnWarn: {},
       x402Fetch: x402,
     });
@@ -66,7 +66,7 @@ async function run() {
   {
     const x402 = quickX402(82, "Silver");
     const r = await evaluate_x402_resource(URL_, REQ, {
-      fetch: preflightFetch({ decision: "warn", trust_score: 45 }),
+      fetch: preflightFetch({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       escalateOnWarn: {},
       x402Fetch: x402,
     });
@@ -81,7 +81,7 @@ async function run() {
   {
     const x402 = quickX402(82);
     const r = await evaluate_x402_resource(URL_, REQ, {
-      fetch: preflightFetch({ decision: "warn", trust_score: 45 }),
+      fetch: preflightFetch({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       escalateOnWarn: { blockBelowScore: 90 },
       x402Fetch: x402,
     });
@@ -93,7 +93,7 @@ async function run() {
   {
     const x402 = quickX402(10);
     const r = await evaluate_x402_resource(URL_, REQ, {
-      fetch: preflightFetch({ decision: "warn", trust_score: 45 }),
+      fetch: preflightFetch({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       escalateOnWarn: { minSpendUsdc: 1.0 },
       x402Fetch: x402,
     });
@@ -118,7 +118,7 @@ async function run() {
   // 6. escalateOnWarn set but no x402Fetch -> fail-soft, no escalation, base warn preserved.
   {
     const r = await evaluate_x402_resource(URL_, REQ, {
-      fetch: preflightFetch({ decision: "warn", trust_score: 45 }),
+      fetch: preflightFetch({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       escalateOnWarn: {},
     });
     assert.equal(r.escalated, undefined, "no x402Fetch -> escalation skipped");
@@ -129,7 +129,7 @@ async function run() {
   {
     const bad = (async () => new Response("{}", { status: 402 })) as unknown as typeof fetch;
     const r = await evaluate_x402_resource(URL_, REQ, {
-      fetch: preflightFetch({ decision: "warn", trust_score: 45 }),
+      fetch: preflightFetch({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       escalateOnWarn: {},
       x402Fetch: bad,
     });
@@ -142,7 +142,7 @@ async function run() {
   {
     const x402 = quickX402(10);
     const r = await evaluate_x402_resource(URL_, REQ, {
-      fetch: preflightFetch({ decision: "warn", trust_score: 45 }),
+      fetch: preflightFetch({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       x402Fetch: x402,
     });
     assert.equal(x402.calls.length, 0, "no escalation when escalateOnWarn is unset");
@@ -161,7 +161,7 @@ async function run() {
         { status: 402, headers: { "content-type": "application/json" } },
       )) as unknown as typeof fetch;
     const gated = withTwzrdGuard(merchant402, {
-      fetch: preflightFetch({ decision: "warn", trust_score: 45 }),
+      fetch: preflightFetch({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       escalateOnWarn: {},
       x402Fetch: x402,
     });

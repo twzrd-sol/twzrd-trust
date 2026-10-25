@@ -66,7 +66,13 @@ export type PolicyEvaluateInput = {
    * recommended_cap_usdc when `priceUsdc` is known and within it.
    */
   refuseUnevaluated?: boolean;
-  /** Price of this payment in USDC. Required to allow an unevaluated seller. */
+  /**
+   * Refuse an evaluated warn that has no finite recommended_cap_usdc or no known
+   * price. Default TRUE when omitted (0.13.0); pass false for the 0.12.x
+   * behaviour, which paid such a warn with no ceiling.
+   */
+  refuseUncappedWarn?: boolean;
+  /** Price of this payment in USDC. Required to allow an unevaluated seller or a warn. */
   priceUsdc?: number;
 };
 
@@ -95,7 +101,7 @@ export function isUnevaluatedCard(card: TwzrdReadinessCard): boolean {
 }
 
 export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEvaluation {
-  const { card, preflightMinScore, blockDecisions, gateOnCanSpend, refuseUnevaluated } = input;
+  const { card, preflightMinScore, blockDecisions, gateOnCanSpend, refuseUnevaluated, refuseUncappedWarn } = input;
   const decision = card.decision ?? "warn";
   const score = card.trust_score ?? 0;
 
@@ -130,6 +136,28 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
       card,
       reason: `twzrd_score_${score}_below_${preflightMinScore}`,
     };
+  }
+  const recommendedCap =
+    typeof card.recommended_cap_usdc === "number" &&
+    Number.isFinite(card.recommended_cap_usdc) &&
+    card.recommended_cap_usdc >= 0
+      ? card.recommended_cap_usdc
+      : undefined;
+  // A warn is paid only under the card's own ceiling (0.13.0): intel's can_spend
+  // rule for warn, and the bound the unevaluated branch already enforces. A price
+  // above a known cap is refused by twzrdApprovePayment (twzrd_over_recommended_cap_*).
+  if (decision === "warn" && refuseUncappedWarn !== false) {
+    const refuse = (reason: string): TwzrdCardEvaluation => ({
+      approved: false,
+      verdict: "block",
+      score: card.trust_score ?? null,
+      card,
+      reason,
+    });
+    if (recommendedCap === undefined) return refuse("twzrd_warn_no_cap");
+    if (typeof input.priceUsdc !== "number" || !Number.isFinite(input.priceUsdc)) {
+      return refuse("twzrd_warn_unknown_price");
+    }
   }
   return {
     approved: true,
@@ -564,6 +592,7 @@ export async function twzrdApprovePayment(
       blockDecisions: cfg.blockDecisions,
       gateOnCanSpend: cfg.gateOnCanSpend,
       refuseUnevaluated: cfg.refuseUnevaluated,
+      refuseUncappedWarn: cfg.refuseUncappedWarn,
       priceUsdc: context.priceUsdc,
     });
     // Fire upsell hook on warn (unknown/low-corpus seller) — fire-and-forget

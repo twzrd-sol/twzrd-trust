@@ -56,9 +56,25 @@ async function run() {
     "high allow approves",
   );
   assert.equal(
-    evaluateReadinessCard({ card: { decision: "warn", trust_score: 50 }, preflightMinScore: 40, blockDecisions: bd() }).reason,
+    evaluateReadinessCard({ card: { decision: "warn", trust_score: 50, recommended_cap_usdc: 0.1 }, preflightMinScore: 40, blockDecisions: bd(), priceUsdc: 0.01 }).reason,
     "twzrd_warn_allowed",
-    "warn above min is allowed",
+    "warn above min, priced under its cap, is allowed",
+  );
+  // 0.13.0: an evaluated warn needs a finite cap and a known price (intel's can_spend rule).
+  assert.equal(
+    evaluateReadinessCard({ card: { decision: "warn", trust_score: 50 }, preflightMinScore: 40, blockDecisions: bd(), priceUsdc: 0.01 }).reason,
+    "twzrd_warn_no_cap",
+    "warn with no recommended cap is refused by default",
+  );
+  assert.equal(
+    evaluateReadinessCard({ card: { decision: "warn", trust_score: 50, recommended_cap_usdc: 0.1 }, preflightMinScore: 40, blockDecisions: bd() }).reason,
+    "twzrd_warn_unknown_price",
+    "warn with no known price is refused by default",
+  );
+  assert.equal(
+    evaluateReadinessCard({ card: { decision: "warn", trust_score: 50 }, preflightMinScore: 40, blockDecisions: bd(), refuseUncappedWarn: false }).reason,
+    "twzrd_warn_allowed",
+    "refuseUncappedWarn:false restores the 0.12.x uncapped warn",
   );
   assert.equal(
     evaluateReadinessCard({ card: {}, preflightMinScore: 40, blockDecisions: bd() }).approved,
@@ -68,7 +84,7 @@ async function run() {
 
   // --- gateOnCanSpend flag: the ClawRouter "gate only on decision" policy ---
   assert.equal(
-    evaluateReadinessCard({ card: { decision: "warn", can_spend: false, trust_score: 45 }, preflightMinScore: 40, blockDecisions: bd(), gateOnCanSpend: false }).approved,
+    evaluateReadinessCard({ card: { decision: "warn", can_spend: false, trust_score: 45, recommended_cap_usdc: 0.1 }, preflightMinScore: 40, blockDecisions: bd(), gateOnCanSpend: false, priceUsdc: 0.01 }).approved,
     true,
     "gateOnCanSpend=false: a warn/can_spend=false seller above min is allowed (ClawRouter policy)",
   );
@@ -79,7 +95,7 @@ async function run() {
   );
   // via resolved config + approvePayment over the same free-tier shape we see live
   assert.equal(
-    (await twzrdApprovePayment({ payTo: "S" }, resolveConfig({ gateOnCanSpend: false, fetch: okFetch({ decision: "warn", trust_score: 45, can_spend: false }) }))).approved,
+    (await twzrdApprovePayment({ payTo: "S", priceUsdc: 0.01 }, resolveConfig({ gateOnCanSpend: false, fetch: okFetch({ decision: "warn", trust_score: 45, can_spend: false, recommended_cap_usdc: 0.1 }) }))).approved,
     true,
     "approvePayment with gateOnCanSpend=false clears the live warn/can_spend=false free-tier card",
   );
@@ -147,13 +163,14 @@ async function run() {
   // --- onWarnUpsell first paid hop is /quick $0.001 (ignore live /trust $0.05 card fields) ---
   const hops: Array<{ upsellUrl: string; priceUsdc: number }> = [];
   const warnUpsell = await twzrdApprovePayment(
-    { payTo: "SELLER" },
+    { payTo: "SELLER", priceUsdc: 0.01 },
     resolveConfig({
       refuseWashFlagged: false,
       fetch: okFetch({
         decision: "warn",
         trust_score: 45,
         can_spend: false,
+        recommended_cap_usdc: 0.1,
         full_report_price_usdc: 0.05,
         paid_trust_endpoint: "/v1/intel/trust/SELLER",
       }),
@@ -169,12 +186,13 @@ async function run() {
 
   const teaserHops: Array<{ upsellUrl: string; priceUsdc: number }> = [];
   await twzrdApprovePayment(
-    { payTo: "SELLER" },
+    { payTo: "SELLER", priceUsdc: 0.01 },
     resolveConfig({
       refuseWashFlagged: false,
       fetch: okFetch({
         decision: "warn",
         trust_score: 45,
+        recommended_cap_usdc: 0.1,
         paid_teaser: "/v1/intel/quick/SELLER",
         paid_teaser_usdc: 0.001,
         paid_trust_endpoint: "/v1/intel/trust/SELLER",

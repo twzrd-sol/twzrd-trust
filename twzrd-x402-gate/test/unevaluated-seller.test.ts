@@ -112,7 +112,7 @@ async function run() {
     assert.equal(bareNoCap.reason, "twzrd_unevaluated_no_cap_score_null");
 
     // An evaluated card is untouched: floor, allow and warn reasons as before.
-    assert.equal(evalCard({ decision: "warn", trust_score: 50 }, { priceUsdc: 0.001 }).reason, "twzrd_warn_allowed");
+    assert.equal(evalCard({ decision: "warn", trust_score: 50, recommended_cap_usdc: 0.01 }, { priceUsdc: 0.001 }).reason, "twzrd_warn_allowed");
     assert.equal(evalCard({ decision: "allow", trust_score: 20 }, { priceUsdc: 0.001 }).reason, "twzrd_score_20_below_40");
   }
 
@@ -174,7 +174,7 @@ async function run() {
     const x402b = paying();
     await evaluateBeforePaymentCreation(
       { payTo: SELLER, network: "solana", amount: "5000", resource: "https://seller.example/paid" },
-      { fetch: intel({ decision: "warn", trust_score: 50, can_spend: true }, { wash_flagged: false, confidence: "full" }), x402Fetch: x402b },
+      { fetch: intel({ decision: "warn", trust_score: 50, can_spend: true, recommended_cap_usdc: 1000 }, { wash_flagged: false, confidence: "full" }), x402Fetch: x402b },
     );
     assert.equal(x402b.calls.length, 1);
     assert.match(x402b.calls[0], /\/v1\/intel\/quick\//);

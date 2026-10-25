@@ -8,6 +8,8 @@ export type ResolvedTwzrdGateConfig = {
   gateOnCanSpend: boolean;
   /** Default false: an unevaluated seller is allowed up to the card's recommended cap. */
   refuseUnevaluated: boolean;
+  /** Default true (0.13.0): an evaluated warn needs a finite recommended cap and a known price. */
+  refuseUncappedWarn: boolean;
   /** Deadline for each intel call (preflight, merchant card, paid receipts), ms. Default 2000. */
   intelTimeoutMs: number;
   /** Default true: refuse when free merchant_card.wash_flagged */
@@ -66,6 +68,26 @@ export function isTrueFlag(v: unknown): boolean {
 function strictFlag(override: unknown, env: string | undefined): boolean {
   return isTrueFlag(override !== undefined && override !== null ? override : env);
 }
+const OFF = new Set(["false", "0", "no", "off"]);
+/**
+ * A refusal that is on by default (0.13.0). Only an explicit off turns it off:
+ * false, 0, or the strings false/0/no/off in any case, as an option or, when the
+ * option is unset, in the env. Unset, empty, or a typo leaves it on, with a
+ * one-time warning for the typo: a typo must not silently open a refusal.
+ */
+function defaultOnFlag(override: unknown, env: string | undefined): boolean {
+  const v = override !== undefined && override !== null ? override : env;
+  if (v === false || v === 0) return false;
+  if (typeof v === "string") {
+    const t = v.trim().toLowerCase();
+    if (OFF.has(t)) return false;
+    if (t !== "" && !TRUTHY.has(t) && !warnedFlags.has(t)) {
+      warnedFlags.add(t);
+      console.warn(`[twzrd-x402-gate] unrecognised flag value ${JSON.stringify(v)} treated as on; use true/false`);
+    }
+  }
+  return true;
+}
 
 const DEFAULT_INTEL_TIMEOUT_MS = 2000;
 function intelTimeout(override: unknown, env: string | undefined): number {
@@ -109,6 +131,11 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
   // Opt in to refusing every unevaluated seller with refuseUnevaluated:true or
   // TWZRD_REFUSE_UNEVALUATED (true/1/yes/on, any case).
   const refuseUnevaluated = strictFlag(overrides?.refuseUnevaluated, process.env.TWZRD_REFUSE_UNEVALUATED);
+
+  // Default true (0.13.0): an evaluated warn is paid only under the card's own
+  // finite recommended_cap_usdc, at a known price (intel's can_spend rule for
+  // warn). Opt out: refuseUncappedWarn:false or TWZRD_REFUSE_UNCAPPED_WARN=0|false.
+  const refuseUncappedWarn = defaultOnFlag(overrides?.refuseUncappedWarn, process.env.TWZRD_REFUSE_UNCAPPED_WARN);
 
   // Default true: free merchant_card.wash_flagged → refuse pay (trustless step 3).
   // Opt out: refuseWashFlagged:false or TWZRD_REFUSE_WASH_FLAGGED=0|false.
@@ -168,6 +195,7 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     failOpen,
     gateOnCanSpend,
     refuseUnevaluated,
+    refuseUncappedWarn,
     intelTimeoutMs: intelTimeout(overrides?.intelTimeoutMs, process.env.TWZRD_INTEL_TIMEOUT_MS),
     refuseWashFlagged,
     refuseWashUnknown,

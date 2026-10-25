@@ -31,6 +31,7 @@ function preflightFetch(decision: "allow" | "warn" | "block", score = 55): typeo
           decision,
           trust_score: score,
           can_spend: decision !== "block",
+          recommended_cap_usdc: 1000,
           paid_trust_endpoint: `/v1/intel/trust/${SELLER}`,
         },
       }),

@@ -59,7 +59,7 @@ function verifierMock(result: LogInclusionVerdict | Error) {
 }
 
 const RECEIPT = { leaf: "0x" + "ab".repeat(32), preimage: { settlement_tx: "TX_PRE" } };
-const WARN = { decision: "warn", trust_score: 45, can_spend: false };
+const WARN = { decision: "warn", trust_score: 45, can_spend: false, recommended_cap_usdc: 1000 };
 const PROVEN: LogInclusionVerdict = {
   valid: true,
   errors: [],

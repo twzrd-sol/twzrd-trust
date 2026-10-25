@@ -96,6 +96,16 @@ export type TwzrdGateConfig = {
    */
   refuseUnevaluated?: boolean;
   /**
+   * An evaluated seller whose card says `warn` is paid only up to the card's own
+   * `recommended_cap_usdc`, which needs both a finite cap and a known price.
+   * Default true (0.13.0): a warn card with no finite cap refuses with
+   * twzrd_warn_no_cap, and a payment with no known price refuses with
+   * twzrd_warn_unknown_price. This is intel's own can_spend rule for warn. Set
+   * false (or TWZRD_REFUSE_UNCAPPED_WARN=0|false) for the 0.12.x behaviour, which
+   * paid such a warn with no ceiling.
+   */
+  refuseUncappedWarn?: boolean;
+  /**
    * Deadline for each intel call (preflight, merchant card, paid receipts), in
    * ms. Default 2000. A call that misses it is an outage: failOpen decides it
    * (twzrd_fail_closed / twzrd_card_unreachable_fail_closed by default).

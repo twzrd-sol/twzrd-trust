@@ -28,6 +28,24 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.13.0 (unreleased: missing evidence refuses by default)
+
+A minor release under the policy above: every change below adds a default
+refusal, and each has a named opt-out that restores the 0.12.5 outcome.
+`^0.12.0` installs never receive it.
+
+- **An evaluated `warn` is paid only under its own cap** (`refuseUncappedWarn`,
+  default `true`). A card that says `warn` with no finite `recommended_cap_usdc`
+  refuses with `twzrd_warn_no_cap`; a payment whose price is unknown refuses with
+  `twzrd_warn_unknown_price`. A price above a known cap still refuses with
+  `twzrd_over_recommended_cap_*`. This is intel's own `can_spend` rule for `warn`,
+  and the bound the unevaluated-seller branch already applied; 0.12.x paid such a
+  `warn` with no ceiling. Intel sends a cap on every `warn` card, so a live card
+  with a known price is unaffected. The pure `evaluateReadinessCard` applies it
+  when the option is omitted. Opt out with `refuseUncappedWarn: false` or
+  `TWZRD_REFUSE_UNCAPPED_WARN=0|false|no|off`; any other value, including a typo,
+  leaves it on. `createBuyerFetch` sets it explicitly.
+
 ## 0.12.5 (strict mode refuses a Solana devnet or testnet genesis id)
 
 A patch under the security-defect rule above. Not 0.13.0. Default `observe`

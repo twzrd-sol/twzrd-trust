@@ -66,7 +66,7 @@ async function run() {
       const u = String(input);
       if (u.includes("/v1/intel/merchant_card/")) return new Response(JSON.stringify({ wash_flagged: false, confidence: "full" }), { status: 200 });
       if (u.includes("/v1/intel/preflight")) {
-        return new Response(JSON.stringify({ readiness_card: { decision: "warn", trust_score: 45 } }), { status: 200 });
+        return new Response(JSON.stringify({ readiness_card: { decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 } }), { status: 200 });
       }
       // Both the merchant resource AND TWZRD's quick tier are x402-paid (402 first).
       return new Response(JSON.stringify({ x402Version: 1, accepts: [{ network: "solana", payTo: SELLER, maxAmountRequired: "1000", resource: u }] }), { status: 402 });

@@ -52,7 +52,7 @@ async function run() {
     let seenTx: string | undefined;
     let seenReceipt: unknown;
     const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
-      fetch: preflight({ decision: "warn", trust_score: 45, can_spend: false }),
+      fetch: preflight({ decision: "warn", trust_score: 45, can_spend: false, recommended_cap_usdc: 1000 }),
       autoReceipt: true,
       x402Fetch: x402,
       onReceipt: (receipt, tx) => { seenReceipt = receipt; seenTx = tx; },
@@ -97,7 +97,7 @@ async function run() {
   {
     const x402 = x402Mock({ tx: "NOPE" });
     const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
-      fetch: preflight({ decision: "warn", trust_score: 45 }),
+      fetch: preflight({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       autoReceipt: false,
       x402Fetch: x402,
     });
@@ -110,7 +110,7 @@ async function run() {
   {
     const throwing = (async () => { throw new Error("x402 settle failed"); }) as unknown as typeof fetch;
     const r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
-      fetch: preflight({ decision: "warn", trust_score: 45 }),
+      fetch: preflight({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       autoReceipt: true,
       x402Fetch: throwing,
     });
@@ -122,20 +122,20 @@ async function run() {
   {
     // tx_pending
     let r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
-      fetch: preflight({ decision: "warn", trust_score: 45 }),
+      fetch: preflight({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       autoReceipt: true, x402Fetch: x402Mock({ tx_pending: "TX_PEND", twzrd_receipt: {} }),
     });
     assert.equal(r.receiptTx, "TX_PEND", "tx falls back to tx_pending");
     assert.equal(r.receiptFeeCaptured, true);
     // preimage.settlement_tx
     r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
-      fetch: preflight({ decision: "warn", trust_score: 45 }),
+      fetch: preflight({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       autoReceipt: true, x402Fetch: x402Mock({ twzrd_receipt: { preimage: { settlement_tx: "TX_PRE2" } } }),
     });
     assert.equal(r.receiptTx, "TX_PRE2", "tx falls back to preimage.settlement_tx");
     // charged=true, no tx
     r = await evaluate_x402_resource("https://seller.example/paid", REQS, {
-      fetch: preflight({ decision: "warn", trust_score: 45 }),
+      fetch: preflight({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       autoReceipt: true, x402Fetch: x402Mock({ charged: true, twzrd_receipt: {} }),
     });
     assert.equal(r.receiptTx, undefined, "no tx string present");
@@ -150,7 +150,7 @@ async function run() {
         status: 402, headers: { "content-type": "application/json" },
       })) as unknown as typeof fetch;
     const guarded = withTwzrdGuard(resourceFetch, {
-      fetch: preflight({ decision: "warn", trust_score: 45 }),
+      fetch: preflight({ decision: "warn", trust_score: 45, recommended_cap_usdc: 1000 }),
       autoReceipt: true,
       escalateOnWarn: false, // this file pins optional V7 /trust, not the /quick first hop
       x402Fetch: x402,
