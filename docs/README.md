@@ -61,7 +61,7 @@ These READMEs are copies of the published tarball and are re-synced, never edite
 | Document | Status | Mirrors |
 |---|---|---|
 | [twzrd-mcp-server/README.md](../twzrd-mcp-server/README.md) | canonical mirror | `twzrd-mcp-server@0.6.0` on npm (identical on 2026-10-24) |
-| [eliza-plugin/README.md](../eliza-plugin/README.md) | canonical mirror | `@wzrd_sol/eliza-plugin@0.8.1` on npm (identical on 2026-10-24) |
+| [eliza-plugin/README.md](../eliza-plugin/README.md) | canonical mirror | `@wzrd_sol/eliza-plugin@0.9.0` on npm (identical on 2026-10-25) |
 | [plugin-trustgate/README.md](../plugin-trustgate/README.md) | canonical mirror | `@wzrd_sol/plugin-trustgate`; the tree holds 0.3.9 while npm is 0.3.10, resync pending |
 | [eliza-plugin-source/README.md](../eliza-plugin-source/README.md) | canonical | The TypeScript source the Eliza plugin is published from; `README.publish.md` beside it is the README packed into the tarball |
 
