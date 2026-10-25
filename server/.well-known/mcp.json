@@ -4,13 +4,13 @@
     "name": "twzrd-agent-intel",
     "version": "0.5.13"
   },
-  "description": "Model Context Protocol server for TWZRD trust memory: free pre-spend checks on Solana and Base x402 sellers. Public Streamable HTTP at https://intel.twzrd.xyz/mcp; also stdio. Free preflight + discovery tools; Path A first hop /quick 0.001 on HTTP; Path B facilitator is HTTP GET /supported (feePayer GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP) + POST /verify + POST /settle (not MCP tool names). readiness_card.next_action.command is optional data under host policy (do not stop at the free card). Gate package: twzrd-x402-gate@0.12.5. Receipt version: v7. Not a wallet or payment network. Paste-ready Path A first hop is GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.001 USDC). Optional V7: GET /v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs. Those paths are TWZRD own-wallet smoke; before a real pay put the seller payTo in the path. Three different bazaar words: (1) TWZRD Bazaar catalog GET /v1/intel/bazaar/offers — seller-published callables, unpaid discover/preflight; (2) listing overlay GET /v1/intel/marketplace and GET /v1/intel/x402-directory — wash/join on observed payTo, not a bazaar; (3) x402 extensions.bazaar on a 402 — routeTemplate metadata, not the catalog.",
+  "description": "Model Context Protocol server for TWZRD trust memory: free pre-spend checks on Solana and Base x402 sellers. Public Streamable HTTP at https://intel.twzrd.xyz/mcp; also stdio. Free preflight + discovery tools; Path A first hop /quick 0.001 on HTTP; Path B facilitator is HTTP GET /supported (feePayer GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP) + POST /verify + POST /settle (not MCP tool names). readiness_card.next_action.command is optional data under host policy (do not stop at the free card). Gate package: twzrd-x402-gate@0.13.0. Receipt version: v7. Not a wallet or payment network. Paste-ready Path A first hop is GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.001 USDC). Optional V7: GET /v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs. Those paths are TWZRD own-wallet smoke; before a real pay put the seller payTo in the path. Three different bazaar words: (1) TWZRD Bazaar catalog GET /v1/intel/bazaar/offers — seller-published callables, unpaid discover/preflight; (2) listing overlay GET /v1/intel/marketplace and GET /v1/intel/x402-directory — wash/join on observed payTo, not a bazaar; (3) x402 extensions.bazaar on a 402 — routeTemplate metadata, not the catalog.",
   "version": "0.5.13",
   "capabilities": {
     "trust_memory": true,
     "receipt_version": "v7",
     "preflight_screening": "allow_warn_block_advisory",
-    "gate_package": "twzrd-x402-gate@0.12.5",
+    "gate_package": "twzrd-x402-gate@0.13.0",
     "facilitator_scheme": "exact",
     "facilitator_fee_payer": "GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP",
     "facilitator_http": {
@@ -83,7 +83,7 @@
     "published_to_pypi": true,
     "pypi_package": "twzrd-agent-intel",
     "pip": "pip install twzrd-agent-intel",
-    "buyer_gate_npm": "npm i twzrd-x402-gate@0.12.5",
+    "buyer_gate_npm": "npm i twzrd-x402-gate@0.13.0",
     "auto_pay_mcp_python": "pip install twzrd-mcp",
     "auto_pay_mcp_node": "npx -y twzrd-mcp-server --help",
     "auto_pay_mcp_config_node": {
@@ -159,7 +159,7 @@
       "method": "POST",
       "price_usdc": 1.0,
       "url": "https://intel.twzrd.xyz/v1/intel/delivery-watch",
-      "description": "SELLER-FUNDED delivery watch. Pay once (from 1.00 USDC, quoted from your live 402: 30 x your unit price x 1.5, min 1.00) and TWZRD's house buyer PAYS YOUR resource once a day for 30 days with a real x402 settlement, publishing every outcome at GET /v1/intel/delivery-watch/{order_id} with an embeddable badge 'N of M paid probes delivered'. Money buys the probes and the public record, never the verdict: a failing watch is published as-is, and it is not delivery_verified, not a trust vouch, not a ranking input. Free peek first: no 402, no unit price, or a price above the 0.25 USDC probe cap is refused unpaid."
+      "description": "SELLER-FUNDED delivery watch. Pay once (from 1.00 USDC, quoted from your live 402: 30 x your unit price x 1.5, min 1.00) to record a 30-day watch. Paying this route does not pay your resource. A published probe is a later house-buyer settlement, counted at GET /v1/intel/delivery-watch/{order_id} and on the badge as N of M. A day with no probe stays not attempted. Money buys the record, never the verdict: a failing watch is published as-is, and it is not delivery_verified, not a trust vouch, not a ranking input. Free peek first: no 402, no unit price, or a price above the 0.25 USDC probe cap is refused unpaid."
     },
     {
       "protocol": "x402",
@@ -168,7 +168,7 @@
       "method": "POST",
       "price_usdc": 0.005,
       "url": "https://intel.twzrd.xyz/v1/intel/read-page",
-      "description": "Signed page read. Returns the URL as clean Markdown plus an Ed25519 receipt binding the Markdown's SHA-256, the fetching provider, and the observation time, so an agent can later prove what it read. The receipt attests the provider's observation (origin_signed=false), not the page's truth. A fetch that fails is not charged. Verify the receipt against the published TWZRD receipt key."
+      "description": "Signed page read. A provider returns Markdown for the URL. The Ed25519 receipt binds that Markdown's SHA-256, the provider name, and the observation time. This host does not connect to the URL. origin_signed=false: the receipt does not prove the origin served the page or that the page is true. A fetch that fails is not charged. Verify the receipt against the published TWZRD receipt key."
     },
     {
       "protocol": "x402",
@@ -177,7 +177,7 @@
       "method": "GET",
       "price_usdc": 0.001,
       "url": "https://intel.twzrd.xyz/v1/intel/checkout-brief",
-      "description": "Checkout brief for the one published listing. 0.001 USDC. Query product must be that card's next_hop URL. Requires cart_hash; declared_unit_price is required when the card advertises a price. Does not pay the merchant. After payment, open next_hop for Shop Pay."
+      "description": "Checkout brief for the one published listing. 0.001 USDC. Query product must be that card's next_hop URL. Requires cart_hash; declared_unit_price is required when the card advertises a price. Does not pay the merchant, open checkout, or move the goods. authorizes_spend is false. The paid body names next_hop for a separate buyer-approved Shop Pay step."
     }
   ],
   "paid_http_surface": {
@@ -372,9 +372,9 @@
     "url": "https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs"
   },
   "package_version": "0.5.13",
-  "gate_npm": "twzrd-x402-gate@0.12.5",
+  "gate_npm": "twzrd-x402-gate@0.13.0",
   "build": {
-    "sha": "c3f661171",
-    "image_digest": "sha256:02b78f0aa2e60f8cea362c0e2c250627a047e981d768732cdd71a5c22e9d5dc8"
+    "sha": "8dd25efc95c55aeff06739a15f242f2146ee4fe7",
+    "image_digest": "sha256:4070ca59aebe0a8772ea45aea986427fda5cb89ae95aeffe0c984e38393b9cee"
   }
 }

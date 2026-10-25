@@ -113,7 +113,28 @@ assert.match(gateReadme, /since 0\.12\.4/);
 assert.match(compat, /0\.12\.4 added an opt-in `expectedAmount`/);
 const rootReadme = readFileSync(join(repoRoot, "README.md"), "utf8");
 assert.match(rootReadme, /needs `twzrd-x402-gate@0\.12\.4`/);
-assert.match(rootReadme, /twzrd-x402-gate@0\.12\.5/);
 assert.match(readFileSync(join(repoRoot, "QUICKSTART.md"), "utf8"), /needs 0\.12\.4/);
-assert.match(readFileSync(join(repoRoot, "server/.well-known/mcp.json"), "utf8"), /twzrd-x402-gate@0\.12\.5/);
-assert.match(readFileSync(join(repoRoot, "plugin-trustgate/README.md"), "utf8"), /twzrd-x402-gate@0\.12\.5/);
+
+/** Install pins in a mirrored file must sit between the 0.12.5 floor and the package version. */
+function compareSemver(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  return 0;
+}
+function assertPinsInRange(file: string) {
+  const pins = readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => !isFeatureHistory(line) && !/since `?twzrd-x402-gate@|at capture:/.test(line))
+    .flatMap((line) => [...line.matchAll(/twzrd-x402-gate@(\d+\.\d+\.\d+)/g)].map((m) => m[1]));
+  assert.ok(pins.length > 0, `${file} must name a twzrd-x402-gate install pin`);
+  for (const v of pins) {
+    assert.ok(
+      compareSemver(v, "0.12.5") >= 0 && compareSemver(v, pkg.version) <= 0,
+      `${file} pins twzrd-x402-gate@${v}, outside 0.12.5..${pkg.version}`,
+    );
+  }
+}
+assertPinsInRange(join(repoRoot, "README.md"));
+assertPinsInRange(join(repoRoot, "server/.well-known/mcp.json"));
+assertPinsInRange(join(repoRoot, "plugin-trustgate/README.md"));
