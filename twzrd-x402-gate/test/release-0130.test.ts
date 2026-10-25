@@ -9,6 +9,8 @@
  *   ring-evaluated coverage refuses with twzrd_wash_unknown, including a wallet
  *   intel has never seen. An unreachable card stays failOpen's. Opt out:
  *   refuseWashUnknown:false or TWZRD_REFUSE_WASH_UNKNOWN=0|false.
+ * - A card with no wash_flagged boolean has not answered the wash question,
+ *   even beside confidence full: twzrd_wash_unknown on both engines.
  *
  * Run: npx tsx test/release-0130.test.ts
  */
@@ -16,6 +18,7 @@ import assert from "node:assert/strict";
 
 import { resolveConfig } from "../src/config.js";
 import { twzrdApprovePayment } from "../src/policy.js";
+import { createTwzrdWashBeforePaymentHook } from "../src/wash-default.js";
 import { createTwzrdBeforePaymentHook } from "../src/x402-client-hook.js";
 
 const SOL = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
@@ -147,9 +150,26 @@ async function washUnknown() {
   console.log("ok  unknown wash coverage refuses by default; opt-out by option and env; outage stays failOpen's");
 }
 
+async function washFlaggedNull() {
+  const allow = { decision: "allow", trust_score: 80, can_spend: true };
+  const fullNoAnswer = { wash_flagged: null, wash_confidence: "full" };
+  const full = await createTwzrdBeforePaymentHook({ fetch: intel(allow, fullNoAnswer) })(req("10000"));
+  assert.ok(full && full.abort === true, "full engine: confidence full without wash_flagged aborts");
+  assert.match(String(full.reason), /twzrd_wash_unknown/);
+
+  const wash = await createTwzrdWashBeforePaymentHook({ fetch: intel(allow, fullNoAnswer) })(req("10000"));
+  assert.ok(wash && wash.abort === true, "wash engine agrees");
+  assert.match(String(wash.reason), /twzrd_wash_unknown/);
+
+  const optOut = await createTwzrdBeforePaymentHook({ fetch: intel(allow, fullNoAnswer), refuseWashUnknown: false })(req("10000"));
+  assert.ok(!optOut || optOut.abort !== true, `refuseWashUnknown:false pays: ${optOut?.reason}`);
+  console.log("ok  wash_flagged null is not coverage, on both engines");
+}
+
 async function run() {
   await warnCap();
   await washUnknown();
+  await washFlaggedNull();
   console.log("release-0130.test.ts: ALL PASSED");
 }
 

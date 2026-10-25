@@ -67,6 +67,16 @@ refusal, and each has a named opt-out that restores the 0.12.5 outcome.
   other value, including a typo, leaves it on, and an empty value no longer
   means off (0.12.x read `TWZRD_REFUSE_WASH_UNKNOWN=` as off). `createBuyerFetch`
   pins it on.
+- **A card with no `wash_flagged` boolean is not coverage.** A merchant card
+  that reports confidence `full` but whose `wash_flagged` is missing or `null`
+  has not answered the wash question, and now reads as inadequate coverage
+  (`twzrd_wash_unknown`). 0.12.x counted it as full coverage. Both engines
+  agree: the full engine refuses it while `refuseWashUnknown` is on, and
+  `createTwzrdWashBeforePaymentHook`, which always applies the coverage rule,
+  refuses it with no flag, as it refuses any unknown coverage. That module's
+  header already said unknown is not clean; the coverage check never read
+  `wash_flagged`. In the 2026-10-25 five-page sample no card had this shape,
+  so it added no refusal there.
 
 ## 0.12.5 (strict mode refuses a Solana devnet or testnet genesis id)
 

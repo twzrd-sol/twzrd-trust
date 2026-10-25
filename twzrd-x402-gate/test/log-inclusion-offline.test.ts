@@ -31,7 +31,7 @@ const REQS: X402PaymentRequirements = {
 
 const preflight = (card: Record<string, unknown>): typeof fetch =>
   (async () =>
-    new Response(JSON.stringify({ readiness_card: card, confidence: "full" }), {
+    new Response(JSON.stringify({ readiness_card: card, wash_flagged: false, confidence: "full" }), {
       status: 200,
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;
