@@ -28,11 +28,11 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## 0.13.0 (unreleased: missing evidence refuses by default)
+## 0.13.0 - 2026-10-25 (missing evidence refuses by default)
 
 A minor release under the policy above: every change below adds a default
 refusal, and each has a named opt-out that restores the 0.12.5 outcome.
-`^0.12.0` installs never receive it. Not published yet.
+`^0.12.0` installs never receive it.
 
 - **`decisionFromApproval` records a seller intel never evaluated as a verdict.**
   A refusal projects to `block` / `UNKNOWN_ABOVE_LIMIT` and a within-cap approval to
@@ -44,6 +44,15 @@ refusal, and each has a named opt-out that restores the 0.12.5 outcome.
 - **`createBuyerFetch` records `policy_version: "buyer-fetch.v2"`** in its local
   decision ledger (was `buyer-fetch.v1`), because the refusals below change
   what it allows. Its knobs stay pinned and independent of the env.
+- **New, opt-in: `decideHeldVaultSpend`, and `createGuardedX402Fetch({ heldVaultSpend })`.**
+  Given a Demand Desk vault-spend transaction the process already holds, the gate
+  refuses that copy before any fetch or RPC socket when the pinned desk signature is
+  missing or forged, when its authorization has expired, when the `spend_with_policy`
+  instruction bytes differ from the bound instruction, when the only credential is an advisory
+  `payment_decision.v1`, or when the bytes are not one USDC `spend_with_policy`
+  instruction on the vault program. The README lists each reason. Without
+  `heldVaultSpend`, nothing changes. The gate is not the exclusive signer: a refusal
+  does not stop a direct submission of a transaction the desk already signed.
 - **The Base seat (`twzrd-x402-gate/cloudflare-base`) keeps its 0.12.5 rules.**
   It is a standalone module that reads one preflight card and no merchant card,
   so none of the changes below apply to it: it still pays an evaluated `warn`

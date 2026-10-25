@@ -28,6 +28,12 @@
  * any wallet secret, any raw payment authorization / payload, and any full
  * resource URL (the URL is committed to by the hash, never carried).
  *
+ * `twzrd.payment_decision.v1` stays an advisory receipt. It does not move USDC.
+ * It is not a Demand Desk signature, and it is not sufficient for a vault spend.
+ * The buyer gate is not the exclusive signer: a refusal applies only to a
+ * transaction copy the gate holds, and it does not stop a direct RPC
+ * submission of a transaction the desk already signed.
+ *
  * Spec: docs/payment-decision-v1-spec.md. JSON Schema:
  * docs/schemas/twzrd.payment_decision.v1.schema.json.
  */
