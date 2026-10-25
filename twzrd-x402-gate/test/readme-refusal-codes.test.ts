@@ -37,7 +37,7 @@ const FILE_PATTERNS: Record<string, RegExp[]> = {
 };
 
 // Classification labels that share the `reason` field but never refuse.
-const NOT_REFUSALS = new Set(["solana_scored", "base_scored"]);
+const NOT_REFUSALS = new Set(["solana_scored", "base_scored", "desk_signature_present"]);
 
 /** Strip // and /* *\/ comments so prose mentions of old codes do not count. */
 function code(src: string): string {
