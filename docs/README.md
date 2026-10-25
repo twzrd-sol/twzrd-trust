@@ -48,6 +48,7 @@ where the current state lives.
 | [REVIEW.md](../REVIEW.md) | canonical | External review map for bind-v1 with three mainnet transactions to recompute |
 | [receipt-v6-spec.md](./receipt-v6-spec.md) | canonical | AO-Receipt V6 layout and the V7 migration (V7 is what is issued today; V5 and V6 still verify) |
 | [payment-decision-v1-spec.md](./payment-decision-v1-spec.md) | canonical, frozen | `twzrd.payment_decision.v1`: the portable decision record the gate signs with your own key |
+| [vectors/twzrd.payment_decision.v1.guard-vectors.json](./vectors/twzrd.payment_decision.v1.guard-vectors.json) | canonical | Shared guard vectors: evidence, policy, and the outcome (pays, `payment_decision.v1` decision and reason code) every pre-sign guard must reach, offline |
 | [resource-bind-v2-spec.md](./resource-bind-v2-spec.md) | canonical, client only | `rb2:` folds the decision id into the bound leaf; `rb1:` is frozen |
 | [transparency-log.md](./transparency-log.md) | canonical, v0.2 draft over a live v0.1 log | Receipt transparency log: what is live (signed heads, inclusion and consistency proofs, on-chain anchors as the tree advances) and what v0.2 adds (key directory) |
 | [security-assurance.md](./security-assurance.md) | canonical | Security properties, the reproducible receipt proof, trust boundaries and non-claims |
