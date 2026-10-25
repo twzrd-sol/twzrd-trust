@@ -39,6 +39,27 @@ export {
 } from "./network.js";
 export type { TwzrdGateDecision } from "./types.js";
 export {
+  DEMAND_DESK_AUTHORIZATION_VERSION,
+  DEMAND_DESK_AUTHORIZATION_DOMAIN,
+  IMMUTABLE_VAULT_INSTRUCTION_DOMAIN,
+  DEMAND_DESK_REASON_CODES,
+  demandDeskAuthorizationPreimage,
+  immutableVaultInstructionHash,
+  verifyDemandDeskAuthorization,
+  type DemandDeskReasonCode,
+  type DemandDeskAuthorizationIntent,
+  type DemandDeskEvidenceBinding,
+  type DemandDeskSettlementConstraints,
+  type DemandDeskAuthorizationDecision,
+  type UnsignedDemandDeskAuthorization,
+  type DemandDeskAuthorization,
+  type SolanaInstructionAccountForAuthorization,
+  type SolanaInstructionForAuthorization,
+  type DemandDeskAuthorizationExpectation,
+  type DemandDeskAuthorizationFailureCode,
+  type DemandDeskAuthorizationVerification,
+} from "./demand-desk-authorization.js";
+export {
   fetchMerchantCard,
   fetchMerchantCardResult,
   MerchantCardUnreachableError,
