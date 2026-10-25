@@ -52,7 +52,7 @@ where the current state lives.
 | [resource-bind-v2-spec.md](./resource-bind-v2-spec.md) | canonical, client only | `rb2:` folds the decision id into the bound leaf; `rb1:` is frozen |
 | [transparency-log.md](./transparency-log.md) | canonical, v0.2 draft over a live v0.1 log | Receipt transparency log: what is live (signed heads, inclusion and consistency proofs, on-chain anchors as the tree advances) and what v0.2 adds (key directory) |
 | [security-assurance.md](./security-assurance.md) | canonical | Security properties, the reproducible receipt proof, trust boundaries and non-claims |
-| [twzrd-log-verifier/README.md](../twzrd-log-verifier/README.md) | canonical | Offline verifier for the transparency log; source here, not on npm. Its anchor check reads the memo form; live anchors use a program |
+| [twzrd-log-verifier/README.md](../twzrd-log-verifier/README.md) | canonical | Offline verifier for the transparency log; source here, not on npm. Its anchor check reads the live program form and the draft memo form |
 
 ## Package mirrors
 

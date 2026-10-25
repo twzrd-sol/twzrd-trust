@@ -59,7 +59,7 @@ Registry `latest` as read on that date. The tree column is what this checkout mi
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.10 | 0.3.9 (resync open) | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.4.3 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
-| `twzrd-log-verifier` | not published | 0.2.1 (source here) | Offline transparency-log verifier; run from this repository |
+| `twzrd-log-verifier` | not published | 0.3.0 (source here) | Offline transparency-log verifier; run from this repository |
 
 ---
 

@@ -53,7 +53,11 @@ commands:
                omit --receipt/--leaf/--sth when --proof is already a live paid
                response or its log_inclusion block — it names its own leaf and head
   consistency  --old FILE --new FILE --proof FILE
-  anchor       --sth FILE --tx SIGNATURE --authority KEY [--rpc URL]
+  anchor       --sth FILE --tx SIGNATURE --authority KEY [--program ID] [--ledger KEY] [--rpc URL]
+               the transaction must succeed and bind the head through an
+               anchor_head instruction of --program (default: the evidence-ledger
+               program) whose authority is KEY, or through an anchor memo;
+               --ledger also pins the instruction's ledger account
   equivocation --a FILE --b FILE [--proof FILE] [--proof-out FILE]
   monitor      --base-url URL --state FILE [--trust-descriptor] [--proof-out FILE]
                fetch the log's current head, prove it only appended since the
@@ -300,10 +304,13 @@ async function cmdAnchor(args: string[]): Promise<number> {
     txSignature: tx,
     sthPubkey: trusted,
     anchorAuthority: authority,
+    anchorProgramId: getOpt(args, "--program"),
+    ledger: getOpt(args, "--ledger"),
     rpcUrl: getOpt(args, "--rpc"),
   });
   console.log(`sth signature   : ${res.sth_valid ? "valid" : "INVALID"}`);
-  console.log(`memo binding    : ${res.memo_found ? "found" : "NOT FOUND"}`);
+  console.log(`transaction     : ${res.tx_succeeded ? "succeeded" : "FAILED or no status"}`);
+  console.log(`anchor binding  : ${res.anchor_kind ?? "NOT FOUND"}`);
   console.log(`authority signed: ${res.authority_signed}`);
   if (res.slot !== null) console.log(`slot            : ${res.slot}`);
   if (res.block_time !== null) {

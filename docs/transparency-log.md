@@ -1,10 +1,10 @@
 # TWZRD Receipt Transparency Log (TRT) — Spec v0.2
 
-**Status:** v0.1 domain **live** since 2026-09-03 (genesis, `tree_size` 1); on-chain anchoring **live** (program form, one anchor per advanced head on a 3600 s cadence); v0.2 key directory not yet deployed · **Applies to:** V6 and V7 trust receipts, AgentReadinessReceipt V1
+**Status:** v0.1 domain **live** since 2026-09-03 (genesis, `tree_size` 1); on-chain anchoring **live** (program form, one anchor per advanced head; the anchor job runs every 6 h, at 00/06/12/18 UTC); v0.2 key directory not yet deployed · **Applies to:** V6 and V7 trust receipts, AgentReadinessReceipt V1
 **Verifier:** [`twzrd-log-verifier`](../twzrd-log-verifier/) (source in this repo)
-**Last updated:** 2026-10-24 (status header and anchoring note); spec body last revised 2026-09-04
+**Last updated:** 2026-10-25 (anchor cadence; program-form anchors in the verifier); spec body last revised 2026-09-04
 
-> **Status 2026-10-24.** The live log has advanced to `tree_size` 15 and is anchored on Solana mainnet: `/.well-known/twzrd-log` now carries `anchor_authority`, `anchor_program_id`, `anchor_ledger_pda` and `anchor_cadence_seconds: 3600`, and `GET /v1/log/anchors` lists one anchor transaction per anchored head. The anchors are written through that program with the authority as signer, not as the SPL Memo string this draft specifies below, and the descriptor still has no `anchor_memo_prefix`. The `anchor` subcommand of `twzrd-log-verifier` therefore cannot confirm a live anchor yet; read the listed transaction on a mainnet RPC instead. Heads are still signed under the v0.1 domain with no `key_id`, and the descriptor is still the single-key form. The paragraph below records what was live on 2026-09-04 and is kept for history.
+> **Status 2026-10-25.** The live log is anchored on Solana mainnet: `/.well-known/twzrd-log` carries `anchor_authority`, `anchor_program_id`, `anchor_ledger_pda` and `anchor_cadence_seconds`, and `GET /v1/log/anchors` lists anchor transactions, each row tagged with its `cluster` (use the `mainnet` rows; the newest listed is for `tree_size` 15, 2026-10-20). The anchors are written through that program's `anchor_head` instruction with the authority as signer, not as the SPL Memo string this draft first specified; the descriptor has no `anchor_memo_prefix`. The `anchor` subcommand of `twzrd-log-verifier` 0.3.0 verifies that program form and still accepts the memo form (see [Solana anchor](#solana-anchor)). The anchor job runs every 6 h (00/06/12/18 UTC) and anchors a head only when it has advanced; on 2026-10-25 the descriptor still read `anchor_cadence_seconds: 3600`, and that value is being corrected. Heads are still signed under the v0.1 domain with no `key_id`, and the descriptor is still the single-key form. The paragraph below records what was live on 2026-09-04 and is kept for history.
 
 > **What is live (verified 2026-09-04).** `https://intel.twzrd.xyz/v1/log/sth`
 > serves a head under the **v0.1 domain** `TWZRD:RECEIPT_LOG_STH_V1` for `log_id`
@@ -199,9 +199,26 @@ both change only *where the pinned directory comes from*, not this format.
 
 ## Solana anchor
 
-On a fixed cadence (target: **hourly**, and at minimum once per 10,000 new entries),
-the anchor authority publishes the current STH root in a Solana mainnet transaction
-containing a single SPL Memo instruction:
+On a fixed cadence (the live job runs every 6 h and anchors only an advanced head; this
+draft's target was hourly, and at minimum once per 10,000 new entries), the anchor
+authority publishes the current STH in a Solana mainnet transaction, in one of two forms.
+
+**Program form (live).** One `anchor_head` instruction of the evidence-ledger program
+(`anchor_program_id`: `BzBAYJxUtJp6mUkJPjEYjd8vdb2FUGnAfB5X9LqrQ72W`), preceded in the
+same transaction by an ed25519 precompile instruction over the STH preimage; the program
+accepts the head only after that precompile has checked its signature. Instruction data:
+
+```
+sha256("global:anchor_head")[0..8] || tree_size u64 LE || timestamp_unix u64 LE
+  || root (32 bytes) || log_id_len u8 || log_id (UTF-8)
+```
+
+Accounts, in order: authority (signer), payer (signer), ledger (`anchor_ledger_pda`), root
+entry, system program, instructions sysvar. The anchored `(log_id, tree_size,
+timestamp_unix, root)` must equal the STH's, and the instruction's first account must be
+the pinned anchor authority.
+
+**Memo form (draft, still accepted by the verifier).** A single SPL Memo instruction:
 
 ```
 twzrd-log-anchor:v1:<log_id>:<tree_size>:<root_hex_no_0x>
@@ -213,8 +230,9 @@ twzrd-log-anchor:v1:<log_id>:<tree_size>:<root_hex_no_0x>
   in the log descriptor (below) and is allowed to differ from the STH signing key
   (hot wallet vs. signing infra).
 - An anchor is valid evidence only when the same `(log_id, tree_size, root)` also
-  appears in a correctly signed STH — the memo binds the STH to Solana's clock and
-  ordering; the STH signature binds it to the log operator.
+  appears in a correctly signed STH, and only from a transaction that succeeded — the
+  anchor binds the STH to Solana's clock and ordering; the STH signature binds it to the
+  log operator.
 
 Anchoring makes backdating detectable: a receipt whose inclusion proof lands under an
 anchored root existed **no later than** that anchor's on-chain block time.
@@ -224,7 +242,8 @@ anchored root existed **no later than** that anchor's on-chain block time.
 Served at `https://intel.twzrd.xyz/.well-known/twzrd-log`. This is the v0.2 form; the
 live descriptor is still the v0.1 single-key form (`sth_pubkey` in place of `keys`) and,
 since anchoring went live, carries `anchor_authority`, `anchor_program_id`, `anchor_ledger_pda`
-and `anchor_cadence_seconds` but no `anchor_memo_prefix`. The verifier accepts both forms:
+and `anchor_cadence_seconds` but no `anchor_memo_prefix`. The verifier accepts both forms.
+`anchor_memo_prefix` applies only to memo-form anchors:
 
 ```json
 {
@@ -235,8 +254,10 @@ and `anchor_cadence_seconds` but no `anchor_memo_prefix`. The verifier accepts b
       "not_before_unix": 1756000000, "not_after_unix": null }
   ],
   "anchor_authority": "<base58 pubkey>",
+  "anchor_program_id": "<base58 program id>",
+  "anchor_ledger_pda": "<base58 ledger account>",
   "anchor_memo_prefix": "twzrd-log-anchor:v1:",
-  "anchor_cadence_seconds": 3600,
+  "anchor_cadence_seconds": 21600,
   "endpoints": {
     "sth": "/v1/log/sth",
     "inclusion": "/v1/log/proof/inclusion",
@@ -293,9 +314,12 @@ the inclusion proof becomes fetchable by `receipt.leaf` afterward.
    RFC 6962 §2.1.2 from `old_size/old_root` to `new_size/new_root`. Result: *the log
    only appended between the two heads.*
 3. **Anchor** — given an STH, a Solana tx signature, and an RPC endpoint: fetch the
-   transaction, require a memo instruction whose payload parses to
-   `(log_id, tree_size, root)` equal to the STH's, and require the pinned anchor
-   authority among the transaction signers. Result: *this head existed at that slot.*
+   transaction and require that it succeeded; require either an `anchor_head`
+   instruction of the pinned program whose first account is the pinned anchor authority
+   (and, when `anchor_ledger_pda` is pinned, whose ledger account matches it), with
+   `(log_id, tree_size, timestamp_unix, root)` equal to the STH's, or a memo instruction
+   whose payload parses to `(log_id, tree_size, root)` equal to the STH's; and require the
+   pinned anchor authority among the transaction signers. Result: *this head existed at that slot.*
 4. **Equivocation check** — given two STHs with valid signatures, the same `log_id`,
    and the same `tree_size` but different roots: emit a portable **misbehavior proof**
    (the two STH JSON envelopes are the entire proof). Also emitted when a consistency
