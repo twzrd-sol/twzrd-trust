@@ -19,8 +19,12 @@ Before any x402 spend:
 3. **Optional paid trust** - `WZRD_INTEL_TRUST` (~0.05 USDC) - full score + **signed V7 receipt**
 4. **Offline verify** - `WZRD_VERIFY_RECEIPT` via `twzrd-receipt-verifier`
 
-This plugin exposes **actions + SDK helpers**. It does **not** auto-intercept every wallet signature.
-Wire `preSpendGate` / actions into your spend path, or compose with standalone `twzrd-x402-gate` on a paying fetch.
+This plugin exposes **actions + SDK helpers**. The free checks above do not enforce anything by
+themselves: an action refuses only its own paid lookup, and nothing here intercepts a signature your
+agent makes elsewhere. **`installTwzrdAutoGate` is what enforces.** It guards the raw fetch before your
+x402 client's `payWrap` signs, so a payment made through the plugin's paying fetch is checked first
+(see [Guard pattern](#guard-pattern-installtwzrdautogate)). A spend path that does not go through that
+fetch needs its own gate, such as `preSpendGate` or standalone `twzrd-x402-gate`.
 
 ## 3-line quickstart
 
@@ -124,6 +128,17 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 `payWrap` receives the **guarded** fetch. Opt out with `TWZRD_AUTO_GATE=0` or `{ disabled: true }`.
 Lookups carry `X-TWZRD-Integration: eliza-plugin/<version>` unless you pass your own `attribution`.
 
+On `twzrd-x402-gate` 0.13.1 the guard refuses each of these before `payWrap` signs:
+
+| Refused by default | Reason | Opt out (restores the 0.12.5 outcome) |
+|---|---|---|
+| A merchant card that has not fully answered the wash question, including a wallet intel has never seen | `twzrd_wash_unknown` | `{ refuseWashUnknown: false }` or `TWZRD_REFUSE_WASH_UNKNOWN=0` |
+| An evaluated `warn` with no `recommended_cap_usdc`, or at an unknown price | `twzrd_warn_no_cap`, `twzrd_warn_unknown_price` | `{ refuseUncappedWarn: false }` or `TWZRD_REFUSE_UNCAPPED_WARN=0` |
+| A seller intel has never evaluated (`score: null` or `null_reason` set), even within its cap | `twzrd_unevaluated_subject_<null_reason>` | `{ refuseUnevaluated: false }` or `TWZRD_REFUSE_UNEVALUATED=0` |
+
+An unreachable card is still an outage, decided by `failOpen`. The env opt-outs also accept
+`false`, `no` and `off`; any other value leaves the refusal on.
+
 ### Paid trust receipt
 
 ```typescript
@@ -139,14 +154,26 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 
 Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
 
+## 0.9.0 changes
+
+- Depends on `twzrd-x402-gate` exactly `0.13.1` (was `0.12.5`). Fetches this plugin owns stamp
+  `X-Twzrd-Caller: eliza-plugin/<version>@0.13.1`.
+- `installTwzrdAutoGate` now refuses more before your pay client signs: an unanswered wash question,
+  an uncapped or unpriced `warn`, and a seller intel has never evaluated. The table under
+  [Guard pattern](#guard-pattern-installtwzrdautogate) lists each reason and its opt-out.
+- The actions' own checks are unchanged. `WZRD_INTEL_TRUST` still runs the SDK's `preSpendGate`, which
+  refuses `wash_flagged: true` and a missing merchant card, and reports incomplete wash coverage
+  without refusing it. When the paying fetch comes from `installTwzrdAutoGate`, the paid call itself
+  also goes through the guard above.
+
 ## 0.8.0 changes (breaking)
 
 - Removed the retired earn actions, `legacyEarnActions`, `wzrdPluginWithLegacyEarn`, `WzrdClient`,
   `getWzrdClient` and `clearClientCache`. The plugin no longer reads `SOLANA_PRIVATE_KEY` or `WZRD_API_URL`.
 - `WZRD_INTEL_TRUST` spends only with `WZRD_INTEL_ALLOW_PAID=true` or `confirm_spend: true`.
 - `WZRD_MERCHANT_CARD` is fail-closed when the card is unavailable (`refuse_pay: true`).
-- A paid trust lookup also refuses, with no spend, when that card lookup does not answer. A card that answers with incomplete wash coverage is reported, not refused, on gate 0.12.5 (`refuseWashUnknown` stays opt-in until 0.13.0).
-- Depends on `twzrd-x402-gate` exactly `0.12.5`. Fetches this plugin owns stamp `X-Twzrd-Caller: eliza-plugin/<version>@0.12.5`.
+- A paid trust lookup also refuses, with no spend, when that card lookup does not answer. A card that answers with incomplete wash coverage is reported, not refused (0.9.0 keeps this for the action's own check).
+- Depended on `twzrd-x402-gate` exactly `0.12.5`. 0.9.0 moves the pin to `0.13.1`.
 
 ## Programmatic SDK usage
 
