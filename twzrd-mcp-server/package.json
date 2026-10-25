@@ -1,6 +1,6 @@
 {
   "name": "twzrd-mcp-server",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Local, spend-capped Solana x402 client for TWZRD Agent Intelligence; prefer the hosted MCP.",
   "type": "module",
   "bin": {
@@ -48,7 +48,7 @@
     "@x402/svm": "^2.26.0",
     "bs58": "^6.0.0",
     "twzrd-receipt-verifier": "^1.4.0",
-    "twzrd-x402-gate": "0.12.5"
+    "twzrd-x402-gate": "0.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
