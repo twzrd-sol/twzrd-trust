@@ -1,15 +1,19 @@
 # Demand Desk authorization v2
 
-Status: implementation contract for the next integration slice. The validator
-and schema exist in `twzrd-x402-gate`; no wallet adapter or backend endpoint is
-wired by this change.
+Status: local draft. The validator, schema, and `createDemandDeskWallet` signer
+facade are implemented. ElizaOS can register the facade with
+`createWzrdPlugin({ walletProvider: createDemandDeskWalletProvider(adapter) })`.
+Existing fetch wrappers retain their current behavior. The endpoint below is a
+production interface specification; the commerce repository's local autonomous
+loop exercises an authenticated in-process Desk interface and reservation journal.
 
 ## Invariant
 
 The deployed Solana vault program is immutable. The Demand Desk Ed25519 key is
-the sovereign spend-authorization root. Validation happens locally after a
-transaction is constructed and before any wallet signer or RPC send method is
-called. No registry, replacement program, PDA migration, SAS attestation,
+the sovereign spend-authorization root. Callers using the new facade validate
+locally after constructing a transaction and before invoking the wrapped signer
+or sender. A Desk-signed transaction can also be submitted directly to RPC; the
+vault does not require this facade. No registry, replacement program, PDA migration, SAS attestation,
 ERC-8004 record, or cross-chain bridge participates in this decision.
 
 `twzrd.payment_decision.v1` remains the portable public decision receipt. A
@@ -264,9 +268,10 @@ allow.
 
 ## Delivery boundary
 
-This slice supplies the strict contract, offline verifier, instruction hashing,
-tests, and integration specification. Follow-on changes should be separate and
-ordered: first wire and falsify the SVM/ElizaOS pre-sign adapters; then implement
-the endpoint and atomic Desk ledger; finally run the existing immutable-vault
-harness on local validator/devnet. None of those steps requires or permits a new
-program deployment.
+This slice supplies the strict contract, offline verifier, exact vault spend
+decoding, instruction hashing, signer facade, optional ElizaOS provider, and
+integration specification. A separate local commerce worktree supplies the
+mandate, atomic journal, existing Desk co-sign integration, and two-purchase
+validator demonstration. Production service wiring, key custody, published
+package versions and rollout remain separate work. No step requires a replacement
+program.

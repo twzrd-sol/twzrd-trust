@@ -99,6 +99,8 @@ export type DemandDeskAuthorizationExpectation = {
   /** Strict v1: exactly one immutable-vault instruction and no other instruction. */
   instructions: readonly SolanaInstructionForAuthorization[];
   networkFeeLamports: number;
+  /** Locally computed v3 approval receipt commitment, when supplied. */
+  receiptHashHex?: string;
   nowMs?: number;
   maxClockSkewMs?: number;
   maxTtlMs?: number;
@@ -436,6 +438,19 @@ export function verifyDemandDeskAuthorization(
     const instruction = expected.instructions[0]!;
     if (instruction.programId !== constraints.vault_program_id) {
       return failure("instruction_mismatch", "Instruction program does not match the authorized vault program");
+    }
+    const discriminator = createHash("sha256").update("global:spend_with_policy").digest().subarray(0, 8);
+    const data = Buffer.from(instruction.data);
+    const keys = [constraints.policy_pda, constraints.vault_address,
+      authorization.intent.merchant_recipient, authorization.intent.asset_mint,
+      authorization.intent.agent_pubkey, authorization.demand_desk_pubkey,
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"];
+    if (data.length !== 49 || !data.subarray(0, 8).equals(discriminator) || data[16] !== 0 ||
+      data.readBigUInt64LE(8).toString() !== authorization.intent.amount_units ||
+      instruction.accounts.length !== 7 || instruction.accounts.some((a, i) =>
+        a.pubkey !== keys[i] || a.isSigner !== (i === 4 || i === 5) || a.isWritable !== (i < 3)) ||
+      (expected.receiptHashHex !== undefined && data.subarray(17).toString("hex") !== expected.receiptHashHex.toLowerCase())) {
+      return failure("instruction_mismatch", "Instruction is not the exact replenishment vault spend");
     }
     const accountKeys = new Set(instruction.accounts.map((account) => account.pubkey));
     for (const required of [

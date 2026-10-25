@@ -11,6 +11,7 @@ import { AgentRuntime } from '@elizaos/core';
 import type { Content, IAgentRuntime, Memory } from '@elizaos/core';
 import wzrdPlugin, {
   createWzrdPlugin,
+  createDemandDeskWalletProvider,
   intelPreflightAction,
   merchantCardAction,
   intelTrustAction,
@@ -70,6 +71,28 @@ function allowGateFetch(): typeof fetch {
 }
 
 describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
+  it('registers the guarded wallet provider on a real runtime and refuses absent authorization', async () => {
+    let signerCalls = 0;
+    let sendCalls = 0;
+    const provider = createDemandDeskWalletProvider<Uint8Array>({
+      messageBytes: (tx) => tx,
+      expectation: () => ({ trustedDemandDeskPubkeys: [], intent: {} as never,
+        settlement: {} as never, instructions: [], networkFeeLamports: 0 }),
+      isActive: () => true,
+      async signTransaction(tx) { signerCalls++; return tx; },
+      async sendTransaction() { sendCalls++; return 'never'; },
+    });
+    const plugin = createWzrdPlugin({ walletProvider: provider });
+    const runtime = new AgentRuntime({ character: { name: 'guarded-wallet-test', bio: 'test', plugins: [] } });
+    await runtime.registerPlugin(plugin);
+    assert.ok(runtime.providers.some((p) => p.name === 'TWZRD_DEMAND_DESK_WALLET'));
+    await assert.rejects(provider.getWallet().signAndSendTransaction(new Uint8Array([1]), {
+      authorization: undefined,
+      messageHash: '4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a',
+    }));
+    assert.equal(signerCalls, 0);
+    assert.equal(sendCalls, 0);
+  });
   after(() => {
     clearPayingFetch();
     // restore fetch if a test left a stub

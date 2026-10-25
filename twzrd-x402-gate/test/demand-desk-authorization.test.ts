@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import test from "node:test";
 import { base58 } from "@scure/base";
 
@@ -26,6 +26,9 @@ const POLICY = key();
 const pair = generateKeyPairSync("ed25519");
 const deskRaw = pair.publicKey.export({ format: "der", type: "spki" }).subarray(-32);
 const DESK = base58.encode(deskRaw);
+const spendData = Buffer.alloc(49);
+createHash("sha256").update("global:spend_with_policy").digest().copy(spendData, 0, 0, 8);
+spendData.writeBigUInt64LE(10000n, 8);
 
 const instruction: SolanaInstructionForAuthorization = {
   programId: PROGRAM,
@@ -36,8 +39,9 @@ const instruction: SolanaInstructionForAuthorization = {
     { pubkey: USDC, isSigner: false, isWritable: false },
     { pubkey: AGENT, isSigner: true, isWritable: false },
     { pubkey: DESK, isSigner: true, isWritable: false },
+    { pubkey: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", isSigner: false, isWritable: false },
   ],
-  data: Uint8Array.from([1, 2, 3, 4, 5]),
+  data: spendData,
 };
 
 function unsigned() {
