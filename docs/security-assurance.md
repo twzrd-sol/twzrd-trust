@@ -1,7 +1,7 @@
 # TWZRD Security & Trust Assurance
 
-**Applies to:** `twzrd-x402-gate@0.12.5`, TWZRD Agent Intelligence, and V7 trust receipts  
-**Last verified:** 2026-10-24 (live surfaces, registry versions, transparency-log anchors). The gate properties below were last re-verified against 0.11.2 on 2026-09-12. The install pin is now 0.12.5 (0.12.4 adds the opt-in `expectedAmount` refusal to `createBuyerFetch`; no allow/refuse change to the other entry points; 0.12.3 added the `createBuyerFetch` entry point and 0.12.2 the opt-in local fulfillment record), which carries the 0.11.3 and 0.11.4 security fixes and the 0.12.0 opt-in refusal of unknown wash coverage, `refuseWashUnknown` (gate `CHANGELOG.md`) and requires `x402-solana@>=3.0.1`; 0.11.2 and 0.11.3 are deprecated on npm.  
+**Applies to:** `twzrd-x402-gate@0.13.1`, TWZRD Agent Intelligence, and V7 trust receipts  
+**Last verified:** 2026-10-24 (live surfaces, registry versions, transparency-log anchors). The gate properties below were last re-verified against 0.11.2 on 2026-09-12. The install pin is now 0.13.1 (registry versions read 2026-10-25). 0.13.1 changes types and doc comments only. 0.13.0 turned three refusals on by default, each with a named opt-out: `refuseWashUnknown` (added as opt-in in 0.12.0), `refuseUncappedWarn` and `refuseUnevaluated` (gate `CHANGELOG.md`). Earlier: 0.12.4 added the opt-in `expectedAmount` refusal to `createBuyerFetch`, 0.12.3 the `createBuyerFetch` entry point and 0.12.2 the opt-in local fulfillment record. The release carries the 0.11.3 and 0.11.4 security fixes and requires `x402-solana@>=3.0.1`; 0.11.2 and 0.11.3 are deprecated on npm.  
 **Disclosure Policy:** [SECURITY.md](../SECURITY.md)
 
 This document states the security properties TWZRD implements, the evidence an evaluator can independently reproduce, and the explicit trust boundaries of the system.

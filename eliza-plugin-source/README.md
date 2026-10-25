@@ -3,8 +3,10 @@
 This directory is the restored, V7-migrated TypeScript source for
 `@wzrd_sol/eliza-plugin`. It is **not** the public artifact mirror.
 
-> **Current state (2026-10-24):** this source is the origin of the published
-> `@wzrd_sol/eliza-plugin@0.8.1` (`eliza-plugin/` mirrors that tarball). The
+> **Current state (2026-10-25):** this source is `0.9.0`, pinned to
+> `twzrd-x402-gate` exactly `0.13.1`, and is not yet published. npm `latest` is
+> `@wzrd_sol/eliza-plugin@0.8.1`, built from this source on gate `0.12.5`;
+> `eliza-plugin/` mirrors that tarball until the next publish and resync. The
 > `0.6.1` references below describe the baseline this source was restored from.
 
 - `eliza-plugin/` stays artifact-only (`dist/`, no-op scripts) until a

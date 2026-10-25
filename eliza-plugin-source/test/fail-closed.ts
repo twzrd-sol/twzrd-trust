@@ -1,7 +1,9 @@
 /**
  * 0.8.0 adapter contract: merchant_card outage is fail-closed, paid trust needs a
  * spend confirmation and returns a zero-spend refuse packet, and the auto-gate
- * carries a default integration attribution.
+ * carries a default integration attribution. 0.9.0: the auto-gate runs on gate
+ * 0.13.1 defaults, so an unanswered wash question, an uncapped warn, or a seller
+ * intel never evaluated refuses before the pay client signs.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -13,6 +15,8 @@ import {
   setPayingFetch,
   clearPayingFetch,
   autoGateOptions,
+  installTwzrdAutoGate,
+  resolvePayingFetch,
   refusePacket,
   paidLookupConfirmed,
   GATE_PIN,
@@ -144,8 +148,8 @@ describe('merchant_card is fail-closed', () => {
         cb,
       );
       assert.ok(headers);
-      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.8.1@${GATE_PIN}`);
-      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.8.1');
+      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.9.0@${GATE_PIN}`);
+      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.9.0');
       assert.equal(headers.get('X-TWZRD-Client'), `twzrd-x402-gate/${GATE_PIN}`);
       assert.ok((headers.get('X-TWZRD-Run-Id') ?? '').length > 0);
     } finally {
@@ -288,12 +292,12 @@ describe('paid trust needs a spend confirmation', () => {
 });
 
 describe('gate pin', () => {
-  it('depends on twzrd-x402-gate exactly 0.12.5', () => {
+  it('depends on twzrd-x402-gate exactly 0.13.1', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.12.5');
-    assert.equal(GATE_PIN, '0.12.5');
+    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.13.1');
+    assert.equal(GATE_PIN, '0.13.1');
   });
 });
 
@@ -310,5 +314,99 @@ describe('installTwzrdAutoGate attribution', () => {
   it('caller attribution wins', () => {
     const mine = { integration: 'my-host/1.0', runId: 'r1' };
     assert.deepEqual(autoGateOptions({ attribution: mine }).attribution, mine);
+  });
+});
+
+describe('installTwzrdAutoGate on gate 0.13.1 defaults', () => {
+  const RESOURCE = 'https://merchant.example/paid';
+
+  function merchant402(): typeof fetch {
+    return (async () =>
+      new Response(
+        JSON.stringify({
+          accepts: [{ network: 'solana', payTo: SELLER, maxAmountRequired: '10000', resource: RESOURCE }],
+        }),
+        { status: 402, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch;
+  }
+
+  function intel(readiness: Record<string, unknown>, merchant: Record<string, unknown>): typeof fetch {
+    return (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes('/v1/intel/merchant_card/') ? merchant : { readiness_card: readiness };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+  }
+
+  /** Stand-in x402 client: counts a signature on every 402 it is handed. */
+  function payClient() {
+    let signed = 0;
+    const wrap = (guarded: typeof fetch): typeof fetch =>
+      (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const res = await guarded(input, init);
+        if (res.status !== 402) return res;
+        signed += 1;
+        return new Response('{"ok":true}', { status: 200 });
+      }) as unknown as typeof fetch;
+    return { wrap, signed: () => signed };
+  }
+
+  const ALLOW = { decision: 'allow', trust_score: 90, can_spend: true };
+  const CLEAN = { wash_flagged: false, wash_confidence: 'full' };
+  /** What intel returns for a wallet it has never seen: 200, no wash answer. */
+  const NEVER_SEEN = { wash_flagged: null };
+
+  async function payThrough(
+    readiness: Record<string, unknown>,
+    merchant: Record<string, unknown>,
+    extra: Record<string, unknown> = {},
+  ) {
+    const client = payClient();
+    installTwzrdAutoGate(client.wrap, { rawFetch: merchant402(), fetch: intel(readiness, merchant), ...extra });
+    try {
+      const res = await resolvePayingFetch(mockRuntime())(RESOURCE);
+      return { status: res.status, error: null as string | null, signed: client.signed() };
+    } catch (e) {
+      return { status: null, error: e instanceof Error ? e.message : String(e), signed: client.signed() };
+    } finally {
+      clearPayingFetch();
+    }
+  }
+
+  it('pays an allow with a fully answered wash card', async () => {
+    const r = await payThrough(ALLOW, CLEAN);
+    assert.equal(r.error, null);
+    assert.equal(r.signed, 1);
+  });
+
+  it('refuses a seller whose wash question is unanswered, before the pay client signs', async () => {
+    const r = await payThrough(ALLOW, NEVER_SEEN);
+    assert.match(r.error ?? '', /twzrd_wash_unknown/);
+    assert.equal(r.signed, 0);
+  });
+
+  it('refuseWashUnknown: false passes through and restores the 0.12.5 outcome', async () => {
+    const r = await payThrough(ALLOW, NEVER_SEEN, { refuseWashUnknown: false });
+    assert.equal(r.error, null);
+    assert.equal(r.signed, 1);
+  });
+
+  it('refuses an evaluated warn that carries no cap', async () => {
+    const r = await payThrough({ decision: 'warn', trust_score: 50, can_spend: true }, CLEAN);
+    assert.match(r.error ?? '', /twzrd_warn_no_cap/);
+    assert.equal(r.signed, 0);
+  });
+
+  it('refuses a seller intel has never evaluated, even within its cap', async () => {
+    const unevaluated = {
+      decision: 'warn',
+      score: null,
+      null_reason: 'no_settlement_graph',
+      can_spend: true,
+      recommended_cap_usdc: 0.1,
+    };
+    const r = await payThrough(unevaluated, CLEAN);
+    assert.match(r.error ?? '', /twzrd_unevaluated_subject_no_settlement_graph/);
+    assert.equal(r.signed, 0);
   });
 });
