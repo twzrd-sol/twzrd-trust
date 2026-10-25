@@ -8,7 +8,7 @@ Verifies, with **no trust in TWZRD's servers or code**, that:
 
 - a receipt leaf is included in a signed tree head (**inclusion proof**);
 - a newer tree head only appended to an older one (**consistency proof**);
-- a tree head was **anchored on Solana** by the published anchor authority (memo form; see the note below, the live log anchors through a program instead);
+- a tree head was **anchored on Solana** by the published anchor authority (the `anchor_head` program form the live log uses, or the memo form of the spec draft);
 - heads stay verifiable **across key rotations**, via a pinned key directory;
 - two contradictory signed tree heads are a portable **misbehavior proof**
   (**equivocation detection**) — including when different keys signed them.
@@ -52,11 +52,11 @@ twzrd-log-verifier inclusion --proof paid-response.json
 # Did the log only append between two heads I saw at different times?
 twzrd-log-verifier consistency --old sth-old.json --new sth-new.json --proof proof.json
 
-# Was this head anchored on Solana by the published authority? (memo-form anchors only;
-# the live log's anchors since 2026-09 are program instructions with no memo, so this
-# subcommand reports "no memo instruction" on them. Read the tx listed by /v1/log/anchors
-# on a mainnet RPC instead until the program form is implemented here.)
-twzrd-log-verifier anchor --sth sth.json --tx <tx-signature> --authority <b58> [--rpc <url>]
+# Was this head anchored on Solana by the published authority? Reads the transaction
+# (use a mainnet tx_signature from /v1/log/anchors), requires it to have succeeded, and
+# matches an anchor_head instruction of the evidence-ledger program (--program overrides
+# it; --ledger also pins the ledger account, anchor_ledger_pda) or an anchor memo.
+twzrd-log-verifier anchor --sth sth.json --tx <tx-signature> --authority <b58> [--program <id>] [--ledger <b58>] [--rpc <url>]
 
 # Do two heads contradict each other? (a positive result is publishable proof)
 twzrd-log-verifier equivocation --a sth-a.json --b sth-b.json [--proof consistency.json]
