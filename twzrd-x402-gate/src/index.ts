@@ -321,6 +321,7 @@ export {
 export type {
   TwzrdDecision,
   TwzrdReadinessCard,
+  TwzrdReadinessBasisEntry,
   TwzrdPreflightInput,
   TwzrdGateConfig,
   TwzrdApproveContext,
