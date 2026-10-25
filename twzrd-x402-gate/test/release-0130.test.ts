@@ -5,6 +5,10 @@
  * - An evaluated warn is paid only under the card's finite recommended_cap_usdc,
  *   at a known price (twzrd_warn_no_cap, twzrd_warn_unknown_price). Opt out:
  *   refuseUncappedWarn:false or TWZRD_REFUSE_UNCAPPED_WARN=0|false.
+ * - refuseWashUnknown is on: a reachable merchant card without full, fresh,
+ *   ring-evaluated coverage refuses with twzrd_wash_unknown, including a wallet
+ *   intel has never seen. An unreachable card stays failOpen's. Opt out:
+ *   refuseWashUnknown:false or TWZRD_REFUSE_WASH_UNKNOWN=0|false.
  *
  * Run: npx tsx test/release-0130.test.ts
  */
@@ -99,8 +103,53 @@ async function warnCap() {
   console.log("ok  evaluated warn needs a finite cap and a known price; opt-out by option and env");
 }
 
+async function washUnknown() {
+  const allow = { decision: "allow", trust_score: 80, can_spend: true };
+  const partial = { wash_flagged: false, wash_confidence: "partial_inbound_only" };
+  // Live shape of a pubkey intel has never seen (2026-10-25): 200, no wash answer.
+  const neverSeen = { wash_flagged: null, confidence: null, next_action: { decision: "insufficient_evidence" } };
+  const hook = (merchant: Record<string, unknown>, extra = {}) =>
+    createTwzrdBeforePaymentHook({ fetch: intel(allow, merchant), ...extra });
+
+  assert.equal(resolveConfig({}).refuseWashUnknown, true, "default on in 0.13.0");
+
+  for (const [name, card] of [["partial", partial], ["never seen", neverSeen]] as const) {
+    const r = await hook(card)(req("10000"));
+    assert.ok(r && r.abort === true, `${name} card aborts before the signer`);
+    assert.match(String(r.reason), /twzrd_wash_unknown/);
+  }
+  const clean = await hook(CLEAN_CARD)(req("10000"));
+  assert.ok(!clean || clean.abort !== true, `full coverage pays: ${clean?.reason}`);
+
+  const optOut = await hook(partial, { refuseWashUnknown: false })(req("10000"));
+  assert.ok(!optOut || optOut.abort !== true, `refuseWashUnknown:false pays: ${optOut?.reason}`);
+  for (const off of ["0", "false"]) {
+    await withEnv("TWZRD_REFUSE_WASH_UNKNOWN", off, async () => {
+      const viaEnv = await hook(neverSeen)(req("10000"));
+      assert.ok(!viaEnv || viaEnv.abort !== true, `env ${off} pays: ${viaEnv?.reason}`);
+    });
+  }
+  await withEnv("TWZRD_REFUSE_WASH_UNKNOWN", "flase", async () => {
+    assert.equal(resolveConfig({}).refuseWashUnknown, true, "a typo leaves the refusal on");
+  });
+
+  // An unreachable card is an outage, not unknown coverage.
+  const down = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/v1/intel/preflight")) return jsonResponse({ readiness_card: allow });
+    return jsonResponse({ error: "down" }, 503);
+  }) as unknown as typeof fetch;
+  const closed = await createTwzrdBeforePaymentHook({ fetch: down })(req("10000"));
+  assert.ok(closed && closed.abort === true);
+  assert.match(String(closed.reason), /twzrd_card_unreachable_fail_closed/);
+  const open = await createTwzrdBeforePaymentHook({ fetch: down, failOpen: true })(req("10000"));
+  assert.ok(!open || open.abort !== true, `failOpen still opens an outage: ${open?.reason}`);
+  console.log("ok  unknown wash coverage refuses by default; opt-out by option and env; outage stays failOpen's");
+}
+
 async function run() {
   await warnCap();
+  await washUnknown();
   console.log("release-0130.test.ts: ALL PASSED");
 }
 

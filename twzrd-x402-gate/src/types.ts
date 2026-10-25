@@ -124,10 +124,10 @@ export type TwzrdGateConfig = {
   /**
    * Refuse when the merchant_card is reachable but has not fully answered the wash
    * question: no card, wash confidence other than "full", ring_evaluated false, or
-   * wash_stale. Reason twzrd_wash_unknown. Default false in 0.12.x: opt in with
-   * refuseWashUnknown:true or TWZRD_REFUSE_WASH_UNKNOWN=1. The default becomes true in
-   * 0.13.0 (CHANGELOG). Applies on the reputation-scored path only, and only when
-   * refuseWashFlagged is on. An unreachable card is an outage and stays with failOpen.
+   * wash_stale. Reason twzrd_wash_unknown. Default true from 0.13.0 (CHANGELOG): opt
+   * out with refuseWashUnknown:false or TWZRD_REFUSE_WASH_UNKNOWN=0|false. Applies on
+   * the reputation-scored path only, and only when refuseWashFlagged is on. An
+   * unreachable card is an outage and stays with failOpen.
    */
   refuseWashUnknown?: boolean;
   /**

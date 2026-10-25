@@ -159,7 +159,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
     refuseUnevaluated: false,
     refuseUncappedWarn: true,
     refuseWashFlagged: true,
-    refuseWashUnknown: false,
+    refuseWashUnknown: true,
     unsupportedNetworkMode: "strict",
   });
   cfg.washMaxUsdc = null;

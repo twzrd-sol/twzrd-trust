@@ -41,8 +41,10 @@ wrapper:
 ## Defaults by entry point
 
 Read from the constructors, not from the prose below. "Wash flagged" is
-`refuseWashFlagged`. `refuseWashUnknown` is off on every row in 0.12.x unless
-that call opts in. `TWZRD_AUTO_GATE=0` and `TWZRD_GATE_ENABLED=0` are a
+`refuseWashFlagged`. From 0.13.0 `refuseWashUnknown` is on wherever the
+merchant-card check runs, unless that call passes `refuseWashUnknown: false` or
+`TWZRD_REFUSE_WASH_UNKNOWN` is `0` or `false`; `createBuyerFetch` pins it on and
+does not read that env. `TWZRD_AUTO_GATE=0` and `TWZRD_GATE_ENABLED=0` are a
 different switch: only `installTwzrdAutoGate` reads them, and
 `createBuyerFetch` does not.
 
@@ -764,7 +766,7 @@ variables. Setting them does not stop that factory from aborting a bad payment.
 What happens on every HTTP 402 the raw fetch returns:
 1. Every distinct `accepts[]` entry has to pass. The guard does not keep only the Solana entry.
 2. Calls `POST /v1/intel/preflight` — free, no auth. `decision=block` (or score floor) throws — `payWrap`'s client never signs.
-3. Calls `GET /v1/intel/merchant_card/{payTo}` — free, no auth. `wash_flagged: true` refuses by default. A reachable card with no wash finding is not a refusal unless `refuseWashUnknown` is on. A card outage on the scored path honours `failOpen` (default fail-closed).
+3. Calls `GET /v1/intel/merchant_card/{payTo}` — free, no auth. `wash_flagged: true` refuses by default. A reachable card with no wash finding and without full, fresh, ring-evaluated coverage refuses with `twzrd_wash_unknown` by default from 0.13.0 (`refuseWashUnknown`; it was opt-in in 0.12.x). A card outage on the scored path honours `failOpen` (default fail-closed).
 4. An unscored network (keyword devnet, Base Sepolia, other EVM) is allowed under the default `observe` mode. The wash check still runs. `createBuyerFetch` refuses that network instead.
 5. Otherwise returns the 402 to `payWrap`'s client, which pays normally.
 
@@ -1238,7 +1240,7 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | `twzrd_warn_unknown_price` | An evaluated seller's card says `warn` and the price is unknown, so the cap cannot be checked. | on by default (0.13.0+); off with `refuseUncappedWarn: false` |
 | `twzrd_wash_flagged` | The free merchant card says `wash_flagged: true`. | on (`refuseWashFlagged` defaults true on every entry point) |
 | `twzrd_wash_flagged_above_cap_<price>_gt_<cap>`, `twzrd_wash_flagged_above_cap_unknown_price_max_<cap>` | Wash-flagged, `washMaxUsdc` is set, and the price is above it or unknown. | only with `washMaxUsdc` |
-| `twzrd_wash_unknown` | The merchant card answered but has not fully answered the wash question: no card (including a 4xx), wash confidence other than `full` (for example `partial_inbound_only`, `base_2cycle`), `ring_evaluated: false`, or `wash_stale: true`. Never reported as an outage; `failOpen` does not open it. Scored networks only. | opt-in (`refuseWashUnknown: true`; off by default in 0.12.x, on from 0.13.0; also needs `refuseWashFlagged`) |
+| `twzrd_wash_unknown` | The merchant card answered but has not fully answered the wash question: no card (including a 4xx), wash confidence other than `full` (for example `partial_inbound_only`, `base_2cycle`), `ring_evaluated: false`, or `wash_stale: true`. Never reported as an outage; `failOpen` does not open it. Scored networks only. | default from 0.13.0 (`refuseWashUnknown`; opt out with `refuseWashUnknown: false`; opt-in in 0.12.x; also needs `refuseWashFlagged`, which is on by default) |
 | `twzrd_fail_closed (<error>)` | The preflight did not answer (non-2xx, non-JSON, network error, or no answer within `intelTimeoutMs`). | fail-closed unless `failOpen` |
 | `twzrd_card_unreachable_fail_closed (<error>)` | The merchant card did not answer (5xx, 429, non-JSON, network error, or no answer within `intelTimeoutMs`). A 4xx is an answer, not an outage. With `failOpen` the payment is allowed and the result carries `cardUnreachable: true` (the wash check did not run). | fail-closed unless `failOpen` |
 
@@ -1358,7 +1360,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `gateOnCanSpend` | `TWZRD_GATE_ON_CAN_SPEND` | `false` | Also block when `can_spend=false` |
 | `refuseUnevaluated` | `TWZRD_REFUSE_UNEVALUATED` | `false` | Refuse every seller intel has not evaluated, instead of allowing it up to the card's `recommended_cap_usdc`. `true`, `1`, `"yes"`, `"on"` in any case turn it on. |
 | `refuseUncappedWarn` | `TWZRD_REFUSE_UNCAPPED_WARN` | `true` (0.13.0+) | Refuse an evaluated `warn` whose card has no finite `recommended_cap_usdc` (`twzrd_warn_no_cap`) or whose price is unknown (`twzrd_warn_unknown_price`). Only `false`, `0`, `"no"`, `"off"` in any case turn it off; a typo leaves it on. |
-| `refuseWashUnknown` | `TWZRD_REFUSE_WASH_UNKNOWN` | `false` (0.12.x; `true` from 0.13.0) | Refuse (`twzrd_wash_unknown`) when the merchant card is reachable but its wash coverage is missing, partial or stale. Also refuses an unevaluated seller within its cap when its card has no full coverage. `true`, `1`, `"yes"`, `"on"` turn it on. |
+| `refuseWashUnknown` | `TWZRD_REFUSE_WASH_UNKNOWN` | `true` (0.13.0; `false` in 0.12.x) | Refuse (`twzrd_wash_unknown`) when the merchant card is reachable but its wash coverage is missing, partial or stale. Also refuses an unevaluated seller within its cap when its card has no full coverage. Only `false`, `0`, `"no"`, `"off"` turn it off; any other value, including a typo, leaves it on. |
 | `intelTimeoutMs` | `TWZRD_INTEL_TIMEOUT_MS` | `2000` | Deadline for each free intel call (preflight, merchant card). A miss is an outage, decided by `failOpen`. Paid hops are not cut off mid-payment. |
 | `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` when `/quick` did not already settle |
 | `x402Fetch` | — | — | x402-capable fetch for `autoReceipt` |

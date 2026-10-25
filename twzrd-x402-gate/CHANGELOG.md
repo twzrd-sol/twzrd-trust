@@ -45,6 +45,28 @@ refusal, and each has a named opt-out that restores the 0.12.5 outcome.
   when the option is omitted. Opt out with `refuseUncappedWarn: false` or
   `TWZRD_REFUSE_UNCAPPED_WARN=0|false|no|off`; any other value, including a typo,
   leaves it on. `createBuyerFetch` sets it explicitly.
+- **`refuseWashUnknown` defaults to `true`.** On the reputation-scored path a
+  reachable merchant card that has not fully answered the wash question (no
+  card, including a 4xx; wash confidence other than `full`; `ring_evaluated:
+  false`; `wash_stale: true`) refuses with `twzrd_wash_unknown`. This is the
+  rule `createTwzrdWashBeforePaymentHook` has always applied; the full engine
+  now agrees with it. The 0.12.0 condition for the flip was full coverage for
+  the sellers with a 90-day settlement graph and no wash finding on the first
+  page of `/v1/intel/resources`: 0 of 19 on 2026-10-10. Re-measured against
+  live intel on 2026-10-25, every card read live: 17 of 17 on the first page
+  (200 resources, now 18 distinct sellers where 2026-10-10 had 122), and 27 of
+  27 across the first five pages (1000 resources, 76 sellers, no card errors).
+  Those cards report `full` and not stale, and omit `ring_evaluated` (only
+  `false` fails coverage) while carrying numeric ring counts. Of the 46 sellers
+  on those pages with no 90-day graph, 31 had full coverage, 12 carried a wash
+  finding (already refused), and 3 had no wash answer and now refuse. **A wallet intel has never seen now
+  refuses:** its card answers 200 with `wash_flagged: null` and no confidence.
+  An unreachable card is still an outage decided by `failOpen`, and unscored
+  networks on `observe` are still not refused for coverage. Opt out with
+  `refuseWashUnknown: false` or `TWZRD_REFUSE_WASH_UNKNOWN=0|false|no|off`; any
+  other value, including a typo, leaves it on, and an empty value no longer
+  means off (0.12.x read `TWZRD_REFUSE_WASH_UNKNOWN=` as off). `createBuyerFetch`
+  pins it on.
 
 ## 0.12.5 (strict mode refuses a Solana devnet or testnet genesis id)
 
