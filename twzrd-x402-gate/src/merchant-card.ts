@@ -34,7 +34,15 @@ export type TwzrdMerchantCard = {
   provider_reputation_tier?: string | null;
   in_corpus?: boolean;
   catalog_enriched?: boolean;
-  /** ISO-8601 last live settle, or corpus_complete_day T00:00:00Z. Never "now". */
+  /**
+   * ISO-8601 last live settle, or corpus_complete_day T00:00:00Z. Never "now".
+   * Same rule and same producer (server seller_clock) as
+   * `TwzrdReadinessCard.observed_at` in types.ts. The compact merchant card
+   * also serves `as_of`, which on THIS card mirrors `observed_at` exactly;
+   * on the readiness card `as_of` is a different field that can equal
+   * card-build time. Read `observed_at` when you want the seller clock on
+   * either card.
+   */
   observed_at?: string | null;
   /** True when last settle / Dune snapshot is older than 7 days, or unknown. */
   stale?: boolean;
