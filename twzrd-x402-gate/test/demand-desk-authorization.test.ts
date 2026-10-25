@@ -122,6 +122,17 @@ test("refuses expiry before any transaction authorization", () => {
   assert.deepEqual(result, { ok: false, code: "expired", message: "Demand Desk authorization is expired" });
 });
 
+test("refuses even a one-millisecond future issuance by default", () => {
+  const body = { ...unsigned(), issued_at_ms: NOW + 1 };
+  const token: DemandDeskAuthorization = {
+    ...body,
+    signature: sign(null, demandDeskAuthorizationPreimage(body), pair.privateKey).toString("hex"),
+  };
+  const result = verifyDemandDeskAuthorization(token, expectation());
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "not_yet_valid");
+});
+
 test("covers authorization id, timestamps, evidence, constraints, and decision with the signature", () => {
   for (const mutate of [
     (a: DemandDeskAuthorization) => { a.authorization_id = "550e8400-e29b-41d4-a716-446655440001"; },

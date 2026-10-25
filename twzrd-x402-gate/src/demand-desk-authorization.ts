@@ -131,7 +131,7 @@ const HEX_32 = /^[0-9a-f]{64}$/i;
 const HEX_SIGNATURE = /^[0-9a-f]{128}$/i;
 const CAIP_2 = /^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$/;
 const POSITIVE_UNITS = /^[0-9]+$/;
-const DEFAULT_CLOCK_SKEW_MS = 5_000;
+const DEFAULT_CLOCK_SKEW_MS = 0;
 const DEFAULT_MAX_TTL_MS = 120_000;
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 

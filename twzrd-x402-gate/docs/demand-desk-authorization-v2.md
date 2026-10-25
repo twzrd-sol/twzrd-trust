@@ -105,7 +105,9 @@ Validation is offline and fail closed. It verifies strict shape, supported
 version, locally pinned Desk key, Ed25519 signature, issuance/expiry and maximum
 TTL, signed `ALLOW/APPROVED`, exact local intent, local vault/program/policy,
 required vault accounts, exact instruction digest, and fee ceiling. The default
-maximum TTL is 120 seconds and default future-clock tolerance is 5 seconds.
+maximum TTL is 120 seconds and default future-clock tolerance is zero. Hosts may
+explicitly configure a clock-skew allowance; the strict default refuses any
+future issuance.
 
 Authorization validation does not provide replay protection by itself. The
 Demand Desk remains responsible for atomic `authorization_id` consumption and
