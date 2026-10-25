@@ -28,7 +28,7 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## 0.13.0 (unreleased: missing evidence refuses by default)
+## 0.13.0 - 2026-10-25 (missing evidence refuses by default)
 
 A minor release under the policy above: every change below adds a default
 refusal, and each has a named opt-out that restores the 0.12.5 outcome.
