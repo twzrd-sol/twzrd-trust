@@ -3,6 +3,10 @@
 // is a duplicate-export collision that esbuild/tsx/Vite reject (tsc silently keeps the
 // last one). The fetch wrapper is the documented public API, so we export only that.
 export { CLIENT_VERSION } from "./version.js";
+export {
+  createDemandDeskWallet, demandDeskMessageHash,
+  type DemandDeskWalletContext, type DemandDeskWalletAdapter,
+} from "./demand-desk-wallet.js";
 export { createTwzrdGate, defaultGate, type TwzrdGate } from "./gate.js";
 export { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
 export {
@@ -38,6 +42,27 @@ export {
   type UnsupportedNetworkDecision,
 } from "./network.js";
 export type { TwzrdGateDecision } from "./types.js";
+export {
+  DEMAND_DESK_AUTHORIZATION_VERSION,
+  DEMAND_DESK_AUTHORIZATION_DOMAIN,
+  IMMUTABLE_VAULT_INSTRUCTION_DOMAIN,
+  DEMAND_DESK_REASON_CODES,
+  demandDeskAuthorizationPreimage,
+  immutableVaultInstructionHash,
+  verifyDemandDeskAuthorization,
+  type DemandDeskReasonCode,
+  type DemandDeskAuthorizationIntent,
+  type DemandDeskEvidenceBinding,
+  type DemandDeskSettlementConstraints,
+  type DemandDeskAuthorizationDecision,
+  type UnsignedDemandDeskAuthorization,
+  type DemandDeskAuthorization,
+  type SolanaInstructionAccountForAuthorization,
+  type SolanaInstructionForAuthorization,
+  type DemandDeskAuthorizationExpectation,
+  type DemandDeskAuthorizationFailureCode,
+  type DemandDeskAuthorizationVerification,
+} from "./demand-desk-authorization.js";
 export {
   fetchMerchantCard,
   fetchMerchantCardResult,

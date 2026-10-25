@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.twzrd.io/trust/v2/demand-desk-authorization.schema.json",
+  "title": "TWZRD Demand Desk Spend Authorization Contract",
+  "description": "A short-lived, signed authorization for one exact immutable-vault instruction. The Ed25519 signature covers the domain-separated canonical JSON encoding of every field except signature.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "authorization_id",
+    "issued_at_ms",
+    "expires_at_ms",
+    "demand_desk_pubkey",
+    "intent",
+    "evidence_binding",
+    "settlement_constraints",
+    "decision",
+    "signature"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "2.0.0-demand-desk"
+    },
+    "authorization_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "issued_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "expires_at_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "demand_desk_pubkey": {
+      "$ref": "#/$defs/solanaPubkey"
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_pubkey",
+        "resource_uri",
+        "facilitator_id",
+        "network",
+        "merchant_recipient",
+        "asset_mint",
+        "amount_units"
+      ],
+      "properties": {
+        "agent_pubkey": {
+          "$ref": "#/$defs/solanaPubkey"
+        },
+        "resource_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://"
+        },
+        "facilitator_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "network": {
+          "type": "string",
+          "pattern": "^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$",
+          "description": "CAIP-2 chain identity. Solana mainnet-beta is solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp."
+        },
+        "merchant_recipient": {
+          "$ref": "#/$defs/solanaPubkey"
+        },
+        "asset_mint": {
+          "$ref": "#/$defs/solanaPubkey"
+        },
+        "amount_units": {
+          "type": "string",
+          "pattern": "^(?=.*[1-9])[0-9]+$"
+        }
+      }
+    },
+    "evidence_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wash_score",
+        "freshness_epoch_sec",
+        "evidence_digest",
+        "transparency_leaf_index"
+      ],
+      "properties": {
+        "wash_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "freshness_epoch_sec": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix seconds at which the Demand Desk evaluated the cited evidence state."
+        },
+        "evidence_digest": {
+          "$ref": "#/$defs/hash32"
+        },
+        "transparency_leaf_index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "settlement_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vault_address",
+        "vault_program_id",
+        "policy_pda",
+        "instruction_hash",
+        "max_network_fee_lamports"
+      ],
+      "properties": {
+        "vault_address": {
+          "$ref": "#/$defs/solanaPubkey"
+        },
+        "vault_program_id": {
+          "$ref": "#/$defs/solanaPubkey"
+        },
+        "policy_pda": {
+          "$ref": "#/$defs/solanaPubkey"
+        },
+        "instruction_hash": {
+          "$ref": "#/$defs/hash32",
+          "description": "SHA-256 of the domain-separated canonical program id, ordered account metas, and instruction data bytes defined by immutableVaultInstructionHash()."
+        },
+        "max_network_fee_lamports": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason_code"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ALLOW",
+            "REFUSE"
+          ]
+        },
+        "reason_code": {
+          "enum": [
+            "APPROVED",
+            "REFUSE_WASH_THRESHOLD_EXCEEDED",
+            "REFUSE_STALE_EVIDENCE",
+            "REFUSE_BUDGET_LIMIT_EXCEEDED",
+            "REFUSE_UNVERIFIED_FACILITATOR",
+            "REFUSE_DESTINATION_MISMATCH"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ALLOW"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_code": {
+                "const": "APPROVED"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_code": {
+                "not": {
+                  "const": "APPROVED"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "signature": {
+      "type": "string",
+      "description": "Hex or base58 Ed25519 signature over TWZRD's v2 authorization domain plus canonical JSON of every other field.",
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-fA-F]{128}$"
+        },
+        {
+          "pattern": "^[1-9A-HJ-NP-Za-km-z]{64,88}$"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "solanaPubkey": {
+      "type": "string",
+      "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$",
+      "description": "Runtime verification also requires base58 decoding to exactly 32 bytes."
+    },
+    "hash32": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    }
+  }
+}
