@@ -62,7 +62,7 @@ export {
 export { refusePacket, paidLookupConfirmed } from './actions/intel-trust.js';
 export type { RefusePacket } from './actions/intel-trust.js';
 
-/** SDK intel helpers. TRUSTED_RECEIPT_PUBKEY is the v1 key — use CURRENT_RECEIPT_PUBKEY for V7 verify. */
+/** SDK intel helpers. From SDK 0.5, TRUSTED_RECEIPT_PUBKEY is the v2 key, equal to CURRENT_RECEIPT_PUBKEY. */
 export {
   IntelPaymentRequiredError,
   intelPreflight,

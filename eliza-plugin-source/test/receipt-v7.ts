@@ -7,8 +7,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { TRUSTED_RECEIPT_PUBKEY, verifyReceipt as verifyReceiptSdk } from '@wzrd_sol/sdk';
 import {
+  LEGACY_RECEIPT_PUBKEYS,
+  TRUSTED_RECEIPT_PUBKEY,
+  verifyReceipt as verifyReceiptSdk,
+} from '@wzrd_sol/sdk';
+import {
+  CURRENT_RECEIPT_PUBKEY,
   classifyReceipt,
   describeReceiptSurface,
   freshnessFromVerify,
@@ -93,14 +98,15 @@ describe('V7 receipt surface (source)', () => {
     assert.equal(result.valid, false);
   });
 
-  it('SDK verifyReceipt does not implement the V7 leaf (why this package uses the verifier)', async () => {
+  // SDK 0.5 routes the V7 domain to twzrd-receipt-verifier and agrees on validity
+  // and bound freshness. Its leafVersion label comes from the verifier's
+  // leaf_version, which verifier 1.4.0 does not return (the SDK then says 'v5'),
+  // so this package labels the version from the domain allowlist itself.
+  it('SDK 0.5 verifyReceipt agrees the official V7 example is valid with bound freshness', async () => {
     const sdk = await verifyReceiptSdk(v7Example as never);
-    assert.notEqual(
-      (sdk as { leafVersion?: string }).leafVersion,
-      'v7',
-      'SDK 0.4.8 still reports only v5/v6 leaf versions',
-    );
-    assert.equal(sdk.valid, false);
+    assert.equal(sdk.valid, true, sdk.errors.join('; '));
+    assert.equal(sdk.freshnessUnauthenticated, false);
+    assert.equal(verifyReceipt(v7Example).receiptVersion, 'v7');
   });
 
   it('does not treat envelope version/kind as V7 when the domain is V6', () => {
@@ -157,9 +163,14 @@ describe('V7 receipt surface (source)', () => {
     );
   });
 
-  it('SDK v1 TRUSTED_RECEIPT_PUBKEY fail-closes the official V7 example', () => {
-    const result = verifyReceipt(v7Example, { trustedPubkey: TRUSTED_RECEIPT_PUBKEY });
+  it('the legacy v1 key fail-closes the official V7 example', () => {
+    const result = verifyReceipt(v7Example, { trustedPubkey: LEGACY_RECEIPT_PUBKEYS[0] });
     assert.equal(result.valid, false);
     assert.equal(result.freshness, 'unauthenticated');
+  });
+
+  it('SDK TRUSTED_RECEIPT_PUBKEY is the v2 key from SDK 0.5 on', () => {
+    assert.equal(TRUSTED_RECEIPT_PUBKEY, CURRENT_RECEIPT_PUBKEY);
+    assert.equal(verifyReceipt(v7Example, { trustedPubkey: TRUSTED_RECEIPT_PUBKEY }).valid, true);
   });
 });

@@ -3,10 +3,11 @@
 This directory is the restored, V7-migrated TypeScript source for
 `@wzrd_sol/eliza-plugin`. It is **not** the public artifact mirror.
 
-> **Current state (2026-10-25):** this source is the origin of the published
-> `@wzrd_sol/eliza-plugin@0.9.0`, pinned to `twzrd-x402-gate` exactly `0.13.1`
-> (`eliza-plugin/` mirrors that tarball). The `0.6.1` references below describe
-> the baseline this source was restored from.
+> **Current state (2026-10-25):** this source is `0.10.0`, unpublished: it moves
+> `@wzrd_sol/sdk` to `^0.5.1` and keeps `twzrd-x402-gate` exactly `0.13.1`. npm
+> latest is `@wzrd_sol/eliza-plugin@0.9.0` (SDK `^0.4.8`), and `eliza-plugin/`
+> mirrors that tarball. The `0.6.1` references below describe the baseline this
+> source was restored from.
 
 - `eliza-plugin/` stays artifact-only (`dist/`, no-op scripts) until a
   coordinated npm publish and resync.
@@ -42,9 +43,12 @@ verify (`WZRD_VERIFY_RECEIPT`) uses `twzrd-receipt-verifier@^1.4.0`.
 | **V6** (legacy) | `derived_from_timestamp` | Those three fields are advisory. Enforce `max_age_seconds` against signed `timestamp_unix`. See `docs/receipt-v6-spec.md`. |
 | **V5** (legacy) | `unauthenticated` | Provenance and freshness are unsigned. |
 
-`@wzrd_sol/sdk@0.4.8` still implements only V5/V6 leaf bindings and defaults to
-the v1 signing key. This source keeps the SDK for free preflight, merchant_card,
-and paid `fetchIntelTrust`, and routes verification through the verifier.
+`@wzrd_sol/sdk@0.5.1` verifies V7 too and defaults to the v2 key, but its
+`verifyReceipt` is async and labels only `leafVersion`. That label comes from
+the verifier's `leaf_version`, which `twzrd-receipt-verifier@1.4.0` does not
+return, so against 1.4.0 the SDK reports a valid V7 receipt as `v5`. This source
+keeps the SDK for free preflight, merchant_card, and paid `fetchIntelTrust`, and
+routes verification through the verifier itself.
 
 Classification uses the verifier domain allowlist only
 (`TWZRD:AO_REPUTATION_RECEIPT_V{5,6,7}` and attention V5/V6). Envelope
@@ -53,9 +57,10 @@ is set only after `twzrd-receipt-verifier` returns `valid === true` **and**
 `freshness_unauthenticated === false` on a V7 domain. A missing
 `freshness_unauthenticated` flag is treated as unauthenticated.
 
-`TRUSTED_RECEIPT_PUBKEY` remains the SDK v1 re-export for compatibility. Pin
-`CURRENT_RECEIPT_PUBKEY` (v2) when calling `verifyReceipt`. Do not pass the v1
-key or live V7 receipts will fail closed.
+`TRUSTED_RECEIPT_PUBKEY` is re-exported from the SDK. From SDK 0.5 it is the v2
+key and equals `CURRENT_RECEIPT_PUBKEY`; under 0.9.0 and earlier it was the v1
+key. The v1 key is the SDK's `LEGACY_RECEIPT_PUBKEYS[0]`; passing it fails live
+V7 receipts closed.
 
 ## `verifyReceipt` vs published 0.6.1
 

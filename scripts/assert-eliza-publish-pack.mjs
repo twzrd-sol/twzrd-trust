@@ -73,8 +73,8 @@ export function evaluateElizaPublishPack({ pkg, indexSource, tarballEntries, sta
   if (pkg.dependencies?.["twzrd-x402-gate"] !== "0.13.1") {
     errors.push("dependencies.twzrd-x402-gate must be exactly 0.13.1");
   }
-  if (!String(pkg.dependencies?.["@wzrd_sol/sdk"] ?? "").startsWith("^0.4.")) {
-    errors.push("dependencies.@wzrd_sol/sdk must stay on the 0.4 line");
+  if (!String(pkg.dependencies?.["@wzrd_sol/sdk"] ?? "").startsWith("^0.5.")) {
+    errors.push("dependencies.@wzrd_sol/sdk must stay on the 0.5 line");
   }
   if (!/V7/.test(pkg.description ?? "")) errors.push("description must name V7");
   if (stagingDir) {
