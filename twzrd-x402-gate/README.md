@@ -1349,6 +1349,19 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `decision_bind_required` | A signed decision is required and none was bound. |
 | `bind_required_no_compose`, `bind_required_no_settlement`, `bind_required_no_leaf_hash`, `bind_mismatch` | A resource bind was required and could not be built or did not match. |
 
+### Held vault-spend copy (`decideHeldVaultSpend`)
+
+Checked on a transaction the gate already holds, before any socket. A refusal applies only to that copy. The gate is not the exclusive signer, and a refusal does not stop a direct RPC submission of a transaction the Demand Desk already signed. `twzrd.payment_decision.v1` does not move USDC.
+
+| Reason | When |
+|---|---|
+| `missing_demand_desk_signature` | The pinned Demand Desk signature slot is absent or all zeros. |
+| `forged_demand_desk_signature` | The slot is non-zero and does not verify over the transaction message. |
+| `instruction_bytes_differ` | The `spend_with_policy` instruction bytes differ from the bound instruction, including a one-byte change. |
+| `authorization_expired` | The desk signature verifies and `nowTs` is at or past `expiresAtTs`. |
+| `advisory_payment_decision_does_not_move_usdc` | The only credential is an advisory `twzrd.payment_decision.v1` and the desk signature is missing. |
+| `vault_spend_unreadable` | The bytes are not one USDC `spend_with_policy` instruction on the deployed vault program. |
+
 ## Config
 
 | Option | Env | Default | Description |
@@ -1389,6 +1402,8 @@ decision signer and verifiable **offline** by anyone holding your public key.
 No TWZRD call in the verification path. `unavailable` is a first-class decision
 and is never written as `block`. The record carries **no** score, secret, raw
 authorization/payload, amount or resource URL; the verifier rejects any of them.
+This receipt does not move USDC. It is not a Demand Desk vault signature, and
+the gate is not the exclusive signer.
 
 ```ts
 import { createLocalDecisionSigner, evaluateIntent } from "twzrd-x402-gate";

@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import { readFileSync } from "node:fs";
+import net from "node:net";
 import { x402Version } from "@x402/core";
 import type { PaymentRequired, SchemeNetworkClient } from "@x402/core/types";
 import { x402Client } from "@x402/fetch";
-import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
+import {
+  createGuardedX402Fetch,
+  decideHeldVaultSpend,
+  SETTLEMENT_USDC_MINT,
+  VAULT_PROGRAM_ID,
+  type HeldVaultSpendCopy,
+} from "../src/guarded-x402-fetch.js";
+import { PAYMENT_DECISION_SCHEMA } from "../src/payment-decision.js";
 
 const SELLER = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
 const OTHER = "4Gndn4YtDfh3UBG8yVJeD8vU9ugG3X1n4vS4xbx7sNqG";
@@ -195,7 +205,187 @@ async function main() {
     else process.env.TWZRD_GATE_ENABLED = previousSwitch;
   }
 
+  await heldVaultSpendProof();
+
   console.log("guarded-x402-fetch: OK");
+}
+
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function b58decode(text: string): Buffer {
+  let zeros = 0;
+  while (zeros < text.length && text[zeros] === "1") zeros += 1;
+  const bytes: number[] = [];
+  for (let i = zeros; i < text.length; i += 1) {
+    const value = B58.indexOf(text[i]!);
+    if (value < 0) throw new Error("base58");
+    let carry = value;
+    for (let j = 0; j < bytes.length; j += 1) {
+      carry += bytes[j]! * 58;
+      bytes[j] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  const out = Buffer.alloc(zeros + bytes.length);
+  for (let i = 0; i < bytes.length; i += 1) out[out.length - 1 - i] = bytes[i]!;
+  return out;
+}
+
+function b58encode(raw: Buffer): string {
+  let zeros = 0;
+  while (zeros < raw.length && raw[zeros] === 0) zeros += 1;
+  const digits = [0];
+  for (const byte of raw) {
+    let carry = byte;
+    for (let j = 0; j < digits.length; j += 1) {
+      carry += digits[j]! << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  return "1".repeat(zeros) + digits.reverse().map((d) => B58[d]).join("");
+}
+
+function shortvec(n: number): Buffer {
+  if (n < 128) return Buffer.from([n]);
+  return Buffer.from([(n & 0x7f) | 0x80, n >> 7]);
+}
+
+function signedVaultSpend(privateKey: KeyObject, deskRaw: Buffer): { tx: Buffer; instruction: Buffer } {
+  const disc = createHash("sha256").update("global:spend_with_policy").digest().subarray(0, 8);
+  const instruction = Buffer.alloc(49);
+  disc.copy(instruction, 0);
+  instruction.writeBigUInt64LE(1_000n, 8);
+  instruction[16] = 0;
+  Buffer.alloc(32, 7).copy(instruction, 17);
+  const keys = [
+    Buffer.alloc(32, 1),
+    Buffer.alloc(32, 2),
+    deskRaw,
+    Buffer.alloc(32, 4),
+    Buffer.alloc(32, 5),
+    Buffer.alloc(32, 6),
+    b58decode(SETTLEMENT_USDC_MINT),
+    Buffer.alloc(32, 8),
+    b58decode(VAULT_PROGRAM_ID),
+  ];
+  const message = Buffer.concat([
+    Buffer.from([3, 2, 3]),
+    shortvec(keys.length),
+    Buffer.concat(keys),
+    Buffer.alloc(32, 9),
+    shortvec(1),
+    Buffer.from([8]),
+    shortvec(7),
+    Buffer.from([3, 4, 5, 6, 1, 2, 7]),
+    shortvec(instruction.length),
+    instruction,
+  ]);
+  const deskSig = sign(null, message, privateKey);
+  const tx = Buffer.concat([
+    shortvec(3),
+    Buffer.alloc(64),
+    Buffer.alloc(64),
+    deskSig,
+    message,
+  ]);
+  return { tx, instruction };
+}
+
+async function heldVaultSpendProof() {
+  assert.equal(PAYMENT_DECISION_SCHEMA, "twzrd.payment_decision.v1");
+  const gateSrc = readFileSync(new URL("../src/guarded-x402-fetch.ts", import.meta.url), "utf8");
+  const decisionSrc = readFileSync(new URL("../src/payment-decision.ts", import.meta.url), "utf8");
+  assert.match(gateSrc, /not the exclusive signer/);
+  assert.match(decisionSrc, /does not move\s+USDC/);
+  assert.doesNotMatch(gateSrc, /exclusive signer of the vault/);
+  assert.equal(decisionSrc.includes('export const PAYMENT_DECISION_SCHEMA = "twzrd.payment_decision.v1"'), true);
+
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const deskRaw = (publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(-32);
+  const { tx, instruction } = signedVaultSpend(privateKey, deskRaw);
+  const nowTs = 1_800_000_000;
+  const base = (): HeldVaultSpendCopy => ({
+    serializedTransaction: tx.toString("base64"),
+    demandDeskPubkey: b58encode(deskRaw),
+    expiresAtTs: nowTs + 30,
+    nowTs,
+    boundInstructionHex: instruction.toString("hex"),
+  });
+
+  const original = net.Socket.prototype.connect;
+  let rpc_sockets_opened = 0;
+  net.Socket.prototype.connect = function (this: net.Socket, ...args: unknown[]) {
+    rpc_sockets_opened += 1;
+    return (original as (...a: unknown[]) => net.Socket).apply(this, args);
+  };
+
+  const check = async (name: string, copy: HeldVaultSpendCopy, reason: string) => {
+    const before = rpc_sockets_opened;
+    const verdict = decideHeldVaultSpend(copy);
+    assert.equal(verdict.refused, true, name);
+    assert.equal(verdict.reason, reason, name);
+    assert.equal(verdict.rpc_sockets_opened, 0, name);
+    const client = clientFor(() => {});
+    const guarded = createGuardedX402Fetch({
+      client,
+      heldVaultSpend: copy,
+      fetch: async () => {
+        throw new Error("transport opened");
+      },
+    });
+    await assert.rejects(guarded("https://merchant.example/paid"), new RegExp(reason), name);
+    assert.equal(rpc_sockets_opened, before, name);
+    console.log(`HELD_VAULT\t${name}\t${reason}\trpc_sockets_opened=0`);
+  };
+
+  try {
+    const missing = base();
+    const missingTx = Buffer.from(missing.serializedTransaction, "base64");
+    missingTx.fill(0, 1 + 128, 1 + 192);
+    missing.serializedTransaction = missingTx.toString("base64");
+    await check("missing_signature", missing, "missing_demand_desk_signature");
+
+    const forged = base();
+    const forgedTx = Buffer.from(forged.serializedTransaction, "base64");
+    forgedTx.fill(0x11, 1 + 128, 1 + 192);
+    forged.serializedTransaction = forgedTx.toString("base64");
+    await check("forged_signature", forged, "forged_demand_desk_signature");
+
+    const flipped = base();
+    const flippedTx = Buffer.from(flipped.serializedTransaction, "base64");
+    flippedTx[flippedTx.length - 1] ^= 0xff;
+    flipped.serializedTransaction = flippedTx.toString("base64");
+    await check("one_byte_instruction", flipped, "instruction_bytes_differ");
+
+    const expired = base();
+    expired.nowTs = expired.expiresAtTs;
+    await check("expired_authorization", expired, "authorization_expired");
+
+    const advisory = base();
+    const advisoryTx = Buffer.from(advisory.serializedTransaction, "base64");
+    advisoryTx.fill(0, 1 + 128, 1 + 192);
+    advisory.serializedTransaction = advisoryTx.toString("base64");
+    advisory.advisoryPaymentDecision = { schema: PAYMENT_DECISION_SCHEMA, decision: "allow" };
+    await check("advisory_payment_decision", advisory, "advisory_payment_decision_does_not_move_usdc");
+
+    const before = rpc_sockets_opened;
+    const allowed = decideHeldVaultSpend(base());
+    assert.equal(allowed.refused, false);
+    assert.equal(allowed.rpc_sockets_opened, 0);
+    assert.equal(rpc_sockets_opened, before);
+    console.log("HELD_VAULT\tdesk_signature_present\trpc_sockets_opened=0");
+  } finally {
+    net.Socket.prototype.connect = original;
+  }
 }
 
 main().catch((err) => {
