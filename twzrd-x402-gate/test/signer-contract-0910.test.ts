@@ -48,8 +48,8 @@ function intelFetch(
 
 async function run() {
   const pkg = require("../package.json") as { version: string; description: string };
-  assert.equal(pkg.version, "0.12.5");
-  console.log(`version 0.12.5`);
+  assert.equal(pkg.version, "0.13.0");
+  console.log(`version 0.13.0`);
 
   const shipped = ["README.md", "QUICKSTART.md", "src/doctor.ts"];
   for (const rel of shipped) {

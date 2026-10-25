@@ -168,7 +168,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
   async function record(attempt: Attempt, outcome: DecisionLedgerRow["outcome"], reason: string): Promise<void> {
     try {
       decisions.record({
-        outcome, reason_codes: [reason], policy_version: "buyer-fetch.v1",
+        outcome, reason_codes: [reason], policy_version: "buyer-fetch.v2",
         input: attempt.input, signer_invocations: 0,
       });
       // A local record must be durable before this wrapper permits signing.

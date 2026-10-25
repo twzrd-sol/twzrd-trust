@@ -64,7 +64,7 @@ different switch: only `installTwzrdAutoGate` reads them, and
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.12.5 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.13.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -222,7 +222,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.12.5 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.13.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -261,7 +261,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.12.5
+npm install twzrd-x402-gate@0.13.0
 ```
 
 ```typescript
@@ -306,7 +306,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.12.5
+npm install twzrd-x402-gate@0.13.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -326,7 +326,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.12.5 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.13.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -483,7 +483,7 @@ Dogfood (one public live proof path):
 npm i twzrd-x402-gate
 ```
 
-This doc describes **0.12.5**. Check `npm view twzrd-x402-gate version` for the latest release.
+This doc describes **0.13.0**. Check `npm view twzrd-x402-gate version` for the latest release.
 
 ### CLI commands (package `bin`)
 
@@ -1201,7 +1201,7 @@ An approval here carries `unevaluated: true` and `score: null`, never a trust sc
 
 A price above `recommended_cap_usdc` returns a reason that starts with `twzrd_over_recommended_cap_`. A direct `createTwzrdBeforePaymentHook` abort of a block card returns reason `twzrd_decision_block`. That reason string is not `block` and is not `twzrd_fail_closed`. A missing `payTo` returns reason `twzrd_unidentifiable_payment_recipient` from `twzrdApprovePayment`. That reason is not `twzrd_missing_payTo`. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns reason `twzrd_fail_closed`. That reason is not `twzrd_preflight_fetch_error`.
 
-An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.12.5 is not uniformly fail-closed: `createBuyerFetch` refuses that outage and does not read `TWZRD_FAIL_OPEN`, the other buyer entry points honor the env, and `createTwzrdSettleGuard` stays fail-open when `failOpen` is omitted.
+An evaluated `warn` (no `null_reason`, score present) is allowed unless overridden. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns `approved: false` with reason `twzrd_fail_closed` and the wallet does not sign. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort. 0.13.0 is not uniformly fail-closed: `createBuyerFetch` refuses that outage and does not read `TWZRD_FAIL_OPEN`, the other buyer entry points honor the env, and `createTwzrdSettleGuard` stays fail-open when `failOpen` is omitted.
 
 A 402 whose payment requirements yield **no identifiable seller wallet** (missing/empty `payTo`, or an unparseable `accepts[]`) is a different case from "unknown seller" — it always **blocks** with `reason: twzrd_unidentifiable_payment_recipient`, without ever calling the preflight network. The wallet does not sign. This is unconditional (not affected by buyer `failOpen`): that switch governs a buyer preflight outage, not a missing payTo. An omitted `failOpen` on `createTwzrdSettleGuard` is a different default: a thrown screen returns without abort.
 

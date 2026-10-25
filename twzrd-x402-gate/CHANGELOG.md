@@ -32,7 +32,15 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
 A minor release under the policy above: every change below adds a default
 refusal, and each has a named opt-out that restores the 0.12.5 outcome.
-`^0.12.0` installs never receive it.
+`^0.12.0` installs never receive it. Not published yet.
+
+- **`createBuyerFetch` records `policy_version: "buyer-fetch.v2"`** in its local
+  decision ledger (was `buyer-fetch.v1`), because the refusals below change
+  what it allows. Its knobs stay pinned and independent of the env.
+- **The Base seat (`twzrd-x402-gate/cloudflare-base`) keeps its 0.12.5 rules.**
+  It is a standalone module that reads one preflight card and no merchant card,
+  so none of the changes below apply to it: it still pays an evaluated `warn`
+  with no cap, and it reads `wash_flagged` only from the preflight card.
 
 - **An evaluated `warn` is paid only under its own cap** (`refuseUncappedWarn`,
   default `true`). A card that says `warn` with no finite `recommended_cap_usdc`
