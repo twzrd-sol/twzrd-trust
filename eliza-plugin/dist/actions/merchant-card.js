@@ -47,7 +47,7 @@ function formatMerchantCard(card, coverage) {
         lines.push('Policy: do not pay this pay_to (trustless default). Cap only if operator set washMaxUsdc.');
     }
     else if (card.wash_flagged !== false || !coverage.coverageFull) {
-        lines.push('Wash status unknown: not a clean bill. Strict hosts (twzrd-x402-gate refuseWashUnknown) refuse this pay_to.');
+        lines.push('Wash status unknown: not a clean bill. twzrd-x402-gate 0.13 refuses this pay_to by default (refuseWashUnknown).');
     }
     return lines.join('\n');
 }
