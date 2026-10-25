@@ -28,6 +28,21 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.13.1 - 2026-10-25 (the readiness card's basis type)
+
+A patch under the policy above: types and doc comments only. No allow or refuse
+outcome changes.
+
+- **New type: `TwzrdReadinessBasisEntry`, exported from the package root.**
+  `TwzrdReadinessCard.basis` is now declared, as an optional, nullable array of it, so
+  consumers no longer cast to read `basis[].observed_at`.
+- **Which `observed_at` can be card-build time is written down.** The readiness card's
+  `as_of`, and each `basis[].observed_at`, can equal card-build time: a scored read with
+  no per-seller anchor reports the instant it ran. The readiness card's `observed_at`
+  and the merchant card's `observed_at` are the seller clock (the last live settle, else
+  the corpus complete day) and never build time. On the merchant card, `as_of` mirrors
+  `observed_at`.
+
 ## 0.13.0 - 2026-10-25 (missing evidence refuses by default)
 
 A minor release under the policy above: every change below adds a default
