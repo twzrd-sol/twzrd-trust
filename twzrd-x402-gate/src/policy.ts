@@ -61,9 +61,9 @@ export type PolicyEvaluateInput = {
   /** Deny on can_spend=false. Default FALSE when omitted (decision-only gating). */
   gateOnCanSpend?: boolean;
   /**
-   * Refuse every unevaluated seller (the 0.9.9–0.9.16 behaviour). Default FALSE
-   * when omitted: an unevaluated seller is allowed up to the card's
-   * recommended_cap_usdc when `priceUsdc` is known and within it.
+   * Refuse every unevaluated seller. Default TRUE when omitted (0.13.0); pass
+   * false for the 0.11.0–0.12.x behaviour, which allows an unevaluated seller up
+   * to the card's recommended_cap_usdc when `priceUsdc` is known and within it.
    */
   refuseUnevaluated?: boolean;
   /**
@@ -115,7 +115,7 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
   // omits trust_score would otherwise read as score 0.
   if (isUnevaluatedCard(card)) {
     return evaluateUnevaluatedCard(card, decision, input.priceUsdc, {
-      refuseUnevaluated: refuseUnevaluated === true,
+      refuseUnevaluated: refuseUnevaluated !== false,
       gateOnCanSpend: gateOnCanSpend === true,
     });
   }
@@ -178,11 +178,12 @@ export function evaluateReadinessCard(input: PolicyEvaluateInput): TwzrdCardEval
  * The server still answers with a decision and a ceiling (`recommended_cap_usdc`).
  * For a seller it has never seen, live intel (2026-09-28) grades the floor score
  * to its lowest warn tier, $0.10, and reports min($0.10, requested price). Refusing every such seller stopped agents from paying anyone new,
- * including when the server itself said "warn, within cap". So by default the
+ * including when the server itself said "warn, within cap". So with
+ * refuseUnevaluated:false (the 0.11.0-0.12.x default; 0.13.0 refuses) the
  * gate follows the server: allow at or under the cap, refuse above it. Every
  * case where the bound cannot be checked still refuses:
  *
- *   refuseUnevaluated: true         -> twzrd_unevaluated_subject_<null_reason>
+ *   refuseUnevaluated (default)     -> twzrd_unevaluated_subject_<null_reason>
  *   decision not allow / warn       -> twzrd_unevaluated_subject_<null_reason>
  *   can_spend false + gateOnCanSpend -> twzrd_can_spend_false
  *   no finite recommended_cap_usdc  -> twzrd_unevaluated_no_cap_<null_reason>

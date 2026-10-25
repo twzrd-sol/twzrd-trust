@@ -85,6 +85,25 @@ refusal, and each has a named opt-out that restores the 0.12.5 outcome.
   header already said unknown is not clean; the coverage check never read
   `wash_flagged`. In the 2026-10-25 five-page sample no card had this shape,
   so it added no refusal there.
+- **A seller intel has never evaluated is refused** (`refuseUnevaluated`,
+  default `true`). A readiness card with `null_reason` set or `score: null`
+  refuses with `twzrd_unevaluated_subject_<null_reason>`, even within its
+  `recommended_cap_usdc`. This reverts the 0.11.0 default, which allowed such a
+  seller up to that cap (live: $0.10, intel's lowest `warn` tier) because
+  refusing every one stopped agents from paying anyone new. The 2026-10-25
+  sample confirms that reason rather than refuting it: 46 of 76 sellers had no
+  90-day settlement graph, and 31 of those 46 had full, clean wash coverage, so
+  they pass every other 0.13.0 check. Up to 31 of 76 sampled sellers would
+  newly refuse. That is an upper bound: the sample read merchant cards, not
+  readiness cards, so which of those sellers is unevaluated was not measured.
+  Opt out with `refuseUnevaluated: false` or
+  `TWZRD_REFUSE_UNEVALUATED=0|false|no|off`; any other value, including a typo,
+  leaves it on, and an empty value no longer means off (0.12.x read
+  `TWZRD_REFUSE_UNEVALUATED=` as off). The pure `evaluateReadinessCard` applies
+  it when the option is omitted. `createBuyerFetch` now pins it on (it pinned
+  `false` in 0.12.x). The Base seat (`twzrd-x402-gate/cloudflare-base`) is
+  unchanged: it still refuses an unevaluated seller only when its
+  `refuseUnevaluated` option is true.
 
 ## 0.12.5 (strict mode refuses a Solana devnet or testnet genesis id)
 

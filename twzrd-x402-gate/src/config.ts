@@ -6,7 +6,7 @@ export type ResolvedTwzrdGateConfig = {
   blockDecisions: Set<string>;
   failOpen: boolean;
   gateOnCanSpend: boolean;
-  /** Default false: an unevaluated seller is allowed up to the card's recommended cap. */
+  /** Default true (0.13.0): refuse every seller the server never evaluated. */
   refuseUnevaluated: boolean;
   /** Default true (0.13.0): an evaluated warn needs a finite recommended cap and a known price. */
   refuseUncappedWarn: boolean;
@@ -41,7 +41,7 @@ function parseBlockDecisions(raw: string | undefined): Set<string> {
 }
 
 /**
- * Opt-in strict knobs (refuseUnevaluated, gateOnCanSpend) read any common
+ * Opt-in strict knobs (gateOnCanSpend) read any common
  * truthy spelling as on: true, 1, "true", "1", "yes", "on" in any case.
  * A typo must not silently leave strict mode off (0.11.2).
  */
@@ -126,11 +126,10 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
   // knob. Opt in to strict can_spend gating with TWZRD_GATE_ON_CAN_SPEND (true/1/yes/on, any case).
   const gateOnCanSpend = strictFlag(overrides?.gateOnCanSpend, process.env.TWZRD_GATE_ON_CAN_SPEND);
 
-  // Default false (0.11.0+): a seller the server never evaluated is allowed up to
-  // the card's recommended_cap_usdc, and refused above it or when no cap is given.
-  // Opt in to refusing every unevaluated seller with refuseUnevaluated:true or
-  // TWZRD_REFUSE_UNEVALUATED (true/1/yes/on, any case).
-  const refuseUnevaluated = strictFlag(overrides?.refuseUnevaluated, process.env.TWZRD_REFUSE_UNEVALUATED);
+  // Default true (0.13.0): a seller the server never evaluated is refused. 0.11.0
+  // to 0.12.x allowed it up to the card's recommended_cap_usdc instead. Opt out
+  // with refuseUnevaluated:false or TWZRD_REFUSE_UNEVALUATED=0|false.
+  const refuseUnevaluated = defaultOnFlag(overrides?.refuseUnevaluated, process.env.TWZRD_REFUSE_UNEVALUATED);
 
   // Default true (0.13.0): an evaluated warn is paid only under the card's own
   // finite recommended_cap_usdc, at a known price (intel's can_spend rule for

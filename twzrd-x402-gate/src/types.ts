@@ -89,10 +89,10 @@ export type TwzrdGateConfig = {
   gateOnCanSpend?: boolean;
   /**
    * A seller the server has never evaluated (`null_reason` set, or `score: null`)
-   * is allowed up to the card's own `recommended_cap_usdc` by default (0.11.0+).
-   * A card with no finite cap, or a price above it, is still refused. Set true to
-   * refuse every unevaluated seller, which was the 0.9.9–0.9.16 default.
-   * Env: TWZRD_REFUSE_UNEVALUATED=1|true.
+   * is refused by default (0.13.0, as in 0.9.9–0.9.16). Set false for the
+   * 0.11.0–0.12.x behaviour: allowed up to the card's own `recommended_cap_usdc`,
+   * and refused with no finite cap or a price above it.
+   * Env: TWZRD_REFUSE_UNEVALUATED=0|false opts out.
    */
   refuseUnevaluated?: boolean;
   /**

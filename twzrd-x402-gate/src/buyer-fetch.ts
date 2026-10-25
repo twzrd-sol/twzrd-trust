@@ -156,7 +156,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
     blockDecisions: ["block"],
     preflightMinScore: 40,
     gateOnCanSpend: false,
-    refuseUnevaluated: false,
+    refuseUnevaluated: true,
     refuseUncappedWarn: true,
     refuseWashFlagged: true,
     refuseWashUnknown: true,

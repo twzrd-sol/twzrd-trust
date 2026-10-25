@@ -495,7 +495,7 @@ This doc describes **0.13.0**. Check `npm view twzrd-x402-gate version` for the 
 - Scored preflight runs on Solana mainnet and Base mainnet (`eip155:8453`). Other EVM networks do not run the scored preflight.
 - A missing `payTo` is never approved.
 - A buyer preflight outage does not sign unless `TWZRD_FAIL_OPEN=true`, except `createBuyerFetch`, which forces `failOpen: false` and does not read that variable.
-- An unevaluated seller (`null_reason: unknown_subject`) can be paid up to its card's `recommended_cap_usdc`; above the cap it does not sign. `refuseUnevaluated: true` refuses it outright (see *Unevaluated sellers* under Policy).
+- An unevaluated seller (`null_reason: unknown_subject`) does not sign by default from 0.13.0 (`refuseUnevaluated`). With `refuseUnevaluated: false` it can be paid up to its card's `recommended_cap_usdc`, and above the cap it does not sign (see *Unevaluated sellers* under Policy).
 - A price above `recommended_cap_usdc` does not sign.
 - Disagreeing v1/v2 price or recipient fields are refused.
 - An approved `warn` with a wired paying fetch requests `/v1/intel/quick` and does not request `/v1/intel/trust`.
@@ -1186,7 +1186,7 @@ A payment is **blocked** when:
 4. the price is above `recommended_cap_usdc` when the card was otherwise approved
 5. on Solana or Base, the requirement names an asset that is not USDC on that network (`twzrd_non_usdc_asset`, 0.11.1+). Every cap is in USDC, and `amount` is in the named asset's base units, so any other asset cannot be priced. A requirement that names no asset is read as USDC.
 
-**Unevaluated sellers (0.11.0+).** Live intel answers a seller it has never evaluated with `null_reason: unknown_subject`, `score: null`, a floor `trust_score` of 45, `decision: "warn"` and a `recommended_cap_usdc`. For that floor score live intel's ceiling is $0.10, and the card reports the lower of $0.10 and the requested price (2026-09-28). The gate follows that card instead of refusing every new seller, so a never-seen seller can be paid up to $0.10 per call:
+**Unevaluated sellers (refused by default from 0.13.0).** Live intel answers a seller it has never evaluated with `null_reason: unknown_subject`, `score: null`, a floor `trust_score` of 45, `decision: "warn"` and a `recommended_cap_usdc`. For that floor score live intel's ceiling is $0.10, and the card reports the lower of $0.10 and the requested price (2026-09-28). From 0.13.0 `refuseUnevaluated` is on by default and such a seller does not sign. With `refuseUnevaluated: false` (the 0.11.0–0.12.x default) the gate follows that card instead of refusing every new seller, so a never-seen seller can be paid up to $0.10 per call:
 
 | Case | Result | Reason |
 |---|---|---|
@@ -1195,9 +1195,9 @@ A payment is **blocked** when:
 | card carries no finite cap | does not sign | `twzrd_unevaluated_no_cap_<null_reason>` |
 | price unknown | does not sign | `twzrd_unevaluated_unknown_price_<null_reason>` |
 | decision other than `allow` / `warn` | does not sign | `twzrd_unevaluated_subject_<null_reason>` |
-| `refuseUnevaluated: true` | does not sign | `twzrd_unevaluated_subject_<null_reason>` |
+| `refuseUnevaluated` on (the default from 0.13.0) | does not sign | `twzrd_unevaluated_subject_<null_reason>` |
 
-An approval here carries `unevaluated: true` and `score: null`, never a trust score. The free wash check still runs after it, so a wash-flagged unevaluated seller does not sign. `refuseUnevaluated: true` (or `TWZRD_REFUSE_UNEVALUATED=1`) restores the 0.9.9–0.9.16 behaviour: `null_reason: unknown_subject` returns reason `twzrd_unevaluated_subject_unknown_subject` and nothing unevaluated signs.
+An approval here carries `unevaluated: true` and `score: null`, never a trust score. The free wash check still runs after it, so a wash-flagged unevaluated seller does not sign. `refuseUnevaluated` on (the 0.13.0 default, as in 0.9.9–0.9.16; `TWZRD_REFUSE_UNEVALUATED=0` turns it off): `null_reason: unknown_subject` returns reason `twzrd_unevaluated_subject_unknown_subject` and nothing unevaluated signs.
 
 A price above `recommended_cap_usdc` returns a reason that starts with `twzrd_over_recommended_cap_`. A direct `createTwzrdBeforePaymentHook` abort of a block card returns reason `twzrd_decision_block`. That reason string is not `block` and is not `twzrd_fail_closed`. A missing `payTo` returns reason `twzrd_unidentifiable_payment_recipient` from `twzrdApprovePayment`. That reason is not `twzrd_missing_payTo`. When the buyer preflight fetch throws and `TWZRD_FAIL_OPEN` is unset, `twzrdApprovePayment` returns reason `twzrd_fail_closed`. That reason is not `twzrd_preflight_fetch_error`.
 
@@ -1229,7 +1229,7 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | `twzrd_non_usdc_asset` | On Solana or Base, the requirement names an asset that is not USDC on that network. Intel is not called; `failOpen` does not apply. | always (0.11.1+) |
 | `network_not_scored`, `network_missing` | The network is not scored (not Solana or Base mainnet). A name containing `devnet`, `testnet`, or `sepolia`, including Base Sepolia, is unscored. A Solana devnet named only by its CAIP-2 genesis id is still scored. | refused when `unsupportedNetworkMode` is `strict`. The shared default is `observe` (allow). `createBuyerFetch` sets `strict` |
 | `twzrd_decision_<decision>` | Intel's card decision is in `blockDecisions`. | `twzrd_decision_block` |
-| `twzrd_unevaluated_subject_<null_reason>` | Intel has never evaluated the seller, and `refuseUnevaluated` is set or the decision is not `allow`/`warn`. | strict mode off |
+| `twzrd_unevaluated_subject_<null_reason>` | Intel has never evaluated the seller, and `refuseUnevaluated` is on (the default from 0.13.0) or the decision is not `allow`/`warn`. | default from 0.13.0 (`refuseUnevaluated: false` opts out) |
 | `twzrd_unevaluated_no_cap_<null_reason>` | Never evaluated, and the card has no finite `recommended_cap_usdc`. | always |
 | `twzrd_unevaluated_unknown_price_<null_reason>` | Never evaluated, and the price is unknown. | always |
 | `twzrd_unevaluated_over_cap_<price>_gt_<cap>` | Never evaluated, and the price is above the card's cap (live: min($0.10, price)). | always |
@@ -1358,7 +1358,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `blockDecisions` | `TWZRD_BLOCK_DECISIONS` | `block` | Decisions that throw |
 | `failOpen` (buyer preflight only) | `TWZRD_FAIL_OPEN` | `false` | Buyer outage only: default does not sign. `createTwzrdSettleGuard` omitted `failOpen` is the other default — a thrown screen returns without abort |
 | `gateOnCanSpend` | `TWZRD_GATE_ON_CAN_SPEND` | `false` | Also block when `can_spend=false` |
-| `refuseUnevaluated` | `TWZRD_REFUSE_UNEVALUATED` | `false` | Refuse every seller intel has not evaluated, instead of allowing it up to the card's `recommended_cap_usdc`. `true`, `1`, `"yes"`, `"on"` in any case turn it on. |
+| `refuseUnevaluated` | `TWZRD_REFUSE_UNEVALUATED` | `true` (0.13.0; `false` in 0.11.0–0.12.x) | Refuse every seller intel has not evaluated. `false` allows it up to the card's `recommended_cap_usdc` instead. Only `false`, `0`, `"no"`, `"off"` turn it off; any other value, including a typo or an empty value, leaves it on. |
 | `refuseUncappedWarn` | `TWZRD_REFUSE_UNCAPPED_WARN` | `true` (0.13.0+) | Refuse an evaluated `warn` whose card has no finite `recommended_cap_usdc` (`twzrd_warn_no_cap`) or whose price is unknown (`twzrd_warn_unknown_price`). Only `false`, `0`, `"no"`, `"off"` in any case turn it off; a typo leaves it on. |
 | `refuseWashUnknown` | `TWZRD_REFUSE_WASH_UNKNOWN` | `true` (0.13.0; `false` in 0.12.x) | Refuse (`twzrd_wash_unknown`) when the merchant card is reachable but its wash coverage is missing, partial or stale. Also refuses an unevaluated seller within its cap when its card has no full coverage. Only `false`, `0`, `"no"`, `"off"` turn it off; any other value, including a typo, leaves it on. |
 | `intelTimeoutMs` | `TWZRD_INTEL_TIMEOUT_MS` | `2000` | Deadline for each free intel call (preflight, merchant card). A miss is an outage, decided by `failOpen`. Paid hops are not cut off mid-payment. |

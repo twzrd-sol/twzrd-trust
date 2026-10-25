@@ -1,8 +1,9 @@
 /**
- * 0.11.0 unevaluated-seller policy: a seller intel has never evaluated is
- * allowed up to the card's own recommended_cap_usdc, refused above it, refused
- * when no cap or no price is known, and refused outright with
- * refuseUnevaluated: true (the 0.9.9–0.9.16 default).
+ * Unevaluated-seller policy. 0.13.0 refuses a seller intel has never evaluated
+ * by default (refuseUnevaluated, as in 0.9.9–0.9.16). With refuseUnevaluated:
+ * false (the 0.11.0–0.12.x default) it is allowed up to the card's own
+ * recommended_cap_usdc, refused above it, and refused when no cap or no price
+ * is known; most of this file runs that opt-out path.
  * Run: npx tsx test/unevaluated-seller.test.ts
  */
 import assert from "node:assert/strict";
@@ -53,10 +54,27 @@ function paying() {
 }
 
 const evalCard = (card: Record<string, unknown>, extra: { priceUsdc?: number; refuseUnevaluated?: boolean; gateOnCanSpend?: boolean } = {}) =>
-  evaluateReadinessCard({ card, preflightMinScore: 40, blockDecisions: bd(), ...extra });
+  evaluateReadinessCard({ card, preflightMinScore: 40, blockDecisions: bd(), refuseUnevaluated: false, ...extra });
 
 async function run() {
-  // --- pure policy table ---
+  // --- 0.13.0 default: refused outright, even within its cap ---
+  {
+    const card: Record<string, unknown> = unknownCard();
+    const byDefault = evaluateReadinessCard({ card, preflightMinScore: 40, blockDecisions: bd(), priceUsdc: 0.001 });
+    assert.equal(byDefault.approved, false, "the pure function refuses when refuseUnevaluated is omitted");
+    assert.equal(byDefault.reason, "twzrd_unevaluated_subject_unknown_subject");
+
+    const x402 = paying();
+    const hooked = await evaluateBeforePaymentCreation(
+      { payTo: SELLER, network: "solana", amount: "5000", resource: "https://seller.example/paid" },
+      { fetch: intel(unknownCard(), { wash_flagged: false, confidence: "full" }), x402Fetch: x402 },
+    );
+    assert.ok(hooked && hooked.abort === true, "the hook refuses an unevaluated seller within its cap and with full coverage");
+    assert.match(String(hooked.reason), /twzrd_unevaluated_subject_unknown_subject/);
+    assert.equal(x402.calls.length, 0, "no paid hop on the refusal");
+  }
+
+  // --- pure policy table (refuseUnevaluated: false) ---
   {
     const within = evalCard(unknownCard(), { priceUsdc: 0.01 });
     assert.equal(within.approved, true);
@@ -118,13 +136,21 @@ async function run() {
 
   // --- config knob + env ---
   {
-    assert.equal(resolveConfig({}).refuseUnevaluated, false);
-    assert.equal(resolveConfig({ refuseUnevaluated: true }).refuseUnevaluated, true);
-    for (const v of ["true", "1"]) {
+    assert.equal(resolveConfig({}).refuseUnevaluated, true, "default on in 0.13.0");
+    assert.equal(resolveConfig({ refuseUnevaluated: false }).refuseUnevaluated, false);
+    for (const v of ["0", "false", "No", "off"]) {
       process.env.TWZRD_REFUSE_UNEVALUATED = v;
       try {
-        assert.equal(resolveConfig({}).refuseUnevaluated, true, v);
-        assert.equal(resolveConfig({ refuseUnevaluated: false }).refuseUnevaluated, false, "override wins");
+        assert.equal(resolveConfig({}).refuseUnevaluated, false, v);
+        assert.equal(resolveConfig({ refuseUnevaluated: true }).refuseUnevaluated, true, "override wins");
+      } finally {
+        delete process.env.TWZRD_REFUSE_UNEVALUATED;
+      }
+    }
+    for (const v of ["", "flase", "true"]) {
+      process.env.TWZRD_REFUSE_UNEVALUATED = v;
+      try {
+        assert.equal(resolveConfig({}).refuseUnevaluated, true, `env ${JSON.stringify(v)} leaves it on`);
       } finally {
         delete process.env.TWZRD_REFUSE_UNEVALUATED;
       }
@@ -132,12 +158,12 @@ async function run() {
   }
 
   // --- twzrdApprovePayment: wash still refuses an unevaluated seller within its cap ---
-  // The cap ladder runs with the coverage check off (refuseWashUnknown:false);
-  // the 0.12.0 default is asserted right after.
+  // refuseUnevaluated:false throughout. The cap ladder runs with the coverage
+  // check off (refuseWashUnknown:false); the coverage refusal is asserted after.
   {
     const clean = await twzrdApprovePayment(
       { payTo: SELLER, chain: "solana", priceUsdc: 0.005 },
-      resolveConfig({ fetch: intel(unknownCard()), refuseWashUnknown: false }),
+      resolveConfig({ fetch: intel(unknownCard()), refuseWashUnknown: false, refuseUnevaluated: false }),
     );
     assert.equal(clean.approved, true, clean.reason);
     assert.equal(clean.unevaluated, true);
@@ -146,15 +172,16 @@ async function run() {
       { payTo: SELLER, chain: "solana", priceUsdc: 0.005 },
       resolveConfig({
         refuseWashUnknown: true,
+        refuseUnevaluated: false,
         fetch: intel(unknownCard(), { wash_flagged: null, confidence: "partial_inbound_only" }),
       }),
     );
-    assert.equal(partial.approved, false, "opted in, refuseWashUnknown refuses an unevaluated within-cap seller with partial coverage");
+    assert.equal(partial.approved, false, "refuseWashUnknown refuses an unevaluated within-cap seller with partial coverage");
     assert.equal(partial.reason, "twzrd_wash_unknown");
 
     const washed = await twzrdApprovePayment(
       { payTo: SELLER, chain: "solana", priceUsdc: 0.005 },
-      resolveConfig({ fetch: intel(unknownCard(), { wash_flagged: true }) }),
+      resolveConfig({ fetch: intel(unknownCard(), { wash_flagged: true }), refuseUnevaluated: false }),
     );
     assert.equal(washed.approved, false);
     assert.equal(washed.reason, "twzrd_wash_flagged");
@@ -165,7 +192,7 @@ async function run() {
     const x402 = paying();
     const result = await evaluateBeforePaymentCreation(
       { payTo: SELLER, network: "solana", amount: "5000", resource: "https://seller.example/paid" },
-      { fetch: intel(unknownCard()), x402Fetch: x402, refuseWashUnknown: false },
+      { fetch: intel(unknownCard()), x402Fetch: x402, refuseWashUnknown: false, refuseUnevaluated: false },
     );
     assert.ok(!result || result.abort !== true, `unexpected abort: ${JSON.stringify(result)}`);
     assert.equal(x402.calls.length, 0, "no paid hop can score a seller intel never saw");
@@ -189,6 +216,7 @@ async function run() {
       x402Fetch: x402,
       escalateOnWarn: { minSpendUsdc: 0 },
       refuseWashUnknown: false,
+      refuseUnevaluated: false,
     });
     assert.equal(r.approved, true, r.reason);
     assert.equal(r.escalated, undefined);
