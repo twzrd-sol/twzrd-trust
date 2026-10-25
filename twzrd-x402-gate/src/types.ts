@@ -49,15 +49,53 @@ export type TwzrdReadinessCard = {
    * ISO-8601 evidence as-of (seller last-activity, or live index read time).
    * Null when the subject was never measured. Never wall-clock "now" on
    * unknown_subject / insufficient_signal / evaluation_failed.
+   *
+   * Back-fill rule: this field CAN equal card-build time. A scored or
+   * registry-backed read with no per-seller last-activity anchor executes at
+   * request time and reports that instant (server preflight.py, the
+   * `data_as_of_unix` fallback). Do not read it as "when the seller was last
+   * seen"; that is `observed_at` below. The server's `basis[].observed_at`
+   * (not declared here) follows this same build-time-capable rule, not the
+   * top-level `observed_at` rule.
    */
   as_of?: string | null;
-  /** ISO-8601 uploaded-corpus complete-day watermark. Not card-build time. */
+  /**
+   * ISO-8601 seller clock: the seller's last live settle when known, else the
+   * uploaded-corpus complete day as `corpus_complete_day` T00:00:00Z, else
+   * null. Never card-build time (server seller_clock). Same rule and same
+   * producer as `TwzrdMerchantCard.observed_at` in merchant-card.ts, so the
+   * two cards agree on what this name promises. The build-time-capable twin on
+   * this card is `as_of`.
+   */
   observed_at?: string | null;
   /** Corpus-age warning (not wash-overlay refuse). */
   stale?: boolean;
   /** Uploaded Dune complete day (YYYY-MM-DD). */
   corpus_complete_day?: string | null;
   corpus_age_days?: number | null;
+  /**
+   * Typed evidence entries behind the score (x402 Trust Extension draft-02/03).
+   * Declared so consumers stop casting to read `basis[].observed_at`, which
+   * follows the `as_of` back-fill rule (it CAN be card-build time on a scored
+   * read), not the top-level `observed_at` rule.
+   */
+  basis?: TwzrdReadinessBasisEntry[] | null;
+};
+
+/** One `TwzrdReadinessCard.basis` entry (server preflight.py builds these). */
+export type TwzrdReadinessBasisEntry = {
+  /** "behavioral" (corpus-derived settlement evidence) or "curated" (operator registry). */
+  class?: string;
+  kind?: string;
+  source?: string;
+  weight?: number;
+  /**
+   * ISO-8601. Seller last activity when known; null with
+   * `observed_at_null_reason` on an honest-null card (no evidence measured);
+   * otherwise card-build time (the read ran at request time).
+   */
+  observed_at?: string | null;
+  observed_at_null_reason?: string | null;
 };
 
 export type TwzrdPreflightInput = {
@@ -89,12 +127,22 @@ export type TwzrdGateConfig = {
   gateOnCanSpend?: boolean;
   /**
    * A seller the server has never evaluated (`null_reason` set, or `score: null`)
-   * is allowed up to the card's own `recommended_cap_usdc` by default (0.11.0+).
-   * A card with no finite cap, or a price above it, is still refused. Set true to
-   * refuse every unevaluated seller, which was the 0.9.9–0.9.16 default.
-   * Env: TWZRD_REFUSE_UNEVALUATED=1|true.
+   * is refused by default (0.13.0, as in 0.9.9–0.9.16). Set false for the
+   * 0.11.0–0.12.x behaviour: allowed up to the card's own `recommended_cap_usdc`,
+   * and refused with no finite cap or a price above it.
+   * Env: TWZRD_REFUSE_UNEVALUATED=0|false opts out.
    */
   refuseUnevaluated?: boolean;
+  /**
+   * An evaluated seller whose card says `warn` is paid only up to the card's own
+   * `recommended_cap_usdc`, which needs both a finite cap and a known price.
+   * Default true (0.13.0): a warn card with no finite cap refuses with
+   * twzrd_warn_no_cap, and a payment with no known price refuses with
+   * twzrd_warn_unknown_price. This is intel's own can_spend rule for warn. Set
+   * false (or TWZRD_REFUSE_UNCAPPED_WARN=0|false) for the 0.12.x behaviour, which
+   * paid such a warn with no ceiling.
+   */
+  refuseUncappedWarn?: boolean;
   /**
    * Deadline for each intel call (preflight, merchant card, paid receipts), in
    * ms. Default 2000. A call that misses it is an outage: failOpen decides it
@@ -114,10 +162,10 @@ export type TwzrdGateConfig = {
   /**
    * Refuse when the merchant_card is reachable but has not fully answered the wash
    * question: no card, wash confidence other than "full", ring_evaluated false, or
-   * wash_stale. Reason twzrd_wash_unknown. Default false in 0.12.x: opt in with
-   * refuseWashUnknown:true or TWZRD_REFUSE_WASH_UNKNOWN=1. The default becomes true in
-   * 0.13.0 (CHANGELOG). Applies on the reputation-scored path only, and only when
-   * refuseWashFlagged is on. An unreachable card is an outage and stays with failOpen.
+   * wash_stale. Reason twzrd_wash_unknown. Default true from 0.13.0 (CHANGELOG): opt
+   * out with refuseWashUnknown:false or TWZRD_REFUSE_WASH_UNKNOWN=0|false. Applies on
+   * the reputation-scored path only, and only when refuseWashFlagged is on. An
+   * unreachable card is an outage and stays with failOpen.
    */
   refuseWashUnknown?: boolean;
   /**

@@ -139,8 +139,8 @@ export type EvaluateX402Result = {
  *      With requireReceipt.hard (default), deny spend if /trust fails.
  *
  * Defaults to gateOnCanSpend=false — `can_spend: false` alone does not block.
- * A `null_reason: unknown_subject` card is allowed only up to its
- * `recommended_cap_usdc` (refused with `refuseUnevaluated: true`), and never
+ * A `null_reason: unknown_subject` card is refused by default (0.13.0); with
+ * `refuseUnevaluated: false` it is allowed only up to its `recommended_cap_usdc`, and never
  * triggers the paid quick hop, which cannot score a seller intel never saw.
  */
 export async function evaluate_x402_resource(

@@ -149,8 +149,13 @@ export {
 export { createBuyerFetch, BuyerFetchBlockedError, type BuyerFetchOptions } from "./buyer-fetch.js";
 export {
   createGuardedX402Fetch,
+  decideHeldVaultSpend,
   explainCoreSpendControls,
+  SETTLEMENT_USDC_MINT,
+  VAULT_PROGRAM_ID,
   type GuardedX402FetchOptions,
+  type HeldVaultSpendCopy,
+  type HeldVaultSpendVerdict,
 } from "./guarded-x402-fetch.js";
 export {
   RESOURCE_BIND_DOMAIN,
@@ -316,6 +321,7 @@ export {
 export type {
   TwzrdDecision,
   TwzrdReadinessCard,
+  TwzrdReadinessBasisEntry,
   TwzrdPreflightInput,
   TwzrdGateConfig,
   TwzrdApproveContext,

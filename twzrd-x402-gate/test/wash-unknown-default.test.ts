@@ -1,9 +1,9 @@
 /**
- * 0.12.0: refuseWashUnknown (opt in; default false in 0.12.x, true from 0.13.0).
+ * refuseWashUnknown: added in 0.12.0 (opt in), default true from 0.13.0.
  * When on, a merchant card on the reputation-scored path that answered but has not
  * fully answered the wash question refuses with twzrd_wash_unknown, the rule
- * wash-default.ts already applies. Off, partial coverage passes as in 0.11.x. An
- * outage stays with failOpen, and the unsupported-network observe path is never
+ * wash-default.ts already applies. Opted out, partial coverage passes as in 0.12.x.
+ * An outage stays with failOpen, and the unsupported-network observe path is never
  * refused for coverage.
  *
  * Run: npx tsx test/wash-unknown-default.test.ts
@@ -41,16 +41,22 @@ const approve = (card: CardReply, extra: Partial<TwzrdGateConfig> = {}, chain = 
 const strict = { refuseWashUnknown: true } as const;
 
 async function run() {
-  assert.equal(resolveConfig({}).refuseWashUnknown, false, "default off in 0.12.x");
-  assert.equal(resolveConfig({ refuseWashUnknown: true }).refuseWashUnknown, true);
+  assert.equal(resolveConfig({}).refuseWashUnknown, true, "default on in 0.13.0");
+  assert.equal(resolveConfig({ refuseWashUnknown: false }).refuseWashUnknown, false);
 
-  // --- default (off): partial coverage passes as in 0.11.x ---
+  // --- default (on): partial coverage refuses; opted out it passes as in 0.12.x ---
   {
     const r = await approve({ status: 200, body: { wash_flagged: null, confidence: "partial_inbound_only" } });
-    assert.equal(r.approved, true, `default allows partial coverage: ${r.reason}`);
-    assert.notEqual(r.reason, "twzrd_wash_unknown");
+    assert.equal(r.approved, false, `default refuses partial coverage: ${r.reason}`);
+    assert.equal(r.reason, "twzrd_wash_unknown");
+    const off = await approve(
+      { status: 200, body: { wash_flagged: null, confidence: "partial_inbound_only" } },
+      { refuseWashUnknown: false },
+    );
+    assert.equal(off.approved, true, `opted out allows partial coverage: ${off.reason}`);
+    assert.notEqual(off.reason, "twzrd_wash_unknown");
   }
-  console.log("ok  default off: partial coverage is not refused");
+  console.log("ok  default on: partial coverage refuses; refuseWashUnknown:false passes it");
 
   // --- refuses: every shape of "answered, but not fully" ---
   const unknownShapes: Array<[string, CardReply]> = [
@@ -88,23 +94,23 @@ async function run() {
   }
   console.log("ok  wash_flagged true refuses twzrd_wash_flagged");
 
-  // --- opt-in by env; an explicit option wins over env ---
+  // --- opt-out by env; an explicit option wins over env ---
   {
     const partial: CardReply = { status: 200, body: { wash_flagged: false, confidence: "partial_inbound_only" } };
     const prev = process.env.TWZRD_REFUSE_WASH_UNKNOWN;
-    process.env.TWZRD_REFUSE_WASH_UNKNOWN = "1";
+    process.env.TWZRD_REFUSE_WASH_UNKNOWN = "0";
     try {
-      assert.equal(resolveConfig({}).refuseWashUnknown, true, "env 1 turns it on");
+      assert.equal(resolveConfig({}).refuseWashUnknown, false, "env 0 turns it off");
       const viaEnv = await approve(partial);
-      assert.equal(viaEnv.reason, "twzrd_wash_unknown", `env opt-in refuses: ${viaEnv.reason}`);
-      const optionOff = await approve(partial, { refuseWashUnknown: false });
-      assert.equal(optionOff.approved, true, `option false overrides env: ${optionOff.reason}`);
+      assert.equal(viaEnv.approved, true, `env opt-out allows: ${viaEnv.reason}`);
+      const optionOn = await approve(partial, { refuseWashUnknown: true });
+      assert.equal(optionOn.reason, "twzrd_wash_unknown", `option true overrides env: ${optionOn.reason}`);
     } finally {
       if (prev === undefined) delete process.env.TWZRD_REFUSE_WASH_UNKNOWN;
       else process.env.TWZRD_REFUSE_WASH_UNKNOWN = prev;
     }
   }
-  console.log("ok  TWZRD_REFUSE_WASH_UNKNOWN=1 opts in; refuseWashUnknown:false overrides it");
+  console.log("ok  TWZRD_REFUSE_WASH_UNKNOWN=0 opts out; refuseWashUnknown:true overrides it");
 
   // --- an outage stays with failOpen ---
   {

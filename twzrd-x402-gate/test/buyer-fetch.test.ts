@@ -58,7 +58,7 @@ function setup(options: {
       };
       return Response.json({ readiness_card: card });
     }
-    if (request.url.includes("/v1/intel/merchant_card/")) return Response.json({ wash_flagged: false });
+    if (request.url.includes("/v1/intel/merchant_card/")) return Response.json({ wash_flagged: false, wash_confidence: "full" });
     if (request.url !== URL) throw new Error(`Unexpected request: ${request.url}`);
     if (request.headers.has("payment-signature")) {
       state.paid++;

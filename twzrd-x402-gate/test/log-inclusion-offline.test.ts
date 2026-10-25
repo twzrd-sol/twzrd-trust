@@ -31,7 +31,7 @@ const REQS: X402PaymentRequirements = {
 
 const preflight = (card: Record<string, unknown>): typeof fetch =>
   (async () =>
-    new Response(JSON.stringify({ readiness_card: card, confidence: "full" }), {
+    new Response(JSON.stringify({ readiness_card: card, wash_flagged: false, confidence: "full" }), {
       status: 200,
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;
@@ -43,7 +43,7 @@ const x402 = (body: unknown): typeof fetch =>
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;
 
-const WARN = { decision: "warn", trust_score: 45, can_spend: false };
+const WARN = { decision: "warn", trust_score: 45, can_spend: false, recommended_cap_usdc: 1000 };
 
 // Live genesis, verbatim from https://intel.twzrd.xyz/v1/log/sth (2026-09-04).
 const LIVE_LEAF = "0xf7e88f2666a0590d8cf7d426d4842e29a23b66607f2c0a691bf6fc7d0d63ba8f";

@@ -34,7 +34,15 @@ export type TwzrdMerchantCard = {
   provider_reputation_tier?: string | null;
   in_corpus?: boolean;
   catalog_enriched?: boolean;
-  /** ISO-8601 last live settle, or corpus_complete_day T00:00:00Z. Never "now". */
+  /**
+   * ISO-8601 last live settle, or corpus_complete_day T00:00:00Z. Never "now".
+   * Same rule and same producer (server seller_clock) as
+   * `TwzrdReadinessCard.observed_at` in types.ts. The compact merchant card
+   * also serves `as_of`, which on THIS card mirrors `observed_at` exactly;
+   * on the readiness card `as_of` is a different field that can equal
+   * card-build time. Read `observed_at` when you want the seller clock on
+   * either card.
+   */
   observed_at?: string | null;
   /** True when last settle / Dune snapshot is older than 7 days, or unknown. */
   stale?: boolean;
@@ -47,7 +55,7 @@ export type TwzrdMerchantCard = {
  * `reachable: true` means intel answered — a JSON object, or a 4xx that is the
  * service saying "nothing for this wallet". `card` may still carry no
  * wash_flagged, which is a real unknown: never an outage, and refused as
- * twzrd_wash_unknown only when refuseWashUnknown is on (opt-in in 0.12.x).
+ * twzrd_wash_unknown while refuseWashUnknown is on (the default from 0.13.0).
  * `reachable: false` means the lookup itself did not complete: 5xx, 429, a
  * body that is not a JSON object, or a thrown fetch (network, abort, timeout).
  */

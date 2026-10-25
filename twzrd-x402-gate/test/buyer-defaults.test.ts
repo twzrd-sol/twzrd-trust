@@ -23,7 +23,7 @@ function preflight(decision: "allow" | "warn" | "block", score = 45): typeof fet
   return (async () =>
     new Response(
       JSON.stringify({
-        readiness_card: { decision, trust_score: score, can_spend: decision !== "block" },
+        readiness_card: { decision, trust_score: score, can_spend: decision !== "block", recommended_cap_usdc: 1000 },
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     )) as unknown as typeof fetch;

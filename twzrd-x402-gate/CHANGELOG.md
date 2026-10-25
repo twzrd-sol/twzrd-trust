@@ -28,6 +28,114 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.13.1 - 2026-10-25 (the readiness card's basis type)
+
+A patch under the policy above: types and doc comments only. No allow or refuse
+outcome changes.
+
+- **New type: `TwzrdReadinessBasisEntry`, exported from the package root.**
+  `TwzrdReadinessCard.basis` is now declared, as an optional, nullable array of it, so
+  consumers no longer cast to read `basis[].observed_at`.
+- **Which `observed_at` can be card-build time is written down.** The readiness card's
+  `as_of`, and each `basis[].observed_at`, can equal card-build time: a scored read with
+  no per-seller anchor reports the instant it ran. The readiness card's `observed_at`
+  and the merchant card's `observed_at` are the seller clock (the last live settle, else
+  the corpus complete day) and never build time. On the merchant card, `as_of` mirrors
+  `observed_at`.
+
+## 0.13.0 - 2026-10-25 (missing evidence refuses by default)
+
+A minor release under the policy above: every change below adds a default
+refusal, and each has a named opt-out that restores the 0.12.5 outcome.
+`^0.12.0` installs never receive it.
+
+- **`decisionFromApproval` records a seller intel never evaluated as a verdict.**
+  A refusal projects to `block` / `UNKNOWN_ABOVE_LIMIT` and a within-cap approval to
+  `warn` / `UNKNOWN_UNDER_LIMIT`, the policy runtime's unknown-counterparty codes.
+  Up to 0.12.5 the refusal projected to `unavailable` / `NETWORK_NOT_SCORED` on Solana
+  and Base mainnet, which are scored, because the gate reports an unevaluated seller with
+  `verdict: "unknown"`. The within-cap approval projected to `INTEL_WARN`. What the gate
+  allows or refuses does not change; only the `payment_decision.v1` record does.
+- **`createBuyerFetch` records `policy_version: "buyer-fetch.v2"`** in its local
+  decision ledger (was `buyer-fetch.v1`), because the refusals below change
+  what it allows. Its knobs stay pinned and independent of the env.
+- **New, opt-in: `decideHeldVaultSpend`, and `createGuardedX402Fetch({ heldVaultSpend })`.**
+  Given a Demand Desk vault-spend transaction the process already holds, the gate
+  refuses that copy before any fetch or RPC socket when the pinned desk signature is
+  missing or forged, when its authorization has expired, when the `spend_with_policy`
+  instruction bytes differ from the bound instruction, when the only credential is an advisory
+  `payment_decision.v1`, or when the bytes are not one USDC `spend_with_policy`
+  instruction on the vault program. The README lists each reason. Without
+  `heldVaultSpend`, nothing changes. The gate is not the exclusive signer: a refusal
+  does not stop a direct submission of a transaction the desk already signed.
+- **The Base seat (`twzrd-x402-gate/cloudflare-base`) keeps its 0.12.5 rules.**
+  It is a standalone module that reads one preflight card and no merchant card,
+  so none of the changes below apply to it: it still pays an evaluated `warn`
+  with no cap, and it reads `wash_flagged` only from the preflight card.
+
+- **An evaluated `warn` is paid only under its own cap** (`refuseUncappedWarn`,
+  default `true`). A card that says `warn` with no finite `recommended_cap_usdc`
+  refuses with `twzrd_warn_no_cap`; a payment whose price is unknown refuses with
+  `twzrd_warn_unknown_price`. A price above a known cap still refuses with
+  `twzrd_over_recommended_cap_*`. This is intel's own `can_spend` rule for `warn`,
+  and the bound the unevaluated-seller branch already applied; 0.12.x paid such a
+  `warn` with no ceiling. Intel sends a cap on every `warn` card, so a live card
+  with a known price is unaffected. The pure `evaluateReadinessCard` applies it
+  when the option is omitted. Opt out with `refuseUncappedWarn: false` or
+  `TWZRD_REFUSE_UNCAPPED_WARN=0|false|no|off`; any other value, including a typo,
+  leaves it on. `createBuyerFetch` sets it explicitly.
+- **`refuseWashUnknown` defaults to `true`.** On the reputation-scored path a
+  reachable merchant card that has not fully answered the wash question (no
+  card, including a 4xx; wash confidence other than `full`; `ring_evaluated:
+  false`; `wash_stale: true`) refuses with `twzrd_wash_unknown`. This is the
+  rule `createTwzrdWashBeforePaymentHook` has always applied; the full engine
+  now agrees with it. The 0.12.0 condition for the flip was full coverage for
+  the sellers with a 90-day settlement graph and no wash finding on the first
+  page of `/v1/intel/resources`: 0 of 19 on 2026-10-10. Re-measured against
+  live intel on 2026-10-25, every card read live: 17 of 17 on the first page
+  (200 resources, now 18 distinct sellers where 2026-10-10 had 122), and 27 of
+  27 across the first five pages (1000 resources, 76 sellers, no card errors).
+  Those cards report `full` and not stale, and omit `ring_evaluated` (only
+  `false` fails coverage) while carrying numeric ring counts. Of the 46 sellers
+  on those pages with no 90-day graph, 31 had full coverage, 12 carried a wash
+  finding (already refused), and 3 had no wash answer and now refuse. **A wallet intel has never seen now
+  refuses:** its card answers 200 with `wash_flagged: null` and no confidence.
+  An unreachable card is still an outage decided by `failOpen`, and unscored
+  networks on `observe` are still not refused for coverage. Opt out with
+  `refuseWashUnknown: false` or `TWZRD_REFUSE_WASH_UNKNOWN=0|false|no|off`; any
+  other value, including a typo, leaves it on, and an empty value no longer
+  means off (0.12.x read `TWZRD_REFUSE_WASH_UNKNOWN=` as off). `createBuyerFetch`
+  pins it on.
+- **A card with no `wash_flagged` boolean is not coverage.** A merchant card
+  that reports confidence `full` but whose `wash_flagged` is missing or `null`
+  has not answered the wash question, and now reads as inadequate coverage
+  (`twzrd_wash_unknown`). 0.12.x counted it as full coverage. Both engines
+  agree: the full engine refuses it while `refuseWashUnknown` is on, and
+  `createTwzrdWashBeforePaymentHook`, which always applies the coverage rule,
+  refuses it with no flag, as it refuses any unknown coverage. That module's
+  header already said unknown is not clean; the coverage check never read
+  `wash_flagged`. In the 2026-10-25 five-page sample no card had this shape,
+  so it added no refusal there.
+- **A seller intel has never evaluated is refused** (`refuseUnevaluated`,
+  default `true`). A readiness card with `null_reason` set or `score: null`
+  refuses with `twzrd_unevaluated_subject_<null_reason>`, even within its
+  `recommended_cap_usdc`. This reverts the 0.11.0 default, which allowed such a
+  seller up to that cap (live: $0.10, intel's lowest `warn` tier) because
+  refusing every one stopped agents from paying anyone new. The 2026-10-25
+  sample confirms that reason rather than refuting it: 46 of 76 sellers had no
+  90-day settlement graph, and 31 of those 46 had full, clean wash coverage, so
+  they pass every other 0.13.0 check. Up to 31 of 76 sampled sellers would
+  newly refuse. That is an upper bound: the sample read merchant cards, not
+  readiness cards, so which of those sellers is unevaluated was not measured.
+  Opt out with `refuseUnevaluated: false` or
+  `TWZRD_REFUSE_UNEVALUATED=0|false|no|off`; any other value, including a typo,
+  leaves it on, and an empty value no longer means off (0.12.x read
+  `TWZRD_REFUSE_UNEVALUATED=` as off). The pure `evaluateReadinessCard` applies
+  it when the option is omitted. `createBuyerFetch` now pins it on (it pinned
+  `false` in 0.12.x). The Base seat (`twzrd-x402-gate/cloudflare-base`) is
+  unchanged: it still refuses an unevaluated seller only when its
+  `refuseUnevaluated` option is true.
+
 ## 0.12.5 (strict mode refuses a Solana devnet or testnet genesis id)
 
 A patch under the security-defect rule above. Not 0.13.0. Default `observe`

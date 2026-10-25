@@ -48,8 +48,8 @@ function intelFetch(
 
 async function run() {
   const pkg = require("../package.json") as { version: string; description: string };
-  assert.equal(pkg.version, "0.12.5");
-  console.log(`version 0.12.5`);
+  assert.equal(pkg.version, "0.13.1");
+  console.log(`version 0.13.1`);
 
   const shipped = ["README.md", "QUICKSTART.md", "src/doctor.ts"];
   for (const rel of shipped) {
@@ -83,9 +83,9 @@ async function run() {
     payPath,
     /^- `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`; those switches apply only to `installTwzrdAutoGate`\.$/m,
   );
-  assert.match(payPath, /`null_reason: unknown_subject`\) can be paid up to its card's `recommended_cap_usdc`/);
-  // Must not claim an unknown_subject seller is refused within cap.
-  assert.doesNotMatch(payPath, /unknown_subject`? (does not|never) sign/);
+  // 0.13.0: refused by default; the within-cap allow is the refuseUnevaluated:false path.
+  assert.match(payPath, /`null_reason: unknown_subject`\) does not sign by default from 0\.13\.0 \(`refuseUnevaluated`\)/);
+  assert.match(payPath, /With `refuseUnevaluated: false` it can be paid up to its card's `recommended_cap_usdc`/);
   assert.match(readme, /Solana mainnet and Base mainnet \(`eip155:8453`\)/);
   assert.doesNotMatch(readme, /only \*\*reputation-scores Solana mainnet\*\*/);
   assert.doesNotMatch(readme, /any non-Solana payTo/);
@@ -101,7 +101,7 @@ async function run() {
   assert.match(readme, /returns reason `twzrd_unevaluated_subject_unknown_subject`/);
   assert.match(readme, /`twzrd_unevaluated_within_cap_<price>_le_<cap>`/);
   assert.match(readme, /`twzrd_unevaluated_no_cap_<null_reason>`/);
-  assert.match(readme, /\| `refuseUnevaluated` \| `TWZRD_REFUSE_UNEVALUATED` \| `false` \|/);
+  assert.match(readme, /\| `refuseUnevaluated` \| `TWZRD_REFUSE_UNEVALUATED` \| `true` \(0\.13\.0; `false` in 0\.11\.0–0\.12\.x\) \|/);
   assert.match(readme, /starts with `twzrd_over_recommended_cap_`/);
   assert.match(readme, /returns reason `twzrd_decision_block`/);
   assert.match(readme, /That reason string is not `block` and is not `twzrd_fail_closed`/);
@@ -162,9 +162,9 @@ async function run() {
     assert.match(outage.reason, /twzrd_fail_closed/);
     console.log("default buyer outage not approved");
 
-    // 0.11.0: an unevaluated seller follows the card's own cap. At or under it
-    // the hook does not abort; above it, with no cap, or with
-    // refuseUnevaluated: true, it aborts before the signer.
+    // An unevaluated seller aborts before the signer by default (0.13.0). With
+    // refuseUnevaluated: false (0.11.0-0.12.x) it follows the card's own cap: at
+    // or under it the hook does not abort; above it or with no cap, it aborts.
     const unknownCard = (cap: number | undefined) => ({
       decision: "warn",
       trust_score: 45,
@@ -174,8 +174,9 @@ async function run() {
       seller_wallet: SELLER,
       ...(cap === undefined ? {} : { recommended_cap_usdc: cap }),
     });
-    // The cap ladder is tested with the coverage check off (the 0.12.x default);
-    // the opt-in is asserted separately below: the stub card has no wash coverage.
+    // The cap ladder is the refuseUnevaluated:false path with the coverage check
+    // off (both 0.12.x defaults); the 0.13.0 defaults are asserted separately
+    // below: the stub card has no wash coverage.
     const unknownHook = (
       cap: number | undefined,
       extra: { refuseUnevaluated?: boolean; refuseWashUnknown?: boolean } = {},
@@ -183,6 +184,7 @@ async function run() {
       createTwzrdBeforePaymentHook({
         fetch: intelFetch(unknownCard(cap), []),
         refuseWashUnknown: false,
+        refuseUnevaluated: false,
         ...extra,
       });
     const req = (network: string, amount: string) => ({
@@ -209,12 +211,18 @@ async function run() {
 
       const coverageOptIn = await createTwzrdBeforePaymentHook({
         fetch: intelFetch(unknownCard(0.01), []),
-        refuseWashUnknown: true,
+        refuseUnevaluated: false,
       })(req(network, "10000"));
-      assert.ok(coverageOptIn && coverageOptIn.abort === true, `${network} opted in, refuses unknown coverage`);
+      assert.ok(coverageOptIn && coverageOptIn.abort === true, `${network} refuses unknown coverage by default`);
       assert.match(String(coverageOptIn.reason), /twzrd_wash_unknown/);
+
+      const byDefault = await createTwzrdBeforePaymentHook({
+        fetch: intelFetch(unknownCard(0.01), []),
+      })(req(network, "10000"));
+      assert.ok(byDefault && byDefault.abort === true, `${network} refuses an unevaluated seller by default`);
+      assert.match(String(byDefault.reason), /twzrd_unevaluated_subject_unknown_subject/);
     }
-    console.log("unknown_subject signs only within its cap on a scored network");
+    console.log("unknown_subject refuses by default; with refuseUnevaluated:false it signs only within its cap on a scored network");
 
     const over = await twzrdApprovePayment(
       { payTo: SELLER, chain: SOL, priceUsdc: 2.5 },
