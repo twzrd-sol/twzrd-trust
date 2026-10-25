@@ -159,7 +159,7 @@
       "method": "POST",
       "price_usdc": 1.0,
       "url": "https://intel.twzrd.xyz/v1/intel/delivery-watch",
-      "description": "SELLER-FUNDED delivery watch. Pay once (from 1.00 USDC, quoted from your live 402: 30 x your unit price x 1.5, min 1.00) and TWZRD's house buyer PAYS YOUR resource once a day for 30 days with a real x402 settlement, publishing every outcome at GET /v1/intel/delivery-watch/{order_id} with an embeddable badge 'N of M paid probes delivered'. Money buys the probes and the public record, never the verdict: a failing watch is published as-is, and it is not delivery_verified, not a trust vouch, not a ranking input. Free peek first: no 402, no unit price, or a price above the 0.25 USDC probe cap is refused unpaid."
+      "description": "SELLER-FUNDED delivery watch. Pay once (from 1.00 USDC, quoted from your live 402: 30 x your unit price x 1.5, min 1.00) to record a 30-day watch. Paying this route does not pay your resource. A published probe is a later house-buyer settlement, counted at GET /v1/intel/delivery-watch/{order_id} and on the badge as N of M. A day with no probe stays not attempted. Money buys the record, never the verdict: a failing watch is published as-is, and it is not delivery_verified, not a trust vouch, not a ranking input. Free peek first: no 402, no unit price, or a price above the 0.25 USDC probe cap is refused unpaid."
     },
     {
       "protocol": "x402",
@@ -168,7 +168,7 @@
       "method": "POST",
       "price_usdc": 0.005,
       "url": "https://intel.twzrd.xyz/v1/intel/read-page",
-      "description": "Signed page read. Returns the URL as clean Markdown plus an Ed25519 receipt binding the Markdown's SHA-256, the fetching provider, and the observation time, so an agent can later prove what it read. The receipt attests the provider's observation (origin_signed=false), not the page's truth. A fetch that fails is not charged. Verify the receipt against the published TWZRD receipt key."
+      "description": "Signed page read. A provider returns Markdown for the URL. The Ed25519 receipt binds that Markdown's SHA-256, the provider name, and the observation time. This host does not connect to the URL. origin_signed=false: the receipt does not prove the origin served the page or that the page is true. A fetch that fails is not charged. Verify the receipt against the published TWZRD receipt key."
     },
     {
       "protocol": "x402",
@@ -177,7 +177,7 @@
       "method": "GET",
       "price_usdc": 0.001,
       "url": "https://intel.twzrd.xyz/v1/intel/checkout-brief",
-      "description": "Checkout brief for the one published listing. 0.001 USDC. Query product must be that card's next_hop URL. Requires cart_hash; declared_unit_price is required when the card advertises a price. Does not pay the merchant. After payment, open next_hop for Shop Pay."
+      "description": "Checkout brief for the one published listing. 0.001 USDC. Query product must be that card's next_hop URL. Requires cart_hash; declared_unit_price is required when the card advertises a price. Does not pay the merchant, open checkout, or move the goods. authorizes_spend is false. The paid body names next_hop for a separate buyer-approved Shop Pay step."
     }
   ],
   "paid_http_surface": {
@@ -374,7 +374,7 @@
   "package_version": "0.5.13",
   "gate_npm": "twzrd-x402-gate@0.12.5",
   "build": {
-    "sha": "c3f661171",
-    "image_digest": "sha256:02b78f0aa2e60f8cea362c0e2c250627a047e981d768732cdd71a5c22e9d5dc8"
+    "sha": "98f0ba9010692a798cfb0d1522ecb5c2afd60372",
+    "image_digest": "sha256:4bb47fc30959feca7d6dd1fbdd67b85923f37440a26dbadf26ab9018f78e600f"
   }
 }

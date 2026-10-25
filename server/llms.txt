@@ -21,8 +21,8 @@
 > First paid hop is /quick at 0.001 USDC; optional V7 /trust at 0.05.
 > It does not verify identity, and it is not a payment gateway or a way to move funds.
 >
-> TWZRD answers: should this agent pay this seller? It does not fetch pages or
-> fight CAPTCHAs. Access friction is a different product. Free preflight is
+> TWZRD answers: should this agent pay this seller? It does not fight
+> CAPTCHAs. Access friction is a different product. Free preflight is
 > advisory. Cryptography is the signed receipt, not the HTTP card.
 
 ## Core product: buyer gate (install before any x402 client signs)
@@ -181,9 +181,9 @@ Optional Path A curl examples: /llms-full.txt.
 - `GET https://intel.twzrd.xyz/v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.05 USDC.
 - `GET /v1/intel/reality-check` — 0.05 USDC Reality Check PDF.
 - `POST /v1/intel/verify-endpoint` — 0.05 USDC. Body `{"url"}`. not_a_trust_vouch; not_ready still charged. Free unsigned: `POST /v1/agent-readiness`.
-- `POST /v1/intel/read-page` — 0.005 USDC, signed.
-- `POST /v1/intel/delivery-watch`
-- `GET /v1/intel/checkout-brief?product=&cart_hash=&declared_unit_price=` — 0.001 USDC. One listing next_hop. Does not pay the merchant.
+- `POST /v1/intel/read-page` - 0.005 USDC, provider observation.
+- `POST /v1/intel/delivery-watch` - records a watch. Does not pay your resource.
+- `GET /v1/intel/checkout-brief?product=&cart_hash=&declared_unit_price=` - 0.001 USDC. Does not open checkout.
 
 `seller_wallet=` or `X-TWZRD-Seller-Wallet` identifies the settle-gate counterparty
 on trust routes; market routes use `merchant=`. Omit them and the gate cannot evaluate. x402 v2: unpaid → `payment-required`; sign an `accepts` entry; retry
