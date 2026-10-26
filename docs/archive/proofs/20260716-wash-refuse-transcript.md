@@ -1,6 +1,6 @@
 # TWZRD Internal Mechanism Proof - 2026-07-16 (superseded)
 
-> **Superseded by [`20260819-refuse-and-clean-control-0.8.18.md`](./20260819-refuse-and-clean-control-0.8.18.md)
+> **Superseded by [`20260819-refuse-and-clean-control-0.8.18.md`](../../proofs/20260819-refuse-and-clean-control-0.8.18.md)
 > (block + clean-control pair on the published 0.8.18).**
 >
 > This artifact was previously titled "External Refuse Proof". That title was wrong:

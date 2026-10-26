@@ -5,8 +5,8 @@
 Supporting note for the corpus values cited in
 [`solana-x402-trust-tooling.md`](./solana-x402-trust-tooling.md). Written 2026-08-19.
 Current cited baseline. Prior dated refreshes:
-[`corpus-note-2026-08-16.md`](./corpus-note-2026-08-16.md),
-[`corpus-note-2026-07-09.md`](./corpus-note-2026-07-09.md).
+[`corpus-note-2026-08-16.md`](../archive/proposals/corpus-note-2026-08-16.md),
+[`corpus-note-2026-07-09.md`](../archive/proposals/corpus-note-2026-07-09.md).
 
 ## Definitions
 
