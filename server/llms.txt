@@ -25,19 +25,24 @@
 > CAPTCHAs. Access friction is a different product. Free preflight is
 > advisory. Cryptography is the signed receipt, not the HTTP card.
 
+## What's new (newest first)
+
+- 2026-10-26: MPP `Payment` challenge beside x402 on `/v1/intel/quick/`, `/v1/intel/merchant/`.
+- 2026-10-25: `twzrd-x402-gate@0.15.0` refuses missing evidence by default.
+
 ## Core product: buyer gate (install before any x402 client signs)
 
 Install the gate in your x402 client so a `block` verdict refuses the payment
 before your wallet ever signs - the refusal itself is the product working.
-Primary seat: `twzrd-x402-gate@0.13.1` + `x402-solana@3.0.1`. Hook runs after
+Primary seat: `twzrd-x402-gate@0.15.0` + `x402-solana@3.0.1`. Hook runs after
 requirement selection, before `signTransaction`. Path B success = refuse
 transcript (`signer_invocation_count=0`), not `day0.gate_evals` or free_card_hits.
 
 ```bash
-npm install twzrd-x402-gate@0.13.1 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.15.0 x402-solana@3.0.1
 # Prove refuse-before-sign. The gate's OPTIONAL peers are not auto-installed by
 # npm, so on a cold machine run the full line first:
-#   npm install twzrd-x402-gate@0.13.1 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+#   npm install twzrd-x402-gate@0.15.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 
@@ -137,14 +142,12 @@ Seller-first path when you need more than a wallet string:
 
 Discovery entry points (drive free preflights):
 - Skill: https://intel.twzrd.xyz/skill.md
-- Resources SOT: GET https://intel.twzrd.xyz/v1/intel/resources
 - TWZRD Bazaar catalog: GET https://intel.twzrd.xyz/v1/intel/bazaar/offers (seller-published callables; unpaid preflight)
 - Overlay (not a bazaar): GET https://intel.twzrd.xyz/v1/intel/marketplace · /v1/intel/x402-directory
 - 402 `extensions.bazaar` is routeTemplate metadata, not the catalog.
 
 The settlement graph is not a service catalog. Payer leaderboards are secondary
 research. Polygon wash=unknown (no corpus ingest).
-Free merchant card: `GET /v1/intel/merchant_card/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs`.
 
 ### Zero-install MCP (recommended)
 
@@ -168,7 +171,6 @@ unless the operator sets explicit opt-in and caps:
 
 ### Path A paid proof (not enforcement)
 
-Optional paid V7 receipts buy portable proof only — they do not enforce.
 The paste-ready `GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` path is TWZRD's own payTo (own-wallet smoke).
 Before a real pay, put the seller's accepts[].payTo in the path and inspect the
 selected entry's network, asset, amount, and payTo before signing.
@@ -178,9 +180,9 @@ Optional Path A curl examples: /llms-full.txt.
 
 - `GET https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.001 USDC. First paid hop. No V7 receipt.
 - `GET https://intel.twzrd.xyz/v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs?seller_wallet=GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.05 USDC. Optional portable V7.
-- `GET https://intel.twzrd.xyz/v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.05 USDC.
+- `GET /v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.05 USDC, Solana only.
 - `GET /v1/intel/reality-check` — 0.05 USDC Reality Check PDF.
-- `POST /v1/intel/verify-endpoint` — 0.05 USDC. Body `{"url"}`. not_a_trust_vouch; not_ready still charged. Free unsigned: `POST /v1/agent-readiness`.
+- `POST /v1/intel/verify-endpoint` — 0.005 USDC. Body `{"url"}`. not_a_trust_vouch; not_ready is charged. Free unsigned: `POST /v1/agent-readiness`.
 - `POST /v1/intel/read-page` - 0.005 USDC, provider observation.
 - `POST /v1/intel/delivery-watch` - records a watch. Does not pay your resource.
 - `GET /v1/intel/checkout-brief?product=&cart_hash=&declared_unit_price=` - 0.001 USDC. Does not open checkout.
@@ -258,7 +260,7 @@ server.onBeforeSettle(createTwzrdSettleGuard({ screen: twzrdPayerScreen() }));
 - [OpenAPI](https://intel.twzrd.xyz/openapi.json): canonical HTTP schemas and x402 annotations
 - free `get_claim`, `get_evidence`, `get_publication`, no payment: `twzrd://claims/vuori-kore`
 - [MCP](https://intel.twzrd.xyz/mcp): hosted Streamable HTTP server with 28 tools
-- [Muse connector](https://intel.twzrd.xyz/muse/mcp): six read-only tools, separate from /mcp.
+- [Muse connector](https://intel.twzrd.xyz/muse/mcp): single-listing Vuori pilot; checkout not verified.
 - [MCP card](https://intel.twzrd.xyz/.well-known/mcp.json): transport, install and exact declared tools
 - [Full reference](https://intel.twzrd.xyz/llms-full.txt): complete tool catalog, policies and examples
 - [Smithery](https://smithery.ai/servers/wzrd/twzrd-agent-intel): existing hosted marketplace listing
