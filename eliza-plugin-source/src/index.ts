@@ -9,11 +9,12 @@
  *
  * 0.8.0 removed the retired earn actions (infer/report/earn/claim/rewards).
  */
-import type { Action, Plugin } from '@elizaos/core';
+import type { Action, Plugin, Provider } from '@elizaos/core';
 import { intelPreflightAction } from './actions/intel-preflight.js';
 import { merchantCardAction } from './actions/merchant-card.js';
 import { intelTrustAction } from './actions/intel-trust.js';
 import { verifyReceiptAction } from './actions/verify-receipt.js';
+export { createDemandDeskWalletProvider } from './demand-desk-wallet.js';
 
 export const intelActions: Action[] = [
   intelPreflightAction,
@@ -29,11 +30,12 @@ const INTEL_DESCRIPTION =
   'Legacy V6 verification is labeled freshness=derived_from_timestamp. ' +
   'Buyer sequence is call-site / action-driven (not an auto-interceptor of all payments).';
 
-export function createWzrdPlugin(): Plugin {
+export function createWzrdPlugin(options: { walletProvider?: Provider } = {}): Plugin {
   return {
     name: 'wzrd',
     description: INTEL_DESCRIPTION,
     actions: [...intelActions],
+    ...(options.walletProvider ? { providers: [options.walletProvider] } : {}),
   };
 }
 
