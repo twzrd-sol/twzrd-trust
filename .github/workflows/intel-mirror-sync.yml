@@ -3,7 +3,7 @@
 # A red `verify` on a sync PR whose live gate_npm is ahead of twzrd-x402-gate/package.json means the gate lane must bump
 # package.json first (current-pin.test.ts). The sync PR is not the fix.
 # GITHUB_TOKEN-opened PRs do not trigger pull_request workflows, so `verify` does not start on these PRs by itself.
-# The repo does not let workflows create PRs; if the PR step fails, the branch is still pushed and the run is red.
+# Workflows may create PRs in this repo (repository setting enabled 2026-10-26). If the PR step fails anyway, the branch is still pushed and the run is red.
 name: Intel mirror sync
 on:
   workflow_dispatch:
