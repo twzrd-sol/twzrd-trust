@@ -28,10 +28,10 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## Unreleased, for 0.15.0 (Demand Desk authorization 2.1.0: Compute Budget and one Memo)
+## 0.15.0 - 2026-10-26 (Demand Desk authorization 2.1.0: Compute Budget and one Memo)
 
 A minor release under the policy above: it adds an allow outcome. Nothing a 2.0.0
-authorization allows or refuses changes.
+authorization allows or refuses changes, and `^0.14.0` installs never receive it.
 
 - **New contract version `2.1.0-demand-desk`.** `verifyDemandDeskAuthorization` accepts it
   beside `2.0.0-demand-desk`. Its `settlement_constraints` add `memo_sha256` (hex or null)
@@ -52,8 +52,6 @@ authorization allows or refuses changes.
   `MEMO_PROGRAM_ID`, `MAX_SETTLEMENT_MEMO_BYTES`, and the type
   `DemandDeskSettlementConstraintsV2_1`. `UnsignedDemandDeskAuthorization` is now a union of
   the two versions. New schema: `schemas/demand-desk-authorization.v2.1.schema.json`.
-- The release bump moves `package.json` and the doc pins together; the current-pin test
-  requires both.
 
 ## 0.14.0 - 2026-10-26 (Demand Desk authorization v2)
 
