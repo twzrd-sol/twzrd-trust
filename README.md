@@ -55,7 +55,7 @@ Registry `latest` as read on that date. The tree column is what this checkout mi
 | `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
 | `twzrd-receipt-verifier` | npm and PyPI 1.4.4 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
 | `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.1 / PyPI 0.2.3 | 0.6.1 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
-| `@wzrd_sol/eliza-plugin` | npm 0.10.0 | 0.10.0 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
+| `@wzrd_sol/eliza-plugin` | npm 0.10.1 | 0.10.1 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.10 | 0.3.10 | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.5.0 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |

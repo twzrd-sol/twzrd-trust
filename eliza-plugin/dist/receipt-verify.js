@@ -110,8 +110,11 @@ export function verifyReceipt(receipt, opts = {}) {
     const raw = verifier.verify(receipt, trustedPubkey, {
         maxAgeSeconds: opts.maxAgeSeconds,
     });
-    // Fail closed: a verifier early-return (kind/version mismatch) omits the flag.
-    const freshnessUnauthenticated = raw.freshness_unauthenticated !== false;
+    // Fail closed: freshness is authenticated only on a passing verify. The
+    // verifier's flag describes the domain's leaf layout: 1.4.0 omitted it on an
+    // early return (kind/version mismatch), but 1.4.4 classifies the domain first
+    // and reports false for any V7 domain, even when it rejects the receipt.
+    const freshnessUnauthenticated = !(raw.valid === true && raw.freshness_unauthenticated === false);
     const result = {
         valid: !!raw.valid,
         leafValid: !!raw.leaf_valid,
