@@ -3,7 +3,9 @@
  * spend confirmation and returns a zero-spend refuse packet, and the auto-gate
  * carries a default integration attribution. 0.9.0: the auto-gate runs on gate
  * 0.13.1 defaults, so an unanswered wash question, an uncapped warn, or a seller
- * intel never evaluated refuses before the pay client signs.
+ * intel never evaluated refuses before the pay client signs. 0.10.0: on
+ * @wzrd_sol/sdk 0.5, a preflight answer with no known decision refuses the paid
+ * lookup (SDK 0.4 read it as warn and allowed it).
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -148,8 +150,8 @@ describe('merchant_card is fail-closed', () => {
         cb,
       );
       assert.ok(headers);
-      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.9.0@${GATE_PIN}`);
-      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.9.0');
+      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.10.0@${GATE_PIN}`);
+      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.10.0');
       assert.equal(headers.get('X-TWZRD-Client'), `twzrd-x402-gate/${GATE_PIN}`);
       assert.ok((headers.get('X-TWZRD-Run-Id') ?? '').length > 0);
     } finally {
@@ -248,6 +250,43 @@ describe('paid trust needs a spend confirmation', () => {
       assertRefusePacket(result.data?.refuse, 'merchant_card_unavailable');
       assert.equal(payAttempted, false);
       assert.match(lines.join('\n'), /do not pay/i);
+      assert.match(lines.join('\n'), /No payment was sent/);
+    } finally {
+      globalThis.fetch = realFetch;
+      clearPayingFetch();
+    }
+  });
+
+  it('a preflight answer with no known decision refuses the paid lookup before any spend', async () => {
+    const realFetch = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes('/merchant_card/')) return json({ merchant: SELLER, wash_flagged: false });
+      return json({ readiness_card: { trust_score: 80, can_spend: true } });
+    }) as typeof fetch;
+    let payAttempted = false;
+    setPayingFetch((async () => {
+      payAttempted = true;
+      return json({});
+    }) as typeof fetch);
+    try {
+      const { lines, cb } = collect();
+      const result = (await intelTrustAction.handler!(
+        mockRuntime({ WZRD_INTEL_ALLOW_PAID: 'true' }),
+        mockMemory({ pubkey: SELLER }),
+        undefined,
+        undefined,
+        cb,
+      )) as { success: boolean; error?: string; data?: { decision?: string; refuse?: unknown } };
+      assert.equal(result.success, false);
+      assert.equal(result.error, 'preflight_block');
+      assert.equal(result.data?.decision, 'unavailable');
+      assertRefusePacket(result.data?.refuse, 'preflight_block');
+      assert.equal(payAttempted, false);
+      assert.equal(urls.some((u) => u.includes('/merchant_card/')), false, 'no card lookup');
+      assert.match(lines.join('\n'), /preflight_invalid_payload/);
       assert.match(lines.join('\n'), /No payment was sent/);
     } finally {
       globalThis.fetch = realFetch;

@@ -1,7 +1,7 @@
 {
   "name": "@wzrd_sol/eliza-plugin-source",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "V7-migrated ElizaOS plugin source for @wzrd_sol/eliza-plugin. Publishable after merge as the next @wzrd_sol/eliza-plugin line; this public-mirror directory is not the artifact-only eliza-plugin/ package.",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +19,7 @@
     "test": "tsx --test test/plugin-registration.intel.ts test/receipt-v7.ts test/fail-closed.ts"
   },
   "dependencies": {
-    "@wzrd_sol/sdk": "^0.4.8",
+    "@wzrd_sol/sdk": "^0.5.1",
     "twzrd-receipt-verifier": "^1.4.0",
     "twzrd-x402-gate": "0.13.1"
   },
