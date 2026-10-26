@@ -1,7 +1,7 @@
 {
   "name": "@wzrd_sol/eliza-plugin-source",
   "private": true,
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "V7-migrated ElizaOS plugin source for @wzrd_sol/eliza-plugin. Publishable after merge as the next @wzrd_sol/eliza-plugin line; this public-mirror directory is not the artifact-only eliza-plugin/ package.",
   "type": "module",
   "main": "dist/index.js",

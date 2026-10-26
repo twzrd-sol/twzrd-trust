@@ -3,10 +3,10 @@
 This directory is the restored, V7-migrated TypeScript source for
 `@wzrd_sol/eliza-plugin`. It is **not** the public artifact mirror.
 
-> **Current state (2026-10-26):** this source is `0.10.0`, published as npm
-> latest `@wzrd_sol/eliza-plugin@0.10.0`: `@wzrd_sol/sdk` `^0.5.1` and
+> **Current state (2026-10-26):** this source is `0.10.1`, not yet published.
+> npm latest is `@wzrd_sol/eliza-plugin@0.10.0`: `@wzrd_sol/sdk` `^0.5.1` and
 > `twzrd-x402-gate` exactly `0.14.0`. `eliza-plugin/` mirrors that tarball. The `0.6.1` references below describe the baseline this
-> source was restored from. Unreleased since 0.10.0: `verifyReceipt` reports
+> source was restored from. 0.10.1 changes one thing: `verifyReceipt` reports
 > `freshnessUnauthenticated: false` only on a passing verify. With
 > `twzrd-receipt-verifier` 1.4.4, 0.10.0 reports `false` for a rejected V7 receipt
 > too (`freshness` was already `unauthenticated` there).
