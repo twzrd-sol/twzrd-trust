@@ -59,7 +59,7 @@ Registry `latest` as read on that date. The tree column is what this checkout mi
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.10 | 0.3.10 | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.5.0 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
-| `twzrd-log-verifier` | not published | 0.3.0 (source here) | Offline transparency-log verifier; run from this repository |
+| `twzrd-log-verifier` | npm 0.3.0 | 0.3.0 (source here) | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest` |
 
 ---
 
@@ -315,7 +315,7 @@ What a card is, and what it is not:
 - **Step-by-step Guide:** [QUICKSTART.md](./QUICKSTART.md)
 - **Concepts & Architecture:** [docs/taxonomy.md](./docs/taxonomy.md)
 - **Receipt Specification (V7, with the V6 lineage):** [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md)
-- **Receipt Transparency Log:** [docs/transparency-log.md](./docs/transparency-log.md) (in-repo `twzrd-log-verifier`, not on npm)
+- **Receipt Transparency Log:** [docs/transparency-log.md](./docs/transparency-log.md) (`twzrd-log-verifier` on npm, source in this repository)
 - **Receipt Verification & Ground Truth:** [REVIEW.md](./REVIEW.md)
 - **Supported path and ownership:** [docs/SUPPORT_MATRIX.md](./docs/SUPPORT_MATRIX.md) · [docs/ACCESS_AND_RECOVERY.md](./docs/ACCESS_AND_RECOVERY.md)
 - **Security Policy:** [SECURITY.md](./SECURITY.md) · [docs/security-assurance.md](./docs/security-assurance.md)

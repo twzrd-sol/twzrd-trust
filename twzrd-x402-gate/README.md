@@ -887,7 +887,7 @@ dependency on the log verifier — you wire it; it receives the receipt *and* th
 response, and `twzrd-log-verifier`'s results fit the verdict shape with no adapter:
 
 ```typescript
-import { verifyLogInclusion, verifyReceiptInLog } from "twzrd-log-verifier"; // not yet on npm — see its README
+import { verifyLogInclusion, verifyReceiptInLog } from "twzrd-log-verifier"; // npm i twzrd-log-verifier (0.3.0+)
 
 // Today the log serves a single signing key (the receipt issuer key); pin it out of band.
 // When v0.2 ships a key directory, pass that here instead — same call.
