@@ -28,6 +28,33 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## Unreleased, for 0.15.0 (Demand Desk authorization 2.1.0: Compute Budget and one Memo)
+
+A minor release under the policy above: it adds an allow outcome. Nothing a 2.0.0
+authorization allows or refuses changes.
+
+- **New contract version `2.1.0-demand-desk`.** `verifyDemandDeskAuthorization` accepts it
+  beside `2.0.0-demand-desk`. Its `settlement_constraints` add `memo_sha256` (hex or null)
+  and `max_compute_unit_limit`, both signed. Each version has its own exact field list, so a
+  2.0.0 token carrying either field is `invalid_shape`.
+- **A 2.1.0 message may be `[SetComputeUnitLimit?, SetComputeUnitPrice?, Memo?, vault spend]`.**
+  Each slot appears at most once, in that order. Compute Budget instructions take no accounts
+  and exact-length data, a price needs a limit, and the limit must be between 1 and
+  `max_compute_unit_limit`. The Memo is SPL Memo v2 with no accounts and 1 to 512 bytes of
+  printable ASCII, present exactly when `memo_sha256` is not null, and its bytes must hash to
+  it. Anything else is `instruction_mismatch`.
+- **The priority fee counts against the signed fee cap.** For 2.1.0 the verifier computes
+  `ceil(limit * price / 1e6)` lamports from the message and refuses with `fee_exceeded` when
+  `networkFeeLamports` plus that fee exceeds `max_network_fee_lamports`.
+- **2.0.0 is unchanged.** A 2.0.0 token still refuses a Compute Budget or Memo instruction
+  beside the vault spend (`instruction_mismatch`).
+- New exports: `DEMAND_DESK_AUTHORIZATION_VERSION_2_1`, `COMPUTE_BUDGET_PROGRAM_ID`,
+  `MEMO_PROGRAM_ID`, `MAX_SETTLEMENT_MEMO_BYTES`, and the type
+  `DemandDeskSettlementConstraintsV2_1`. `UnsignedDemandDeskAuthorization` is now a union of
+  the two versions. New schema: `schemas/demand-desk-authorization.v2.1.schema.json`.
+- The release bump moves `package.json` and the doc pins together; the current-pin test
+  requires both.
+
 ## 0.14.0 - 2026-10-26 (Demand Desk authorization v2)
 
 A minor release under the policy above. It adds two entry points, and both refuse.

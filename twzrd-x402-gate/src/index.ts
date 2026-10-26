@@ -44,8 +44,12 @@ export {
 export type { TwzrdGateDecision } from "./types.js";
 export {
   DEMAND_DESK_AUTHORIZATION_VERSION,
+  DEMAND_DESK_AUTHORIZATION_VERSION_2_1,
   DEMAND_DESK_AUTHORIZATION_DOMAIN,
   IMMUTABLE_VAULT_INSTRUCTION_DOMAIN,
+  COMPUTE_BUDGET_PROGRAM_ID,
+  MEMO_PROGRAM_ID,
+  MAX_SETTLEMENT_MEMO_BYTES,
   DEMAND_DESK_REASON_CODES,
   demandDeskAuthorizationPreimage,
   immutableVaultInstructionHash,
@@ -54,6 +58,7 @@ export {
   type DemandDeskAuthorizationIntent,
   type DemandDeskEvidenceBinding,
   type DemandDeskSettlementConstraints,
+  type DemandDeskSettlementConstraintsV2_1,
   type DemandDeskAuthorizationDecision,
   type UnsignedDemandDeskAuthorization,
   type DemandDeskAuthorization,
