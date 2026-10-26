@@ -154,6 +154,16 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 
 Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
 
+## 0.10.1 changes
+
+- `verifyReceipt` and `getIntelClient().verify` report `freshnessUnauthenticated: false` only when the
+  verify passes. `twzrd-receipt-verifier` 1.4.4 reports `freshness_unauthenticated: false` for any V7
+  domain, even when it rejects the receipt, and 0.10.0 passed that through: a rejected V7 receipt read
+  `valid: false` with `freshnessUnauthenticated: false`. `valid` and `freshness` (`unauthenticated`) were
+  already correct there; only that flag was wrong.
+- Dependency ranges and the `twzrd-x402-gate` `0.14.0` pin are unchanged. `X-Twzrd-Caller` reads
+  `eliza-plugin/0.10.1@0.14.0`.
+
 ## 0.10.0 changes
 
 - Depends on `@wzrd_sol/sdk` `^0.5.1` (was `^0.4.8`) and on `twzrd-x402-gate` exactly `0.14.0` (was `0.13.1`),

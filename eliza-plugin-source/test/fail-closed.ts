@@ -152,8 +152,8 @@ describe('merchant_card is fail-closed', () => {
         cb,
       );
       assert.ok(headers);
-      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.10.0@${GATE_PIN}`);
-      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.10.0');
+      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.10.1@${GATE_PIN}`);
+      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.10.1');
       assert.equal(headers.get('X-TWZRD-Client'), `twzrd-x402-gate/${GATE_PIN}`);
       assert.ok((headers.get('X-TWZRD-Run-Id') ?? '').length > 0);
     } finally {
