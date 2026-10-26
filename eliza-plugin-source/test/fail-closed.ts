@@ -5,7 +5,9 @@
  * 0.13.1 defaults, so an unanswered wash question, an uncapped warn, or a seller
  * intel never evaluated refuses before the pay client signs. 0.10.0: on
  * @wzrd_sol/sdk 0.5, a preflight answer with no known decision refuses the paid
- * lookup (SDK 0.4 read it as warn and allowed it).
+ * lookup (SDK 0.4 read it as warn and allowed it), and the gate pin moves to
+ * 0.14.0, the first release that exports createDemandDeskWallet. Those 0.13
+ * refusal defaults are unchanged on 0.14.0.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -331,12 +333,12 @@ describe('paid trust needs a spend confirmation', () => {
 });
 
 describe('gate pin', () => {
-  it('depends on twzrd-x402-gate exactly 0.13.1', () => {
+  it('depends on twzrd-x402-gate exactly 0.14.0', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.13.1');
-    assert.equal(GATE_PIN, '0.13.1');
+    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.14.0');
+    assert.equal(GATE_PIN, '0.14.0');
   });
 });
 
@@ -356,7 +358,7 @@ describe('installTwzrdAutoGate attribution', () => {
   });
 });
 
-describe('installTwzrdAutoGate on gate 0.13.1 defaults', () => {
+describe('installTwzrdAutoGate on gate 0.14.0 defaults', () => {
   const RESOURCE = 'https://merchant.example/paid';
 
   function merchant402(): typeof fetch {

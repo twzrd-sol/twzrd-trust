@@ -70,8 +70,8 @@ export function evaluateElizaPublishPack({ pkg, indexSource, tarballEntries, sta
   if (pkg.dependencies?.["twzrd-receipt-verifier"] !== "^1.4.0") {
     errors.push("dependencies.twzrd-receipt-verifier must be ^1.4.0");
   }
-  if (pkg.dependencies?.["twzrd-x402-gate"] !== "0.13.1") {
-    errors.push("dependencies.twzrd-x402-gate must be exactly 0.13.1");
+  if (pkg.dependencies?.["twzrd-x402-gate"] !== "0.14.0") {
+    errors.push("dependencies.twzrd-x402-gate must be exactly 0.14.0");
   }
   if (!String(pkg.dependencies?.["@wzrd_sol/sdk"] ?? "").startsWith("^0.5.")) {
     errors.push("dependencies.@wzrd_sol/sdk must stay on the 0.5 line");

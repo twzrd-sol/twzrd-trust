@@ -28,6 +28,50 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.14.0 - 2026-10-26 (Demand Desk authorization v2)
+
+A minor release under the policy above. It adds two entry points, and both refuse.
+No existing entry point changes what it allows or refuses, and `^0.13.0` installs never
+receive it.
+
+- **New: `verifyDemandDeskAuthorization(authorization, expectation)`.** An offline check
+  of a Demand Desk `2.0.0-demand-desk` authorization before you sign the vault spend it
+  allows. The Ed25519 signature covers every field except `signature` and must come from
+  a key in `trustedDemandDeskPubkeys`; a key carried only by the token is never trusted.
+  It returns `{ ok: true, authorization }` or `{ ok: false, code, message }` and does
+  not throw. It refuses when:
+  the shape or version is wrong (`invalid_shape`, `unsupported_version`); the key is not
+  trusted or the signature fails (`untrusted_desk`, `signature_invalid`); the
+  authorization was issued in the future (`not_yet_valid`; no clock skew is allowed
+  unless you set `maxClockSkewMs`), has expired (`expired`), or lives longer than
+  `maxTtlMs`, default 120000 ms (`ttl_exceeded`); the Desk decision is not `ALLOW` /
+  `APPROVED` (`decision_refused`); the intent differs field for field from yours
+  (`intent_mismatch`); the vault, vault program or policy PDA differ
+  (`settlement_mismatch`); or the network fee is above the signed cap (`fee_exceeded`).
+- **The instruction rule is strict** (`instruction_mismatch`). The transaction holds
+  exactly one instruction: the vault program's seven-account `spend_with_policy`, with
+  the authorized amount, accounts, signer and writable flags, and the signed
+  `instruction_hash`. When you pass `receiptHashHex`, the instruction must carry that
+  receipt commitment. A ComputeBudget or Memo instruction beside the vault spend
+  refuses.
+- **New: `createDemandDeskWallet(adapter)`.** A signer facade for SVM and ElizaOS wallet
+  providers. `signTransaction`, `signAllTransactions` and `signAndSendTransaction` each
+  check, before the wrapped signer runs, that the local mandate is active
+  (`mandate_inactive`), that the transaction message hashes to the context's
+  `messageHash` (`transaction_message_mismatch`), and that the authorization verifies
+  (`demand_desk_<code>`). Each refusal throws. A batch is checked in full before any
+  item is signed. The facade keeps no replay state; one-use enforcement belongs to the
+  Desk. It is not the only way to spend: a Desk-signed transaction can still be
+  submitted directly to RPC, and the vault does not require this facade.
+- **Also exported:** `demandDeskMessageHash`, `demandDeskAuthorizationPreimage`,
+  `immutableVaultInstructionHash`, the constants `DEMAND_DESK_AUTHORIZATION_VERSION`,
+  `DEMAND_DESK_AUTHORIZATION_DOMAIN`, `IMMUTABLE_VAULT_INSTRUCTION_DOMAIN` and
+  `DEMAND_DESK_REASON_CODES`, and their types.
+- The JSON schema (`schemas/demand-desk-authorization.v2.schema.json`) and the contract
+  (`docs/demand-desk-authorization-v2.md`) are in this package's directory in the
+  repository; the npm tarball carries the code only.
+- `twzrd.payment_decision.v1` is unchanged and still does not move USDC.
+
 ## 0.13.1 - 2026-10-25 (the readiness card's basis type)
 
 A patch under the policy above: types and doc comments only. No allow or refuse
