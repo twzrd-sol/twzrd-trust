@@ -1,6 +1,6 @@
 {
   "name": "@wzrd_sol/eliza-plugin",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "TWZRD Agent Intel for ElizaOS. Free preflight ReadinessCard + merchant_card (wash_flagged refuse default), paid GET /v1/intel/trust (~0.05 USDC) V7 receipt, offline verify via twzrd-receipt-verifier. Paid lookups need WZRD_INTEL_ALLOW_PAID or confirm_spend; merchant_card outages fail closed.",
   "type": "module",
   "main": "dist/index.js",
@@ -19,9 +19,9 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@wzrd_sol/sdk": "^0.4.8",
+    "@wzrd_sol/sdk": "^0.5.1",
     "twzrd-receipt-verifier": "^1.4.0",
-    "twzrd-x402-gate": "0.13.1"
+    "twzrd-x402-gate": "0.14.0"
   },
   "peerDependencies": {
     "@elizaos/core": "^1.0.0"

@@ -1,12 +1,13 @@
 /**
  * V7-capable receipt verification for the Eliza plugin.
  *
- * `@wzrd_sol/sdk` (through 0.4.8) only knows V5/V6 leaf bindings and defaults
- * to the legacy v1 signing key. Current paid trust issues V7 receipts that bind
- * freshness into the leaf and are signed with twzrd-receipt-ed25519-v2.
+ * Current paid trust issues V7 receipts that bind freshness into the leaf and
+ * are signed with twzrd-receipt-ed25519-v2. `@wzrd_sol/sdk` 0.5 also verifies
+ * V7, but its `verifyReceipt` is async and reports only `leafVersion`.
  *
- * This module routes through `twzrd-receipt-verifier@^1.4.0` and labels V6
- * results with the downgraded freshness status from docs/receipt-v6-spec.md.
+ * This module stays synchronous, routes through `twzrd-receipt-verifier@^1.4.0`,
+ * labels the version from the domain allowlist, and labels V6 results with the
+ * downgraded freshness status from docs/receipt-v6-spec.md.
  */
 import { createRequire } from 'node:module';
 export const REPUTATION_V5_DOMAIN = 'TWZRD:AO_REPUTATION_RECEIPT_V5';

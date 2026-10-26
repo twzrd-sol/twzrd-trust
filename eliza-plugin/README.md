@@ -75,7 +75,7 @@ npm install @wzrd_sol/eliza-plugin
 
 Classification uses the verifier domain allowlist only. Envelope `version` / `kind` cannot promote a V6 body to V7.
 
-`verifyReceipt` and `getIntelClient().verify` are **synchronous**. They do not accept `fetchPubkey` / `apiBase` (0.6.1 SDK path) and return `receiptVersion` + `freshness` instead of SDK `leafVersion`. Default signing key is `CURRENT_RECEIPT_PUBKEY` (v2). Do not pass SDK `TRUSTED_RECEIPT_PUBKEY` (v1) or live V7 receipts fail closed.
+`verifyReceipt` and `getIntelClient().verify` are **synchronous**. They do not accept `fetchPubkey` / `apiBase` (0.6.1 SDK path) and return `receiptVersion` + `freshness` instead of SDK `leafVersion`. Default signing key is `CURRENT_RECEIPT_PUBKEY` (v2). The re-exported SDK `TRUSTED_RECEIPT_PUBKEY` is the same v2 key from 0.10.0 on. The legacy v1 key (`LEGACY_RECEIPT_PUBKEYS[0]` in `@wzrd_sol/sdk`) fails live V7 receipts closed.
 
 ### Preflight (free, no wallet)
 
@@ -128,7 +128,7 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 `payWrap` receives the **guarded** fetch. Opt out with `TWZRD_AUTO_GATE=0` or `{ disabled: true }`.
 Lookups carry `X-TWZRD-Integration: eliza-plugin/<version>` unless you pass your own `attribution`.
 
-On `twzrd-x402-gate` 0.13.1 the guard refuses each of these before `payWrap` signs:
+On `twzrd-x402-gate` 0.14.0 the guard refuses each of these before `payWrap` signs (the 0.13 defaults, unchanged in 0.14.0):
 
 | Refused by default | Reason | Opt out (restores the 0.12.5 outcome) |
 |---|---|---|
@@ -153,6 +153,25 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 ```
 
 Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
+
+## 0.10.0 changes
+
+- Depends on `@wzrd_sol/sdk` `^0.5.1` (was `^0.4.8`) and on `twzrd-x402-gate` exactly `0.14.0` (was `0.13.1`),
+  the first gate release that exports `createDemandDeskWallet`. The guard's refusal defaults are those of
+  0.13.1. Fetches this plugin owns stamp `X-Twzrd-Caller: eliza-plugin/<version>@0.14.0`.
+- The re-exported `TRUSTED_RECEIPT_PUBKEY` is now the v2 receipt key, equal to `CURRENT_RECEIPT_PUBKEY`.
+  It was the v1 key. If you verify old v1-signed receipts, pass `LEGACY_RECEIPT_PUBKEYS[0]` from
+  `@wzrd_sol/sdk` explicitly.
+- A preflight answer without a known decision is now an error (`preflight_invalid_payload`), not a
+  result. `WZRD_INTEL_TRUST` refuses with no spend; SDK 0.4 read such an answer as `warn` and let the
+  paid lookup go ahead. `WZRD_INTEL_PREFLIGHT` returns `refuse_pay: true` (`preflight_unavailable`)
+  where it used to report the answer as a card. `getIntelClient().preflight` rejects instead of
+  resolving.
+- No new paid call. SDK 0.5's `preSpendGate` can escalate to the paid quick lookup, but only when
+  `escalateAboveUsdc` is set, and this plugin does not set it.
+- Adds `createDemandDeskWalletProvider` and `createWzrdPlugin({ walletProvider })`: a guarded
+  Demand Desk wallet provider for host spend actions, built on `twzrd-x402-gate`'s
+  `createDemandDeskWallet`.
 
 ## 0.9.0 changes
 

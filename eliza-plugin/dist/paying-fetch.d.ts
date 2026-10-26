@@ -3,7 +3,7 @@ import { type InstallAutoGateOptions, type PayWrap } from 'twzrd-x402-gate';
 /** This package's version, stamped into X-TWZRD-Integration on gate lookups. */
 export declare const PLUGIN_VERSION: string;
 /** Exact twzrd-x402-gate pin. A caret would float onto a later line. */
-export declare const GATE_PIN = "0.13.1";
+export declare const GATE_PIN = "0.14.0";
 export declare function integrationTag(): string;
 /** Seat stamp: X-Twzrd-Caller eliza-plugin/<version>@<GATE_PIN>. */
 export declare function callerTag(): string;
