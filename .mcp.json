@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "twzrd-intel": {
+      "type": "http",
+      "url": "https://intel.twzrd.xyz/mcp"
+    }
+  }
+}
