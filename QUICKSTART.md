@@ -3,10 +3,10 @@
 Start with [the buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
 It runs an offline blocked payment with the official x402 client, records the
 reason locally, and shows where to put the wrapper around a configured signer.
-`createBuyerFetch` ships from `twzrd-x402-gate@0.12.3`; `expectedAmount` needs 0.12.4 or later. The current release is `twzrd-x402-gate@0.14.0`. In an ESM project:
+`createBuyerFetch` ships from `twzrd-x402-gate@0.12.3`; `expectedAmount` needs 0.12.4 or later. The current release is `twzrd-x402-gate@0.15.0`. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.14.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.15.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -59,7 +59,7 @@ the live clean fixture is wash-flagged.
 ## 1. Install (published package)
 
 ```bash
-npm install twzrd-x402-gate@0.14.0 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.15.0 x402-solana@3.0.1
 ```
 
 ## 2. First call — nothing to configure
@@ -164,7 +164,7 @@ with real mainnet transactions to check against, is in [REVIEW.md](./REVIEW.md).
 
 | Thing | Where |
 |---|---|
-| This SDK on npm | `twzrd-x402-gate@0.14.0` (named export `twzrd`; pin matches `twzrd-x402-gate/package.json`) |
+| This SDK on npm | `twzrd-x402-gate@0.15.0` (named export `twzrd`; pin matches `twzrd-x402-gate/package.json`) |
 | Implementation + tests | [`twzrd-x402-gate/`](./twzrd-x402-gate/) in this repo |
 | External review map, mainnet ground truth | [REVIEW.md](./REVIEW.md) |
 | The 7-day integration milestone | [MILESTONE.md](./MILESTONE.md) |
