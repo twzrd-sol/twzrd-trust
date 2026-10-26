@@ -167,6 +167,9 @@ Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
   resolving.
 - No new paid call. SDK 0.5's `preSpendGate` can escalate to the paid quick lookup, but only when
   `escalateAboveUsdc` is set, and this plugin does not set it.
+- Adds `createDemandDeskWalletProvider` and `createWzrdPlugin({ walletProvider })`: a guarded
+  Demand Desk wallet provider for host spend actions, built on `twzrd-x402-gate`'s
+  `createDemandDeskWallet`.
 
 ## 0.9.0 changes
 
