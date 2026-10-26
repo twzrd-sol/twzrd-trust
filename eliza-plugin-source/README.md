@@ -6,7 +6,10 @@ This directory is the restored, V7-migrated TypeScript source for
 > **Current state (2026-10-26):** this source is `0.10.0`, published as npm
 > latest `@wzrd_sol/eliza-plugin@0.10.0`: `@wzrd_sol/sdk` `^0.5.1` and
 > `twzrd-x402-gate` exactly `0.14.0`. `eliza-plugin/` mirrors that tarball. The `0.6.1` references below describe the baseline this
-> source was restored from.
+> source was restored from. Unreleased since 0.10.0: `verifyReceipt` reports
+> `freshnessUnauthenticated: false` only on a passing verify. With
+> `twzrd-receipt-verifier` 1.4.4, 0.10.0 reports `false` for a rejected V7 receipt
+> too (`freshness` was already `unauthenticated` there).
 
 - `eliza-plugin/` stays artifact-only (`dist/`, no-op scripts) until a
   coordinated npm publish and resync.
@@ -42,10 +45,11 @@ verify (`WZRD_VERIFY_RECEIPT`) uses `twzrd-receipt-verifier@^1.4.0`.
 | **V6** (legacy) | `derived_from_timestamp` | Those three fields are advisory. Enforce `max_age_seconds` against signed `timestamp_unix`. See `docs/receipt-v6-spec.md`. |
 | **V5** (legacy) | `unauthenticated` | Provenance and freshness are unsigned. |
 
-`@wzrd_sol/sdk@0.5.1` verifies V7 too and defaults to the v2 key, but its
+`@wzrd_sol/sdk` verifies V7 too and defaults to the v2 key, but its
 `verifyReceipt` is async and labels only `leafVersion`. That label comes from
 the verifier's `leaf_version`, which `twzrd-receipt-verifier@1.4.0` does not
-return, so against 1.4.0 the SDK reports a valid V7 receipt as `v5`. This source
+return: SDK 0.5.1 against 1.4.0 reports a valid V7 receipt as `v5`, and SDK
+0.5.2 requires `^1.4.4` and refuses a result without the field. This source
 keeps the SDK for free preflight, merchant_card, and paid `fetchIntelTrust`, and
 routes verification through the verifier itself.
 
