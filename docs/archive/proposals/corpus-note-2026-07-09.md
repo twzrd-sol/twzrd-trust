@@ -3,9 +3,9 @@
 > **Historical snapshot.** Corpus values as of 2026-07-09; superseded by the 2026-08-18 note, itself a dated record. Live values come from the hosted checks, not from this note.
 
 Supporting note for the corpus values cited in
-[`solana-x402-trust-tooling.md`](./solana-x402-trust-tooling.md). Written 2026-08-19.
+[`solana-x402-trust-tooling.md`](../../proposals/solana-x402-trust-tooling.md). Written 2026-08-19.
 
-> **Scope (applies to every figure below).** This is the **known-facilitator classic-USDC index**, watermarked — not the entire Solana x402 universe. A row is a classic-USDC SPL transfer whose fee payer is on the published known-facilitator allow-list. Self-facilitated legs (payer or merchant pays own gas), unknown third-party sponsors, merchants who never used a known facilitator, and non-USDC mints are **out of scope**. "Complete" below means no missing complete-day *inside the allow-list* — not every x402 settlement on Solana. Retained as a dated historical refresh; the current definition lives in [`corpus-note-2026-08-18.md`](./corpus-note-2026-08-18.md).
+> **Scope (applies to every figure below).** This is the **known-facilitator classic-USDC index**, watermarked — not the entire Solana x402 universe. A row is a classic-USDC SPL transfer whose fee payer is on the published known-facilitator allow-list. Self-facilitated legs (payer or merchant pays own gas), unknown third-party sponsors, merchants who never used a known facilitator, and non-USDC mints are **out of scope**. "Complete" below means no missing complete-day *inside the allow-list* — not every x402 settlement on Solana. Retained as a dated historical refresh; the current definition lives in [`corpus-note-2026-08-18.md`](../../proposals/corpus-note-2026-08-18.md).
 
 ## Definitions
 

@@ -96,7 +96,7 @@ const payingFetch = installTwzrdAutoGate(
 ```
 
 Runnable instrumented example (no funds):  
-[`examples/zero-spend-guard-check.mjs`](./examples/zero-spend-guard-check.mjs)
+[`examples/zero-spend-guard-check.mjs`](../../proofs/examples/zero-spend-guard-check.mjs)
 
 ## 3. Metric snapshot (public)
 
@@ -143,7 +143,7 @@ Do **not** send real USDC for this test.
 ```
 Quick 5-minute no-funds check on TWZRD pay-guard:
 
-1) Read: https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/proofs/seller-graph-payguard-closeout-2026-07-12.md
+1) Read: https://github.com/twzrd-sol/twzrd-trust/blob/main/docs/archive/proofs/seller-graph-payguard-closeout-2026-07-12.md
 2) Run your client with TWZRD immediately before wallet signing (installTwzrdAutoGate or installTwzrdX402ClientHook with gateOnCanSpend=true).
 3) Use an instrumented or unfunded signer against a live 402 that preflight marks can_spend=false.
 

@@ -71,13 +71,14 @@ Dated. Kept as written, with a banner pointing to the current state.
 
 | Document | Date | What it recorded |
 |---|---|---|
-| [proofs/seller-graph-payguard-closeout-2026-07-12.md](./proofs/seller-graph-payguard-closeout-2026-07-12.md) | 2026-07-12 | Discovery, merchant card and pre-sign block on package 0.5.4 |
-| [proofs/20260716-wash-refuse-transcript.md](./proofs/20260716-wash-refuse-transcript.md) | 2026-07-16 | Superseded refuse transcript on 0.7.1 |
+| [archive/proofs/seller-graph-payguard-closeout-2026-07-12.md](./archive/proofs/seller-graph-payguard-closeout-2026-07-12.md) | 2026-07-12 | Discovery, merchant card and pre-sign block on package 0.5.4 |
+| [archive/proofs/20260716-wash-refuse-transcript.md](./archive/proofs/20260716-wash-refuse-transcript.md) | 2026-07-16 | Superseded refuse transcript on 0.7.1 |
 | [proofs/20260819-refuse-and-clean-control-0.8.18.md](./proofs/20260819-refuse-and-clean-control-0.8.18.md) | 2026-08-19 | Block plus clean-control pair on the published 0.8.18, TWZRD-operated |
-| [proposals/corpus-note-2026-07-09.md](./proposals/corpus-note-2026-07-09.md), [2026-08-16](./proposals/corpus-note-2026-08-16.md), [2026-08-18](./proposals/corpus-note-2026-08-18.md) | July to August 2026 | Settlement-corpus snapshots of their dates |
+| [proposals/corpus-note-2026-08-18.md](./proposals/corpus-note-2026-08-18.md) | 2026-08-18 | Settlement-corpus snapshot; kept in place because the funding application cites its URL |
+| [archive/proposals/corpus-note-2026-07-09.md](./archive/proposals/corpus-note-2026-07-09.md), [2026-08-16](./archive/proposals/corpus-note-2026-08-16.md) | July to August 2026 | Superseded settlement-corpus snapshots |
 | [proposals/solana-x402-trust-tooling.md](./proposals/solana-x402-trust-tooling.md), [solana-foundation-application-fields.md](./proposals/solana-foundation-application-fields.md) | 2026-08-19 | A public funding proposal as written then; not maintained |
 | [proposals/settle-gate-enforce-activation-2026-08-19.md](./proposals/settle-gate-enforce-activation-2026-08-19.md) | 2026-08-19 | The hosted settle gate moving from shadow to enforce (still enforcing) |
-| [release-alignment-2026-09-11.md](./release-alignment-2026-09-11.md) | 2026-09-11 | Mirror-alignment audit at the 0.9.5 release line |
+| [archive/release-alignment-2026-09-11.md](./archive/release-alignment-2026-09-11.md) | 2026-09-11 | Mirror-alignment audit at the 0.9.5 release line |
 | [eliza-v7-readiness-plan.md](./eliza-v7-readiness-plan.md) | 2026-09 to 2026-10 | The Eliza V7 migration plan; completed with 0.8.x |
 
 ## Internal

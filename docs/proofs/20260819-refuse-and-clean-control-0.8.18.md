@@ -3,7 +3,7 @@
 **Lineage: TWZRD-operated (dogfood). This is a mechanism proof, not external adoption evidence.**
 It does not satisfy Milestone 3 of the Solana Foundation proposal and does not close any
 external-adoption metric. Supersedes
-[`20260716-wash-refuse-transcript.md`](./20260716-wash-refuse-transcript.md) (0.7.1, block leg only).
+[`20260716-wash-refuse-transcript.md`](../archive/proofs/20260716-wash-refuse-transcript.md) (0.7.1, block leg only).
 
 ## Environment
 
