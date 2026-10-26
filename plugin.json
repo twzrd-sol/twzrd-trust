@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "twzrd-trust",
+  "description": "Discover x402 callables then check the seller BEFORE paying.",
+  "homepage": "https://intel.twzrd.xyz",
+  "repository": "https://github.com/twzrd-sol/twzrd-trust",
+  "license": "MIT"
+}
