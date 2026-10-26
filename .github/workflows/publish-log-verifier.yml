@@ -4,13 +4,12 @@ name: Publish twzrd-log-verifier to npm
 # reachable from an untrusted PR. A human presses the button and types the
 # version they expect to ship.
 #
-# First publish: twzrd-log-verifier has never been on npm. npm's Trusted
-# Publishing is configured from a package's settings page, so it cannot be set
-# up for a name that does not exist yet; the first run must use
+# First publish: twzrd-log-verifier has never been on npm. The first run uses
 # secrets.NPM_TOKEN, and that token must be allowed to create a new package
-# (a granular token limited to selected packages cannot). After the first
-# publish, this workflow can be added as the package's trusted publisher and
-# the OIDC path below takes over when NPM_TOKEN is empty.
+# (a granular token limited to selected packages cannot). If it is not, the
+# run fails at `npm publish`, after every check, and nothing is published.
+# Afterwards this workflow can be added as the package's trusted publisher on
+# npmjs.com, and the OIDC path below takes over when NPM_TOKEN is empty.
 #
 # Permissions: contents: read (nothing is tagged or pushed);
 # id-token: write (npm provenance and OIDC).

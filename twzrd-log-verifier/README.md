@@ -32,7 +32,7 @@ Solana, and any relying party can hold the log to its own history.
 On npm from 0.3.0 (the first published version). Run it without installing:
 
 ```bash
-npx -y twzrd-log-verifier@0.3.0 selftest
+npx -y twzrd-log-verifier selftest
 ```
 
 or install it (`npm i -g twzrd-log-verifier`) and drop the `npx` prefix, as the
