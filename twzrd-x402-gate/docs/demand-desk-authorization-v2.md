@@ -17,8 +17,8 @@ vault does not require this facade. No registry, replacement program, PDA migrat
 ERC-8004 record, or cross-chain bridge participates in this decision.
 
 `twzrd.payment_decision.v1` remains the portable public decision receipt. A
-`2.0.0-demand-desk` record is different: it is a short-lived authorization to
-sign one exact capital-moving vault instruction.
+`2.0.0-demand-desk` or `2.1.0-demand-desk` record is different: it is a
+short-lived authorization to sign one exact capital-moving vault instruction.
 
 ## Wire contract and signing
 
@@ -66,11 +66,45 @@ Account order and flags are significant. The digest is over an instruction
 projection produced from the locally constructed transaction, never over fields
 copied from the authorization response.
 
-Initial v2 policy deliberately accepts exactly one instruction: the immutable
-vault spend. Compute-budget, memo, ATA-creation, address-lookup ambiguity, and
-any other extra instruction are refused. Supporting a multi-instruction message
-requires a separately versioned whole-message commitment; adapters must not
-silently relax this rule.
+A `2.0.0-demand-desk` authorization accepts exactly one instruction: the
+immutable vault spend. Compute-budget, memo, ATA-creation, address-lookup
+ambiguity, and any other extra instruction are refused. Supporting a
+multi-instruction message requires a separately versioned commitment; adapters
+must not silently relax this rule.
+
+### 2.1.0: Compute Budget and one Memo
+
+`2.1.0-demand-desk` is that separately versioned commitment
+(`schemas/demand-desk-authorization.v2.1.schema.json`). Its
+`settlement_constraints` add two signed fields:
+
+- `memo_sha256`: SHA-256 hex of the Memo instruction's data bytes, or `null`
+  when the message carries no Memo.
+- `max_compute_unit_limit`: the ceiling for `SetComputeUnitLimit`. Zero refuses
+  any Compute Budget instruction.
+
+The message must be, in this order and with each slot at most once:
+
+```text
+[SetComputeUnitLimit?, SetComputeUnitPrice?, Memo?, vault spend]
+```
+
+Every instruction is either exactly committed or bounded by a signed cap:
+
+- The vault spend is committed by `instruction_hash`, as in 2.0.0.
+- The Memo is SPL Memo v2 (`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`) with no
+  accounts and 1 to 512 bytes of printable ASCII. It must be present exactly when
+  `memo_sha256` is not null, and its bytes must hash to it. Memo v1 is another
+  program, so it is refused as an extra instruction.
+- Compute Budget instructions take no accounts and exact-length data (5 bytes
+  for the limit, 9 for the price). A price needs a limit. The limit must be
+  between 1 and `max_compute_unit_limit`.
+- The verifier computes the priority fee, `ceil(limit * price / 1e6)` lamports,
+  from the message and adds it to the caller's base fee. The sum must not exceed
+  `max_network_fee_lamports`.
+
+A 2.0.0 token never accepts these instructions, and a 2.0.0 token carrying a
+2.1.0 field fails as `invalid_shape`. Each version has its own exact field list.
 
 ## Validator usage
 
@@ -261,7 +295,7 @@ Other failures:
 - `400`: malformed request or invalid public-key/integer encoding.
 - `401`/`403`: missing credentials or agent not permitted to request spend.
 - `409`: idempotency-key collision with a different request.
-- `422`: transaction cannot be decoded into the strict one-instruction form.
+- `422`: transaction cannot be decoded into the form its contract version allows.
 - `503`: policy, intel, log, ledger, or signer unavailable; no token is issued.
 
 Known policy refusals use the signed reason codes in the schema. Infrastructure

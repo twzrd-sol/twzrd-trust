@@ -9,9 +9,19 @@
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { canonicalJson } from "./intent.js";
 
+/** Strict: the message is exactly the vault spend. */
 export const DEMAND_DESK_AUTHORIZATION_VERSION = "2.0.0-demand-desk" as const;
+/**
+ * Adds a signed memo digest and compute-unit ceiling. The message may carry
+ * [SetComputeUnitLimit?, SetComputeUnitPrice?, Memo?] before the vault spend.
+ */
+export const DEMAND_DESK_AUTHORIZATION_VERSION_2_1 = "2.1.0-demand-desk" as const;
 export const DEMAND_DESK_AUTHORIZATION_DOMAIN = "twzrd.demand_desk_authorization.v2\n";
 export const IMMUTABLE_VAULT_INSTRUCTION_DOMAIN = "twzrd.solana.instruction.v1\n";
+export const COMPUTE_BUDGET_PROGRAM_ID = "ComputeBudget111111111111111111111111111111";
+/** SPL Memo v2. Memo v1 and other memo programs are extra instructions. */
+export const MEMO_PROGRAM_ID = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+export const MAX_SETTLEMENT_MEMO_BYTES = 512;
 
 export const DEMAND_DESK_REASON_CODES = [
   "APPROVED",
@@ -49,7 +59,15 @@ export type DemandDeskSettlementConstraints = {
   vault_program_id: string;
   policy_pda: string;
   instruction_hash: string;
+  /** Ceiling for the base fee plus the priority fee the Compute Budget instructions set. */
   max_network_fee_lamports: number;
+};
+
+export type DemandDeskSettlementConstraintsV2_1 = DemandDeskSettlementConstraints & {
+  /** SHA-256 hex of the one Memo instruction's data bytes, or null when the message carries no Memo. */
+  memo_sha256: string | null;
+  /** Ceiling for SetComputeUnitLimit. Zero refuses any Compute Budget instruction. */
+  max_compute_unit_limit: number;
 };
 
 export type DemandDeskAuthorizationDecision = {
@@ -57,17 +75,21 @@ export type DemandDeskAuthorizationDecision = {
   reason_code: DemandDeskReasonCode;
 };
 
-export type UnsignedDemandDeskAuthorization = {
-  contract_version: typeof DEMAND_DESK_AUTHORIZATION_VERSION;
+type UnsignedAuthorizationBody<Version, Constraints> = {
+  contract_version: Version;
   authorization_id: string;
   issued_at_ms: number;
   expires_at_ms: number;
   demand_desk_pubkey: string;
   intent: DemandDeskAuthorizationIntent;
   evidence_binding: DemandDeskEvidenceBinding;
-  settlement_constraints: DemandDeskSettlementConstraints;
+  settlement_constraints: Constraints;
   decision: DemandDeskAuthorizationDecision;
 };
+
+export type UnsignedDemandDeskAuthorization =
+  | UnsignedAuthorizationBody<typeof DEMAND_DESK_AUTHORIZATION_VERSION, DemandDeskSettlementConstraints>
+  | UnsignedAuthorizationBody<typeof DEMAND_DESK_AUTHORIZATION_VERSION_2_1, DemandDeskSettlementConstraintsV2_1>;
 
 export type DemandDeskAuthorization = UnsignedDemandDeskAuthorization & {
   /** Hex or base58 Ed25519 signature over demandDeskAuthorizationPreimage(). */
@@ -96,8 +118,13 @@ export type DemandDeskAuthorizationExpectation = {
     vaultProgramId: string;
     policyPda: string;
   };
-  /** Strict v1: exactly one immutable-vault instruction and no other instruction. */
+  /**
+   * Every instruction of the compiled message, in order. 2.0.0 allows exactly
+   * the vault spend; 2.1.0 allows [SetComputeUnitLimit?, SetComputeUnitPrice?,
+   * Memo?, vault spend].
+   */
   instructions: readonly SolanaInstructionForAuthorization[];
+  /** Locally computed base (signature) fee. The verifier adds the priority fee it computes from the message. */
   networkFeeLamports: number;
   /** Locally computed v3 approval receipt commitment, when supplied. */
   receiptHashHex?: string;
@@ -169,6 +196,7 @@ const SETTLEMENT_FIELDS = [
   "instruction_hash",
   "max_network_fee_lamports",
 ] as const;
+const SETTLEMENT_FIELDS_V2_1 = [...SETTLEMENT_FIELDS, "memo_sha256", "max_compute_unit_limit"] as const;
 const DECISION_FIELDS = ["status", "reason_code"] as const;
 
 function failure(
@@ -231,10 +259,12 @@ function parseAuthorization(value: unknown): DemandDeskAuthorization | null {
   const evidence = value.evidence_binding;
   const settlement = value.settlement_constraints;
   const decision = value.decision;
+  // Each version has its own exact settlement fields.
+  const v2_1 = value.contract_version === DEMAND_DESK_AUTHORIZATION_VERSION_2_1;
   if (
     !isRecord(intent) || !hasExactFields(intent, INTENT_FIELDS) ||
     !isRecord(evidence) || !hasExactFields(evidence, EVIDENCE_FIELDS) ||
-    !isRecord(settlement) || !hasExactFields(settlement, SETTLEMENT_FIELDS) ||
+    !isRecord(settlement) || !hasExactFields(settlement, v2_1 ? SETTLEMENT_FIELDS_V2_1 : SETTLEMENT_FIELDS) ||
     !isRecord(decision) || !hasExactFields(decision, DECISION_FIELDS)
   ) return null;
 
@@ -270,6 +300,12 @@ function parseAuthorization(value: unknown): DemandDeskAuthorization | null {
     !isPubkey(settlement.policy_pda) ||
     typeof settlement.instruction_hash !== "string" || !HEX_32.test(settlement.instruction_hash) ||
     !isSafeNonnegativeInteger(settlement.max_network_fee_lamports)
+  ) return null;
+  if (
+    v2_1 && (
+      (settlement.memo_sha256 !== null && (typeof settlement.memo_sha256 !== "string" || !HEX_32.test(settlement.memo_sha256))) ||
+      !isSafeNonnegativeInteger(settlement.max_compute_unit_limit)
+    )
   ) return null;
 
   if (
@@ -364,6 +400,82 @@ export function immutableVaultInstructionHash(
     .digest("hex");
 }
 
+type MessageShape =
+  | { ok: true; spend: SolanaInstructionForAuthorization; priorityFeeLamports: bigint }
+  | { ok: false; message: string };
+
+function isAccountlessInstruction(instruction: SolanaInstructionForAuthorization): boolean {
+  return Array.isArray(instruction.accounts) && instruction.accounts.length === 0 &&
+    instruction.data instanceof Uint8Array;
+}
+
+function isComputeBudget(instruction: SolanaInstructionForAuthorization | undefined, tag: number): boolean {
+  return instruction?.programId === COMPUTE_BUDGET_PROGRAM_ID && instruction.data?.[0] === tag;
+}
+
+/**
+ * 2.1.0 message shape: [SetComputeUnitLimit?, SetComputeUnitPrice?, Memo?, spend],
+ * each slot at most once and in that order. The Memo is committed by its signed
+ * digest and the Compute Budget values by the signed caps; the priority fee,
+ * ceil(limit * price / 1e6) lamports, is computed here, never taken from a caller.
+ */
+function messageShapeV2_1(
+  instructions: readonly SolanaInstructionForAuthorization[],
+  constraints: DemandDeskSettlementConstraintsV2_1,
+): MessageShape {
+  const refuse = (message: string): MessageShape => ({ ok: false, message });
+  let index = 0;
+  let limit: number | null = null;
+  let price: bigint | null = null;
+  let memo: Buffer | null = null;
+
+  if (isComputeBudget(instructions[index], 2)) {
+    const instruction = instructions[index]!;
+    if (!isAccountlessInstruction(instruction) || instruction.data.length !== 5) {
+      return refuse("SetComputeUnitLimit must have no accounts and 5 data bytes");
+    }
+    limit = Buffer.from(instruction.data).readUInt32LE(1);
+    index += 1;
+  }
+  if (isComputeBudget(instructions[index], 3)) {
+    const instruction = instructions[index]!;
+    if (!isAccountlessInstruction(instruction) || instruction.data.length !== 9) {
+      return refuse("SetComputeUnitPrice must have no accounts and 9 data bytes");
+    }
+    price = Buffer.from(instruction.data).readBigUInt64LE(1);
+    index += 1;
+  }
+  if (instructions[index]?.programId === MEMO_PROGRAM_ID) {
+    const instruction = instructions[index]!;
+    if (!isAccountlessInstruction(instruction)) return refuse("The Memo instruction must have no accounts");
+    memo = Buffer.from(instruction.data);
+    index += 1;
+  }
+  if (instructions.length !== index + 1) {
+    return refuse("Message is not [SetComputeUnitLimit?, SetComputeUnitPrice?, Memo?, vault spend]");
+  }
+
+  if (price !== null && limit === null) return refuse("A compute unit price needs a compute unit limit");
+  if (limit !== null && (limit < 1 || limit > constraints.max_compute_unit_limit)) {
+    return refuse("Compute unit limit exceeds the authorized ceiling");
+  }
+  if (constraints.memo_sha256 === null) {
+    if (memo) return refuse("Authorization binds no memo, but the message carries one");
+  } else {
+    if (!memo) return refuse("Authorization binds a memo the message does not carry");
+    if (memo.length < 1 || memo.length > MAX_SETTLEMENT_MEMO_BYTES || memo.some((byte) => byte < 0x20 || byte > 0x7e)) {
+      return refuse("Memo must be 1 to 512 bytes of printable ASCII");
+    }
+    if (createHash("sha256").update(memo).digest("hex") !== constraints.memo_sha256.toLowerCase()) {
+      return refuse("Memo bytes do not match the authorized memo digest");
+    }
+  }
+  const priorityFeeLamports = limit === null || price === null
+    ? 0n
+    : (BigInt(limit) * price + 999_999n) / 1_000_000n;
+  return { ok: true, spend: instructions[index]!, priorityFeeLamports };
+}
+
 function sameValue(a: unknown, b: unknown): boolean {
   try {
     return canonicalJson(a) === canonicalJson(b);
@@ -383,7 +495,10 @@ export function verifyDemandDeskAuthorization(
   try {
     const authorization = parseAuthorization(value);
     if (!authorization) return failure("invalid_shape", "Demand Desk authorization shape is invalid");
-    if (authorization.contract_version !== DEMAND_DESK_AUTHORIZATION_VERSION) {
+    if (
+      authorization.contract_version !== DEMAND_DESK_AUTHORIZATION_VERSION &&
+      authorization.contract_version !== DEMAND_DESK_AUTHORIZATION_VERSION_2_1
+    ) {
       return failure("unsupported_version", "Demand Desk authorization version is unsupported");
     }
 
@@ -432,10 +547,19 @@ export function verifyDemandDeskAuthorization(
     ) {
       return failure("settlement_mismatch", "Demand Desk authorization does not match local vault constraints");
     }
-    if (expected.instructions.length !== 1) {
-      return failure("instruction_mismatch", "Exactly one immutable-vault instruction is required");
+    let instruction: SolanaInstructionForAuthorization;
+    let priorityFeeLamports = 0n;
+    if (authorization.contract_version === DEMAND_DESK_AUTHORIZATION_VERSION_2_1) {
+      const shape = messageShapeV2_1(expected.instructions, authorization.settlement_constraints);
+      if (!shape.ok) return failure("instruction_mismatch", shape.message);
+      instruction = shape.spend;
+      priorityFeeLamports = shape.priorityFeeLamports;
+    } else {
+      if (expected.instructions.length !== 1) {
+        return failure("instruction_mismatch", "Exactly one immutable-vault instruction is required");
+      }
+      instruction = expected.instructions[0]!;
     }
-    const instruction = expected.instructions[0]!;
     if (instruction.programId !== constraints.vault_program_id) {
       return failure("instruction_mismatch", "Instruction program does not match the authorized vault program");
     }
@@ -470,7 +594,7 @@ export function verifyDemandDeskAuthorization(
     }
     if (
       !isSafeNonnegativeInteger(expected.networkFeeLamports) ||
-      expected.networkFeeLamports > constraints.max_network_fee_lamports
+      BigInt(expected.networkFeeLamports) + priorityFeeLamports > BigInt(constraints.max_network_fee_lamports)
     ) {
       return failure("fee_exceeded", "Estimated network fee exceeds Demand Desk authorization");
     }
