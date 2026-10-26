@@ -1,6 +1,6 @@
 {
   "schema": "twzrd.proof_compatibility.v1",
-  "gate_version": "0.14.0",
+  "gate_version": "0.15.0",
   "node_majors": [20, 22, 24],
   "packages": {
     "@x402/core": "2.27.0",
