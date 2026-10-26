@@ -158,6 +158,35 @@ describe('wzrdPlugin intel registration + V7 receipt handling (source)', () => {
     }
   });
 
+  it('preflight answer with no known decision is fail-closed, not a card (SDK 0.5)', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ readiness_card: { trust_score: 72, can_spend: true } }),
+    })) as unknown as typeof fetch;
+    try {
+      const callbacks: string[] = [];
+      const result = (await intelPreflightAction.handler!(
+        mockRuntime({ WZRD_INTEL_URL: 'https://intel.twzrd.xyz' }),
+        mockMemory({ seller_wallet: SELLER, price_usdc: 0.05 }),
+        undefined,
+        undefined,
+        async (r: Content) => {
+          callbacks.push(r.text ?? '');
+          return [];
+        },
+      )) as { success: boolean; error?: string; data?: { refuse_pay?: boolean; reason?: string } };
+      assert.equal(result.success, false);
+      assert.match(result.error ?? '', /preflight_invalid_payload/);
+      assert.equal(result.data?.refuse_pay, true);
+      assert.equal(result.data?.reason, 'preflight_unavailable');
+      assert.match(callbacks.join('\n'), /do not pay this pay_to \(fail-closed\)/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it('preflight validation rejects bad seller_wallet (non-base58)', async () => {
     const callbacks: string[] = [];
     const result = await intelPreflightAction.handler!(

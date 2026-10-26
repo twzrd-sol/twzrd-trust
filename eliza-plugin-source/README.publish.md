@@ -160,8 +160,11 @@ Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
 - The re-exported `TRUSTED_RECEIPT_PUBKEY` is now the v2 receipt key, equal to `CURRENT_RECEIPT_PUBKEY`.
   It was the v1 key. If you verify old v1-signed receipts, pass `LEGACY_RECEIPT_PUBKEYS[0]` from
   `@wzrd_sol/sdk` explicitly.
-- `WZRD_INTEL_TRUST` refuses, with no spend, when the free preflight answers without a known decision
-  (`preflight_invalid_payload`). SDK 0.4 read such an answer as `warn` and let the paid lookup go ahead.
+- A preflight answer without a known decision is now an error (`preflight_invalid_payload`), not a
+  result. `WZRD_INTEL_TRUST` refuses with no spend; SDK 0.4 read such an answer as `warn` and let the
+  paid lookup go ahead. `WZRD_INTEL_PREFLIGHT` returns `refuse_pay: true` (`preflight_unavailable`)
+  where it used to report the answer as a card. `getIntelClient().preflight` rejects instead of
+  resolving.
 - No new paid call. SDK 0.5's `preSpendGate` can escalate to the paid quick lookup, but only when
   `escalateAboveUsdc` is set, and this plugin does not set it.
 
