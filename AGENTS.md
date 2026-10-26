@@ -10,7 +10,9 @@ mirrors, **not** buildable source:
 - `twzrd-x402-gate/` — the primary package with real `src/` + `test/`. Gate
   development, linting, building, and testing happens here **after a root install**.
 - `twzrd-log-verifier/` — real `src/` + `test/`. Gate typecheck imports this
-  sibling; it is why a gate-only `npm ci` is not enough.
+  sibling; it is why a gate-only `npm ci` is not enough. Check the tarball with
+  `npm run pack-smoke --workspace=twzrd-log-verifier`. Publish via
+  `.github/workflows/publish-log-verifier.yml` (workflow_dispatch only).
 - `eliza-plugin-source/` — restored V7 Eliza plugin TypeScript (issue #90). Real
   `src/` + `test/`. Lint: `npm run typecheck --workspace=@wzrd_sol/eliza-plugin-source`.
   Test: `npm test --workspace=@wzrd_sol/eliza-plugin-source`. This is **not** the
