@@ -5,8 +5,8 @@
  *
  * Every `twzrd-x402-gate@<version>` in a doc this repository owns names
  * package.json's version, unless it records when a feature arrived ("since",
- * "ships from", "needs ... or later"). Dated records under docs/proofs and
- * docs/proposals keep the pins they were written with. Mirrors follow their
+ * "ships from", "needs ... or later"). Dated records under docs/proofs,
+ * docs/proposals, and their docs/archive copies keep the pins they were written with. Mirrors follow their
  * source instead and only have to sit between 0.12.5 and package.json's
  * version: SKILL.md and server/.well-known/mcp.json copy live intel
  * (check-gate-release-drift compares intel's advertised pin to this package),
@@ -159,7 +159,7 @@ const owned = [
   join(pkgRoot, "README.md"),
   join(pkgRoot, "QUICKSTART.md"),
   ...walk(join(repoRoot, "docs")).filter(
-    (f) => !/[\\/]docs[\\/](proofs|proposals)[\\/]/.test(f),
+    (f) => !/[\\/]docs[\\/](archive[\\/])?(proofs|proposals)[\\/]/.test(f),
   ),
 ];
 
