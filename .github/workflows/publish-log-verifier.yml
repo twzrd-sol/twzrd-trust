@@ -1,0 +1,116 @@
+name: Publish twzrd-log-verifier to npm
+
+# workflow_dispatch ONLY, like publish.yml: a publish token must never be
+# reachable from an untrusted PR. A human presses the button and types the
+# version they expect to ship.
+#
+# First publish: twzrd-log-verifier has never been on npm. npm's Trusted
+# Publishing is configured from a package's settings page, so it cannot be set
+# up for a name that does not exist yet; the first run must use
+# secrets.NPM_TOKEN, and that token must be allowed to create a new package
+# (a granular token limited to selected packages cannot). After the first
+# publish, this workflow can be added as the package's trusted publisher and
+# the OIDC path below takes over when NPM_TOKEN is empty.
+#
+# Permissions: contents: read (nothing is tagged or pushed);
+# id-token: write (npm provenance and OIDC).
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: 'twzrd-log-verifier/package.json version this run must match (refuses on any other)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: twzrd-log-verifier
+    env:
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Decide publish auth
+        id: auth
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "mode=token" >> "$GITHUB_OUTPUT"
+            echo "Using secrets.NPM_TOKEN"
+          else
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+            echo "::notice::secrets.NPM_TOKEN is empty; will publish via npm Trusted Publishing (OIDC)."
+            echo "That only works after the first publish, once this workflow"
+            echo "(twzrd-sol/twzrd-trust / .github/workflows/publish-log-verifier.yml)"
+            echo "is added as a trusted publisher on npmjs.com for twzrd-log-verifier."
+          fi
+
+      - name: Install dependencies (lockfile)
+        run: npm ci
+        working-directory: .
+
+      - name: Verify version matches the operator's confirmation
+        run: |
+          if ! printf '%s' "$EXPECTED_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::expected_version '$EXPECTED_VERSION' is not MAJOR.MINOR.PATCH -- refusing."
+            exit 1
+          fi
+          ACTUAL=$(node -p "require('./package.json').version")
+          if [ "$ACTUAL" != "$EXPECTED_VERSION" ]; then
+            echo "::error::package.json is $ACTUAL, you confirmed $EXPECTED_VERSION -- refusing to publish. Re-run with the correct version, or fix the checked-out ref."
+            exit 1
+          fi
+          echo "Confirmed: publishing twzrd-log-verifier@$ACTUAL"
+
+      - name: Refuse a version the registry already has
+        run: |
+          LIVE="$(npm view "twzrd-log-verifier@${EXPECTED_VERSION}" version 2>/dev/null || true)"
+          if [ -n "$LIVE" ]; then
+            echo "::error::twzrd-log-verifier@$LIVE is already on npm -- bump the version instead."
+            exit 1
+          fi
+
+      - name: Build and test
+        run: npm test
+
+      - name: pack-smoke (tarball contents, clean install, CLI selftest)
+        run: npm run pack-smoke
+
+      - name: Publish with token
+        if: steps.auth.outputs.mode == 'token'
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish with OIDC trusted publishing
+        if: steps.auth.outputs.mode == 'oidc'
+        run: |
+          # Trusted publishing needs npm 11.5.1+. Node 20 ships npm 10.
+          npm install -g npm@11
+          npm --version
+          # setup-node writes _authToken=${NODE_AUTH_TOKEN}; an empty expansion
+          # makes npm skip OIDC and die ENEEDAUTH (publish.yml, run 34089898111).
+          NPMRC_PATH="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$NPMRC_PATH" ]; then
+            echo "Stripping _authToken from $NPMRC_PATH"
+            sed -i '/_authToken/d' "$NPMRC_PATH"
+          fi
+          if [ -f "$HOME/.npmrc" ] && [ "$HOME/.npmrc" != "$NPMRC_PATH" ]; then
+            sed -i '/_authToken/d' "$HOME/.npmrc"
+          fi
+          npm publish --access public --provenance
+
+      - name: Verify against the live registry
+        run: bash ../scripts/verify-live-npm-version.sh twzrd-log-verifier "$EXPECTED_VERSION"

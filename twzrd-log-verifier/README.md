@@ -29,15 +29,19 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
-> **Not yet published to npm.** Run it from this repo until it is:
->
-> ```bash
-> npm --prefix twzrd-log-verifier install && npm --prefix twzrd-log-verifier run build
-> alias twzrd-log-verifier='node "$PWD/twzrd-log-verifier/dist/src/cli.js"'
-> ```
->
-> Every line below assumes that alias. `npx -y twzrd-log-verifier …` will work
-> once the package is on the registry; it does not resolve today.
+On npm from 0.3.0 (the first published version). Run it without installing:
+
+```bash
+npx -y twzrd-log-verifier@0.3.0 selftest
+```
+
+or install it (`npm i -g twzrd-log-verifier`) and drop the `npx` prefix, as the
+lines below do. To run the source in this repo instead:
+
+```bash
+npm --prefix twzrd-log-verifier install && npm --prefix twzrd-log-verifier run build
+alias twzrd-log-verifier='node "$PWD/twzrd-log-verifier/dist/src/cli.js"'
+```
 
 ```bash
 twzrd-log-verifier selftest   # prove the checker checks (no files, no network)
