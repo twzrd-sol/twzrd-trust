@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url);
 /** This package's version, stamped into X-TWZRD-Integration on gate lookups. */
 export const PLUGIN_VERSION: string = (require('../package.json') as { version: string }).version;
 /** Exact twzrd-x402-gate pin. A caret would float onto a later line. */
-export const GATE_PIN = '0.13.1';
+export const GATE_PIN = '0.14.0';
 
 export function integrationTag(): string {
   return `eliza-plugin/${PLUGIN_VERSION}`;

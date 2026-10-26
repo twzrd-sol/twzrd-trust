@@ -1,6 +1,8 @@
 # Compatibility notes — twzrd-x402-gate (current release first; the 0.9.3 → 0.9.4 default change follows)
 
-0.13.1 is the released identity of this package. It is a patch over 0.13.0 with no allow or refuse change: it exports the `TwzrdReadinessBasisEntry` type, types `TwzrdReadinessCard.basis`, and documents which `observed_at` fields can equal card-build time.
+0.14.0 is the released identity of this package. It adds two entry points, both of which refuse: `verifyDemandDeskAuthorization`, an offline check of a Demand Desk `2.0.0-demand-desk` spend authorization against a key you trust locally and the exact vault instruction you are about to sign, and `createDemandDeskWallet`, a signer facade that runs that check before every sign. No existing entry point changes what it allows or refuses. `^0.13.0` ranges never install it. The instruction rule is strict: a transaction with a ComputeBudget or Memo instruction beside the vault spend refuses with `instruction_mismatch`.
+
+0.13.1 was a patch over 0.13.0 with no allow or refuse change: it exports the `TwzrdReadinessBasisEntry` type, types `TwzrdReadinessCard.basis`, and documents which `observed_at` fields can equal card-build time.
 
 0.13.0 adds default refusals where 0.12.5 paid on missing evidence, each with an opt-out that restores the 0.12.5 outcome. An evaluated `warn` card is paid only under its own finite `recommended_cap_usdc` at a known price (`twzrd_warn_no_cap`, `twzrd_warn_unknown_price`; opt out with `refuseUncappedWarn: false` or `TWZRD_REFUSE_UNCAPPED_WARN=0`). `refuseWashUnknown` is on by default: on the reputation-scored path a reachable merchant card without full, fresh, ring-evaluated wash coverage refuses with `twzrd_wash_unknown`, which includes a wallet intel has never seen (opt out with `refuseWashUnknown: false` or `TWZRD_REFUSE_WASH_UNKNOWN=0`). A card with no `wash_flagged` boolean, even beside confidence `full`, is no longer coverage, on both engines; `createTwzrdWashBeforePaymentHook` refuses it with no flag. `^0.12.0` ranges never install it. `createBuyerFetch` records `policy_version: "buyer-fetch.v2"`. The Base seat (`cloudflare-base`) keeps its 0.12.5 rules.
 
@@ -85,12 +87,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` dist-tag: **0.13.1**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
+- `latest` dist-tag: **0.14.0**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.13.1 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.14.0 as the
   maintained line (0.11.2 and 0.11.3 are deprecated on npm for security fixes).
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.13.1`) if you want
+  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.14.0`) if you want
   no change at all.
