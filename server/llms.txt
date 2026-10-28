@@ -123,10 +123,6 @@ override). `POST /v1/compute/inference` here is receipt-gated and is not that SK
 
 Refuse-receipt: caller's own local deny, not a TWZRD wash verdict. Replay 90 days.
 
-A pasted `:pubkey`/`{pubkey}` now 402s the example wallet. That example is
-TWZRD own-wallet smoke. Substitute a real seller payTo to score someone else:
-`GET https://intel.twzrd.xyz/v1/intel/merchant_card/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs`
-
 ## Supporting surfaces
 
 Optional / secondary. Buyer-gate install is the wedge; these feed preflight,
@@ -171,8 +167,8 @@ unless the operator sets explicit opt-in and caps:
 
 ### Path A paid proof (not enforcement)
 
-The paste-ready `GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` path is TWZRD's own payTo (own-wallet smoke).
-Before a real pay, put the seller's accepts[].payTo in the path and inspect the
+The paste-ready `GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` path is TWZRD's own payTo (own-wallet smoke); a
+pasted `:pubkey`/`{pubkey}` 402s for that same wallet. Before a real pay, put the seller's accepts[].payTo in the path and inspect the
 selected entry's network, asset, amount, and payTo before signing.
 
 Unpaid GET on a paid route returns HTTP 402 with `next_action` in the JSON body.
@@ -190,6 +186,7 @@ Optional Path A curl examples: /llms-full.txt.
 `seller_wallet=` or `X-TWZRD-Seller-Wallet` identifies the settle-gate counterparty
 on trust routes; market routes use `merchant=`. Omit them and the gate cannot evaluate. x402 v2: unpaid → `payment-required`; sign an `accepts` entry; retry
 with `payment-signature`. Payer holds USDC; fee payer sponsors gas only.
+MPP: on `/v1/intel/quick/`, `/v1/intel/merchant/` one 402 carries both challenges (`WWW-Authenticate: X402, Payment`; Solana charge, fee payer sponsored). Other paid routes: x402 only.
 
 ### Market-data discovery
 
@@ -225,7 +222,6 @@ Watch lane: `twzrd_watch_add` / `POST /v1/intel/watch` (twzrd-watch/v1 control p
 ### Trust gate semantics (twzrd-agent-intel service v0.5.13)
 
 - Service package, npm buyer gate, and framework plugins version independently.
-- Preflight does NOT block settlement; an installed client hook must honor the decision.
 - With `TWZRD_SETTLE_GATE_ENABLED=true` and not shadow (`settle_gate_enforcing`
   on `GET /health`), paid routes can refuse settlement before broadcast if the
   explicit seller scores below policy; shadow mode logs only.
