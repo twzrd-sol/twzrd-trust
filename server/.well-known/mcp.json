@@ -114,7 +114,14 @@
       "method": "GET",
       "price_usdc": 0.001,
       "url": "https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
-      "description": "Seller wash risk and wallet reputation for a Solana x402 merchant: wash label, fleet %, payer count, plus tier + score. Cheap $0.001 entry before a larger payment. No signed V7 receipt."
+      "description": "Seller wash risk and wallet reputation for a Solana x402 merchant: wash label, fleet %, payer count, plus tier + score. Cheap $0.001 entry before a larger payment. No signed V7 receipt.",
+      "mpp": {
+        "method": "solana",
+        "intent": "charge",
+        "currency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "challenge": "WWW-Authenticate: Payment, in the same 402 as x402",
+        "fee_payer_sponsored": true
+      }
     },
     {
       "protocol": "x402",
@@ -132,7 +139,14 @@
       "method": "GET",
       "price_usdc": 0.05,
       "url": "https://intel.twzrd.xyz/v1/intel/merchant/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
-      "description": "Is this seller safe to pay? Signed merchant track-record receipt for a Solana receive wallet (pay_to): evidence for that counterparty risk call, not a safety verdict. Attests observed receive-side graph quality (unique payers, tx volume, wash labels) plus a portable V7 receipt. attestation_kind=merchant_track_record - NOT a payer trust score. Zero inbound -> 422 charged:false (settle-when-deliverable). Free teaser: GET /v1/intel/merchant_card/{wallet}."
+      "description": "Is this seller safe to pay? Signed merchant track-record receipt for a Solana receive wallet (pay_to): evidence for that counterparty risk call, not a safety verdict. Attests observed receive-side graph quality (unique payers, tx volume, wash labels) plus a portable V7 receipt. attestation_kind=merchant_track_record - NOT a payer trust score. Zero inbound -> 422 charged:false (settle-when-deliverable). Free teaser: GET /v1/intel/merchant_card/{wallet}.",
+      "mpp": {
+        "method": "solana",
+        "intent": "charge",
+        "currency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "challenge": "WWW-Authenticate: Payment, in the same 402 as x402",
+        "fee_payer_sponsored": true
+      }
     },
     {
       "protocol": "x402",
