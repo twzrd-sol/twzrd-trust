@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
   pull-requests: read
@@ -18,7 +19,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22, 24]
+        # PRs get the baseline promptly; main and manual runs retain the full matrix.
+        node: ${{ fromJSON(github.event_name == 'pull_request' && '[20]' || '[20,22,24]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
