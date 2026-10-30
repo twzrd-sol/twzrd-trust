@@ -238,6 +238,24 @@ export {
 } from "./spend-control.js";
 export { createFileSpendLedger } from "./spend-ledger-file.js";
 export {
+  OUTCOME_LEDGER_SCHEMA,
+  UNRESOLVED_STATES as OUTCOME_UNRESOLVED_STATES,
+  TERMINAL_STATES as OUTCOME_TERMINAL_STATES,
+  createMemoryOutcomeLedger,
+  createFileOutcomeLedger,
+  sharedFileOutcomeLedger,
+  OutcomeLedgerBlockedError,
+  OutcomeLedgerExpiredError,
+  OutcomeLedgerTransitionError,
+  type AttemptState,
+  type AttemptRecord,
+  type ApprovalBinding,
+  type SettlementFact,
+  type ValidationFact,
+  type CanAttemptResult,
+  type OutcomeLedger,
+} from "./outcome-ledger.js";
+export {
   createFileDecisionLedger,
   DECISION_LEDGER_SCHEMA_VERSION,
   type DecisionLedgerRow,
