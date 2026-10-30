@@ -129,7 +129,7 @@ caller supplies settlement facts from its own reconciliation (facilitator
 approved ──refuse()──────────▶ refused          (terminal, never signed)
    │   └──markSigning() past expiry──▶ expired  (terminal, never signed)
    └──markSigning()──▶ signing
-                         │  (row is on disk BEFORE the signer is invoked)
+                         │  (row is appended to the file BEFORE the signer is invoked)
                          ├──markUnknown()──▶ unknown
                          │                     │
                          ├──complete()─────────┼──▶ completed        (terminal)
@@ -139,6 +139,9 @@ approved ──refuse()──────────▶ refused          (termi
 
 - **Unresolved** states: `approved`, `signing`, `unknown`. Any of these on
   an intent hash blocks `begin()` for that hash under **any** decision id.
+  One exception: an `approved` record whose expiry has passed lapses (it is
+  recorded as `expired` by the next `begin()`), because no signer ran.
+  `signing` and `unknown` never lapse.
 - **Terminal** states allow a new attempt only under a **new** decision id.
 - A record found in `signing` after a restart is an unknown outcome. The
   ledger does not transition it implicitly; it reports it as unresolved and
@@ -160,14 +163,18 @@ the outcome is still unknown.
 
 Append-only JSONL with a sha256 hash chain, replayed on open, failing closed
 on a corrupt row, unknown schema or broken chain (the same discipline as
-`spend-ledger-file.ts`). Every transition is a synchronous append that lands
-before in-memory state changes. Single-process writer; use
+`spend-ledger-file.ts`). Every transition is a synchronous append that
+completes before in-memory state changes. That survives process death, not
+power loss: there is no fsync. Single-process writer; use
 `sharedFileOutcomeLedger(path)` so one process holds one chain per file.
+`get()` returns the latest attempt on an intent hash; a new attempt after a
+terminal state replaces the in-memory record, and earlier attempts remain in
+the file.
 
 ### Intended call sequence around a payment
 
 ```ts
-const ledger = sharedFileOutcomeLedger("~/.twzrd/outcomes.jsonl");
+const ledger = sharedFileOutcomeLedger(join(homedir(), ".twzrd", "outcomes.jsonl"));
 const h = intentHash(intent);
 ledger.begin({ intentHash: h, decisionId, approval });   // throws if unresolved / reused
 // ... preflight, recipient, price, expiry checks ...

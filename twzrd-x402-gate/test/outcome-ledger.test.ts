@@ -147,15 +147,33 @@ test("expired approval at markSigning records `expired` and never signs", () => 
   assert.throws(() => l.markSigning(H(10), T0 + 60_000), OutcomeLedgerExpiredError);
   assert.equal(l.get(H(10))?.state, "expired");
   assert.deepEqual(l.get(H(10))?.reasonCodes, ["approval_expired"]);
-  // Unparseable expiry fails closed too.
+  // Boundary: now === expiresAt is expired (strict `now < expiresAt`, as in decision-token.ts).
   l.begin({ intentHash: H(11), decisionId: "d11", approval: approval({ expiresAt: new Date(T0 + 1).toISOString() }), now: T0 });
   assert.throws(() => l.markSigning(H(11), T0 + 1), OutcomeLedgerExpiredError);
+});
+
+test("an abandoned approval lapses at expiry and does not block the intent forever", () => {
+  const l = createMemoryOutcomeLedger();
+  l.begin({ intentHash: H(14), decisionId: "d14", approval: approval(), now: T0 });
+  // Process died before markSigning. Still in flight until expiry...
+  assert.equal(l.canAttempt(H(14), "d14-fresh", T0 + 1).ok, false);
+  // ...then it lapses: no signer ran, so nothing is unresolved.
+  assert.deepEqual(l.canAttempt(H(14), "d14-fresh", T0 + 60_000), { ok: true });
+  const next = l.begin({ intentHash: H(14), decisionId: "d14-fresh", approval: approval({ expiresAt: new Date(T0 + 120_000).toISOString() }), now: T0 + 60_000 });
+  assert.equal(next.state, "approved");
+  assert.equal(next.decisionId, "d14-fresh");
+  // The lapsed approval is spent and the old decision id cannot come back.
+  assert.equal(l.canAttempt(H(15), "d14", T0 + 60_000).ok, false);
+  // A stale `signing` row never lapses this way.
+  l.begin({ intentHash: H(16), decisionId: "d16", approval: approval(), now: T0 });
+  l.markSigning(H(16), T0 + 1);
+  assert.equal(l.canAttempt(H(16), "d16-fresh", T0 + 10 * 60_000).ok, false);
 });
 
 test("an in-flight approval on the same intent blocks a duplicate begin", () => {
   const l = createMemoryOutcomeLedger();
   l.begin({ intentHash: H(12), decisionId: "d12", approval: approval(), now: T0 });
-  assert.throws(() => l.begin({ intentHash: H(12), decisionId: "d12-dup", approval: approval() }), OutcomeLedgerBlockedError);
+  assert.throws(() => l.begin({ intentHash: H(12), decisionId: "d12-dup", approval: approval(), now: T0 + 1 }), OutcomeLedgerBlockedError);
 });
 
 test("approval binding is validated: money is a base-unit string, rule version is required", () => {

@@ -34,8 +34,9 @@
  *
  * Storage is append-only JSONL with a sha256 hash chain, replayed on open,
  * failing closed on a damaged file (same discipline as spend-ledger-file.ts).
- * Every write is synchronous and lands on disk before the in-memory state
- * changes: if the append fails the transition did not happen. Single-process
+ * Every write is a synchronous append that completes before the in-memory
+ * state changes: if the append fails the transition did not happen. This
+ * survives process death (not power loss: there is no fsync). Single-process
  * writer only.
  *
  * Local only. Nothing here makes a network call or verifies settlement; the
@@ -162,8 +163,11 @@ export type CanAttemptResult =
     };
 
 export type OutcomeLedger = {
-  /** Whether a new attempt under this (intentHash, decisionId) may begin. */
-  canAttempt(intentHash: string, decisionId: string): CanAttemptResult;
+  /**
+   * Whether a new attempt under this (intentHash, decisionId) may begin. An
+   * `approved` record whose expiry has passed does not block: no signer ran.
+   */
+  canAttempt(intentHash: string, decisionId: string, now?: number): CanAttemptResult;
   /** Record an approval. Throws OutcomeLedgerBlockedError when canAttempt is false. */
   begin(input: { intentHash: string; decisionId: string; approval: ApprovalBinding; now?: number }): AttemptRecord;
   /** approved -> refused. Never after signing. */
@@ -189,6 +193,7 @@ export type OutcomeLedger = {
    * settlement source of truth and found no settlement for this attempt.
    */
   markNotSettled(intentHash: string, input: { reasonCodes?: string[]; now?: number }): AttemptRecord;
+  /** Latest attempt on this intent hash. Earlier attempts remain in the file only. */
   get(intentHash: string): AttemptRecord | null;
   /** Every record currently in an unresolved state. Reconcile these before paying again. */
   unresolved(): AttemptRecord[];
@@ -337,9 +342,17 @@ function createLedger(records: Map<string, AttemptRecord>, usedDecisions: Set<st
     return commit({ at: now, intent_hash: intentHash, decision_id: cur.decisionId, state: to, ...extra });
   }
 
-  function canAttempt(intentHash: string, decisionId: string): CanAttemptResult {
+  /** True when an `approved` record's expiry has passed: it never reached the signer, so it may lapse. */
+  const approvedLapsed = (cur: AttemptRecord, now: number) =>
+    cur.state === "approved" && !(now < Date.parse(cur.approval.expiresAt));
+
+  function canAttempt(intentHash: string, decisionId: string, now: number = Date.now()): CanAttemptResult {
     const cur = records.get(intentHash) ?? null;
-    if (cur && UNRESOLVED_STATES.has(cur.state)) return { ok: false, reason: "unresolved_attempt", record: cur };
+    // A lapsed approval is not an unresolved payment: no signer ran. `signing` and
+    // `unknown` never lapse this way; they are exactly the case that must stay blocked.
+    if (cur && UNRESOLVED_STATES.has(cur.state) && !approvedLapsed(cur, now)) {
+      return { ok: false, reason: "unresolved_attempt", record: cur };
+    }
     if (cur && cur.decisionId === decisionId) return { ok: false, reason: "approval_reused_after_terminal", record: cur };
     if (usedDecisions.has(decisionId)) return { ok: false, reason: "approval_already_used", record: cur };
     return { ok: true };
@@ -351,7 +364,12 @@ function createLedger(records: Map<string, AttemptRecord>, usedDecisions: Set<st
       if (typeof intentHash !== "string" || !intentHash) throw new TypeError("[twzrd-x402-gate] outcome ledger: intentHash required");
       if (typeof decisionId !== "string" || !decisionId) throw new TypeError("[twzrd-x402-gate] outcome ledger: decisionId required");
       assertBinding(approval);
-      const verdict = canAttempt(intentHash, decisionId);
+      const cur = records.get(intentHash) ?? null;
+      if (cur && approvedLapsed(cur, now)) {
+        // Record the lapse before opening the new attempt so the chain shows why the old one ended.
+        transition(intentHash, "expired", { reason_codes: ["approval_expired"] }, now);
+      }
+      const verdict = canAttempt(intentHash, decisionId, now);
       if (!verdict.ok) throw new OutcomeLedgerBlockedError(verdict.reason, verdict.record);
       return commit({ at: now, intent_hash: intentHash, decision_id: decisionId, state: "approved", approval });
     },
