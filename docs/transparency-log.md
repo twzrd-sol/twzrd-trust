@@ -322,9 +322,13 @@ the inclusion proof becomes fetchable by `receipt.leaf` afterward.
    pinned anchor authority among the transaction signers. Result: *this head existed at that slot.*
 4. **Equivocation check** — given two STHs with valid signatures, the same `log_id`,
    and the same `tree_size` but different roots: emit a portable **misbehavior proof**
-   (the two STH JSON envelopes are the entire proof). Also emitted when a consistency
-   proof between two valid STHs fails to verify, and regardless of whether the same
-   `key_id` signed both.
+   (the two STH JSON envelopes are the entire proof), regardless of whether the same
+   `key_id` signed both. For two valid STHs of *different* sizes, a consistency proof
+   that fails to verify is **not** a misbehavior proof: the consistency path is not
+   signed, so anyone can supply one that fails. The verifier reports consistency as
+   unproven and fails verification; it emits no proof bundle. A log whose own
+   consistency endpoint keeps serving failing proofs has not demonstrated append-only,
+   which is a fork signal to investigate, not a portable conviction.
 
 Steps 0, 1, 2, and 4 are fully offline. Step 3 needs any Solana RPC endpoint (the
 transaction data is self-authenticating given the pinned authority; the RPC is only a
@@ -347,7 +351,9 @@ Two behaviours are load-bearing and are enforced, not merely recommended:
   Advancing on faith would discard the very evidence the pin exists to hold.
 - **A head smaller than the pin is not automatically an attack.** Load-balanced
   replicas lag. The correct response is to prove consistency in the other
-  direction (observed → pinned) and keep the pin; only a failure there is a fork.
+  direction (observed → pinned) and keep the pin. A failure there leaves the pin in
+  place and reports an error: a fork signal, but not a portable proof, because the
+  consistency path is unsigned.
   Treating lag as an attack cries wolf, and ignoring it misses a real rollback.
 
 **Gate integration (follow-up, not part of this spec).** `twzrd-x402-gate` can

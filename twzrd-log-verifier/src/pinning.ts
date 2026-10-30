@@ -193,10 +193,17 @@ export function createSthPinStore(opts: SthPinStoreOptions): SthPinStore {
         };
       }
       if (equivocation.consistency_verified !== true) {
-        // Proof neither verified nor convicted (malformed path, decode failure).
+        // Proof did not verify (false) or could not be decoded (undefined). Neither
+        // convicts the log: the path is unsigned. Fail closed and keep the pin.
         return {
           status: "error",
-          message: `consistency proof ${oldSize} -> ${newSize} could not be evaluated; pin unchanged`,
+          message:
+            equivocation.consistency_verified === false
+              ? `consistency proof ${oldSize} -> ${newSize} served by the log does not verify; ` +
+                "the new head is not shown to extend the pin; pin unchanged. Not a portable " +
+                "equivocation proof (the path is unsigned); keep both heads and the path, and " +
+                "treat repeated failures from the log's own endpoint as a fork signal"
+              : `consistency proof ${oldSize} -> ${newSize} could not be evaluated; pin unchanged`,
           errors: equivocation.errors.length > 0 ? equivocation.errors : [equivocation.reason],
           pinned: previous,
           previous,

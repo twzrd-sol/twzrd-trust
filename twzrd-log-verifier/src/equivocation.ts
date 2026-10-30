@@ -9,6 +9,12 @@
  * for the same log_id, so "a different key of ours signed that one" is an
  * admission, not a defence. The proof bundle records both key_ids for exactly
  * this reason.
+ *
+ * Only same-size heads with different roots are a proof. For heads of different
+ * sizes the adjudicator is a consistency path, and a consistency path is NOT
+ * signed: anyone can hand over one that fails. A failing path therefore leaves
+ * consistency unproven (verification fails, a pin must not advance) but it is
+ * never reported as equivocation and never yields a proof bundle.
  */
 import { verifySth, type SignedTreeHead } from "./sth.js";
 import { verifyConsistency } from "./merkle.js";
@@ -25,10 +31,11 @@ export interface EquivocationResult {
   cross_key: boolean;
   /**
    * Outcome of the supplied consistency proof, as a value callers can branch on
-   * rather than reading `reason`: true = the proof verified, false = it failed
-   * (which is the equivocation), undefined = no proof was supplied or it could
-   * not be decoded. Distinguishing "disproven" from "never evaluated" matters —
-   * a pin must not advance on either, but only one of them convicts the log.
+   * rather than reading `reason`: true = the proof verified, false = it was
+   * evaluated and does not verify, undefined = no proof was supplied or it could
+   * not be decoded. Neither false nor undefined convicts the log: the path is
+   * unsigned, so its failure proves only that this path does not show the newer
+   * head extends the older one. A pin must not advance on either.
    */
   consistency_verified?: boolean;
   /** portable proof bundle when equivocation === true */
@@ -46,8 +53,9 @@ export interface EquivocationResult {
  * material needed beyond the two signatures.
  *
  * For different tree sizes, pass the log's consistency proof between the two
- * sizes (`consistencyPath`); a verification failure is equally damning, but a
- * missing proof is only "unproven", never "proven honest".
+ * sizes (`consistencyPath`). A verifying path shows the newer head extends the
+ * older one. A failing or missing path is only "unproven" — never "proven
+ * honest", and never "proven equivocation", because the path is unsigned.
  */
 export function checkEquivocation(
   sthA: SignedTreeHead,
@@ -132,11 +140,21 @@ export function checkEquivocation(
     out.reason = "consistency proof verifies — the newer head extends the older one";
     return out;
   }
+  // Evaluated and does not verify. The path is unsigned, so this convicts no
+  // one: report consistency unproven, fail verification, emit no proof bundle.
+  // When the path came from the log's own consistency endpoint, a repeated
+  // failure is a fork signal worth escalating, but it is still not portable.
   out.consistency_verified = false;
-  out.equivocation = true;
+  out.errors.push(
+    `consistency path ${older.tree_size} -> ${newer.tree_size} does not verify`,
+  );
   out.reason =
-    `consistency proof between tree_size ${older.tree_size} and ${newer.tree_size} FAILS — ` +
-    "the log rewrote history";
-  out.proof = bundle(consistencyPath);
+    `consistency path between tree_size ${older.tree_size} and ${newer.tree_size} does not ` +
+    "verify — the newer head is NOT shown to extend the older one. This is not proof of " +
+    "equivocation: a consistency path is unsigned, so anyone can supply one that fails. " +
+    "Keep both heads and the path, re-fetch " +
+    `/v1/log/proof/consistency?old_size=${older.tree_size}&new_size=${newer.tree_size} ` +
+    "from the log and re-run; if the log's own proof keeps failing, the log has not " +
+    "demonstrated append-only and that is a fork signal to investigate";
   return out;
 }
