@@ -14,6 +14,7 @@ cannot answer. Keep the reason in a local JSONL file.
 | Using PayAI `createX402Client({ beforePayment })` | `installTwzrdAutoGate("x402-solana")` |
 | Using MPP (`Mppx.create({ onChallenge })`) | `installTwzrdAutoGate("mpp")` |
 | Using the `@x402/mcp` client | `twzrdOnPaymentRequested` |
+| Signing with your own code, without this package | [the paste-in check](#refuse-before-you-sign-without-this-package) |
 | Keeping an older integration | `createGuardedX402Fetch`, `withTwzrdGuard`, `wrapFetchWithTwzrdGate`, or `twzrd.safeFetch` |
 
 `installTwzrdAutoGate` is one function with those adapters. `twzrd.safeFetch` is
@@ -37,6 +38,17 @@ wrapper:
   preflight uses the shared default `unsupportedNetworkMode: "observe"`, so
   those same unscored networks are allowed through without a reputation score.
   If you did set a spend cap, a non-USDC asset is still refused locally.
+
+**Paid score on warn (Path A), by seat.** When a seat has a paying fetch, a
+proceeding `warn` buys the $0.001 `GET /v1/intel/quick/{payTo}` and re-decides
+on that score: below the floor, the payment is refused. The fetch/payWrap form
+of `installTwzrdAutoGate` uses your payWrap as that fetch. The x402 client,
+`"x402-solana"` and `"pay-kit"` seats, and `withTwzrdGuard`, do it when you
+pass `x402Fetch`. With a paying fetch, the same defaults also buy the $0.05
+`/trust` receipt before a proceeding payment above $2.50. `escalateOnWarn:
+false` and `requireReceipt: false` turn those off. `createBuyerFetch` makes no
+paid call, and the `"mpp"` seat has no paid hop. Details:
+[First paid hop on warn](#first-paid-hop-on-warn-revenue-path).
 
 ## Defaults by entry point
 
@@ -179,6 +191,88 @@ V7 receipt of that score. Neither proves a GPU or model completed work.
 The offline demo proves a local refusal, not outside adoption. First outside
 use requires evidence from another agent using the installed wrapper on its
 own payment path.
+
+## Refuse before you sign without this package
+
+If your agent signs with its own code, paste this in front of the signer. It
+calls the two free routes the gate calls, `POST /v1/intel/preflight` and
+`GET /v1/intel/merchant_card/{payTo}`, and refuses on the same answers that
+`createBuyerFetch` refuses on. No key, wallet, or account. It runs server-side
+(Node 18+, Deno, Bun, Workers): intel does not answer browser CORS requests
+from other origins.
+
+<!-- paste-in-preflight:start -->
+```js
+const INTEL = "https://intel.twzrd.xyz/v1/intel";
+const refuse = (why) => { throw new Error(`refuse: ${why}`); };
+
+// Call with the payTo, USDC price, and URL of the offer your client selected,
+// before your wallet signs. Returns the card, or throws to refuse.
+async function beforeYouPay({ payTo, priceUsdc, resourceUrl }) {
+  if (!(Number.isFinite(priceUsdc) && priceUsdc >= 0)) refuse("price unknown");
+  const signal = AbortSignal.timeout(2000); // slow or down = refuse
+  const headers = { "content-type": "application/json", "x-twzrd-caller": "paste-in-preflight/1" };
+  const [pf, mc] = await Promise.all([
+    fetch(`${INTEL}/preflight`, { method: "POST", headers, signal,
+      body: JSON.stringify({ seller_wallet: payTo, price_usdc: priceUsdc, resource_url: resourceUrl }) }),
+    fetch(`${INTEL}/merchant_card/${encodeURIComponent(payTo)}?full=true`, { headers, signal }),
+  ]);
+  if (!pf.ok || !mc.ok) refuse(`intel HTTP ${pf.status}/${mc.status}`);
+  const card = (await pf.json()).readiness_card ?? {};
+  const cap = card.recommended_cap_usdc;
+  if (card.decision !== "allow" && card.decision !== "warn") refuse(`decision ${card.decision}`);
+  if (card.null_reason || card.score === null) refuse(`not evaluated (${card.null_reason})`);
+  if (!((card.trust_score ?? 0) >= 40)) refuse(`score ${card.trust_score} below 40`);
+  if (card.decision === "warn" && !Number.isFinite(cap)) refuse("warn without a cap");
+  if (Number.isFinite(cap) && priceUsdc > cap) refuse(`price ${priceUsdc} over cap ${cap}`);
+  // Wash: only a measured false with full coverage is clean. null or partial is unknown.
+  const m = await mc.json();
+  const coverage = String(m.wash_confidence || m.confidence || "").trim().toLowerCase();
+  if (m.wash_flagged !== false) refuse(`wash_flagged ${m.wash_flagged}`);
+  if (coverage !== "full" || m.wash_stale === true || m.ring_evaluated === false ||
+    m.circular_flow_signals?.ring_evaluated === false) refuse(`wash coverage ${coverage || "unknown"}`);
+  return card; // allow, or warn within its cap: now let your client sign
+}
+```
+<!-- paste-in-preflight:end -->
+
+Sign only if it returns. `amount` on an x402 offer (`maxAmountRequired` in v1)
+is in atomic units, and USDC has 6 decimals on Solana and Base:
+
+```js
+await beforeYouPay({ payTo: offer.payTo, priceUsdc: Number(offer.amount) / 1e6, resourceUrl });
+```
+
+Run against live intel on 2026-10-30, it let a warn seller through at its
+0.002 cap, and refused the same seller at 5 USDC (`price 5 over cap 1`), the
+refuse fixture `CnTmHDXVEafkc8sFSzNky9w5zwk63Bk2mHZZodorjhvR`
+(`decision block`), a wallet intel had never seen (`not evaluated
+(unknown_subject)`), and a malformed address (`intel HTTP 400/400`).
+`test/readme-paste-in-preflight.test.ts` runs this block and `createBuyerFetch`
+on the same intel answers and checks that both refuse the same payments.
+
+What it leaves out, and `createBuyerFetch` does: the `payTo` allowlist,
+`maxPricePerCall`, `expectedAmount`, the hourly budget, the local decision and
+spend logs, and refusing unscored networks. Only Solana mainnet and Base
+mainnet (`eip155:8453`) are scored, so refuse any other network before you call
+it. The `x-twzrd-caller` header labels the request in TWZRD's preflight log so
+paste-in installs can be counted; remove it if you prefer.
+
+Optional, and it spends 0.001 USDC per warn from your wallet: buy the paid
+score and re-decide, as the package's Path A does. `payingFetch` is your own
+x402-paying fetch. Like `quickCheck`, it never refuses because the paid call
+failed; it refuses only on a paid score below the floor.
+
+<!-- paste-in-preflight:start -->
+```js
+async function quickOnWarn(card, payTo, payingFetch) {
+  if (card.decision !== "warn") return;
+  const body = await payingFetch(`${INTEL}/quick/${encodeURIComponent(payTo)}`)
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (typeof body?.score === "number" && body.score < 40) refuse(`paid quick score ${body.score}`);
+}
+```
+<!-- paste-in-preflight:end -->
 
 ## Other integration APIs
 
