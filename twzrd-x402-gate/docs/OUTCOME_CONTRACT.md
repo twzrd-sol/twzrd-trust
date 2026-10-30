@@ -165,8 +165,12 @@ Append-only JSONL with a sha256 hash chain, replayed on open, failing closed
 on a corrupt row, unknown schema or broken chain (the same discipline as
 `spend-ledger-file.ts`). Every transition is a synchronous append that
 completes before in-memory state changes. That survives process death, not
-power loss: there is no fsync. Single-process writer; use
-`sharedFileOutcomeLedger(path)` so one process holds one chain per file.
+power loss: there is no fsync. **One process (one writer) per file ledger.**
+Use `sharedFileOutcomeLedger(path)` so one process holds one chain per file.
+Two ledger objects on one path (two processes, or two `createFileOutcomeLedger`
+calls) each keep their own chain head: an identical request pays twice, and
+the next open fails closed with `chain broken`. Cross-process coordination is
+out of scope for this file format.
 `get()` returns the latest attempt on an intent hash; a new attempt after a
 terminal state replaces the in-memory record, and earlier attempts remain in
 the file.
@@ -179,8 +183,9 @@ schemaId }`). `src/outcome-ledger-x402.ts` places each transition on the real
 
 | Leg | Event | Ledger |
 |---|---|---|
-| transport, unpaid request | 402 comes back | remember method + body hash for the URL |
-| client pre-sign hook | before local + TWZRD checks | `begin()`; an unresolved earlier attempt on this intent aborts here |
+| the returned fetch | the buyer's call starts | bind the caller's method, URL and body hash to this call (`AsyncLocalStorage`) |
+| transport, unpaid request | 402 comes back | pass through |
+| client pre-sign hook | before local + TWZRD checks | `begin()` on the bound call; an unresolved earlier attempt on this intent aborts here; no bound call aborts with `unbound_request` |
 | client pre-sign hook | checks abort | `refuse(reason)` |
 | client pre-sign hook | checks pass | `markSigning()`, appended before the scheme signs |
 | transport, paid retry | throws | `markUnknown(cause)` |
@@ -198,18 +203,23 @@ The key is the intent hash of what the gate saw: payTo, network, asset,
 base-unit amount, canonical request URL (fragment dropped, query kept),
 method and body hash. The stored binding keeps origin + path and a hash of
 the query, so query-string tokens never reach the file. Two different bodies
-to the same URL are two intents. Round trips to one canonical URL are
-serialized inside the returned fetch (different URLs run concurrently), so
-the pre-sign hook, which sees only the resource URL, always binds the body
-of the request it is signing for. A duplicate of an attempt that ended
-`unknown` still aborts with `unresolved_attempt`. The merchant's
-`maxTimeoutSeconds` is clamped to 5 s .. 10 min before
-it becomes the approval expiry. A pre-sign hook that throws leaves the
-record `refused` (`hook_threw:<name>`), not stranded in `approved`.
+to the same URL are two intents. The bound request is the buyer's own call:
+the returned fetch computes method, canonical URL and body hash from the
+caller's input and carries them to the pre-sign hook and the paid retry in an
+`AsyncLocalStorage` store. The seller's declared `resource.url` is never used
+to pick the request, and nothing is serialized: concurrent calls to one URL,
+free or paid, run at once, each recording its own body. A concurrent
+duplicate of an in-flight intent (same terms, URL, method and body) aborts
+with `unresolved_attempt`, which is the contract's rule, not a race; so does
+a duplicate of an attempt that ended `unknown`. The merchant's
+`maxTimeoutSeconds` is clamped to 5 s .. 10 min before it becomes the
+approval expiry. A pre-sign hook that throws leaves the record `refused`
+(`hook_threw:<name>`), not stranded in `approved`.
 
-Known limit: calling `client.createPaymentPayload()` directly, without the
-unpaid leg through the returned fetch, strands a `signing` record nothing
-resolves, and bypasses the per-URL serialization.
+Known limit: calling `client.createPaymentPayload()` directly, without going
+through the returned fetch, runs the hook with no bound call; it aborts with
+`unbound_request` and nothing is signed. With a ledger configured, use the
+returned fetch.
 
 The default validator (`X402_PAID_RESPONSE_RULE_V1`) passes on a 2xx. A
 buyer-side validator receives a clone of the response and must answer with

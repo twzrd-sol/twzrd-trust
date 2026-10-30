@@ -260,6 +260,8 @@ export {
   defaultX402Validation,
   x402AttemptIntentHash,
   X402_PAID_RESPONSE_RULE_V1,
+  UNBOUND_REQUEST_REASON,
+  type BoundRequest,
   type OutcomeLedgerX402Options,
   type OutcomeLedgerX402Binding,
   type OutcomeValidator,

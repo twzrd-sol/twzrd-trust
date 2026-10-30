@@ -467,8 +467,9 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
         throw explainCoreSpendControls(error);
       }
     };
-    // With a ledger, round trips to one URL run one at a time so the record binds the right body.
-    return outcome ? outcome.serializeByUrl(input, run) : run();
+    // With a ledger, the caller's own {url, method, body} is bound to this call so the
+    // pre-sign hook and the paid leg record the request actually being paid for.
+    return outcome ? outcome.bindCall(input, init, run) : run();
   };
 }
 

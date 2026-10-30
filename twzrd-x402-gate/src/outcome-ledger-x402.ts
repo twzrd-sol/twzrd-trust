@@ -4,7 +4,8 @@
  *
  * Where each transition happens on a real 402 round trip:
  *
- *   transport: unpaid request  ──▶ 402        remember {method, bodyHash} for the URL
+ *   fetch:     the buyer's call                bind {url, method, bodyHash} to this call (AsyncLocalStorage)
+ *   transport: unpaid request  ──▶ 402        pass through
  *   client:    onBeforePaymentCreation         begin() the attempt; local + TWZRD checks run;
  *                                              abort  -> refuse()
  *                                              pass   -> markSigning()   <- BEFORE the scheme signs
@@ -17,7 +18,8 @@
  * The attempt key is the intent hash of what the gate can see: the selected
  * requirement (payTo, network, asset, amount) and the request (URL, method,
  * body hash). A second call for the same intent while the first is unresolved
- * aborts in the hook with `unresolved_attempt` and never reaches the signer.
+ * (approved, signing, or unknown) aborts in the hook with `unresolved_attempt`
+ * and never reaches the signer; that includes an identical concurrent call.
  *
  * Local only. Settlement facts come from the facilitator's PAYMENT-RESPONSE
  * header AS THE SELLER RELAYED IT; this module does not verify them on chain.
@@ -27,17 +29,20 @@
  * ledger's own blessing. It lands as `unknown`, and `markNotSettled` is left
  * to the operator's reconcile step against the chain.
  *
- * Round trips to the same canonical URL are serialized (`serializeByUrl`,
- * applied by createGuardedX402Fetch around the whole paying fetch), so at most
- * one attempt per URL is between its 402 and its paid retry. That is what lets
- * the pre-sign hook, which sees only the resource URL, bind the right method
- * and body hash. Different URLs run concurrently.
+ * The request being paid for is taken from the BUYER's own call: `bindCall`
+ * (applied by createGuardedX402Fetch around the whole paying fetch) computes
+ * {url, method, bodyHash} from the caller's input and carries it in an
+ * AsyncLocalStorage store through the unpaid leg, the pre-sign hook and the
+ * paid retry. The hook never derives the request from the seller-declared
+ * `paymentRequired.resource.url` (seller-controlled) or from a count of calls
+ * in flight. Calls run concurrently, whatever their URL; nothing is serialized.
  *
- * Known limits:
- *   - Calling client.createPaymentPayload() directly (no unpaid leg through
- *     the transport) runs the hook, so a record lands in `signing` and
- *     nothing resolves it. With a ledger configured, use the returned fetch.
+ * If the hook runs with no bound call (client.createPaymentPayload() called
+ * directly, outside the returned fetch) it aborts with `unbound_request`
+ * rather than bind an unknown method or an empty body hash. With a ledger
+ * configured, use the returned fetch.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 
 import { newDecisionId } from "./decision-token.js";
@@ -82,7 +87,10 @@ export type OutcomeLedgerX402Options = {
 };
 
 /** `url` is the full canonical URL (hash input); the stored binding splits it. */
-type PendingRequest = { method: string; bodyHash: string; url: string };
+export type BoundRequest = { method: string; bodyHash: string; url: string };
+
+/** Reason the pre-sign hook aborts when no buyer call is bound to it. */
+export const UNBOUND_REQUEST_REASON = "unbound_request";
 
 type Dict = Record<string, unknown>;
 const asRecord = (v: unknown): Dict | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Dict) : null);
@@ -124,6 +132,10 @@ export function splitRequestUrl(url: string): { url: string; queryHash: string }
   }
 }
 
+function rawUrlOf(input: Parameters<typeof fetch>[0]): string {
+  return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+}
+
 async function bodyHashOf(input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<string> {
   const body = init?.body;
   if (typeof body === "string") return sha256hex(body);
@@ -156,7 +168,7 @@ export function termsOf(req: unknown): RequirementTerms | null {
 }
 
 /** The key: what the gate saw, hashed with the same canonical form as every other PaymentIntent. */
-export function x402AttemptIntentHash(terms: RequirementTerms, request: PendingRequest): string {
+export function x402AttemptIntentHash(terms: RequirementTerms, request: BoundRequest): string {
   const intent: PaymentIntent = {
     protocol: "x402",
     network: terms.network,
@@ -175,14 +187,21 @@ export function defaultX402Validation(response: Response): ValidationFact {
 }
 
 export type OutcomeLedgerX402Binding = {
-  /** Call first in the pre-sign hook. `abort` means do not run the signer. */
+  /**
+   * Call first in the pre-sign hook. `abort` means do not run the signer.
+   * Aborts with `unbound_request` when the hook runs outside `bindCall`.
+   */
   open(context: BeforePaymentCreationContext): { intentHash: string } | { abort: string } | null;
   /** Call with the hook's own result. Returns an abort when the approval expired meanwhile. */
   close(intentHash: string, result: BeforePaymentCreationResult): BeforePaymentCreationResult;
   /** Wrap the raw transport the paying fetch uses. */
   wrapTransport(inner: typeof fetch): typeof fetch;
-  /** Run one whole round trip; calls for the same canonical URL wait for each other. */
-  serializeByUrl<T>(input: Parameters<typeof fetch>[0], fn: () => Promise<T>): Promise<T>;
+  /**
+   * Run one whole round trip with the buyer's own request bound to it. The
+   * hook and the paid leg read the binding; the seller's declared URL is never
+   * consulted. Calls run concurrently.
+   */
+  bindCall<T>(input: Parameters<typeof fetch>[0], init: RequestInit | undefined, fn: () => Promise<T>): Promise<T>;
 };
 
 export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options): OutcomeLedgerX402Binding {
@@ -190,26 +209,17 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
   const now = options.now ?? Date.now;
   const ruleVersion = options.ruleVersion ?? X402_PAID_RESPONSE_RULE_V1;
   const validate: OutcomeValidator = options.validate ?? (({ response }) => defaultX402Validation(response));
-  /** The unpaid request in flight for a URL, so the hook can bind method and body. One per URL by construction. */
-  const pending = new Map<string, PendingRequest>();
-  /** Tail of the per-URL queue; a round trip starts when the previous one for that URL has ended. */
-  const queues = new Map<string, Promise<void>>();
-
-  function requestFor(context: BeforePaymentCreationContext, selected: Dict): PendingRequest {
-    const pr = asRecord(context.paymentRequired);
-    const resourceUrl = str(asRecord(pr?.resource)?.url) ?? str(selected.resource) ?? null;
-    const byUrl = resourceUrl ? pending.get(canonicalRequestUrl(resourceUrl)) : undefined;
-    if (byUrl) return byUrl;
-    if (pending.size === 1) return [...pending.values()][0]!;
-    return { url: resourceUrl ? canonicalRequestUrl(resourceUrl) : "unknown", method: "UNKNOWN", bodyHash: "" };
-  }
+  /** The buyer's request for the call in progress; set by bindCall, read by the hook and the paid leg. */
+  const calls = new AsyncLocalStorage<BoundRequest>();
 
   return {
     open(context) {
       const selected = asRecord(context.selectedRequirements ?? context.requirements) ?? {};
       const terms = termsOf(selected);
       if (!terms) return null; // the hook's own checks will refuse a malformed requirement; nothing to sign
-      const request = requestFor(context, selected);
+      const request = calls.getStore();
+      // No bound call: the signer would run for a request this ledger cannot name. Refuse.
+      if (!request) return { abort: `${UNBOUND_REQUEST_REASON}:call_the_returned_fetch_not_createPaymentPayload` };
       const h = x402AttemptIntentHash(terms, request);
       const t = now();
       const askedMs = terms.maxTimeoutSeconds != null ? terms.maxTimeoutSeconds * 1000 : DEFAULT_APPROVAL_TTL_MS;
@@ -250,47 +260,29 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
       }
       return result;
     },
-    async serializeByUrl(input, fn) {
-      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      const url = canonicalRequestUrl(rawUrl);
-      const prev = queues.get(url) ?? Promise.resolve();
-      let release!: () => void;
-      const mine = new Promise<void>((r) => { release = r; });
-      const tail = prev.then(() => mine);
-      queues.set(url, tail);
-      await prev;
-      try {
-        return await fn();
-      } finally {
-        pending.delete(url);
-        release();
-        if (queues.get(url) === tail) queues.delete(url);
-      }
+    async bindCall(input, init, fn) {
+      const url = canonicalRequestUrl(rawUrlOf(input));
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const bound: BoundRequest = { url, method, bodyHash: await bodyHashOf(input, init) };
+      return calls.run(bound, fn);
     },
     wrapTransport(inner) {
       return async (input, init) => {
         const headers = new Headers(input instanceof Request ? input.headers : undefined);
         new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
-        const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        const url = canonicalRequestUrl(rawUrl);
-        const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
         const payment = decodeB64Json(paymentHeaderOf(headers));
 
-        if (!payment) {
-          // Unpaid leg: remember what is being bought so the hook can bind it.
-          pending.set(url, { url, method, bodyHash: await bodyHashOf(input, init) });
-          const resp = await inner(input, init);
-          if (resp.status !== 402) pending.delete(url);
-          return resp;
-        }
+        // Unpaid leg: nothing to record; the call is already bound.
+        if (!payment) return inner(input, init);
 
-        // Paid leg: find the attempt the signer just ran for.
+        // Paid leg: find the attempt the signer just ran for. With no bound
+        // call the hook refused, so there is nothing to resolve.
+        const request = calls.getStore();
+        if (!request) return inner(input, init);
         const terms = termsOf(payment.accepted);
-        const request = pending.get(url) ?? { url, method, bodyHash: await bodyHashOf(input, init) };
         const h = terms ? x402AttemptIntentHash(terms, request) : null;
         const rec = h ? ledger.get(h) : null;
         const live = rec && rec.state === "signing" ? rec : null;
-        pending.delete(url);
 
         let resp: Response;
         try {

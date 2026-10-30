@@ -21,16 +21,44 @@ const challenge = { x402Version: 2, resource: { url: RESOURCE }, accepts: [requi
 const settledOk = b64({ success: true, transaction: TX, network: BASE, payer: "0x00000000000000000000000000000000000000b2" });
 
 type PaidLeg = (req: Request) => Promise<Response> | Response;
+type HarnessOptions = {
+  /** What the seller puts in `paymentRequired.resource.url` for a request URL (default: the request URL). */
+  declared?: (requestUrl: string) => string;
+  /** Runs on the unpaid leg; a Response short-circuits the 402 (a free endpoint). */
+  unpaid?: (req: Request) => Promise<Response | void> | Response | void;
+};
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const abortable = <T>(p: Promise<T>, signal: AbortSignal): Promise<T> =>
+  signal.aborted
+    ? Promise.reject(new DOMException("aborted", "AbortError"))
+    : new Promise<T>((res, rej) => {
+        const onAbort = () => rej(new DOMException("aborted", "AbortError"));
+        signal.addEventListener("abort", onAbort, { once: true });
+        p.then((v) => { signal.removeEventListener("abort", onAbort); res(v); }, (e) => { signal.removeEventListener("abort", onAbort); rej(e); });
+      });
 
-function harness(paidLeg: PaidLeg, reqOverride: Partial<typeof requirement> = {}) {
+function harness(paidLeg: PaidLeg, reqOverride: Partial<typeof requirement> = {}, opts: HarnessOptions = {}) {
   let signs = 0;
-  const body = { ...challenge, accepts: [{ ...requirement, ...reqOverride }] };
+  const counter = { inflight: 0, max: 0 };
   const transport: typeof fetch = async (input, init) => {
     const req = input instanceof Request ? input : new Request(input, init);
-    if (!req.headers.get("PAYMENT-SIGNATURE")) {
-      return new Response("{}", { status: 402, headers: { "content-type": "application/json", "PAYMENT-REQUIRED": b64(body) } });
+    counter.inflight += 1;
+    counter.max = Math.max(counter.max, counter.inflight);
+    try {
+      const run = async (): Promise<Response> => {
+        if (!req.headers.get("PAYMENT-SIGNATURE")) {
+          const custom = opts.unpaid ? await opts.unpaid(req) : undefined;
+          if (custom) return custom;
+          const body = { ...challenge, resource: { url: opts.declared ? opts.declared(req.url) : req.url }, accepts: [{ ...requirement, ...reqOverride }] };
+          return new Response("{}", { status: 402, headers: { "content-type": "application/json", "PAYMENT-REQUIRED": b64(body) } });
+        }
+        return paidLeg(req);
+      };
+      // Honour the caller's signal like a real transport would, so abort tests are not vacuous.
+      return await abortable(run(), req.signal);
+    } finally {
+      counter.inflight -= 1;
     }
-    return paidLeg(req);
   };
   const client = x402Client.fromConfig({ schemes: [], spendControls: false as const });
   const scheme: SchemeNetworkClient = {
@@ -41,7 +69,7 @@ function harness(paidLeg: PaidLeg, reqOverride: Partial<typeof requirement> = {}
     },
   };
   client.register(BASE, scheme);
-  return { client, transport, signs: () => signs };
+  return { client, transport, signs: () => signs, counter };
 }
 
 const POST = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "all" }) };
@@ -222,44 +250,168 @@ test("merchant maxTimeoutSeconds is clamped before it becomes the approval expir
   }
 });
 
+const settled = (p: Promise<Response>) => p.then((r) => ({ ok: true as const, status: r.status }), (e: unknown) => ({ ok: false as const, error: String((e as Error)?.message ?? e) }));
+const okPaid = () => new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } });
+const bodyHashesOf = (ledger: { unresolved(): unknown[]; get(h: string): { approval: { request: { bodyHash: string } } } | null | undefined }, keys: string[]) =>
+  keys.map((k) => ledger.get(k)?.approval.request.bodyHash);
+
 test("concurrent requests to one URL with different bodies each get their own correct record", async () => {
   const ledger = createMemoryOutcomeLedger();
   const seen: string[] = [];
   const h = harness(async (req) => {
     seen.push(await req.text());
-    await new Promise((r) => setTimeout(r, 5));
+    await sleep(5);
     return new Response(JSON.stringify({ rows: [1] }), { status: 200, headers: { "content-type": "application/json", "PAYMENT-RESPONSE": settledOk } });
   });
   const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
-  const bodies = ["a", "b", "c"].map((q) => JSON.stringify({ q }));
-  const results = await Promise.all(bodies.map((body) => guarded(RESOURCE, { ...POST, body })));
-  assert.deepEqual(results.map((r) => r.status), [200, 200, 200]);
+  const qs = ["a", "b", "c"];
+  const bodies = qs.map((q) => JSON.stringify({ q }));
+  // allSettled: a refusal must not hide the wrong-body evidence below.
+  const results = await Promise.all(bodies.map((body) => settled(guarded(RESOURCE, { ...POST, body }))));
+  // Direct wrong-body assertion first: every paid body has a record under ITS OWN key naming ITS OWN hash.
+  assert.deepEqual(bodyHashesOf(ledger, qs.map(keyFor)), bodies.map(sha), "each record is keyed on and names its own body");
+  assert.deepEqual(results, qs.map(() => ({ ok: true, status: 200 })));
   assert.equal(h.signs(), 3);
   assert.deepEqual(seen.sort(), [...bodies].sort(), "every body reached the paid leg");
-  for (const q of ["a", "b", "c"]) {
-    const rec = ledger.get(keyFor(q));
-    assert.equal(rec?.state, "completed", `record for body ${q}`);
-    assert.equal(rec?.approval.request.bodyHash, sha(JSON.stringify({ q })), "the record names its own body");
-  }
+  for (const q of qs) assert.equal(ledger.get(keyFor(q))?.state, "completed", `record for body ${q}`);
   assert.deepEqual(ledger.unresolved(), []);
 });
 
-test("serialization is per URL: a different URL does not wait, and a non-402 unpaid leg releases the slot", async () => {
+test("F1: an identical in-flight request is refused with unresolved_attempt and the signer runs once", async () => {
   const ledger = createMemoryOutcomeLedger();
-  let release!: () => void;
-  const gate = new Promise<void>((r) => { release = r; });
-  const h = harness(async () => { await gate; return new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }); });
-  const free: typeof fetch = async (input, init) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.startsWith("https://free.example/")) return new Response("free", { status: 200 });
-    return h.transport(input, init);
-  };
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: free, twzrd: { disabled: true }, outcomeLedger: ledger });
-  const slow = guarded(RESOURCE, POST); // holds the slot for RESOURCE until `release`
-  const other = await Promise.race([guarded("https://free.example/x"), new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 200))]);
-  assert.notEqual(other, "timeout", "another URL is not queued behind RESOURCE");
-  assert.equal((other as Response).status, 200);
-  release();
-  assert.equal((await slow).status, 200);
-  assert.equal(ledger.unresolved().length, 0);
+  const h = harness(async () => { await sleep(40); return okPaid(); });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const results = await Promise.all([settled(guarded(RESOURCE, POST)), settled(guarded(RESOURCE, POST))]);
+  assert.equal(h.signs(), 1, "one signature for one intent");
+  const ok = results.filter((r) => r.ok);
+  const refused = results.filter((r) => !r.ok);
+  assert.equal(ok.length, 1);
+  assert.equal(refused.length, 1);
+  assert.match((refused[0] as { error: string }).error, /unresolved_attempt:tiv1:/);
+  assert.equal(ledger.get(keyFor("all"))?.state, "completed");
+  assert.deepEqual(ledger.unresolved(), []);
+  // After completion the same intent may be bought again (sequential repeats are two attempts).
+  assert.equal((await guarded(RESOURCE, POST)).status, 200);
+  assert.equal(h.signs(), 2);
+});
+
+test("F2a: seller declares resource.url without the query while ?id=7 and ?id=8 run concurrently", async () => {
+  const path = join(tempDir("twzrd-outcome-x402-"), "outcomes.jsonl");
+  const ledger = createFileOutcomeLedger(path);
+  const h = harness(okPaid, {}, { declared: () => "https://data.example/v1/dataset", unpaid: () => sleep(10) });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const A = "https://data.example/v1/dataset?id=7", B = "https://data.example/v1/dataset?id=8";
+  const bodyA = JSON.stringify({ q: "a" }), bodyB = JSON.stringify({ q: "b" });
+  const results = await Promise.all([settled(guarded(A, { ...POST, body: bodyA })), settled(guarded(B, { ...POST, body: bodyB }))]);
+  assert.deepEqual(results, [{ ok: true, status: 200 }, { ok: true, status: 200 }]);
+  assert.equal(h.signs(), 2);
+  const keyA = x402AttemptIntentHash(TERMS, { url: A, method: "POST", bodyHash: sha(bodyA) });
+  const keyB = x402AttemptIntentHash(TERMS, { url: B, method: "POST", bodyHash: sha(bodyB) });
+  assert.deepEqual(bodyHashesOf(ledger, [keyA, keyB]), [sha(bodyA), sha(bodyB)], "each record carries its own body hash");
+  assert.equal(ledger.get(keyA)?.state, "completed");
+  assert.equal(ledger.get(keyB)?.state, "completed");
+  assert.deepEqual(ledger.unresolved(), [], "no record stranded in signing");
+  const rows = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { approval?: { request?: { method: string } } });
+  assert.ok(rows.every((r) => !r.approval || r.approval.request?.method === "POST"), "no UNKNOWN method on disk");
+});
+
+test("F2b: a request to /a (seller declares /b) races a direct request to /b; each record names its own request", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const a = "https://data.example/v1/a", b = "https://data.example/v1/b";
+  const h = harness(okPaid, {}, { declared: (u) => (u === a ? b : u), unpaid: () => sleep(10) });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const bodyA = JSON.stringify({ q: "A" }), bodyB = JSON.stringify({ q: "B" });
+  const results = await Promise.all([settled(guarded(a, { ...POST, body: bodyA })), settled(guarded(b, { ...POST, body: bodyB }))]);
+  assert.deepEqual(results, [{ ok: true, status: 200 }, { ok: true, status: 200 }]);
+  const keyA = x402AttemptIntentHash(TERMS, { url: a, method: "POST", bodyHash: sha(bodyA) });
+  const keyB = x402AttemptIntentHash(TERMS, { url: b, method: "POST", bodyHash: sha(bodyB) });
+  assert.deepEqual(bodyHashesOf(ledger, [keyA, keyB]), [sha(bodyA), sha(bodyB)]);
+  assert.equal(ledger.get(keyA)?.approval.request.url, a, "the record for /a names /a, not the seller's /b");
+  assert.equal(ledger.get(keyB)?.approval.request.url, b);
+  assert.deepEqual(ledger.unresolved(), [], "no record stranded in signing under the wrong request");
+});
+
+test("F3: free (never-402) calls to one URL are not serialized: 5 concurrent calls reach 5 in flight", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const h = harness(okPaid, {}, { unpaid: async () => { await sleep(50); return new Response("free", { status: 200 }); } });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const t0 = Date.now();
+  const res = await Promise.all([1, 2, 3, 4, 5].map(() => guarded(RESOURCE)));
+  const ms = Date.now() - t0;
+  assert.deepEqual(res.map((r) => r.status), [200, 200, 200, 200, 200]);
+  assert.equal(h.counter.max, 5, `max in flight ${h.counter.max}; 5 x 50 ms took ${ms} ms`);
+  assert.ok(ms < 200, `5 concurrent 50 ms free calls took ${ms} ms`);
+  assert.equal(h.signs(), 0);
+});
+
+test("F4: an aborted call rejects promptly while another call to the same URL is in flight", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  // Every unpaid leg is slow, so the second call can only settle early by honouring its own signal.
+  const h = harness(okPaid, {}, { unpaid: () => sleep(600) });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const slow = settled(guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "slow" }) }));
+  await sleep(10);
+  const t0 = Date.now();
+  const r = await settled(guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "queued" }), signal: AbortSignal.timeout(50) }));
+  const ms = Date.now() - t0;
+  assert.equal(r.ok, false, "the aborted call rejects");
+  assert.match((r as { error: string }).error, /abort/i);
+  assert.ok(ms < 200, `call with a 50 ms signal rejected after ${ms} ms`);
+  assert.equal((await slow).ok, true);
+  assert.deepEqual(ledger.unresolved(), []);
+});
+
+test("F5: a validator that re-enters the guarded fetch for the same URL resolves", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const h = harness(okPaid);
+  let guarded!: typeof fetch;
+  guarded = createGuardedX402Fetch({
+    client: h.client,
+    fetch: h.transport,
+    twzrd: { disabled: true },
+    outcomeLedger: {
+      ledger,
+      validate: async ({ approval }) => {
+        if (approval.request.bodyHash === sha(JSON.stringify({ q: "outer" }))) {
+          const inner = await guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "inner" }) });
+          assert.equal(inner.status, 200);
+        }
+        return { ok: true, ruleVersion: X402_PAID_RESPONSE_RULE_V1, reasonCodes: [] };
+      },
+    },
+  });
+  const r = await Promise.race([guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "outer" }) }), sleep(800).then(() => "timeout" as const)]);
+  assert.notEqual(r, "timeout", "outer call must not hang on itself");
+  assert.equal((r as Response).status, 200);
+  assert.equal(h.signs(), 2);
+  assert.equal(ledger.get(keyFor("outer"))?.state, "completed");
+  assert.equal(ledger.get(keyFor("inner"))?.state, "completed");
+  assert.deepEqual(ledger.unresolved(), []);
+});
+
+test("lifecycle: after a failing first call, a second call to the same URL proceeds and nothing hangs", async () => {
+  const cases: Array<[string, PaidLeg, Partial<HarnessOptions>]> = [
+    ["signer-side unpaid transport rejects once", okPaid, { unpaid: (() => { let c = 0; return () => { if (c++ === 0) throw new Error("net down"); }; })() }],
+    ["paid leg throws once", (() => { let c = 0; return () => { if (c++ === 0) throw new Error("net down paid"); return okPaid(); }; })(), {}],
+    ["paid leg 500 without PAYMENT-RESPONSE once", (() => { let c = 0; return () => (c++ === 0 ? new Response("x", { status: 500 }) : okPaid()); })(), {}],
+  ];
+  for (const [name, paid, opts] of cases) {
+    const ledger = createMemoryOutcomeLedger();
+    const h = harness(paid, {}, opts);
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+    const first = settled(guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "first" }) }));
+    const second = await Promise.race([settled(guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "second" }) })), sleep(800).then(() => "timeout" as const)]);
+    assert.notEqual(second, "timeout", `${name}: second same-URL call must not hang`);
+    assert.deepEqual(second, { ok: true, status: 200 }, name);
+    await first;
+  }
+});
+
+test("unbound: the hook refuses a direct createPaymentPayload() instead of stranding a signing record", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const h = harness(okPaid);
+  createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  await assert.rejects(h.client.createPaymentPayload(challenge as never), /unbound_request/);
+  assert.equal(h.signs(), 0);
+  assert.deepEqual(ledger.unresolved(), [], "nothing recorded under an unknown request");
 });
