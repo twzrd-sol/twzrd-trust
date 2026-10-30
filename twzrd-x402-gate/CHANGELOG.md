@@ -28,6 +28,33 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.16.0 - 2026-10-30 (Foundation MPP charge reaches preflight)
+
+A minor release under the policy above: a Foundation `@solana/mpp` solana/charge
+that used to throw `MALFORMED_CHALLENGE` can now reach preflight and be allowed.
+`^0.15.0` installs never receive it.
+
+- `mppChallengeToIntent` reads `decimals` and `network` from `methodDetails` when
+  they are absent at the top level. A string `decimals` stays `MALFORMED_CHALLENGE`.
+  When the top level and `methodDetails` name `recipient`, `currency`, `amount`,
+  `decimals`, or the cluster (`cluster` / `network`) with two different values,
+  the charge is `MALFORMED_CHALLENGE`. `@solana/mpp` 0.7.0 pays
+  `methodDetails.network` and `methodDetails.decimals`, and the top-level
+  `amount`, `currency`, and `recipient`.
+- A non-empty `splits` array on the request or under `methodDetails` is
+  `MALFORMED_CHALLENGE`. That client pays each split recipient in addition to
+  the primary. An empty array is not a split.
+- A USD-pegged mint must belong to the named cluster. `mainnet` and
+  `mainnet-beta` are one cluster and accept mainnet mints only. `devnet`
+  accepts devnet mints only. `testnet`, `localnet`, and `localhost` are
+  refused for these mints. `@solana/mpp` 0.7.0 does not rewrite a raw mint
+  to the network's mint, and it will sign a seller-supplied blockhash.
+- `methodDetails.feePayer: true` is the sponsored SOL fee payer on intel.twzrd.xyz.
+  It is not the second token transfer (`sponsored`, `sponsorPath`, `feeTokenAmount`),
+  so it does not throw `SPONSORED_CHARGE`.
+- The intel server challenge bytes are unchanged. npm `0.15.0` does not parse the
+  live MPP seat.
+
 ## 0.15.0 - 2026-10-26 (Demand Desk authorization 2.1.0: Compute Budget and one Memo)
 
 A minor release under the policy above: it adds an allow outcome. Nothing a 2.0.0
