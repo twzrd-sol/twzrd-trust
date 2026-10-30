@@ -27,6 +27,7 @@ import {
 
 const MERCHANT = "MerchantWa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const DEVNET_USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 
 function solanaCharge(overrides?: Record<string, unknown>): MppChallenge {
   return {
@@ -87,9 +88,148 @@ async function run() {
 
     // Mainnet is reputation-scored; devnet keeps its honest unscored name.
     assert.equal(classifyNetwork(intent.network).reputationScored, true);
-    const dev = mppChallengeToIntent(solanaCharge({ cluster: "devnet" }));
+    const dev = mppChallengeToIntent(solanaCharge({ cluster: "devnet", currency: DEVNET_USDC }));
     assert.equal(dev.network, "solana:devnet");
     assert.equal(classifyNetwork(dev.network).reputationScored, false);
+
+    // Solana Foundation @solana/mpp nests decimals and network in methodDetails.
+    // intel.twzrd.xyz sends that shape. A missing top-level decimals used to
+    // throw MALFORMED_CHALLENGE before preflight. feePayer:true here is the
+    // sponsored SOL fee payer, not mppx-solana's second token transfer.
+    const foundation = mppChallengeToIntent({
+      id: "chal_foundation",
+      realm: "intel.twzrd.xyz",
+      method: "solana",
+      intent: "charge",
+      request: {
+        amount: "1000",
+        currency: USDC,
+        recipient: MERCHANT,
+        methodDetails: {
+          decimals: 6,
+          feePayer: true,
+          feePayerKey: "BFL9TLC3edb13K6v4YyH3DwPb5DSUpkWvb7XnqCL9b4F",
+          network: "mainnet",
+          tokenProgram: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        },
+      },
+    });
+    assert.equal(foundation.amount, "0.001");
+    assert.equal(foundation.network, "solana:mainnet");
+    assert.equal(foundation.payTo, MERCHANT);
+    console.log(
+      "foundation amount",
+      foundation.amount,
+      "network",
+      foundation.network,
+      "no MALFORMED_CHALLENGE",
+      "no SPONSORED_CHARGE",
+    );
+    // Same value on both sides is one payment. @solana/mpp 0.7.0 pays
+    // methodDetails.network and methodDetails.decimals.
+    const agreed = mppChallengeToIntent(
+      solanaCharge({
+        decimals: 6,
+        currency: DEVNET_USDC,
+        cluster: "devnet",
+        methodDetails: { decimals: 6, network: "devnet" },
+      }),
+    );
+    assert.equal(agreed.amount, "0.05");
+    assert.equal(agreed.network, "solana:devnet");
+    // A disagreeing pair is not a silent preference. The client would pay the
+    // nested network and decimals; the old parser scored the top-level ones.
+    for (const [label, request] of [
+      ["decimals", { decimals: 6, methodDetails: { decimals: 9, network: "mainnet" } }],
+      ["cluster", { cluster: "devnet", methodDetails: { decimals: 6, network: "mainnet" } }],
+      ["amount", { amount: "50000", methodDetails: { amount: "1000", decimals: 6 } }],
+      ["recipient", { recipient: MERCHANT, methodDetails: { recipient: "OtherWa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", decimals: 6 } }],
+      ["currency", { currency: USDC, methodDetails: { currency: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", decimals: 6 } }],
+    ] as const) {
+      assert.throws(
+        () => mppChallengeToIntent(solanaCharge(request)),
+        (e: TwzrdMppBlockError) => e.code === "MALFORMED_CHALLENGE",
+        label,
+      );
+    }
+    console.log("field conflict MALFORMED_CHALLENGE");
+    // mainnet and mainnet-beta are one cluster in @solana/mpp 0.7.0.
+    const aliased = mppChallengeToIntent(
+      solanaCharge({
+        cluster: "mainnet-beta",
+        methodDetails: { decimals: 6, network: "mainnet" },
+      }),
+    );
+    assert.equal(aliased.network, "solana:mainnet-beta");
+    assert.equal(aliased.asset, USDC);
+    // A devnet label does not make a mainnet mint a devnet charge. The client
+    // keeps the raw mint and will sign a seller-supplied mainnet blockhash.
+    assert.throws(
+      () => mppChallengeToIntent(solanaCharge({ cluster: "devnet", currency: USDC })),
+      (e: TwzrdMppBlockError) => e.code === "MALFORMED_CHALLENGE",
+    );
+    assert.throws(
+      () => mppChallengeToIntent(solanaCharge({ cluster: "localhost", currency: USDC })),
+      (e: TwzrdMppBlockError) => e.code === "MALFORMED_CHALLENGE",
+    );
+    const devnetMint = mppChallengeToIntent(
+      solanaCharge({ cluster: "devnet", currency: DEVNET_USDC }),
+    );
+    assert.equal(devnetMint.network, "solana:devnet");
+    assert.equal(devnetMint.asset, DEVNET_USDC);
+    console.log("mint/cluster mismatch MALFORMED_CHALLENGE");
+    assert.throws(
+      () =>
+        mppChallengeToIntent(
+          solanaCharge({
+            methodDetails: {
+              decimals: 6,
+              splits: [{ recipient: MERCHANT, amount: "1" }],
+            },
+          }),
+        ),
+      (e: TwzrdMppBlockError) => e.code === "MALFORMED_CHALLENGE",
+    );
+    assert.throws(
+      () =>
+        mppChallengeToIntent(
+          solanaCharge({ splits: [{ recipient: MERCHANT, amount: "1" }] }),
+        ),
+      (e: TwzrdMppBlockError) => e.code === "MALFORMED_CHALLENGE",
+    );
+    const emptySplits = mppChallengeToIntent(
+      solanaCharge({ methodDetails: { decimals: 6, network: "mainnet", splits: [] } }),
+    );
+    assert.equal(emptySplits.amount, "0.05");
+    assert.equal(emptySplits.network, "solana:mainnet");
+    console.log("splits MALFORMED_CHALLENGE");
+    assert.throws(
+      () => mppChallengeToIntent(solanaCharge({ sponsored: true })),
+      (e: TwzrdMppBlockError) => e.code === "SPONSORED_CHARGE",
+    );
+    assert.throws(
+      () => mppChallengeToIntent(solanaCharge({ feeTokenAmount: "1" })),
+      (e: TwzrdMppBlockError) => e.code === "SPONSORED_CHARGE",
+    );
+    console.log("sponsored true SPONSORED_CHARGE");
+    console.log("feeTokenAmount SPONSORED_CHARGE");
+    assert.throws(
+      () =>
+        mppChallengeToIntent({
+          id: "chal_bad_details",
+          realm: "intel.twzrd.xyz",
+          method: "solana",
+          intent: "charge",
+          request: {
+            amount: "1000",
+            currency: USDC,
+            recipient: MERCHANT,
+            methodDetails: { decimals: "6", network: "mainnet" },
+          },
+        }),
+      (e: TwzrdMppBlockError) => e.code === "MALFORMED_CHALLENGE",
+    );
+    console.log("string decimals MALFORMED_CHALLENGE");
   }
 
   /* 2. PRICING INVARIANT: intent.amount is USD, and the guard never invents it.

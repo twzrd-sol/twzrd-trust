@@ -20,6 +20,7 @@ import { createLocalDecisionSigner } from "../src/decision-token.js";
 import { intentHash } from "../src/intent.js";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const DEVNET_USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const SELLER = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
 
 function challenge(request: Record<string, unknown>): MppChallenge {
@@ -81,7 +82,14 @@ async function run() {
     // Known clusters pass and keep their honest name (devnet stays unscored
     // downstream; mainnet stays scored).
     assert.equal(mppChallengeToIntent(challenge({ cluster: "mainnet-beta" })).network, "solana:mainnet-beta");
-    assert.equal(mppChallengeToIntent(challenge({ cluster: "devnet" })).network, "solana:devnet");
+    assert.equal(
+      mppChallengeToIntent(challenge({ cluster: "devnet", currency: DEVNET_USDC })).network,
+      "solana:devnet",
+    );
+    expectCode(
+      () => mppChallengeToIntent(challenge({ cluster: "devnet" })),
+      "MALFORMED_CHALLENGE",
+    );
     // Absent cluster defaults to mainnet-beta, as mppx-solana does.
     assert.equal(mppChallengeToIntent(challenge({})).network, "solana:mainnet-beta");
   }
@@ -119,7 +127,7 @@ async function run() {
     const mutations: Array<Record<string, unknown>> = [
       { recipient: "9zZ1kQmVN3Wt7xFqYuLpJ2rD8sT4vB6cA5hG1nE3oPxK" }, // payee swap
       { amount: "5000000" }, //                                        amount inflation
-      { cluster: "devnet" }, //                                        chain swap
+      { cluster: "devnet", currency: DEVNET_USDC }, //                  chain swap
       { memo: "different" }, //                                        any field mppx acts on
     ];
     for (const m of mutations) {
