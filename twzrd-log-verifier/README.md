@@ -31,9 +31,10 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
-On npm from 0.3.0 (the first published version). 0.3.0 reports a consistency path
-that fails to verify between heads of different sizes as proven equivocation; the
-source here (0.4.0, not yet published) reports it as consistency unproven instead. Run it without installing:
+On npm; 0.4.0 is the current version. Upgrade from 0.3.0 (the first published
+version): it reports a consistency path that fails to verify between heads of
+different sizes as proven equivocation, which is unsound because the path is not
+signed. 0.4.0 reports it as consistency unproven instead. Run it without installing:
 
 ```bash
 npx -y twzrd-log-verifier selftest

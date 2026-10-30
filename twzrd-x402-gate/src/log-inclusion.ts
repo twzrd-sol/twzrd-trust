@@ -8,10 +8,11 @@
  * receipt existed when it claims to. The log closes that gap; this policy makes
  * the gate refuse to treat an unproven receipt as trust.
  *
- * Injection, not dependency. `twzrd-log-verifier` is not published to npm and
- * this package must stay publishable, so the gate defines the verdict shape and
- * the host wires the verifier. The verifier's `verifyReceiptInLog` result
- * satisfies `LogInclusionVerdict` structurally — no adapter:
+ * Injection, not dependency. `twzrd-log-verifier` is a separate npm package
+ * (0.4.0 or later; 0.3.0 misreports a failing consistency path as equivocation)
+ * and this package takes no dependency on it, so the gate defines the verdict
+ * shape and the host wires the verifier. The verifier's `verifyReceiptInLog`
+ * result satisfies `LogInclusionVerdict` structurally — no adapter:
  *
  *   import { verifyReceiptInLog } from "twzrd-log-verifier";
  *   evaluate_x402_resource(url, reqs, {

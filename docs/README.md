@@ -4,7 +4,7 @@ Every Markdown document in this repository, what it is for, and whether it is
 **canonical** (describes the product as it is), **historical** (a dated record,
 kept as written) or **internal** (maintainer notes, not integrator guidance).
 Versions were verified on **2026-10-26** and live-surface facts on **2026-10-24**; the
-[README](../README.md#versions-verified-2026-10-26) carries the version table.
+[README](../README.md#versions-verified-2026-10-30) carries the version table.
 
 A canonical document that disagrees with the code is a bug: open an issue. A
 historical document is not updated when the product moves; its banner says
@@ -52,7 +52,7 @@ where the current state lives.
 | [resource-bind-v2-spec.md](./resource-bind-v2-spec.md) | canonical, client only | `rb2:` folds the decision id into the bound leaf; `rb1:` is frozen |
 | [transparency-log.md](./transparency-log.md) | canonical, v0.2 draft over a live v0.1 log | Receipt transparency log: what is live (signed heads, inclusion and consistency proofs, on-chain anchors as the tree advances) and what v0.2 adds (key directory) |
 | [security-assurance.md](./security-assurance.md) | canonical | Security properties, the reproducible receipt proof, trust boundaries and non-claims |
-| [twzrd-log-verifier/README.md](../twzrd-log-verifier/README.md) | canonical | Offline verifier for the transparency log; npm 0.3.0, source here. Its anchor check reads the live program form and the draft memo form |
+| [twzrd-log-verifier/README.md](../twzrd-log-verifier/README.md) | canonical | Offline verifier for the transparency log; npm 0.4.0, source here (upgrade from 0.3.0: its verdict on a failing different-size consistency path is unsound). Its anchor check reads the live program form and the draft memo form |
 
 ## Package mirrors
 
