@@ -1,6 +1,8 @@
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { isTwzrdAutoGateDisabled } from "./auto-gate.js";
 import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
+import { createOutcomeLedgerX402Binding, type OutcomeLedgerX402Options } from "./outcome-ledger-x402.js";
+import type { OutcomeLedger } from "./outcome-ledger.js";
 import { toMicroUsd } from "./intent.js";
 import { PAYMENT_DECISION_SCHEMA } from "./payment-decision.js";
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
@@ -44,6 +46,16 @@ export type GuardedX402FetchOptions = {
    * `createFileFulfillmentLog(path).record` to keep a JSONL file.
    */
   onFulfillment?: (record: FulfillmentRecord) => void;
+  /**
+   * Opt-in outcome ledger (outcome-ledger.ts). One durable record per
+   * attempt, keyed on the intent hash of the selected requirement + request.
+   * The `signing` row is appended BEFORE the scheme signs; a paid retry that
+   * throws or returns no PAYMENT-RESPONSE leaves the record `unknown`, and a
+   * later call for the same intent aborts in the hook (`unresolved_attempt`)
+   * until the record is reconciled. Pass a ledger, or options with a
+   * validator for the paid response. See docs/OUTCOME_CONTRACT.md.
+   */
+  outcomeLedger?: OutcomeLedger | OutcomeLedgerX402Options;
 };
 
 type SpendEntry = { at: number; micro: bigint };
@@ -305,15 +317,23 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   const hourlyCap = parseLimit(options.hourlyBudgetCap, "hourlyBudgetCap");
   const recipients = options.allowedRecipients;
   const transport = options.fetch ?? globalThis.fetch.bind(globalThis);
-  const fetchImpl = options.onFulfillment
+  const now = options.now ?? Date.now;
+  const outcome = options.outcomeLedger
+    ? createOutcomeLedgerX402Binding(
+        "begin" in options.outcomeLedger
+          ? { ledger: options.outcomeLedger, now }
+          : { now, ...options.outcomeLedger },
+      )
+    : undefined;
+  const fulfilled = options.onFulfillment
     ? wrapFetchRecordFulfillment(transport, options.onFulfillment)
     : transport;
-  const now = options.now ?? Date.now;
+  const fetchImpl = outcome ? outcome.wrapTransport(fulfilled) : fulfilled;
   const entries: SpendEntry[] = [];
   let pendingMicro = 0n;
   const twzrdHook = createTwzrdPayKitBeforePaymentHook(options.twzrd);
 
-  const guardedHook = async (
+  const innerHook = async (
     context: BeforePaymentCreationContext,
   ): Promise<BeforePaymentCreationResult> => {
     const selected = context.selectedRequirements ?? context.requirements ?? {};
@@ -379,6 +399,19 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
         reservation = false;
       }
     }
+  };
+
+  // The outcome ledger brackets the checks: begin() before them, refuse() on
+  // an abort, markSigning() (durable) when they pass and before the scheme
+  // signs. An unresolved earlier attempt on the same intent aborts here.
+  const guardedHook = async (
+    context: BeforePaymentCreationContext,
+  ): Promise<BeforePaymentCreationResult> => {
+    if (!outcome) return innerHook(context);
+    const opened = outcome.open(context);
+    if (opened && "abort" in opened) return abort(opened.abort);
+    const result = await innerHook(context);
+    return opened ? outcome.close(opened.intentHash, result) : result;
   };
 
   // Register our composite hook once. It applies local limits first, then the

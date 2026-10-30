@@ -256,6 +256,15 @@ export {
   type OutcomeLedger,
 } from "./outcome-ledger.js";
 export {
+  createOutcomeLedgerX402Binding,
+  defaultX402Validation,
+  x402AttemptIntentHash,
+  X402_PAID_RESPONSE_RULE_V1,
+  type OutcomeLedgerX402Options,
+  type OutcomeLedgerX402Binding,
+  type OutcomeValidator,
+} from "./outcome-ledger-x402.js";
+export {
   createFileDecisionLedger,
   DECISION_LEDGER_SCHEMA_VERSION,
   type DecisionLedgerRow,

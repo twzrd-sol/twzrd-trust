@@ -171,7 +171,40 @@ power loss: there is no fsync. Single-process writer; use
 terminal state replaces the in-memory record, and earlier attempts remain in
 the file.
 
-### Intended call sequence around a payment
+### Wired into `createGuardedX402Fetch` (opt-in)
+
+Pass `outcomeLedger` (a ledger, or `{ ledger, validate, ruleVersion,
+schemaId }`). `src/outcome-ledger-x402.ts` places each transition on the real
+402 round trip:
+
+| Leg | Event | Ledger |
+|---|---|---|
+| transport, unpaid request | 402 comes back | remember method + body hash for the URL |
+| client pre-sign hook | before local + TWZRD checks | `begin()`; an unresolved earlier attempt on this intent aborts here |
+| client pre-sign hook | checks abort | `refuse(reason)` |
+| client pre-sign hook | checks pass | `markSigning()`, appended before the scheme signs |
+| transport, paid retry | throws | `markUnknown(cause)` |
+| transport, paid retry | `PAYMENT-RESPONSE` success + transaction | `complete()` with the bound validator |
+| transport, paid retry | `PAYMENT-RESPONSE` success:false | `markNotSettled(["settle_failed", ...])` |
+| transport, paid retry | no `PAYMENT-RESPONSE`, or no transaction in it | `markUnknown()` |
+
+The key is the intent hash of what the gate saw: payTo, network, asset,
+base-unit amount, canonical request URL (fragment dropped, query kept),
+method and body hash. Two different bodies to the same URL are two intents.
+A concurrent duplicate of an in-flight intent aborts with
+`unresolved_attempt`, which is the contract's rule, not a race.
+
+The default validator (`X402_PAID_RESPONSE_RULE_V1`) passes on a 2xx. A
+buyer-side validator receives a clone of the response and must answer with
+the configured `ruleVersion`; a thrown validator is a failed validation, never
+a completion.
+
+Settlement facts come from the facilitator's `PAYMENT-RESPONSE` as the seller
+relayed it. The binding does not check the chain. Reconciling an `unknown`
+record (`complete()` or `markNotSettled()`) is a separate, attended step done
+against the ledger directly.
+
+### Manual call sequence (without the guarded fetch)
 
 ```ts
 const ledger = sharedFileOutcomeLedger(join(homedir(), ".twzrd", "outcomes.jsonl"));
@@ -179,7 +212,7 @@ const h = intentHash(intent);
 ledger.begin({ intentHash: h, decisionId, approval });   // throws if unresolved / reused
 // ... preflight, recipient, price, expiry checks ...
 if (!checksPass) return ledger.refuse(h, { reasonCodes });
-ledger.markSigning(h);                                   // durable before the signer
+ledger.markSigning(h);                                   // appended before the signer
 try {
   const { response, settlement } = await pay();          // the ONLY signing path
   const validation = runBoundRule(response, approval.validation);
@@ -190,9 +223,6 @@ try {
 }
 ```
 
-Reconciliation is a separate, attended step that ends in `complete()` or
-`markNotSettled()`.
-
 ## Not done here, deliberately
 
 - Attesting `unknown` or `paid_incomplete` portably needs a V2 attestation
@@ -200,6 +230,9 @@ Reconciliation is a separate, attended step that ends in `complete()` or
 - Binding headers and fees into the intent hash is a change to
   `PaymentIntent` and its canonical JSON; this ledger stores the binding but
   does not recompute the hash.
-- Wiring the ledger into `spendControlSafeFetch` / `createGuardedX402Fetch`
-  is the next step once the sequence above has been exercised against a live
-  402 in an attended run.
+- `spendControlSafeFetch` (the AgentCash CLI path) is not wired: that payer
+  does not return the challenge it signed, so the binding cannot prove which
+  terms were signed (`safe-fetch.ts`,
+  `requirement_scored_matches_requirement_signed: false`).
+- The wiring has been exercised against a real `x402Client` with a fake
+  scheme in tests, not yet against a live 402 in an attended run.
