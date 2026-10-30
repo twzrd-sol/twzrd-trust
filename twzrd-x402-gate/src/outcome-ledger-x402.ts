@@ -20,9 +20,21 @@
  * aborts in the hook with `unresolved_attempt` and never reaches the signer.
  *
  * Local only. Settlement facts come from the facilitator's PAYMENT-RESPONSE
- * header as the seller relayed it; this module does not verify them on chain.
- * A caller that reconciles against the chain resolves `unknown` records
- * through the ledger directly.
+ * header AS THE SELLER RELAYED IT; this module does not verify them on chain.
+ * Only `success: true` with a transaction is treated as settled. A relayed
+ * `success: false` is NOT treated as "not settled": a seller that settles and
+ * then relays a failure would otherwise get the buyer to pay again under the
+ * ledger's own blessing. It lands as `unknown`, and `markNotSettled` is left
+ * to the operator's reconcile step against the chain.
+ *
+ * Known limits:
+ *   - Concurrent requests to the same URL with different bodies share one
+ *     pending slot, so one record can carry the other's body hash. Not a
+ *     double-spend (each body is its own intent), but the evidence record
+ *     can name the wrong body. Serialize per URL if that matters.
+ *   - Calling client.createPaymentPayload() directly (no unpaid leg through
+ *     the transport) runs the hook, so a record lands in `signing` and
+ *     nothing resolves it. With a ledger configured, use the returned fetch.
  */
 import { createHash } from "node:crypto";
 
@@ -42,6 +54,9 @@ import type { BeforePaymentCreationContext, BeforePaymentCreationResult } from "
 export const X402_PAID_RESPONSE_RULE_V1 = "twzrd.x402-paid-response.v1";
 /** Approval lifetime when the requirement carries no maxTimeoutSeconds. */
 export const DEFAULT_APPROVAL_TTL_MS = 60_000;
+/** maxTimeoutSeconds is merchant-controlled; clamp it before it becomes an expiry. */
+export const MIN_APPROVAL_TTL_MS = 5_000;
+export const MAX_APPROVAL_TTL_MS = 10 * 60_000;
 
 export type OutcomeValidator = (ctx: {
   /** A clone; the caller's body is untouched. */
@@ -64,6 +79,7 @@ export type OutcomeLedgerX402Options = {
   now?: () => number;
 };
 
+/** `url` is the full canonical URL (hash input); the stored binding splits it. */
 type PendingRequest = { method: string; bodyHash: string; url: string };
 
 type Dict = Record<string, unknown>;
@@ -92,6 +108,17 @@ export function canonicalRequestUrl(url: string): string {
     return u.href;
   } catch {
     return url;
+  }
+}
+
+/** What the ledger file stores for a URL: origin + path, and a hash of the query. */
+export function splitRequestUrl(url: string): { url: string; queryHash: string } {
+  try {
+    const u = new URL(url);
+    const query = u.search.startsWith("?") ? u.search.slice(1) : u.search;
+    return { url: u.origin + u.pathname, queryHash: query ? sha256hex(query) : "" };
+  } catch {
+    return { url: "unknown", queryHash: sha256hex(url) };
   }
 }
 
@@ -179,7 +206,9 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
       const request = requestFor(context, selected);
       const h = x402AttemptIntentHash(terms, request);
       const t = now();
-      const ttl = terms.maxTimeoutSeconds != null ? terms.maxTimeoutSeconds * 1000 : DEFAULT_APPROVAL_TTL_MS;
+      const askedMs = terms.maxTimeoutSeconds != null ? terms.maxTimeoutSeconds * 1000 : DEFAULT_APPROVAL_TTL_MS;
+      const ttl = Math.min(MAX_APPROVAL_TTL_MS, Math.max(MIN_APPROVAL_TTL_MS, Number.isFinite(askedMs) ? askedMs : DEFAULT_APPROVAL_TTL_MS));
+      const stored = splitRequestUrl(request.url);
       const approval: ApprovalBinding = {
         payTo: terms.payTo,
         network: terms.network,
@@ -187,7 +216,7 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
         amountAtomic: terms.amountAtomic,
         // x402 exact: no buyer-side fees; gas is the facilitator's.
         maxAllInAtomic: terms.amountAtomic,
-        request: { method: request.method, url: request.url, bodyHash: request.bodyHash },
+        request: { method: request.method, url: stored.url, bodyHash: request.bodyHash, queryHash: stored.queryHash },
         expiresAt: new Date(t + ttl).toISOString(),
         validation: { schemaId: options.schemaId, ruleVersion },
       };
@@ -253,10 +282,13 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
           ledger.markUnknown(h, { cause: `no_payment_response_header:http_${resp.status}`, now: now() });
           return resp;
         }
-        if (settle.success === false || !tx) {
-          // The facilitator says it did not settle (or names no transaction we could check).
-          if (settle.success === false) ledger.markNotSettled(h, { reasonCodes: ["settle_failed", ...(str(settle.errorReason) ? [String(settle.errorReason)] : [])], now: now() });
-          else ledger.markUnknown(h, { cause: "payment_response_without_transaction", now: now() });
+        if (settle.success !== true || !tx) {
+          // Relayed by the seller: a failure claim is not evidence of no settlement.
+          const reason = str(settle.errorReason) ?? str(settle.error) ?? null;
+          const cause = settle.success === false
+            ? `settle_failed${reason ? ":" + reason : ""}`
+            : !tx ? "payment_response_without_transaction" : "payment_response_without_success";
+          ledger.markUnknown(h, { cause, now: now() });
           return resp;
         }
         let validation: ValidationFact;

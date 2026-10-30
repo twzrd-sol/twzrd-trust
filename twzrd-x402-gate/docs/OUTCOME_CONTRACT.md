@@ -184,15 +184,31 @@ schemaId }`). `src/outcome-ledger-x402.ts` places each transition on the real
 | client pre-sign hook | checks abort | `refuse(reason)` |
 | client pre-sign hook | checks pass | `markSigning()`, appended before the scheme signs |
 | transport, paid retry | throws | `markUnknown(cause)` |
-| transport, paid retry | `PAYMENT-RESPONSE` success + transaction | `complete()` with the bound validator |
-| transport, paid retry | `PAYMENT-RESPONSE` success:false | `markNotSettled(["settle_failed", ...])` |
+| transport, paid retry | `PAYMENT-RESPONSE` `success: true` with a transaction | `complete()` with the bound validator |
+| transport, paid retry | `PAYMENT-RESPONSE` `success: false` | `markUnknown("settle_failed:...")`, see below |
 | transport, paid retry | no `PAYMENT-RESPONSE`, or no transaction in it | `markUnknown()` |
+
+A relayed `success: false` is **not** "not settled". The header is whatever
+the seller chose to relay; a seller that settles and then relays a failure
+would otherwise get the buyer to pay again under the ledger's own blessing.
+Only the operator's reconcile step against the chain may call
+`markNotSettled()`.
 
 The key is the intent hash of what the gate saw: payTo, network, asset,
 base-unit amount, canonical request URL (fragment dropped, query kept),
-method and body hash. Two different bodies to the same URL are two intents.
-A concurrent duplicate of an in-flight intent aborts with
-`unresolved_attempt`, which is the contract's rule, not a race.
+method and body hash. The stored binding keeps origin + path and a hash of
+the query, so query-string tokens never reach the file. Two different bodies
+to the same URL are two intents. A concurrent duplicate of an in-flight
+intent aborts with `unresolved_attempt`, which is the contract's rule, not a
+race. The merchant's `maxTimeoutSeconds` is clamped to 5 s .. 10 min before
+it becomes the approval expiry. A pre-sign hook that throws leaves the
+record `refused` (`hook_threw:<name>`), not stranded in `approved`.
+
+Known limits: concurrent requests to the same URL with different bodies
+share one pending slot, so one record can carry the other's body hash (the
+evidence can name the wrong body; each body is still its own intent). Calling
+`client.createPaymentPayload()` directly, without the unpaid leg through the
+returned fetch, strands a `signing` record nothing resolves.
 
 The default validator (`X402_PAID_RESPONSE_RULE_V1`) passes on a 2xx. A
 buyer-side validator receives a clone of the response and must answer with

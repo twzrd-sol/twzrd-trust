@@ -96,10 +96,15 @@ export type ApprovalBinding = {
   maxAllInAtomic?: string;
   request: {
     method: string;
-    /** Canonical URL; credentials and query secrets are the caller's problem. */
+    /**
+     * Origin + path only. Query strings carry tokens and never reach the
+     * file; the query is committed to through `queryHash`.
+     */
     url: string;
     /** Hex hash of the exact request body; "" for no body. */
     bodyHash: string;
+    /** Hex hash of the query string (without "?"); "" for none. */
+    queryHash?: string;
     /** Hex hash over the headers the approval considers relevant, if any. */
     headersHash?: string;
   };

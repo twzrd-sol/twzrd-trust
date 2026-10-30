@@ -53,7 +53,9 @@ export type GuardedX402FetchOptions = {
    * throws or returns no PAYMENT-RESPONSE leaves the record `unknown`, and a
    * later call for the same intent aborts in the hook (`unresolved_attempt`)
    * until the record is reconciled. Pass a ledger, or options with a
-   * validator for the paid response. See docs/OUTCOME_CONTRACT.md.
+   * validator for the paid response. With a ledger set, pay through the
+   * returned fetch: calling client.createPaymentPayload() directly strands a
+   * `signing` record nothing resolves. See docs/OUTCOME_CONTRACT.md.
    */
   outcomeLedger?: OutcomeLedger | OutcomeLedgerX402Options;
 };
@@ -410,7 +412,14 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
     if (!outcome) return innerHook(context);
     const opened = outcome.open(context);
     if (opened && "abort" in opened) return abort(opened.abort);
-    const result = await innerHook(context);
+    let result: BeforePaymentCreationResult;
+    try {
+      result = await innerHook(context);
+    } catch (err) {
+      // The signer did not run: refused is accurate, and the intent is not left in `approved`.
+      if (opened) outcome.close(opened.intentHash, { abort: true, reason: `hook_threw:${(err as Error)?.name ?? "Error"}` });
+      throw err;
+    }
     return opened ? outcome.close(opened.intentHash, result) : result;
   };
 

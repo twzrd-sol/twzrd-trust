@@ -8,7 +8,7 @@ import { x402Client } from "@x402/fetch";
 import { tempDir } from "./helpers/tmpdir.js";
 import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
 import { createFileOutcomeLedger, createMemoryOutcomeLedger } from "../src/outcome-ledger.js";
-import { X402_PAID_RESPONSE_RULE_V1, x402AttemptIntentHash } from "../src/outcome-ledger-x402.js";
+import { MAX_APPROVAL_TTL_MS, MIN_APPROVAL_TTL_MS, X402_PAID_RESPONSE_RULE_V1, x402AttemptIntentHash } from "../src/outcome-ledger-x402.js";
 
 const BASE = "eip155:8453";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -22,12 +22,13 @@ const settledOk = b64({ success: true, transaction: TX, network: BASE, payer: "0
 
 type PaidLeg = (req: Request) => Promise<Response> | Response;
 
-function harness(paidLeg: PaidLeg) {
+function harness(paidLeg: PaidLeg, reqOverride: Partial<typeof requirement> = {}) {
   let signs = 0;
+  const body = { ...challenge, accepts: [{ ...requirement, ...reqOverride }] };
   const transport: typeof fetch = async (input, init) => {
     const req = input instanceof Request ? input : new Request(input, init);
     if (!req.headers.get("PAYMENT-SIGNATURE")) {
-      return new Response("{}", { status: 402, headers: { "content-type": "application/json", "PAYMENT-REQUIRED": b64(challenge) } });
+      return new Response("{}", { status: 402, headers: { "content-type": "application/json", "PAYMENT-REQUIRED": b64(body) } });
     }
     return paidLeg(req);
   };
@@ -76,6 +77,9 @@ test("completed: signing row before the signer, complete() after PAYMENT-RESPONS
   assert.equal(done.validation?.ruleVersion, X402_PAID_RESPONSE_RULE_V1);
   assert.equal(done.approval.request.method, "POST");
   assert.equal(done.approval.request.bodyHash, bodyHash);
+  assert.equal(done.approval.request.url, "https://data.example/v1/dataset", "origin + path only");
+  assert.equal(done.approval.request.queryHash, sha("id=7"));
+  assert.equal(readFileSync(path, "utf8").includes("id=7"), false, "query strings never reach the file");
   assert.deepEqual(done.history.map((x) => x.state), ["approved", "signing", "completed"]);
 });
 
@@ -123,7 +127,7 @@ test("refused: a local cap abort is recorded as refused and the signer never ran
   assert.match(ledger.get(keyFor("all"))!.reasonCodes[0]!, /price_cap_exceeded/);
 });
 
-test("not_settled: PAYMENT-RESPONSE success:false; paid_incomplete: validator fails or 5xx with a settled tx", async () => {
+test("relayed success:false is unknown (not not_settled); paid_incomplete: validator fails or 5xx with a settled tx", async () => {
   const ledger = createMemoryOutcomeLedger();
   let mode: "settle_failed" | "bad_body" | "http500" = "settle_failed";
   const h = harness(() => {
@@ -150,9 +154,11 @@ test("not_settled: PAYMENT-RESPONSE success:false; paid_incomplete: validator fa
   const r1 = await guarded(RESOURCE, POST);
   assert.equal(r1.status, 402);
   const ns = ledger.get(key("all"));
-  assert.equal(ns?.state, "not_settled");
-  assert.deepEqual(ns?.reasonCodes, ["settle_failed", "insufficient_funds"]);
+  assert.equal(ns?.state, "unknown", "the seller relayed the failure; only the chain can say not settled");
+  assert.equal(ns?.unknownCause, "settle_failed:insufficient_funds");
   assert.equal(ns?.approval.validation.schemaId, "dataset.v3");
+  // Same intent again: blocked until an operator reconciles, even though the seller said it failed.
+  await assert.rejects(guarded(RESOURCE, POST), /unresolved_attempt/);
 
   mode = "bad_body";
   const r2 = await guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "b" }) });
@@ -168,8 +174,8 @@ test("not_settled: PAYMENT-RESPONSE success:false; paid_incomplete: validator fa
   const p5 = ledger.get(key("c"));
   assert.equal(p5?.state, "paid_incomplete");
   assert.deepEqual(p5?.reasonCodes, ["http_500"]);
-  assert.equal(h.signs(), 3);
-  assert.deepEqual(ledger.unresolved(), []);
+  assert.equal(h.signs(), 3, "the blocked retry never reached the signer");
+  assert.equal(ledger.unresolved().length, 1);
 });
 
 test("unknown: a paid 200 without any PAYMENT-RESPONSE header is not a completion", async () => {
@@ -181,4 +187,37 @@ test("unknown: a paid 200 without any PAYMENT-RESPONSE header is not a completio
   const [u] = ledger.unresolved();
   assert.equal(u?.state, "unknown");
   assert.equal(u?.unknownCause, "no_payment_response_header:http_200");
+});
+
+test("a throwing pre-sign hook leaves the intent refused, not stranded in approved", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const h = harness(() => new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }));
+  // The guarded hook reads the clock once in open() and once inside the local checks. Failing the
+  // second read is a deterministic way to make the inner hook throw after begin() and before signing.
+  let calls = 0;
+  const now = () => {
+    calls += 1;
+    if (calls === 2) throw new RangeError("clock unavailable");
+    return 1_760_000_000_000 + calls;
+  };
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, hourlyBudgetCap: "1", now, outcomeLedger: ledger });
+  await assert.rejects(guarded(RESOURCE, POST), /clock unavailable/);
+  assert.equal(h.signs(), 0);
+  const rec = ledger.get(keyFor("all"));
+  assert.equal(rec?.state, "refused");
+  assert.deepEqual(rec?.reasonCodes, ["hook_threw:RangeError"]);
+  assert.deepEqual(ledger.unresolved(), []);
+});
+
+test("merchant maxTimeoutSeconds is clamped before it becomes the approval expiry", async () => {
+  for (const [timeout, expectMs] of [[1e12, MAX_APPROVAL_TTL_MS], [-5, MIN_APPROVAL_TTL_MS], [120, 120_000]] as const) {
+    const ledger = createMemoryOutcomeLedger();
+    const h = harness(() => new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }), { maxTimeoutSeconds: timeout });
+    const t0 = 1_760_000_000_000;
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, now: () => t0, outcomeLedger: ledger });
+    assert.equal((await guarded(RESOURCE, POST)).status, 200);
+    const rec = ledger.get(x402AttemptIntentHash({ ...TERMS, maxTimeoutSeconds: timeout }, { url: RESOURCE, method: "POST", bodyHash: sha(POST.body) }));
+    assert.equal(rec?.state, "completed");
+    assert.equal(Date.parse(rec!.approval.expiresAt) - t0, expectMs, `timeout ${timeout}`);
+  }
 });
