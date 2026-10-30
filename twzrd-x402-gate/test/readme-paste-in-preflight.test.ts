@@ -53,7 +53,13 @@ function intelResponse(intel: Intel, url: string, signal?: AbortSignal | null): 
     const pf = intel.preflight ?? {};
     if (pf === "hang") {
       return new Promise((_, reject) => {
-        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        // AbortSignal.timeout() is unref'd; a real socket keeps the loop alive, so the mock must too
+        // (Node 20's runner otherwise cancels the test as "Promise resolution is still pending").
+        const keepAlive = setTimeout(() => reject(new Error("hang mock: never aborted")), 10_000);
+        signal?.addEventListener("abort", () => {
+          clearTimeout(keepAlive);
+          reject(signal.reason);
+        }, { once: true });
       });
     }
     if (pf.raw !== undefined) return Promise.resolve(new Response(pf.raw, { status: pf.status ?? 200 }));

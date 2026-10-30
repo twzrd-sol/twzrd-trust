@@ -45,9 +45,9 @@ on that score: below the floor, the payment is refused. The fetch/payWrap form
 of `installTwzrdAutoGate` uses your payWrap as that fetch. The x402 client,
 `"x402-solana"` and `"pay-kit"` seats, and `withTwzrdGuard`, do it when you
 pass `x402Fetch`. With a paying fetch, the same defaults also buy the $0.05
-`/trust` receipt before a proceeding payment above $2.50. `escalateOnWarn:
-false` and `requireReceipt: false` turn those off. `createBuyerFetch` makes no
-paid call, and the `"mpp"` seat has no paid hop. Details:
+`/trust` receipt before an allowed payment above $2.50 (a warn takes `/quick`
+instead). `escalateOnWarn: false` and `requireReceipt: false` turn those off.
+`createBuyerFetch` makes no paid call, and the `"mpp"` seat has no paid hop. Details:
 [First paid hop on warn](#first-paid-hop-on-warn-revenue-path).
 
 ## Defaults by entry point
