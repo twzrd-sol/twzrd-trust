@@ -27,11 +27,13 @@
  * ledger's own blessing. It lands as `unknown`, and `markNotSettled` is left
  * to the operator's reconcile step against the chain.
  *
+ * Round trips to the same canonical URL are serialized (`serializeByUrl`,
+ * applied by createGuardedX402Fetch around the whole paying fetch), so at most
+ * one attempt per URL is between its 402 and its paid retry. That is what lets
+ * the pre-sign hook, which sees only the resource URL, bind the right method
+ * and body hash. Different URLs run concurrently.
+ *
  * Known limits:
- *   - Concurrent requests to the same URL with different bodies share one
- *     pending slot, so one record can carry the other's body hash. Not a
- *     double-spend (each body is its own intent), but the evidence record
- *     can name the wrong body. Serialize per URL if that matters.
  *   - Calling client.createPaymentPayload() directly (no unpaid leg through
  *     the transport) runs the hook, so a record lands in `signing` and
  *     nothing resolves it. With a ledger configured, use the returned fetch.
@@ -179,6 +181,8 @@ export type OutcomeLedgerX402Binding = {
   close(intentHash: string, result: BeforePaymentCreationResult): BeforePaymentCreationResult;
   /** Wrap the raw transport the paying fetch uses. */
   wrapTransport(inner: typeof fetch): typeof fetch;
+  /** Run one whole round trip; calls for the same canonical URL wait for each other. */
+  serializeByUrl<T>(input: Parameters<typeof fetch>[0], fn: () => Promise<T>): Promise<T>;
 };
 
 export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options): OutcomeLedgerX402Binding {
@@ -186,8 +190,10 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
   const now = options.now ?? Date.now;
   const ruleVersion = options.ruleVersion ?? X402_PAID_RESPONSE_RULE_V1;
   const validate: OutcomeValidator = options.validate ?? (({ response }) => defaultX402Validation(response));
-  /** Unpaid requests we have seen, by canonical URL, so the hook can bind method and body. */
+  /** The unpaid request in flight for a URL, so the hook can bind method and body. One per URL by construction. */
   const pending = new Map<string, PendingRequest>();
+  /** Tail of the per-URL queue; a round trip starts when the previous one for that URL has ended. */
+  const queues = new Map<string, Promise<void>>();
 
   function requestFor(context: BeforePaymentCreationContext, selected: Dict): PendingRequest {
     const pr = asRecord(context.paymentRequired);
@@ -244,6 +250,23 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
       }
       return result;
     },
+    async serializeByUrl(input, fn) {
+      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = canonicalRequestUrl(rawUrl);
+      const prev = queues.get(url) ?? Promise.resolve();
+      let release!: () => void;
+      const mine = new Promise<void>((r) => { release = r; });
+      const tail = prev.then(() => mine);
+      queues.set(url, tail);
+      await prev;
+      try {
+        return await fn();
+      } finally {
+        pending.delete(url);
+        release();
+        if (queues.get(url) === tail) queues.delete(url);
+      }
+    },
     wrapTransport(inner) {
       return async (input, init) => {
         const headers = new Headers(input instanceof Request ? input.headers : undefined);
@@ -256,7 +279,9 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
         if (!payment) {
           // Unpaid leg: remember what is being bought so the hook can bind it.
           pending.set(url, { url, method, bodyHash: await bodyHashOf(input, init) });
-          return inner(input, init);
+          const resp = await inner(input, init);
+          if (resp.status !== 402) pending.delete(url);
+          return resp;
         }
 
         // Paid leg: find the attempt the signer just ran for.

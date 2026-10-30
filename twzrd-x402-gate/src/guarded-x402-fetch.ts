@@ -460,11 +460,15 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       }
     }
     const paying = await getPayingFetch();
-    try {
-      return await paying(input, init);
-    } catch (error) {
-      throw explainCoreSpendControls(error);
-    }
+    const run = async () => {
+      try {
+        return await paying(input, init);
+      } catch (error) {
+        throw explainCoreSpendControls(error);
+      }
+    };
+    // With a ledger, round trips to one URL run one at a time so the record binds the right body.
+    return outcome ? outcome.serializeByUrl(input, run) : run();
   };
 }
 

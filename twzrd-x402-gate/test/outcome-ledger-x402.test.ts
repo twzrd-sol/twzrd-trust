@@ -221,3 +221,45 @@ test("merchant maxTimeoutSeconds is clamped before it becomes the approval expir
     assert.equal(Date.parse(rec!.approval.expiresAt) - t0, expectMs, `timeout ${timeout}`);
   }
 });
+
+test("concurrent requests to one URL with different bodies each get their own correct record", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const seen: string[] = [];
+  const h = harness(async (req) => {
+    seen.push(await req.text());
+    await new Promise((r) => setTimeout(r, 5));
+    return new Response(JSON.stringify({ rows: [1] }), { status: 200, headers: { "content-type": "application/json", "PAYMENT-RESPONSE": settledOk } });
+  });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const bodies = ["a", "b", "c"].map((q) => JSON.stringify({ q }));
+  const results = await Promise.all(bodies.map((body) => guarded(RESOURCE, { ...POST, body })));
+  assert.deepEqual(results.map((r) => r.status), [200, 200, 200]);
+  assert.equal(h.signs(), 3);
+  assert.deepEqual(seen.sort(), [...bodies].sort(), "every body reached the paid leg");
+  for (const q of ["a", "b", "c"]) {
+    const rec = ledger.get(keyFor(q));
+    assert.equal(rec?.state, "completed", `record for body ${q}`);
+    assert.equal(rec?.approval.request.bodyHash, sha(JSON.stringify({ q })), "the record names its own body");
+  }
+  assert.deepEqual(ledger.unresolved(), []);
+});
+
+test("serialization is per URL: a different URL does not wait, and a non-402 unpaid leg releases the slot", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const h = harness(async () => { await gate; return new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }); });
+  const free: typeof fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith("https://free.example/")) return new Response("free", { status: 200 });
+    return h.transport(input, init);
+  };
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: free, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const slow = guarded(RESOURCE, POST); // holds the slot for RESOURCE until `release`
+  const other = await Promise.race([guarded("https://free.example/x"), new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 200))]);
+  assert.notEqual(other, "timeout", "another URL is not queued behind RESOURCE");
+  assert.equal((other as Response).status, 200);
+  release();
+  assert.equal((await slow).status, 200);
+  assert.equal(ledger.unresolved().length, 0);
+});
