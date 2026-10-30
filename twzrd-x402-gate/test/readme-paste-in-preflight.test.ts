@@ -48,6 +48,9 @@ type Intel = {
   merchant?: { status?: number; body?: unknown };
 };
 
+/** Hangs that ended on the mock's own fallback, not the caller's timeout. Must stay 0. */
+let hangFallbacks = 0;
+
 function intelResponse(intel: Intel, url: string, signal?: AbortSignal | null): Promise<Response> | undefined {
   if (url.includes("/v1/intel/preflight")) {
     const pf = intel.preflight ?? {};
@@ -55,7 +58,10 @@ function intelResponse(intel: Intel, url: string, signal?: AbortSignal | null): 
       return new Promise((_, reject) => {
         // AbortSignal.timeout() is unref'd; a real socket keeps the loop alive, so the mock must too
         // (Node 20's runner otherwise cancels the test as "Promise resolution is still pending").
-        const keepAlive = setTimeout(() => reject(new Error("hang mock: never aborted")), 10_000);
+        const keepAlive = setTimeout(() => {
+          hangFallbacks++;
+          reject(new Error("hang mock: never aborted"));
+        }, 10_000);
         signal?.addEventListener("abort", () => {
           clearTimeout(keepAlive);
           reject(signal.reason);
@@ -182,6 +188,7 @@ for (const [name, intel, expected] of CASES) {
     const [pasted, packaged] = await Promise.all([runSnippet(intel), runBuyerFetch(intel)]);
     assert.equal(packaged, expected, "createBuyerFetch outcome");
     assert.equal(pasted, expected, "README snippet outcome");
+    assert.equal(hangFallbacks, 0, "a hang must end on the caller's timeout, not the mock's fallback");
   });
 }
 
