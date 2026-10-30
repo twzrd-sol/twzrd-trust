@@ -8,7 +8,7 @@ Verifies, with **no trust in TWZRD's servers or code**, that:
 
 - a receipt leaf is included in a signed tree head (**inclusion proof**);
 - a newer tree head only appended to an older one (**consistency proof**);
-- a tree head was **anchored on Solana** by the published anchor authority (the `anchor_head` program form the live log uses, or the memo form of the spec draft);
+- a tree head was **anchored by the published anchor authority** (the `anchor_head` program form the live log uses, or the memo form of the spec draft): the authority's signature and the head binding are checked from the transaction bytes; that the transaction is in the finalized chain, succeeded, and when, is as reported by the RPC you choose;
 - heads stay verifiable **across key rotations**, via a pinned key directory;
 - two signed tree heads at the same tree size with different roots are a portable
   **misbehavior proof** (**equivocation detection**) — including when different keys
@@ -32,8 +32,13 @@ Solana, and any relying party can hold the log to its own history.
 ## Usage
 
 On npm from 0.3.0 (the first published version). 0.3.0 reports a consistency path
-that fails to verify between heads of different sizes as proven equivocation; the
-source here (0.4.0, not yet published) reports it as consistency unproven instead. Run it without installing:
+that fails to verify between heads of different sizes as proven equivocation; npm
+0.4.0 (published 2026-10-30) fixed that verdict and reports it as consistency
+unproven instead. 0.4.0's anchor check, however, still trusts the RPC's `jsonParsed`
+fields for the transaction's signers and instructions, so a fabricated RPC response
+verifies as an anchor. The source here (0.5.0, not yet published) fetches the
+transaction bytes and verifies the transaction identity and the authority's signature
+locally (see the anchor trust table below). Run it without installing:
 
 ```bash
 npx -y twzrd-log-verifier selftest
@@ -60,10 +65,11 @@ twzrd-log-verifier inclusion --proof paid-response.json
 # Did the log only append between two heads I saw at different times?
 twzrd-log-verifier consistency --old sth-old.json --new sth-new.json --proof proof.json
 
-# Was this head anchored on Solana by the published authority? Reads the transaction
-# (use a mainnet tx_signature from /v1/log/anchors), requires it to have succeeded, and
-# matches an anchor_head instruction of the evidence-ledger program (--program overrides
-# it; --ledger also pins the ledger account, anchor_ledger_pda) or an anchor memo.
+# Did the published authority anchor this head? Reads the transaction bytes
+# (use a mainnet tx_signature from /v1/log/anchors), checks they are that transaction
+# and that the authority's signature verifies, matches an anchor_head instruction of the
+# evidence-ledger program (--program overrides it; --ledger also pins the ledger account,
+# anchor_ledger_pda) or an anchor memo, and requires the RPC to report it succeeded.
 twzrd-log-verifier anchor --sth sth.json --tx <tx-signature> --authority <b58> [--program <id>] [--ledger <b58>] [--rpc <url>]
 
 # Do two heads contradict each other? (a positive result is publishable proof)
@@ -84,8 +90,39 @@ publishable proof bundle (`--proof-out`) and exits 2.
 
 Exit code 0 = the requested verification succeeded; 1 = it failed or errored;
 2 = `monitor` proved equivocation. Inclusion, consistency, and equivocation
-checks are fully offline. The anchor check needs any Solana RPC endpoint — the
-RPC is a data source only and cannot forge a signer or a memo binding.
+checks are fully offline. The anchor check needs a Solana RPC endpoint, and the
+verdict splits in two (`verified_locally` / `rpc_reported` in the result, printed
+by the CLI):
+
+| Fact | Established by |
+|---|---|
+| STH signature | the verifier, from the pinned key |
+| the bytes are the transaction named by `--tx` | the verifier: first signature == `--tx` |
+| the anchor authority signed it | the verifier: Ed25519 over the message bytes |
+| the head binding (`anchor_head` fields or memo == STH) | the verifier, from the raw instruction data |
+| the transaction is in the finalized chain | the RPC's word |
+| it succeeded (`meta.err`) | the RPC's word |
+| `slot`, `block_time` | the RPC's word |
+
+So a malicious RPC cannot invent an anchor the authority never signed, but it
+can hide one, report a failed or never-landed transaction as landed, or misstate
+its time. The "existed no later than `block_time`" bound is only as good as the
+RPC that reported it: use one you trust, or run the check against several and
+compare. Anchor transactions use static account keys; a versioned transaction
+that references an address-table account, or one whose message version is not
+legacy or 0, is reported as an error, not a verdict.
+
+### Breaking for library users in 0.5.0
+
+- `fetchAnchorTransaction` requests `encoding: "base64"` from the RPC and parses the
+  bytes itself. A custom `fetchImpl` that answers with a `jsonParsed` transaction (or
+  anything but `[base64, "base64"]`) is refused with an error, not accepted.
+- `fetchAnchorTransaction` and `verifyAnchor` refuse a `txSignature` that is not base58
+  of 64 bytes before any RPC call.
+- `FetchedAnchorTx` gains `version` (`"legacy" | number`).
+- `AnchorVerifyResult` gains `rpc_url`, `verified_locally` and `rpc_reported`.
+- Errors from the fetch and parse step are prefixed `transaction:` instead of `fetch:`.
+- CLI exit codes are unchanged: 0 = verified, 1 = failed or errored.
 
 ## Pinning keys
 
