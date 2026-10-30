@@ -1,6 +1,6 @@
 # TWZRD Security & Trust Assurance
 
-**Applies to:** `twzrd-x402-gate@0.15.0`, TWZRD Agent Intelligence, and V7 trust receipts  
+**Applies to:** `twzrd-x402-gate@0.16.0`, TWZRD Agent Intelligence, and V7 trust receipts  
 **Last verified:** 2026-10-24 (live surfaces, registry versions, transparency-log anchors). The gate properties below were last re-verified against 0.11.2 on 2026-09-12. The install pin is now 0.15.0 (registry versions read 2026-10-26). 0.15.0 adds Demand Desk authorization `2.1.0-demand-desk`, which accepts capped Compute Budget instructions and one signed Memo beside the vault spend; no `2.0.0-demand-desk` outcome changes. 0.14.0 added the Demand Desk authorization v2 verifier and the `createDemandDeskWallet` signer facade; both are new entry points, and no existing allow or refuse outcome changed. 0.13.1 changes types and doc comments only. 0.13.0 turned three refusals on by default, each with a named opt-out: `refuseWashUnknown` (added as opt-in in 0.12.0), `refuseUncappedWarn` and `refuseUnevaluated` (gate `CHANGELOG.md`). Earlier: 0.12.4 added the opt-in `expectedAmount` refusal to `createBuyerFetch`, 0.12.3 the `createBuyerFetch` entry point and 0.12.2 the opt-in local fulfillment record. The release carries the 0.11.3 and 0.11.4 security fixes and requires `x402-solana@>=3.0.1`; 0.11.2 and 0.11.3 are deprecated on npm.  
 **Disclosure Policy:** [SECURITY.md](../SECURITY.md)
 
