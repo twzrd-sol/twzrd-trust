@@ -314,14 +314,23 @@ async function cmdAnchor(args: string[]): Promise<number> {
   console.log(`transaction     : ${res.tx_succeeded ? "succeeded" : "FAILED or no status"}`);
   console.log(`anchor binding  : ${res.anchor_kind ?? "NOT FOUND"}`);
   console.log(`authority signed: ${res.authority_signed}`);
-  if (res.slot !== null) console.log(`slot            : ${res.slot}`);
+  if (res.slot !== null) console.log(`slot            : ${res.slot} (as reported by the RPC)`);
   if (res.block_time !== null) {
     console.log(
-      `block_time      : ${res.block_time} (${new Date(res.block_time * 1000).toISOString()})`,
+      `block_time      : ${res.block_time} (${new Date(res.block_time * 1000).toISOString()}, as reported by the RPC)`,
     );
   }
+  console.log(`rpc             : ${res.rpc_url}`);
+  console.log(`verified locally: ${res.verified_locally.join(", ") || "nothing"}`);
+  console.log(`rpc-reported    : ${res.rpc_reported.join(", ") || "nothing fetched"}`);
   res.errors.forEach((e) => console.log(`  - ${e}`));
-  console.log(`RESULT          : ${res.valid ? "VALID (head anchored on Solana)" : "INVALID"}`);
+  console.log(
+    `RESULT          : ${
+      res.valid
+        ? "VALID (authority signature and head binding verified from the transaction bytes; inclusion, success, slot and block_time as reported by the RPC)"
+        : "INVALID"
+    }`,
+  );
   return res.valid ? 0 : 1;
 }
 

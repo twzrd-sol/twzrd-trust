@@ -192,7 +192,8 @@ Rules, mirroring the `legacy_verification` model already used for receipt keys a
 
 Note that `timestamp_unix` is asserted by the log about itself, so window
 enforcement bounds the *claimed* signing time. For a clock the log cannot choose,
-pair it with a Solana anchor — the on-chain block time is the trustworthy bound.
+pair it with a Solana anchor — the block time is a bound the log cannot choose, as
+reported by an RPC the verifier trusts (see [Solana anchor](#solana-anchor)).
 
 Threshold signing (FROST) and an on-chain key registry are tracked separately;
 both change only *where the pinned directory comes from*, not this format.
@@ -235,7 +236,18 @@ twzrd-log-anchor:v1:<log_id>:<tree_size>:<root_hex_no_0x>
   log operator.
 
 Anchoring makes backdating detectable: a receipt whose inclusion proof lands under an
-anchored root existed **no later than** that anchor's on-chain block time.
+anchored root existed **no later than** that anchor's block time.
+
+**What the verifier establishes, and from where.** From the transaction bytes, with no
+trust in the RPC: that the bytes are the transaction named by its signature, that the
+anchor authority's Ed25519 signature over the message verifies, and that the
+`anchor_head` fields (or memo) equal the STH's. On the RPC's word only, because bytes
+cannot carry it: that the transaction is in the finalized chain, that it succeeded
+(`meta.err`), its slot, and its block time. A malicious RPC therefore cannot invent an
+anchor the authority never signed, but it can hide one, present a failed or never-landed
+transaction as landed, or misstate its time; the "no later than" bound is as good as the
+RPC that reported the block time. Verifiers that need more should query several
+independent RPCs and compare, which is corroboration, not a proof.
 
 ## Log descriptor (well-known)
 
@@ -319,7 +331,9 @@ the inclusion proof becomes fetchable by `receipt.leaf` afterward.
    (and, when `anchor_ledger_pda` is pinned, whose ledger account matches it), with
    `(log_id, tree_size, timestamp_unix, root)` equal to the STH's, or a memo instruction
    whose payload parses to `(log_id, tree_size, root)` equal to the STH's; and require the
-   pinned anchor authority among the transaction signers. Result: *this head existed at that slot.*
+   pinned anchor authority's signature to verify over the message bytes. Result: *the
+   pinned authority signed a transaction binding this head; the RPC reports it landed and
+   succeeded at that slot.*
 4. **Equivocation check** — given two STHs with valid signatures, the same `log_id`,
    and the same `tree_size` but different roots: emit a portable **misbehavior proof**
    (the two STH JSON envelopes are the entire proof), regardless of whether the same
@@ -330,9 +344,10 @@ the inclusion proof becomes fetchable by `receipt.leaf` afterward.
    consistency endpoint keeps serving failing proofs has not demonstrated append-only,
    which is a fork signal to investigate, not a portable conviction.
 
-Steps 0, 1, 2, and 4 are fully offline. Step 3 needs any Solana RPC endpoint (the
-transaction data is self-authenticating given the pinned authority; the RPC is only a
-data source and cannot forge a signer).
+Steps 0, 1, 2, and 4 are fully offline. Step 3 needs a Solana RPC endpoint. The
+transaction identity, the authority's signature and the head binding are verified from
+the bytes, so the RPC cannot forge them; inclusion, success, slot and block time are
+taken as the RPC reports them (see [Solana anchor](#solana-anchor)).
 
 ## Client policy
 
