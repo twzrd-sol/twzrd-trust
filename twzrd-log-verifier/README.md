@@ -31,14 +31,14 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
-On npm from 0.3.0 (the first published version). 0.3.0 reports a consistency path
-that fails to verify between heads of different sizes as proven equivocation; npm
-0.4.0 (published 2026-10-30) fixed that verdict and reports it as consistency
-unproven instead. 0.4.0's anchor check, however, still trusts the RPC's `jsonParsed`
-fields for the transaction's signers and instructions, so a fabricated RPC response
-verifies as an anchor. The source here (0.5.0, not yet published) fetches the
+On npm; 0.5.0 is the current version (published 2026-10-30). It fetches the
 transaction bytes and verifies the transaction identity and the authority's signature
-locally (see the anchor trust table below). Run it without installing:
+locally (see the anchor trust table below). Upgrade from earlier versions: 0.4.0's
+anchor check still trusts the RPC's `jsonParsed` fields for the transaction's signers
+and instructions, so a fabricated RPC response verifies as an anchor. 0.3.0 also
+reports a consistency path that fails to verify between heads of different sizes as
+proven equivocation; 0.4.0 fixed that verdict and reports it as consistency unproven
+instead. Run it without installing:
 
 ```bash
 npx -y twzrd-log-verifier selftest
