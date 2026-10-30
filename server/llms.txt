@@ -27,7 +27,7 @@
 
 ## What's new (newest first)
 
-- 2026-10-26: MPP `Payment` challenge beside x402 on `/v1/intel/quick/`, `/v1/intel/merchant/`.
+- 2026-10-30: MPP `Payment` challenge beside x402 on `/v1/intel/trust/`, `/v1/intel/verify-endpoint`; `/v1/intel/quick/`, `/v1/intel/merchant/` since 2026-10-26.
 - 2026-10-25: `twzrd-x402-gate@0.15.0` refuses missing evidence by default.
 
 ## Core product: buyer gate (install before any x402 client signs)
@@ -36,7 +36,7 @@ Install the gate in your x402 client so a `block` verdict refuses the payment
 before your wallet ever signs - the refusal itself is the product working.
 Primary seat: `twzrd-x402-gate@0.15.0` + `x402-solana@3.0.1`. Hook runs after
 requirement selection, before `signTransaction`. Path B success = refuse
-transcript (`signer_invocation_count=0`), not `day0.gate_evals` or free_card_hits.
+transcript (`signer_invocation_count=0`).
 
 ```bash
 npm install twzrd-x402-gate@0.15.0 x402-solana@3.0.1
@@ -171,7 +171,8 @@ The paste-ready `GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` path is TWZRD's o
 pasted `:pubkey`/`{pubkey}` 402s for that same wallet. Before a real pay, put the seller's accepts[].payTo in the path and inspect the
 selected entry's network, asset, amount, and payTo before signing.
 
-Unpaid GET on a paid route returns HTTP 402 with `next_action` in the JSON body.
+Unpaid GET on a paid route returns HTTP 402 with `next_action` in the JSON body
+(checkout-brief: 400/404 first for a bad product).
 Optional Path A curl examples: /llms-full.txt.
 
 - `GET https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` — 0.001 USDC. First paid hop. No V7 receipt.
@@ -180,13 +181,13 @@ Optional Path A curl examples: /llms-full.txt.
 - `GET /v1/intel/reality-check` — 0.05 USDC Reality Check PDF.
 - `POST /v1/intel/verify-endpoint` — 0.005 USDC. Body `{"url"}`. not_a_trust_vouch; not_ready is charged. Free unsigned: `POST /v1/agent-readiness`.
 - `POST /v1/intel/read-page` - 0.005 USDC, provider observation.
-- `POST /v1/intel/delivery-watch` - records a watch. Does not pay your resource.
+- `POST /v1/intel/delivery-watch` - from 1.00 USDC. Does not pay your resource.
 - `GET /v1/intel/checkout-brief?product=&cart_hash=&declared_unit_price=` - 0.001 USDC. Does not open checkout.
 
 `seller_wallet=` or `X-TWZRD-Seller-Wallet` identifies the settle-gate counterparty
 on trust routes; market routes use `merchant=`. Omit them and the gate cannot evaluate. x402 v2: unpaid → `payment-required`; sign an `accepts` entry; retry
 with `payment-signature`. Payer holds USDC; fee payer sponsors gas only.
-MPP: on `/v1/intel/quick/`, `/v1/intel/merchant/` one 402 carries both challenges (`WWW-Authenticate: X402, Payment`; Solana charge, fee payer sponsored). Other paid routes: x402 only.
+MPP: on the routes in What's new one 402 carries both challenges (`WWW-Authenticate: X402, Payment`; Solana charge, fee payer sponsored). Other paid routes: x402 only.
 
 ### Market-data discovery
 
