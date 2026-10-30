@@ -116,6 +116,35 @@ async function run() {
     assert.equal(foundation.amount, "0.001");
     assert.equal(foundation.network, "solana:mainnet");
     assert.equal(foundation.payTo, MERCHANT);
+    console.log(
+      "foundation amount",
+      foundation.amount,
+      "network",
+      foundation.network,
+      "no MALFORMED_CHALLENGE",
+      "no SPONSORED_CHARGE",
+    );
+    // Top-level community fields win when methodDetails disagrees.
+    const mixed = mppChallengeToIntent(
+      solanaCharge({
+        decimals: 6,
+        cluster: "devnet",
+        methodDetails: { decimals: 9, network: "mainnet" },
+      }),
+    );
+    assert.equal(mixed.amount, "0.05");
+    assert.equal(mixed.network, "solana:devnet");
+    console.log("top-level wins amount", mixed.amount, "network", mixed.network);
+    assert.throws(
+      () => mppChallengeToIntent(solanaCharge({ sponsored: true })),
+      (e: TwzrdMppBlockError) => e.code === "SPONSORED_CHARGE",
+    );
+    assert.throws(
+      () => mppChallengeToIntent(solanaCharge({ feeTokenAmount: "1" })),
+      (e: TwzrdMppBlockError) => e.code === "SPONSORED_CHARGE",
+    );
+    console.log("sponsored true SPONSORED_CHARGE");
+    console.log("feeTokenAmount SPONSORED_CHARGE");
     assert.throws(
       () =>
         mppChallengeToIntent({
@@ -132,6 +161,7 @@ async function run() {
         }),
       (e: TwzrdMppBlockError) => e.code === "MALFORMED_CHALLENGE",
     );
+    console.log("string decimals MALFORMED_CHALLENGE");
   }
 
   /* 2. PRICING INVARIANT: intent.amount is USD, and the guard never invents it.
