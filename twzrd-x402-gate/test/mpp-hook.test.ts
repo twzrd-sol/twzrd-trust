@@ -90,6 +90,48 @@ async function run() {
     const dev = mppChallengeToIntent(solanaCharge({ cluster: "devnet" }));
     assert.equal(dev.network, "solana:devnet");
     assert.equal(classifyNetwork(dev.network).reputationScored, false);
+
+    // Solana Foundation @solana/mpp nests decimals and network in methodDetails.
+    // intel.twzrd.xyz sends that shape. A missing top-level decimals used to
+    // throw MALFORMED_CHALLENGE before preflight. feePayer:true here is the
+    // sponsored SOL fee payer, not mppx-solana's second token transfer.
+    const foundation = mppChallengeToIntent({
+      id: "chal_foundation",
+      realm: "intel.twzrd.xyz",
+      method: "solana",
+      intent: "charge",
+      request: {
+        amount: "1000",
+        currency: USDC,
+        recipient: MERCHANT,
+        methodDetails: {
+          decimals: 6,
+          feePayer: true,
+          feePayerKey: "BFL9TLC3edb13K6v4YyH3DwPb5DSUpkWvb7XnqCL9b4F",
+          network: "mainnet",
+          tokenProgram: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        },
+      },
+    });
+    assert.equal(foundation.amount, "0.001");
+    assert.equal(foundation.network, "solana:mainnet");
+    assert.equal(foundation.payTo, MERCHANT);
+    assert.throws(
+      () =>
+        mppChallengeToIntent({
+          id: "chal_bad_details",
+          realm: "intel.twzrd.xyz",
+          method: "solana",
+          intent: "charge",
+          request: {
+            amount: "1000",
+            currency: USDC,
+            recipient: MERCHANT,
+            methodDetails: { decimals: "6", network: "mainnet" },
+          },
+        }),
+      (e: TwzrdMppBlockError) => e.code === "MALFORMED_CHALLENGE",
+    );
   }
 
   /* 2. PRICING INVARIANT: intent.amount is USD, and the guard never invents it.

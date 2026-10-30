@@ -262,7 +262,39 @@ export function mppChallengeToIntent(
       `[twzrd] MPP guard evaluates solana/charge only; got ${challenge.method}/${challenge.intent}`,
     );
   }
-  const req = challenge.request as Partial<MppSolanaChargeRequest>;
+  const raw = (challenge.request ?? {}) as Record<string, unknown>;
+  const details =
+    raw.methodDetails && typeof raw.methodDetails === "object" && !Array.isArray(raw.methodDetails)
+      ? (raw.methodDetails as Record<string, unknown>)
+      : {};
+  // Community mppx-solana puts decimals/cluster on the request. The Solana
+  // Foundation @solana/mpp charge, which intel.twzrd.xyz sends, nests them in
+  // methodDetails. Top-level fields win when both are present.
+  const stringField = (value: unknown): string | undefined =>
+    typeof value === "string" && value ? value : undefined;
+  const req = {
+    ...(raw as Partial<MppSolanaChargeRequest>),
+    recipient: stringField(raw.recipient) ?? stringField(details.recipient),
+    currency: stringField(raw.currency) ?? stringField(details.currency),
+    amount:
+      typeof raw.amount === "string" || typeof raw.amount === "number"
+        ? raw.amount
+        : typeof details.amount === "string" || typeof details.amount === "number"
+          ? details.amount
+          : undefined,
+    decimals:
+      typeof raw.decimals === "number"
+        ? raw.decimals
+        : typeof details.decimals === "number"
+          ? details.decimals
+          : undefined,
+    // Foundation uses methodDetails.network. Community uses cluster, sometimes network.
+    cluster:
+      stringField(raw.cluster) ??
+      stringField(raw.network) ??
+      stringField(details.cluster) ??
+      stringField(details.network),
+  };
   if (
     typeof req.recipient !== "string" ||
     !req.recipient ||
@@ -277,6 +309,8 @@ export function mppChallengeToIntent(
     );
   }
 
+  // methodDetails.feePayer === true is the Foundation SOL fee-payer flag, not
+  // this second token leg. Do not fold it into `sponsored`.
   // SPONSORSHIP: mppx-solana adds a SECOND transfer of `feeTokenAmount` to the
   // sponsor's fee payer, on top of `amount` to `recipient`. PaymentIntent v1
   // binds one amount to one payTo, so approving this would authorize strictly
