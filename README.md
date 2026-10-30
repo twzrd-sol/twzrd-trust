@@ -45,7 +45,7 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 | Know which document is current | [docs/README.md](./docs/README.md): every document in this repository, labeled canonical, historical or internal, with the versions verified on the date shown. |
 | Build or publish from this checkout | [AGENTS.md](./AGENTS.md): what is source and what is a published-artifact mirror, the one supported install, and the fork relationship with the upstream monorepo. |
 
-## Versions, verified 2026-10-26
+## Versions, verified 2026-10-30
 
 Registry `latest` as read on that date. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
 
@@ -59,7 +59,7 @@ Registry `latest` as read on that date. The tree column is what this checkout mi
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.10 | 0.3.10 | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.5.0 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
-| `twzrd-log-verifier` | npm 0.3.0 | 0.4.0 (source here; not yet published) | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest` |
+| `twzrd-log-verifier` | npm 0.5.0 | 0.5.0 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
 
 ---
 
