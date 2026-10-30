@@ -226,10 +226,35 @@ buyer-side validator receives a clone of the response and must answer with
 the configured `ruleVersion`; a thrown validator is a failed validation, never
 a completion.
 
-Settlement facts come from the facilitator's `PAYMENT-RESPONSE` as the seller
-relayed it. The binding does not check the chain. Reconciling an `unknown`
-record (`complete()` or `markNotSettled()`) is a separate, attended step done
-against the ledger directly.
+### Operations: one unresolved attempt per task, whatever the terms
+
+Above the attempt (intent hash) sits the **operation**: the task the buyer is
+paying for. By default it is the bound request alone (method, origin + path,
+query hash, body hash); the terms are excluded on purpose. A seller that
+re-quotes the same resource at a new price while the first payment is
+`unknown` therefore gets `unresolved_operation:<hash>:prior=<hash>` in the
+pre-sign hook, and the signer does not run: a changed price is a new intent
+but the same task, and the task must be reconciled first. A buyer that means
+to buy the same request twice names the operations with the `operationId`
+option (a job id). A named id is stored in the approval and is part of the
+attempt identity, so two named repeats are two attempts; the derived key is
+never stored. The check reads the ledger's unresolved set, so it survives a
+restart over the same file.
+
+### Settlement evidence: the seller's relay never completes an attempt
+
+`PAYMENT-RESPONSE` arrives as the seller relayed it: it is merchant-reported.
+With no `settlement` check configured, a relayed `success: true` with a
+transaction lands as `unknown` with cause `merchant_reported_settlement:<tx>`;
+the transaction is kept for the reconcile step and nothing completes. A
+`settlement` check (`SettlementChecker`) supplies evidence from a source the
+seller does not control (an RPC, an indexer). Only `confirmed: true` lets the
+bound validator decide between `completed` and `paid_incomplete`;
+`confirmed: false` or a thrown check lands as `unknown`
+(`settlement_unconfirmed:<reasons>:<tx>`, `settlement_check_threw:<msg>:<tx>`),
+not `not_settled`, because the chain may still carry the transaction.
+Reconciling an `unknown` record (`complete()` or `markNotSettled()`) is a
+separate, attended step done against the ledger directly.
 
 ### Manual call sequence (without the guarded fetch)
 

@@ -8,7 +8,7 @@ import { x402Client } from "@x402/fetch";
 import { tempDir } from "./helpers/tmpdir.js";
 import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
 import { createFileOutcomeLedger, createMemoryOutcomeLedger } from "../src/outcome-ledger.js";
-import { MAX_APPROVAL_TTL_MS, MIN_APPROVAL_TTL_MS, X402_PAID_RESPONSE_RULE_V1, x402AttemptIntentHash } from "../src/outcome-ledger-x402.js";
+import { MAX_APPROVAL_TTL_MS, MERCHANT_REPORTED_SETTLEMENT, MIN_APPROVAL_TTL_MS, UNRESOLVED_OPERATION_REASON, X402_PAID_RESPONSE_RULE_V1, operationKeyOf, x402AttemptIntentHash } from "../src/outcome-ledger-x402.js";
 
 const BASE = "eip155:8453";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -72,6 +72,8 @@ function harness(paidLeg: PaidLeg, reqOverride: Partial<typeof requirement> = {}
   return { client, transport, signs: () => signs, counter };
 }
 
+/** Independent settlement evidence stub: what an RPC/indexer check would answer. Without it nothing completes. */
+const CONFIRMED = () => ({ confirmed: true });
 const POST = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "all" }) };
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const TERMS = { payTo: SELLER, network: BASE, asset: USDC_BASE, amountAtomic: "40000", maxTimeoutSeconds: 600 };
@@ -88,7 +90,7 @@ test("completed: signing row before the signer, complete() after PAYMENT-RESPONS
     states.push(...lines);
     return new Response(JSON.stringify({ rows: [1, 2, 3] }), { status: 200, headers: { "content-type": "application/json", "PAYMENT-RESPONSE": settledOk } });
   });
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   const resp = await guarded(RESOURCE, POST);
   assert.equal(resp.status, 200);
   assert.deepEqual(await resp.json(), { rows: [1, 2, 3] }, "the caller's body is untouched");
@@ -118,7 +120,7 @@ test("unknown: paid leg throws after signing -> record unknown; the next call fo
     if (fail) throw Object.assign(new Error("socket hang up after send"), { name: "ECONNRESET" });
     return new Response("{}", { status: 200, headers: { "content-type": "application/json", "PAYMENT-RESPONSE": settledOk } });
   });
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   await assert.rejects(guarded(RESOURCE, POST), /socket hang up/);
   assert.equal(h.signs(), 1);
   const [u] = ledger.unresolved();
@@ -147,7 +149,7 @@ test("unknown: paid leg throws after signing -> record unknown; the next call fo
 test("refused: a local cap abort is recorded as refused and the signer never ran", async () => {
   const ledger = createMemoryOutcomeLedger();
   const h = harness(() => new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }));
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, maxPricePerCall: "0.01", outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, maxPricePerCall: "0.01", outcomeLedger: { ledger, settlement: CONFIRMED } });
   await assert.rejects(guarded(RESOURCE, POST), /price_cap_exceeded/);
   assert.equal(h.signs(), 0);
   assert.deepEqual(ledger.unresolved(), [], "refused is terminal");
@@ -169,6 +171,7 @@ test("relayed success:false is unknown (not not_settled); paid_incomplete: valid
     twzrd: { disabled: true },
     outcomeLedger: {
       ledger,
+      settlement: CONFIRMED,
       ruleVersion: "dataset-rows.v1",
       schemaId: "dataset.v3",
       validate: async ({ response }) => {
@@ -209,7 +212,7 @@ test("relayed success:false is unknown (not not_settled); paid_incomplete: valid
 test("unknown: a paid 200 without any PAYMENT-RESPONSE header is not a completion", async () => {
   const ledger = createMemoryOutcomeLedger();
   const h = harness(() => new Response(JSON.stringify({ rows: [] }), { status: 200, headers: { "content-type": "application/json" } }));
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   const resp = await guarded(RESOURCE, POST);
   assert.equal(resp.status, 200);
   const [u] = ledger.unresolved();
@@ -228,7 +231,7 @@ test("a throwing pre-sign hook leaves the intent refused, not stranded in approv
     if (calls === 2) throw new RangeError("clock unavailable");
     return 1_760_000_000_000 + calls;
   };
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, hourlyBudgetCap: "1", now, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, hourlyBudgetCap: "1", now, outcomeLedger: { ledger, settlement: CONFIRMED } });
   await assert.rejects(guarded(RESOURCE, POST), /clock unavailable/);
   assert.equal(h.signs(), 0);
   const rec = ledger.get(keyFor("all"));
@@ -242,7 +245,7 @@ test("merchant maxTimeoutSeconds is clamped before it becomes the approval expir
     const ledger = createMemoryOutcomeLedger();
     const h = harness(() => new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }), { maxTimeoutSeconds: timeout });
     const t0 = 1_760_000_000_000;
-    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, now: () => t0, outcomeLedger: ledger });
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, now: () => t0, outcomeLedger: { ledger, settlement: CONFIRMED } });
     assert.equal((await guarded(RESOURCE, POST)).status, 200);
     const rec = ledger.get(x402AttemptIntentHash({ ...TERMS, maxTimeoutSeconds: timeout }, { url: RESOURCE, method: "POST", bodyHash: sha(POST.body) }));
     assert.equal(rec?.state, "completed");
@@ -263,7 +266,7 @@ test("concurrent requests to one URL with different bodies each get their own co
     await sleep(5);
     return new Response(JSON.stringify({ rows: [1] }), { status: 200, headers: { "content-type": "application/json", "PAYMENT-RESPONSE": settledOk } });
   });
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   const qs = ["a", "b", "c"];
   const bodies = qs.map((q) => JSON.stringify({ q }));
   // allSettled: a refusal must not hide the wrong-body evidence below.
@@ -280,7 +283,7 @@ test("concurrent requests to one URL with different bodies each get their own co
 test("F1: an identical in-flight request is refused with unresolved_attempt and the signer runs once", async () => {
   const ledger = createMemoryOutcomeLedger();
   const h = harness(async () => { await sleep(40); return okPaid(); });
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   const results = await Promise.all([settled(guarded(RESOURCE, POST)), settled(guarded(RESOURCE, POST))]);
   assert.equal(h.signs(), 1, "one signature for one intent");
   const ok = results.filter((r) => r.ok);
@@ -299,7 +302,7 @@ test("F2a: seller declares resource.url without the query while ?id=7 and ?id=8 
   const path = join(tempDir("twzrd-outcome-x402-"), "outcomes.jsonl");
   const ledger = createFileOutcomeLedger(path);
   const h = harness(okPaid, {}, { declared: () => "https://data.example/v1/dataset", unpaid: () => sleep(10) });
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   const A = "https://data.example/v1/dataset?id=7", B = "https://data.example/v1/dataset?id=8";
   const bodyA = JSON.stringify({ q: "a" }), bodyB = JSON.stringify({ q: "b" });
   const results = await Promise.all([settled(guarded(A, { ...POST, body: bodyA })), settled(guarded(B, { ...POST, body: bodyB }))]);
@@ -319,7 +322,7 @@ test("F2b: a request to /a (seller declares /b) races a direct request to /b; ea
   const ledger = createMemoryOutcomeLedger();
   const a = "https://data.example/v1/a", b = "https://data.example/v1/b";
   const h = harness(okPaid, {}, { declared: (u) => (u === a ? b : u), unpaid: () => sleep(10) });
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   const bodyA = JSON.stringify({ q: "A" }), bodyB = JSON.stringify({ q: "B" });
   const results = await Promise.all([settled(guarded(a, { ...POST, body: bodyA })), settled(guarded(b, { ...POST, body: bodyB }))]);
   assert.deepEqual(results, [{ ok: true, status: 200 }, { ok: true, status: 200 }]);
@@ -334,7 +337,7 @@ test("F2b: a request to /a (seller declares /b) races a direct request to /b; ea
 test("F3: free (never-402) calls to one URL are not serialized: 5 concurrent calls reach 5 in flight", async () => {
   const ledger = createMemoryOutcomeLedger();
   const h = harness(okPaid, {}, { unpaid: async () => { await sleep(50); return new Response("free", { status: 200 }); } });
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   const t0 = Date.now();
   const res = await Promise.all([1, 2, 3, 4, 5].map(() => guarded(RESOURCE)));
   const ms = Date.now() - t0;
@@ -348,7 +351,7 @@ test("F4: an aborted call rejects promptly while another call to the same URL is
   const ledger = createMemoryOutcomeLedger();
   // Every unpaid leg is slow, so the second call can only settle early by honouring its own signal.
   const h = harness(okPaid, {}, { unpaid: () => sleep(600) });
-  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   const slow = settled(guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "slow" }) }));
   await sleep(10);
   const t0 = Date.now();
@@ -371,6 +374,7 @@ test("F5: a validator that re-enters the guarded fetch for the same URL resolves
     twzrd: { disabled: true },
     outcomeLedger: {
       ledger,
+      settlement: CONFIRMED,
       validate: async ({ approval }) => {
         if (approval.request.bodyHash === sha(JSON.stringify({ q: "outer" }))) {
           const inner = await guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "inner" }) });
@@ -398,7 +402,7 @@ test("lifecycle: after a failing first call, a second call to the same URL proce
   for (const [name, paid, opts] of cases) {
     const ledger = createMemoryOutcomeLedger();
     const h = harness(paid, {}, opts);
-    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
     const first = settled(guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "first" }) }));
     const second = await Promise.race([settled(guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "second" }) })), sleep(800).then(() => "timeout" as const)]);
     assert.notEqual(second, "timeout", `${name}: second same-URL call must not hang`);
@@ -410,8 +414,145 @@ test("lifecycle: after a failing first call, a second call to the same URL proce
 test("unbound: the hook refuses a direct createPaymentPayload() instead of stranding a signing record", async () => {
   const ledger = createMemoryOutcomeLedger();
   const h = harness(okPaid);
-  createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
   await assert.rejects(h.client.createPaymentPayload(challenge as never), /unbound_request/);
   assert.equal(h.signs(), 0);
   assert.deepEqual(ledger.unresolved(), [], "nothing recorded under an unknown request");
+});
+
+// --- G2: completion needs evidence the seller did not relay ---------------------------------
+
+test("G2 result-validation: relayed success+tx with no settlement check is unknown (merchant-reported), never completed", async () => {
+  const h = harness(() => new Response("not the requested structured result", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }));
+  const ledger = createMemoryOutcomeLedger();
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: ledger });
+  const res = await guarded(RESOURCE, POST);
+  assert.equal(res.status, 200);
+  assert.equal(h.signs(), 1);
+  const rec = ledger.get(keyFor("all"))!;
+  assert.equal(rec.state, "unknown");
+  assert.equal(rec.unknownCause, `${MERCHANT_REPORTED_SETTLEMENT}:${TX}`);
+  assert.equal(ledger.unresolved().length, 1);
+  // and a retry of the same intent is blocked until reconciled
+  await assert.rejects(guarded(RESOURCE, POST), /unresolved_attempt/);
+  assert.equal(h.signs(), 1);
+});
+
+test("G2 result-validation: confirmed settlement + bound validator decides completed vs paid_incomplete; unconfirmed or throwing check stays unknown", async () => {
+  const paid = () => new Response(JSON.stringify({ rows: [] }), { status: 200, headers: { "content-type": "application/json", "PAYMENT-RESPONSE": settledOk } });
+  // confirmed + validator ok -> completed
+  {
+    const h = harness(paid); const ledger = createMemoryOutcomeLedger();
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: () => ({ confirmed: true, feesAtomic: "0" }) } });
+    await guarded(RESOURCE, POST);
+    assert.equal(ledger.get(keyFor("all"))!.state, "completed");
+  }
+  // confirmed + bound validator rejects the body -> paid_incomplete
+  {
+    const h = harness(paid); const ledger = createMemoryOutcomeLedger();
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: {
+      ledger, settlement: CONFIRMED, ruleVersion: "rows.v1",
+      validate: async ({ response }) => { const j = await response.json() as { rows: unknown[] }; return { ok: j.rows.length > 0, ruleVersion: "rows.v1", reasonCodes: j.rows.length ? [] : ["empty_rows"] }; },
+    } });
+    await guarded(RESOURCE, POST);
+    const rec = ledger.get(keyFor("all"))!;
+    assert.equal(rec.state, "paid_incomplete");
+    assert.deepEqual(rec.reasonCodes, ["empty_rows"]);
+    assert.equal(rec.settlement?.settlementTx, TX);
+  }
+  // check says unconfirmed -> unknown (not not_settled), tx kept in the cause
+  {
+    const h = harness(paid); const ledger = createMemoryOutcomeLedger();
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: () => ({ confirmed: false, reasonCodes: ["tx_not_found"] }) } });
+    await guarded(RESOURCE, POST);
+    const rec = ledger.get(keyFor("all"))!;
+    assert.equal(rec.state, "unknown");
+    assert.equal(rec.unknownCause, `settlement_unconfirmed:tx_not_found:${TX}`);
+  }
+  // check throws -> unknown
+  {
+    const h = harness(paid); const ledger = createMemoryOutcomeLedger();
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: () => { throw new Error("rpc down"); } } });
+    await guarded(RESOURCE, POST);
+    const rec = ledger.get(keyFor("all"))!;
+    assert.equal(rec.state, "unknown");
+    assert.match(rec.unknownCause ?? "", /^settlement_check_threw:rpc down:/);
+  }
+});
+
+// --- G1: one unresolved attempt per operation, whatever the terms ---------------------------
+
+test("G1 changed-terms: a re-quoted price on an operation whose first payment is unknown aborts with unresolved_operation; the signer does not run again", async () => {
+  let amount = "40000";
+  const h = harness(() => { throw new Error("response lost after payment signature"); }, {}, { declared: (u) => u });
+  // re-quote by mutating the challenge the harness emits
+  const transport: typeof fetch = (input, init) => h.transport(input, init);
+  const ledger = createMemoryOutcomeLedger();
+  const client = h.client;
+  const guarded = createGuardedX402Fetch({ client, fetch: async (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    if (req.headers.get("PAYMENT-SIGNATURE")) return transport(input, init);
+    const body = { ...challenge, resource: { url: req.url }, accepts: [{ ...requirement, amount }] };
+    return new Response("{}", { status: 402, headers: { "content-type": "application/json", "PAYMENT-REQUIRED": b64(body) } });
+  }, twzrd: { disabled: true }, outcomeLedger: ledger });
+  await assert.rejects(guarded(RESOURCE, POST), /response lost/);
+  assert.equal(h.signs(), 1);
+  const first = ledger.get(keyFor("all"))!;
+  assert.equal(first.state, "unknown");
+  amount = "80000";
+  await assert.rejects(guarded(RESOURCE, POST), new RegExp(`${UNRESOLVED_OPERATION_REASON}:.*prior=${first.intentHash}`));
+  assert.equal(h.signs(), 1, "changed terms must reconcile the operation before signing");
+  assert.equal(ledger.unresolved().length, 1, "the refused re-quote opens no second record");
+  // a different request (other body) is a different operation and proceeds to the signer
+  await assert.rejects(guarded(RESOURCE, { ...POST, body: JSON.stringify({ q: "other" }) }), /response lost/);
+  assert.equal(h.signs(), 2);
+});
+
+test("G1 operation id: intentional repeats named by the buyer are separate operations; the derived key ignores terms", async () => {
+  const h = harness(() => { throw new Error("response lost after payment signature"); });
+  const ledger = createMemoryOutcomeLedger();
+  let job = "job-1";
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, operationId: () => job } });
+  await assert.rejects(guarded(RESOURCE, POST), /response lost/);
+  assert.equal(h.signs(), 1);
+  // same request, same terms, same job: blocked (same intent, unresolved)
+  await assert.rejects(guarded(RESOURCE, POST), /unresolved_attempt/);
+  assert.equal(h.signs(), 1);
+  // same request, different job: a second approved operation; the signer runs
+  job = "job-2";
+  await assert.rejects(guarded(RESOURCE, POST), /response lost/);
+  assert.equal(h.signs(), 2);
+  const [a, b] = ledger.unresolved();
+  assert.equal(a.approval.operationId, "job-1");
+  assert.equal(b.approval.operationId, "job-2");
+  assert.notEqual(operationKeyOf(a.approval), operationKeyOf(b.approval));
+  // derived key: terms excluded, request included
+  const base = { payTo: SELLER, network: BASE, asset: USDC_BASE, amountAtomic: "1", expiresAt: new Date().toISOString(), validation: { ruleVersion: "x" }, request: { method: "GET", url: "https://a.example/p", bodyHash: "", queryHash: "q" } };
+  assert.equal(operationKeyOf(base), operationKeyOf({ ...base, amountAtomic: "999", payTo: "0x" + "1".repeat(40) }));
+  assert.notEqual(operationKeyOf(base), operationKeyOf({ ...base, request: { ...base.request, queryHash: "r" } }));
+});
+
+test("G1 restart: an unknown record left by a previous process blocks a changed-price retry in a fresh binding over the same file", async () => {
+  const dir = tempDir("outcome-restart-");
+  const file = join(dir, "outcomes.jsonl");
+  let amount = "40000";
+  const mk = () => {
+    const h = harness(() => { throw new Error("response lost after payment signature"); });
+    const guarded = createGuardedX402Fetch({ client: h.client, fetch: async (input, init) => {
+      const req = input instanceof Request ? input : new Request(input, init);
+      if (req.headers.get("PAYMENT-SIGNATURE")) return h.transport(input, init);
+      const body = { ...challenge, resource: { url: req.url }, accepts: [{ ...requirement, amount }] };
+      return new Response("{}", { status: 402, headers: { "content-type": "application/json", "PAYMENT-REQUIRED": b64(body) } });
+    }, twzrd: { disabled: true }, outcomeLedger: createFileOutcomeLedger(file) });
+    return { h, guarded };
+  };
+  const p1 = mk();
+  await assert.rejects(p1.guarded(RESOURCE, POST), /response lost/);
+  assert.equal(p1.h.signs(), 1);
+  // "restart": new ledger instance over the same file, seller now quotes a new price
+  amount = "80000";
+  const p2 = mk();
+  await assert.rejects(p2.guarded(RESOURCE, POST), /unresolved_operation/);
+  assert.equal(p2.h.signs(), 0, "nothing signs after a restart while the operation is unresolved");
+  assert.equal(createFileOutcomeLedger(file).unresolved().length, 1);
 });

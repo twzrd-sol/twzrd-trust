@@ -21,9 +21,21 @@
  * (approved, signing, or unknown) aborts in the hook with `unresolved_attempt`
  * and never reaches the signer; that includes an identical concurrent call.
  *
- * Local only. Settlement facts come from the facilitator's PAYMENT-RESPONSE
- * header AS THE SELLER RELAYED IT; this module does not verify them on chain.
- * Only `success: true` with a transaction is treated as settled. A relayed
+ * Above the attempt sits the OPERATION: the logical task the buyer is paying
+ * for. By default it is the bound request alone (method, URL, query hash,
+ * body hash), terms excluded, so a seller that re-quotes the same resource at
+ * a new price while the first payment is unknown gets `unresolved_operation`
+ * in the hook, not a second signature. A buyer that intends to buy the same
+ * request twice names distinct operations through `operationId` (a job id);
+ * nothing is inferred from the request for that.
+ *
+ * Local only. Settlement facts in the PAYMENT-RESPONSE header arrive AS THE
+ * SELLER RELAYED THEM; they are merchant-reported. Without an independent
+ * `settlement` check the paid leg therefore lands as `unknown` with cause
+ * `merchant_reported_settlement:<tx>` and the transaction is kept for the
+ * reconcile step: a merchant-relayed success is not evidence of completion.
+ * With a `settlement` check that confirms the transaction, the bound
+ * validator decides between `completed` and `paid_incomplete`. A relayed
  * `success: false` is NOT treated as "not settled": a seller that settles and
  * then relays a failure would otherwise get the buyer to pay again under the
  * ledger's own blessing. It lands as `unknown`, and `markNotSettled` is left
@@ -72,8 +84,44 @@ export type OutcomeValidator = (ctx: {
   approval: ApprovalBinding;
 }) => ValidationFact | Promise<ValidationFact>;
 
+/** What an independent settlement check can say about a relayed transaction. */
+export type SettlementEvidence = {
+  /** True only when a source other than the seller (an RPC, an indexer) saw the transaction succeed. */
+  confirmed: boolean;
+  /** Merchant charge actually settled, base units; defaults to the approved amount. */
+  amountAtomic?: string;
+  /** Fees actually paid on top, base units; defaults to "0". */
+  feesAtomic?: string;
+  reasonCodes?: string[];
+};
+
+export type SettlementChecker = (ctx: {
+  transaction: string;
+  terms: RequirementTerms;
+  intentHash: string;
+  /** A clone; the caller's body is untouched. */
+  response: Response;
+}) => SettlementEvidence | null | Promise<SettlementEvidence | null>;
+
+/** Cause prefix of an `unknown` record whose only settlement evidence is the seller's relay. */
+export const MERCHANT_REPORTED_SETTLEMENT = "merchant_reported_settlement";
+/** Abort reason when another attempt of the same operation is still unresolved. */
+export const UNRESOLVED_OPERATION_REASON = "unresolved_operation";
+
 export type OutcomeLedgerX402Options = {
   ledger: OutcomeLedger;
+  /**
+   * Independent settlement evidence for the transaction the seller relayed.
+   * Without it, a paid leg can only end `unknown` (merchant-reported) or
+   * `unknown` (no header / failure relayed); nothing completes.
+   */
+  settlement?: SettlementChecker;
+  /**
+   * Name the logical operation of a call. Return a string to group retries of
+   * one task (and to separate intentional repeats); return null/undefined to
+   * derive it from the request (method, URL, query hash, body hash).
+   */
+  operationId?: (input: Parameters<typeof fetch>[0], init: RequestInit | undefined) => string | null | undefined;
   /**
    * Buyer-side validation of the paid response. Its `ruleVersion` must equal
    * `ruleVersion` here or the attempt lands as paid_incomplete. Default: the
@@ -87,7 +135,7 @@ export type OutcomeLedgerX402Options = {
 };
 
 /** `url` is the full canonical URL (hash input); the stored binding splits it. */
-export type BoundRequest = { method: string; bodyHash: string; url: string };
+export type BoundRequest = { method: string; bodyHash: string; url: string; operationId?: string };
 
 /** Reason the pre-sign hook aborts when no buyer call is bound to it. */
 export const UNBOUND_REQUEST_REASON = "unbound_request";
@@ -176,9 +224,27 @@ export function x402AttemptIntentHash(terms: RequirementTerms, request: BoundReq
     // Base units on purpose: this key must not depend on a USD price table.
     amount: terms.amountAtomic,
     payTo: terms.payTo,
-    resource: { url: request.url, method: request.method, requestHash: request.bodyHash || undefined },
+    resource: {
+      url: request.url,
+      method: request.method,
+      requestHash: request.bodyHash || undefined,
+      // A buyer-named operation is part of the attempt identity, so two
+      // intentional repeats of one request are two attempts. Absent by default.
+      operation: request.operationId || undefined,
+    },
   };
   return intentHash(intent);
+}
+
+/**
+ * The operation an approval belongs to: the buyer's explicit id, else a hash
+ * of the stored request (method, origin+path, query hash, body hash). Terms
+ * are deliberately excluded.
+ */
+export function operationKeyOf(approval: ApprovalBinding): string {
+  if (approval.operationId) return approval.operationId;
+  const r = approval.request;
+  return sha256hex(["x402-operation", r.method, r.url, r.queryHash ?? "", r.bodyHash].join("\n"));
 }
 
 export function defaultX402Validation(response: Response): ValidationFact {
@@ -233,9 +299,17 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
         // x402 exact: no buyer-side fees; gas is the facilitator's.
         maxAllInAtomic: terms.amountAtomic,
         request: { method: request.method, url: stored.url, bodyHash: request.bodyHash, queryHash: stored.queryHash },
+        ...(request.operationId ? { operationId: request.operationId } : {}),
         expiresAt: new Date(t + ttl).toISOString(),
         validation: { schemaId: options.schemaId, ruleVersion },
       };
+      // One unresolved attempt per operation, whatever the terms: a re-quoted
+      // price on a task whose first payment is unknown must reconcile first.
+      const op = operationKeyOf(approval);
+      const prior = ledger.unresolved().find((r) => r.intentHash !== h && operationKeyOf(r.approval) === op);
+      if (prior) {
+        return { abort: `${UNRESOLVED_OPERATION_REASON}:${h}:prior=${prior.intentHash} (${prior.state} since ${new Date(prior.updatedAt).toISOString()})` };
+      }
       try {
         ledger.begin({ intentHash: h, decisionId: newDecisionId(), approval, now: t });
       } catch (err) {
@@ -263,7 +337,8 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
     async bindCall(input, init, fn) {
       const url = canonicalRequestUrl(rawUrlOf(input));
       const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
-      const bound: BoundRequest = { url, method, bodyHash: await bodyHashOf(input, init) };
+      const named = options.operationId ? options.operationId(input, init) : null;
+      const bound: BoundRequest = { url, method, bodyHash: await bodyHashOf(input, init), ...(str(named) ? { operationId: str(named)! } : {}) };
       return calls.run(bound, fn);
     },
     wrapTransport(inner) {
@@ -308,6 +383,26 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
           ledger.markUnknown(h, { cause, now: now() });
           return resp;
         }
+        // The header is the seller's relay of the facilitator's answer. Without
+        // independent evidence that is a merchant-reported settlement: unknown,
+        // transaction kept for reconcile. Never completed on the relay alone.
+        if (!options.settlement) {
+          ledger.markUnknown(h, { cause: `${MERCHANT_REPORTED_SETTLEMENT}:${tx}`, now: now() });
+          return resp;
+        }
+        let evidence: SettlementEvidence | null;
+        try {
+          evidence = await options.settlement({ transaction: tx, terms, intentHash: h, response: resp.clone() });
+        } catch (err) {
+          ledger.markUnknown(h, { cause: `settlement_check_threw:${String((err as Error)?.message ?? err)}:${tx}`, now: now() });
+          return resp;
+        }
+        if (!evidence || evidence.confirmed !== true) {
+          // Not confirmed is not "not settled": the chain may still carry it. Reconcile decides.
+          const why = evidence?.reasonCodes?.length ? evidence.reasonCodes.join(",") : "unconfirmed";
+          ledger.markUnknown(h, { cause: `settlement_unconfirmed:${why}:${tx}`, now: now() });
+          return resp;
+        }
         let validation: ValidationFact;
         try {
           validation = await validate({ response: resp.clone(), intentHash: h, approval: live.approval });
@@ -315,7 +410,7 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
           validation = { ok: false, ruleVersion, reasonCodes: ["validator_threw", String((err as Error)?.message ?? err)] };
         }
         ledger.complete(h, {
-          settlement: { settlementTx: tx, amountAtomic: terms.amountAtomic, feesAtomic: "0" },
+          settlement: { settlementTx: tx, amountAtomic: str(evidence.amountAtomic) ?? terms.amountAtomic, feesAtomic: str(evidence.feesAtomic) ?? "0" },
           validation,
           now: now(),
         });

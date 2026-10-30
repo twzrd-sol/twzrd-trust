@@ -108,6 +108,14 @@ export type ApprovalBinding = {
     /** Hex hash over the headers the approval considers relevant, if any. */
     headersHash?: string;
   };
+  /**
+   * The logical operation this attempt belongs to, when the buyer named one.
+   * Absent: the operation is derived from the bound request (method, URL,
+   * query hash, body hash). One operation may hold one unresolved attempt at
+   * a time whatever the terms, so a changed-price retry cannot sign while the
+   * first payment is still unknown.
+   */
+  operationId?: string;
   /** ISO-8601 expiry of the approval. */
   expiresAt: string;
   /**
