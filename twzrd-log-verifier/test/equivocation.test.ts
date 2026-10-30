@@ -53,14 +53,35 @@ test("different sizes with a valid consistency proof = consistent", () => {
   assert.match(res.reason, /verifies/);
 });
 
-test("different sizes with a failing consistency proof = proven equivocation", () => {
+test("different sizes with a failing consistency proof = unproven, not equivocation", () => {
   const forked = entries.map((e) => e.slice());
   forked[3][0] ^= 0x01;
   const forkedOld = head(50, 100, forked);
   const path = consistencyProof(entries, 50).map((b) => bytesToHex(b));
   const res = checkEquivocation(forkedOld, head(80, 300), pub, path);
-  assert.ok(res.equivocation);
-  assert.match(res.reason, /FAILS/);
+  // A consistency path is unsigned: its failure cannot convict the log.
+  assert.equal(res.equivocation, false);
+  assert.equal(res.consistency_verified, false);
+  assert.equal(res.proof, undefined);
+  assert.ok(res.errors.length > 0, "a path that does not verify fails verification");
+  assert.match(res.reason, /not proof of equivocation/);
+});
+
+test("an honest append-only pair plus a forged path is never reported as equivocation", () => {
+  // Honest trees of sizes 1 and 3: the correct path verifies; replacing it with
+  // one arbitrary hash must not turn the same two honest heads into a "proof".
+  const small = entries.slice(0, 3);
+  const h1 = head(1, 100, small);
+  const h3 = head(3, 300, small);
+  const good = checkEquivocation(h1, h3, pub, consistencyProof(small, 1).map((b) => bytesToHex(b)));
+  assert.equal(good.equivocation, false);
+  assert.equal(good.consistency_verified, true);
+
+  const forged = checkEquivocation(h1, h3, pub, ["ab".repeat(32)]);
+  assert.equal(forged.equivocation, false);
+  assert.equal(forged.consistency_verified, false);
+  assert.equal(forged.proof, undefined);
+  assert.ok(forged.errors.length > 0);
 });
 
 test("different sizes without a proof = unproven, with guidance", () => {

@@ -65,8 +65,8 @@ test("consistency_verified is a value, not a message to grep", () => {
   assert.equal(verified.equivocation, false);
 
   const disproven = checkEquivocation(head(40, 6000, forked), head(90, 7000), dir, proofFor(40, 90));
-  assert.equal(disproven.consistency_verified, false, "a failed proof is disproven, not unknown");
-  assert.equal(disproven.equivocation, true);
+  assert.equal(disproven.consistency_verified, false, "a failed proof is evaluated, not unknown");
+  assert.equal(disproven.equivocation, false, "an unsigned path cannot convict the log");
 
   const notSupplied = checkEquivocation(head(40, 6000), head(90, 7000), dir);
   assert.equal(notSupplied.consistency_verified, undefined, "no proof supplied is not a verdict");

@@ -101,7 +101,10 @@ test("a bogus consistency proof never advances the pin", async () => {
   const res = await s.observe(head(90, 200), {
     fetchConsistencyProof: async () => [bytesToHex(new Uint8Array(32).fill(7))],
   });
-  assert.equal(res.status, "equivocation");
+  // Fails closed, but an unsigned path is not an equivocation proof.
+  assert.equal(res.status, "error");
+  assert.equal(res.equivocation, undefined);
+  assert.match(res.message, /does not verify/);
   assert.equal(s.get()?.tree_size, 50);
 });
 
@@ -113,15 +116,18 @@ test("a lagging replica is reported, not treated as an attack", async () => {
   assert.equal(s.get()?.tree_size, 90, "lag must not roll the pin back");
 });
 
-test("a rollback to an inconsistent smaller head is equivocation", async () => {
+test("a rollback to an inconsistent smaller head fails closed, without a proof bundle", async () => {
   const s = store();
   await s.observe(head(90, 200));
   const res = await s.observe(head(60, 150, forked), {
     // The log offers a proof against its real history; it cannot match the fork.
     fetchConsistencyProof: honestFetcher,
   });
-  assert.equal(res.status, "equivocation");
-  assert.ok(res.equivocation?.proof);
+  // The failing path is unsigned, so it is a fork signal, not a portable proof.
+  assert.equal(res.status, "error");
+  assert.equal(res.equivocation, undefined);
+  assert.match(res.message, /does not verify/);
+  assert.equal(s.get()?.tree_size, 90);
 });
 
 test("two roots at one tree size is equivocation with a publishable proof", async () => {

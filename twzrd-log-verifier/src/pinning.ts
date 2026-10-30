@@ -11,11 +11,14 @@
  * Two properties are load-bearing:
  *
  *  - The pin NEVER advances on an unproven step. If the consistency proof is
- *    missing or unfetchable, the observation is an error and the old pin stands.
+ *    missing, unfetchable, or does not verify, the observation is an error and
+ *    the old pin stands.
  *    Advancing on faith would silently discard the evidence the pin exists for.
  *  - A head SMALLER than the pin is not automatically an attack. Load-balanced
  *    replicas lag. The correct response is to prove consistency in the other
- *    direction (observed -> pinned); only a failure there is a fork. Treating
+ *    direction (observed -> pinned). A failure there leaves consistency
+ *    unproven: the observation is an error and the pin stays unchanged (the
+ *    path is unsigned, so it is a fork signal, not a portable proof). Treating
  *    lag as an attack cries wolf; ignoring it misses a real rollback.
  */
 import { verifySth, type SignedTreeHead } from "./sth.js";
@@ -193,10 +196,17 @@ export function createSthPinStore(opts: SthPinStoreOptions): SthPinStore {
         };
       }
       if (equivocation.consistency_verified !== true) {
-        // Proof neither verified nor convicted (malformed path, decode failure).
+        // Proof did not verify (false) or could not be decoded (undefined). Neither
+        // convicts the log: the path is unsigned. Fail closed and keep the pin.
         return {
           status: "error",
-          message: `consistency proof ${oldSize} -> ${newSize} could not be evaluated; pin unchanged`,
+          message:
+            equivocation.consistency_verified === false
+              ? `consistency proof ${oldSize} -> ${newSize} served by the log does not verify; ` +
+                "the new head is not shown to extend the pin; pin unchanged. Not a portable " +
+                "equivocation proof (the path is unsigned); keep both heads and the path, and " +
+                "treat repeated failures from the log's own endpoint as a fork signal"
+              : `consistency proof ${oldSize} -> ${newSize} could not be evaluated; pin unchanged`,
           errors: equivocation.errors.length > 0 ? equivocation.errors : [equivocation.reason],
           pinned: previous,
           previous,
