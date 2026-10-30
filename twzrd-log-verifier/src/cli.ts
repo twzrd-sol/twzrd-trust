@@ -283,8 +283,10 @@ function cmdConsistency(args: string[]): number {
   const ok = okOld && okNew && consistent;
   console.log(`RESULT          : ${ok ? "VALID (append-only between the two heads)" : "INVALID"}`);
   if (okOld && okNew && !consistent) {
-    console.log("NOTE            : two validly signed heads that fail consistency are");
-    console.log("                  a portable misbehavior proof — keep both files.");
+    console.log("NOTE            : the path does not show the new head extends the old one.");
+    console.log("                  A consistency path is unsigned, so this is not by itself a");
+    console.log("                  misbehavior proof. Keep all three files and re-fetch the");
+    console.log("                  proof from the log; repeated failure there is a fork signal.");
   }
   return ok ? 0 : 1;
 }
@@ -350,11 +352,18 @@ function cmdEquivocation(args: string[]): number {
   }
   console.log(`reason          : ${res.reason}`);
   console.log(
-    `RESULT          : ${res.equivocation ? "EQUIVOCATION PROVEN" : "no equivocation proven"}`,
+    `RESULT          : ${
+      res.equivocation
+        ? "EQUIVOCATION PROVEN"
+        : res.consistency_verified === false
+          ? "CONSISTENCY UNPROVEN (supplied path does not verify; not an equivocation proof)"
+          : "no equivocation proven"
+    }`,
   );
   if (res.equivocation && res.proof) writeProofBundle(args, res.proof);
   // Exit 0 when the check itself ran; the finding is in the output. A proven
-  // equivocation is a *successful* verification of misbehavior.
+  // equivocation is a *successful* verification of misbehavior. A supplied
+  // consistency path that does not verify is a failed verification (exit 1).
   return res.errors.length > 0 ? 1 : 0;
 }
 
@@ -635,6 +644,12 @@ async function cmdSelftest(): Promise<number> {
   );
   const crossKey = checkEquivocation(current, crossKeyEvil, dir);
   check("rotation does not launder equivocation", crossKey.equivocation && crossKey.cross_key, true);
+  const bogusPath = checkEquivocation(head(40, 6000), current, dir, ["ab".repeat(32)]);
+  check(
+    "a bogus consistency path is unproven, not equivocation",
+    !bogusPath.equivocation && bogusPath.consistency_verified === false && !bogusPath.proof,
+    true,
+  );
 
   // --- pinning / split-view ---
   const fetchProof = async (oldSize: number, newSize: number) =>

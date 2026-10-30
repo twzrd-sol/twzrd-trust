@@ -10,8 +10,10 @@ Verifies, with **no trust in TWZRD's servers or code**, that:
 - a newer tree head only appended to an older one (**consistency proof**);
 - a tree head was **anchored on Solana** by the published anchor authority (the `anchor_head` program form the live log uses, or the memo form of the spec draft);
 - heads stay verifiable **across key rotations**, via a pinned key directory;
-- two contradictory signed tree heads are a portable **misbehavior proof**
-  (**equivocation detection**) — including when different keys signed them.
+- two signed tree heads at the same tree size with different roots are a portable
+  **misbehavior proof** (**equivocation detection**) — including when different keys
+  signed them. For heads of different sizes, a consistency proof that fails to verify
+  is reported as consistency *unproven*, never as equivocation: the path is unsigned.
 
 Full source ships in this repo and in the npm tarball. Crypto comes from the
 same audited libraries as
@@ -29,7 +31,9 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
-On npm from 0.3.0 (the first published version). Run it without installing:
+On npm from 0.3.0 (the first published version). 0.3.0 reports a consistency path
+that fails to verify between heads of different sizes as proven equivocation; the
+source here (0.4.0, not yet published) reports it as consistency unproven instead. Run it without installing:
 
 ```bash
 npx -y twzrd-log-verifier selftest
