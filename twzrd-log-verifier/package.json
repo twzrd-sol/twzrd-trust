@@ -1,7 +1,7 @@
 {
   "name": "twzrd-log-verifier",
-  "version": "0.4.0",
-  "description": "Offline verifier for the TWZRD Receipt Transparency log: Merkle inclusion/consistency proofs, Signed Tree Heads with key rotation, Solana anchors, split-view pinning, equivocation detection",
+  "version": "0.5.0",
+  "description": "Offline verifier for the TWZRD Receipt Transparency log: Merkle inclusion/consistency proofs, Signed Tree Heads with key rotation, Solana anchors (authority signature and head binding verified from the transaction bytes; inclusion, success and block time as reported by your RPC), split-view pinning, equivocation detection",
   "license": "MIT",
   "type": "module",
   "main": "./dist/src/index.js",

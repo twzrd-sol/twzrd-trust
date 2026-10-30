@@ -70,3 +70,29 @@ export function b58decode(s: string): Uint8Array {
 export function b58encode(bytes: Uint8Array): string {
   return bs58.encode(bytes);
 }
+
+/**
+ * Decode standard base64 to bytes with `atob`, which every supported runtime
+ * (Node >= 18, browsers, Deno, Bun) provides; no Node `Buffer`.
+ */
+export function base64ToBytes(b64: string): Uint8Array {
+  let bin: string;
+  try {
+    bin = atob(b64);
+  } catch {
+    throw new Error("invalid base64");
+  }
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** True when `s` is a base58 string that decodes to exactly 64 bytes: the shape of a Solana transaction signature. */
+export function isTransactionSignature(s: string): boolean {
+  if (typeof s !== "string" || s.length === 0) return false;
+  try {
+    return bs58.decode(s).length === SIGNATURE_LEN;
+  } catch {
+    return false;
+  }
+}

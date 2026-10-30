@@ -45,8 +45,10 @@ import { DEFAULT_STH_PUBKEY } from "./index.js";
 const HELP = `twzrd-log-verifier — offline verifier for the TWZRD Receipt Transparency log
 
 Spec: docs/transparency-log.md (twzrd-sol/twzrd-trust). Verifies, with no trust
-in TWZRD's servers or code: inclusion proofs, consistency proofs, Solana
-anchors, and equivocation (contradictory signed tree heads).
+in TWZRD's servers or code: inclusion proofs, consistency proofs, and
+equivocation (contradictory signed tree heads). For Solana anchors it verifies
+the authority's signature and the head binding from the transaction bytes;
+inclusion, success, slot and block time are reported by the RPC you choose.
 
 commands:
   inclusion    --proof FILE [--receipt FILE | --leaf HEX32] [--sth FILE]
@@ -54,9 +56,10 @@ commands:
                response or its log_inclusion block — it names its own leaf and head
   consistency  --old FILE --new FILE --proof FILE
   anchor       --sth FILE --tx SIGNATURE --authority KEY [--program ID] [--ledger KEY] [--rpc URL]
-               the transaction must succeed and bind the head through an
-               anchor_head instruction of --program (default: the evidence-ledger
-               program) whose authority is KEY, or through an anchor memo;
+               the transaction bytes must carry the authority's signature and
+               bind the head through an anchor_head instruction of --program
+               (default: the evidence-ledger program) whose authority is KEY, or
+               through an anchor memo; the RPC must report it succeeded;
                --ledger also pins the instruction's ledger account
   equivocation --a FILE --b FILE [--proof FILE] [--proof-out FILE]
   monitor      --base-url URL --state FILE [--trust-descriptor] [--proof-out FILE]
@@ -311,7 +314,7 @@ async function cmdAnchor(args: string[]): Promise<number> {
     rpcUrl: getOpt(args, "--rpc"),
   });
   console.log(`sth signature   : ${res.sth_valid ? "valid" : "INVALID"}`);
-  console.log(`transaction     : ${res.tx_succeeded ? "succeeded" : "FAILED or no status"}`);
+  console.log(`transaction     : ${res.tx_succeeded ? "succeeded" : "FAILED or no status"} (as reported by the RPC)`);
   console.log(`anchor binding  : ${res.anchor_kind ?? "NOT FOUND"}`);
   console.log(`authority signed: ${res.authority_signed}`);
   if (res.slot !== null) console.log(`slot            : ${res.slot} (as reported by the RPC)`);

@@ -31,6 +31,8 @@ import {
   bytesToHex,
   b58decode,
   b58encode,
+  base64ToBytes,
+  isTransactionSignature,
   PUBKEY_LEN,
   SIGNATURE_LEN,
   type FetchLike,
@@ -166,7 +168,7 @@ export interface RawInstruction {
 
 /** A serialized Solana transaction, parsed here from its bytes. */
 export interface ParsedTransaction {
-  /** `"legacy"`, or the version number of a versioned message (0 today). */
+  /** `"legacy"`, or the version number of a versioned message (only 0 is accepted). */
   version: "legacy" | number;
   signatures: Uint8Array[];
   /** The signed message bytes (everything after the signatures). */
@@ -180,7 +182,8 @@ export interface ParsedTransaction {
 /**
  * Parse a serialized transaction (legacy or versioned message). Address-table
  * lookups of a versioned message are not resolved: anchors use static keys
- * only, so an instruction that references a looked-up account throws.
+ * only, so an instruction that references a looked-up account throws, and so
+ * does a versioned message other than version 0 (its layout is undefined).
  * Nothing is verified here; see `verifyTransactionSignatures`.
  */
 export function parseRawTransaction(raw: Uint8Array): ParsedTransaction {
@@ -199,6 +202,9 @@ export function parseRawTransaction(raw: Uint8Array): ParsedTransaction {
   let version: "legacy" | number = "legacy";
   if ((message[0] & 0x80) !== 0) {
     version = message[0] & 0x7f;
+    if (version !== 0) {
+      throw new Error(`unsupported message version ${version} (only legacy and version 0 transactions are accepted)`);
+    }
     m = 1;
   }
   need(message, m, 3, "message header");
@@ -294,7 +300,8 @@ export interface FetchedAnchorTx {
 
 /**
  * Fetch a transaction over plain JSON-RPC as raw bytes, check that the bytes
- * are the transaction asked for (its first signature is `txSignature`),
+ * are the transaction asked for (its first signature is `txSignature`, which
+ * must itself be a well-formed signature or nothing is fetched),
  * verify every required signature, and extract memos, anchor_head
  * instructions and signers from the bytes. Only `succeeded`, `slot` and
  * `blockTime` come from the RPC's word.
@@ -304,6 +311,9 @@ export async function fetchAnchorTransaction(
   rpcUrl: string = DEFAULT_RPC_URL,
   fetchImpl: FetchLike = fetch as unknown as FetchLike,
 ): Promise<FetchedAnchorTx> {
+  if (!isTransactionSignature(txSignature)) {
+    throw new Error("txSignature is not a Solana transaction signature (base58 of 64 bytes); nothing was fetched");
+  }
   const res = await fetchImpl(rpcUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -331,7 +341,12 @@ export async function fetchAnchorTransaction(
   if (!Array.isArray(enc) || typeof enc[0] !== "string" || enc[1] !== "base64") {
     throw new Error("RPC did not return the transaction as base64 bytes");
   }
-  const raw = new Uint8Array(Buffer.from(enc[0], "base64"));
+  let raw: Uint8Array;
+  try {
+    raw = base64ToBytes(enc[0]);
+  } catch {
+    throw new Error("RPC returned transaction bytes that are not valid base64");
+  }
   const tx = parseRawTransaction(raw);
   if (tx.signatures.length === 0) throw new Error("transaction carries no signatures");
   const identity = b58encode(tx.signatures[0]);

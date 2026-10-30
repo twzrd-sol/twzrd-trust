@@ -232,11 +232,13 @@ twzrd-log-anchor:v1:<log_id>:<tree_size>:<root_hex_no_0x>
   (hot wallet vs. signing infra).
 - An anchor is valid evidence only when the same `(log_id, tree_size, root)` also
   appears in a correctly signed STH, and only from a transaction that succeeded — the
-  anchor binds the STH to Solana's clock and ordering; the STH signature binds it to the
-  log operator.
+  anchor binds the STH to Solana's clock and ordering, as reported by the RPC the verifier
+  reads (the bytes carry the binding and the authority's signature, not the slot or block
+  time); the STH signature binds it to the log operator.
 
 Anchoring makes backdating detectable: a receipt whose inclusion proof lands under an
-anchored root existed **no later than** that anchor's block time.
+anchored root existed **no later than** that anchor's block time, as reported by the RPC
+(the bound is only as good as that RPC; see below).
 
 **What the verifier establishes, and from where.** From the transaction bytes, with no
 trust in the RPC: that the bytes are the transaction named by its signature, that the

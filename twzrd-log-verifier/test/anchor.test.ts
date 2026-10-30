@@ -18,7 +18,7 @@ import {
   verifyTransactionSignatures,
 } from "../src/anchor.js";
 import { STH_DOMAIN, signSth } from "../src/sth.js";
-import { b58decode, b58encode, bytesToHex, concatBytes, hexToBytes, u64le } from "../src/util.js";
+import { b58decode, b58encode, base64ToBytes, bytesToHex, concatBytes, hexToBytes, u64le } from "../src/util.js";
 import { merkleRoot } from "../src/merkle.js";
 
 const kp = nacl.sign.keyPair();
@@ -78,7 +78,7 @@ interface BuildOpts {
   extraKeys?: string[];
   instructions: TestIx[];
   /** Emit a versioned (v0) message with the given lookup-table section appended; default legacy. */
-  v0?: { lookups: Uint8Array; forceIndex?: number };
+  v0?: { lookups: Uint8Array; forceIndex?: number; /** Message prefix byte; default 0x80 (version 0). */ prefix?: number };
   /** Replace signature i with zeros: the shape of a transaction the RPC made up. */
   zeroSignature?: number;
 }
@@ -102,7 +102,7 @@ function buildTx(opts: BuildOpts): string {
     ),
   );
   const message = concatBytes(
-    opts.v0 ? Uint8Array.of(0x80) : new Uint8Array(0),
+    opts.v0 ? Uint8Array.of(opts.v0.prefix ?? 0x80) : new Uint8Array(0),
     header,
     compactU16(keys.length),
     ...keys.map((k) => b58decode(k)),
@@ -380,9 +380,10 @@ test("verifyAnchor: a fabricated transaction that lists the authority as signer 
 
 test("verifyAnchor: a genuine transaction served under a different signature is not the requested anchor", async () => {
   const b64 = memoTx();
-  const res = await verifyWith(b64, rpcResult(b64), { txSignature: "not-a-real-transaction" });
+  const decoy = b58encode(new Uint8Array(64).fill(7)); // well-formed, so it reaches the identity check
+  const res = await verifyWith(b64, rpcResult(b64), { txSignature: decoy });
   assert.ok(!res.valid);
-  assert.match(res.errors.join(" "), /not the requested not-a-real-transaction/);
+  assert.match(res.errors.join(" "), new RegExp(`not the requested ${decoy}`));
   assert.ok(!res.verified_locally.includes("transaction_identity"));
 });
 
@@ -465,6 +466,55 @@ test("verifyAnchor: a memo anchor in a failed transaction no longer verifies", a
   assert.equal(res.anchor_kind, "memo");
 });
 
+test("parseRawTransaction: a versioned message other than version 0 is refused even when the authority signed it", () => {
+  const v1 = buildTx({ instructions: [memoIx(memo)], v0: { lookups: compactU16(0), prefix: 0x81 } });
+  assert.throws(() => parseRawTransaction(base64ToBytes(v1)), /unsupported message version 1/);
+  const v127 = buildTx({ instructions: [memoIx(memo)], v0: { lookups: compactU16(0), prefix: 0xff } });
+  assert.throws(() => parseRawTransaction(base64ToBytes(v127)), /unsupported message version 127/);
+});
+
+test("verifyAnchor: a version-1 message is an error, not a verdict", async () => {
+  const v1 = buildTx({ instructions: [memoIx(memo)], v0: { lookups: compactU16(0), prefix: 0x81 } });
+  const res = await verifyTx(v1);
+  assert.ok(!res.valid);
+  assert.match(res.errors.join(" "), /transaction: unsupported message version 1/);
+  assert.deepEqual(res.rpc_reported, []);
+});
+
+test("verifyAnchor and fetchAnchorTransaction refuse a malformed --tx before calling the RPC", async () => {
+  for (const bad of ["not-a-real-transaction", "", "0OIl", b58encode(new Uint8Array(32)), b58encode(new Uint8Array(65))]) {
+    let calls = 0;
+    const counting = async (...a: Parameters<ReturnType<typeof mockRpc>>) => {
+      calls++;
+      return mockRpc(rpcResult(memoTx()))(...a);
+    };
+    const res = await verifyAnchor({ sth, txSignature: bad, sthPubkey: pub, anchorAuthority: AUTHORITY, fetchImpl: counting });
+    assert.ok(!res.valid, JSON.stringify(bad));
+    assert.ok(res.sth_valid);
+    assert.match(res.errors.join(" "), /transaction: txSignature is not a Solana transaction signature/);
+    assert.deepEqual(res.rpc_reported, []);
+    assert.equal(calls, 0, `fetchImpl called for ${JSON.stringify(bad)}`);
+    await assert.rejects(fetchAnchorTransaction(bad, "https://rpc.example", counting), /not a Solana transaction signature/);
+    assert.equal(calls, 0);
+  }
+  // A well-formed signature does reach the RPC.
+  let calls = 0;
+  const b64 = memoTx();
+  const counting = async (...a: Parameters<ReturnType<typeof mockRpc>>) => {
+    calls++;
+    return mockRpc(rpcResult(b64))(...a);
+  };
+  const ok = await verifyAnchor({ sth, txSignature: txSigOf(b64), sthPubkey: pub, anchorAuthority: AUTHORITY, fetchImpl: counting });
+  assert.ok(ok.valid);
+  assert.equal(calls, 1);
+});
+
+test("base64ToBytes matches Node's decoder and refuses garbage", () => {
+  const b64 = headTx();
+  assert.deepEqual(base64ToBytes(b64), new Uint8Array(Buffer.from(b64, "base64")));
+  assert.throws(() => base64ToBytes("not base64!"), /invalid base64/);
+});
+
 // --- golden vector: the live log's mainnet anchor for tree_size 2 ---------------
 
 /**
@@ -496,6 +546,7 @@ const LIVE_ANCHOR = {
 
 test("golden: the live mainnet anchor for tree_size 2 verifies from its bytes", async () => {
   const result = { slot: LIVE_ANCHOR.slot, blockTime: LIVE_ANCHOR.block_time, meta: { err: null }, transaction: [LIVE_ANCHOR.base64, "base64"], version: "legacy" };
+  assert.deepEqual(base64ToBytes(LIVE_ANCHOR.base64), new Uint8Array(Buffer.from(LIVE_ANCHOR.base64, "base64")));
   const fetched = await fetchAnchorTransaction(LIVE_ANCHOR.tx_signature, "https://rpc.example", mockRpc(result));
   assert.deepEqual(fetched.signers, [LIVE_ANCHOR.authority]);
   assert.equal(fetched.version, "legacy");
@@ -520,7 +571,7 @@ test("golden: the live mainnet anchor for tree_size 2 verifies from its bytes", 
   assert.equal(res.rpc_url, "https://rpc.example");
 
   // The same bytes under another requested signature are not this anchor.
-  const swapped = await verifyAnchor({ ...{ sth: LIVE_ANCHOR.sth, sthPubkey: LIVE_ANCHOR.sth_pubkey, anchorAuthority: LIVE_ANCHOR.authority }, txSignature: "x".repeat(87), fetchImpl: mockRpc(result) });
+  const swapped = await verifyAnchor({ ...{ sth: LIVE_ANCHOR.sth, sthPubkey: LIVE_ANCHOR.sth_pubkey, anchorAuthority: LIVE_ANCHOR.authority }, txSignature: b58encode(new Uint8Array(64).fill(7)), fetchImpl: mockRpc(result) });
   assert.ok(!swapped.valid);
   assert.match(swapped.errors.join(" "), /not the requested/);
 
