@@ -227,3 +227,29 @@ test("file ledger fails closed on a broken chain or a corrupt row", () => {
   writeFileSync(path2, "{not json\n");
   assert.throws(() => createFileOutcomeLedger(path2), /corrupt row/);
 });
+
+test("lapse(): expires only a lapsed approved row; null for a live approval and for signing/unknown/terminal rows", () => {
+  const ledger = createMemoryOutcomeLedger();
+  const approval = (expiresAt: string) => ({
+    payTo: "0x" + "a".repeat(40), network: "eip155:8453", asset: "0x" + "b".repeat(40), amountAtomic: "1",
+    request: { method: "GET", url: "https://x.example/p", bodyHash: "" }, expiresAt, validation: { ruleVersion: "r" },
+  });
+  const t0 = 1_000_000;
+  ledger.begin({ intentHash: "tiv1:live", decisionId: "d1", approval: approval(new Date(t0 + 5000).toISOString()), now: t0 });
+  ledger.begin({ intentHash: "tiv1:signing", decisionId: "d2", approval: approval(new Date(t0 + 5000).toISOString()), now: t0 });
+  ledger.markSigning("tiv1:signing", t0);
+  ledger.begin({ intentHash: "tiv1:unknown", decisionId: "d3", approval: approval(new Date(t0 + 5000).toISOString()), now: t0 });
+  ledger.markSigning("tiv1:unknown", t0);
+  ledger.markUnknown("tiv1:unknown", { cause: "lost", now: t0 });
+  ledger.begin({ intentHash: "tiv1:refused", decisionId: "d4", approval: approval(new Date(t0 + 5000).toISOString()), now: t0 });
+  ledger.refuse("tiv1:refused", { reasonCodes: ["cap"], now: t0 });
+  assert.equal(ledger.lapse("tiv1:live", t0 + 1000), null);
+  assert.equal(ledger.lapse("tiv1:missing", t0 + 10_000), null);
+  for (const h of ["tiv1:signing", "tiv1:unknown", "tiv1:refused", "tiv1:live"]) {
+    const before = ledger.get(h)!.state;
+    assert.equal(ledger.lapse(h, t0 + 10_000), h === "tiv1:live" ? ledger.get(h) : null);
+    if (h !== "tiv1:live") assert.equal(ledger.get(h)!.state, before, `${before} must not lapse on time`);
+  }
+  assert.equal(ledger.get("tiv1:live")!.state, "expired");
+  assert.deepEqual(ledger.get("tiv1:live")!.reasonCodes, ["approval_expired"]);
+});

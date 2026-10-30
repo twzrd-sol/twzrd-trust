@@ -8,7 +8,7 @@ import { x402Client } from "@x402/fetch";
 import { tempDir } from "./helpers/tmpdir.js";
 import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
 import { createFileOutcomeLedger, createMemoryOutcomeLedger } from "../src/outcome-ledger.js";
-import { MAX_APPROVAL_TTL_MS, MERCHANT_REPORTED_SETTLEMENT, MIN_APPROVAL_TTL_MS, UNRESOLVED_OPERATION_REASON, X402_PAID_RESPONSE_RULE_V1, operationKeyOf, x402AttemptIntentHash } from "../src/outcome-ledger-x402.js";
+import { MAX_APPROVAL_TTL_MS, MERCHANT_REPORTED_SETTLEMENT, MIN_APPROVAL_TTL_MS, UNRESOLVED_OPERATION_REASON, X402_PAID_RESPONSE_RULE_V1, createOutcomeLedgerX402Binding, operationKeyOf, x402AttemptIntentHash } from "../src/outcome-ledger-x402.js";
 
 const BASE = "eip155:8453";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -555,4 +555,91 @@ test("G1 restart: an unknown record left by a previous process blocks a changed-
   await assert.rejects(p2.guarded(RESOURCE, POST), /unresolved_operation/);
   assert.equal(p2.h.signs(), 0, "nothing signs after a restart while the operation is unresolved");
   assert.equal(createFileOutcomeLedger(file).unresolved().length, 1);
+});
+
+// --- review P2 (mission-revalidation 2026-10-30): expired never-signed approvals must not block changed terms ---
+
+const ctxAt = (amount: string, maxTimeoutSeconds = 5) => ({
+  selectedRequirements: { scheme: "exact", network: BASE, asset: USDC_BASE, payTo: SELLER, amount, maxTimeoutSeconds },
+});
+const URL_OP = "https://offline.example/data";
+
+test("P2: a never-signed expired approval does not indefinitely block re-quoted terms (reviewer's test)", async () => {
+  const ledger = createMemoryOutcomeLedger(); let clock = 100000;
+  const binding = createOutcomeLedgerX402Binding({ ledger, now: () => clock });
+  let firstHash = "";
+  await binding.bindCall(URL_OP, undefined, async () => { const first = binding.open(ctxAt("1000")); assert.ok(first && "intentHash" in first); firstHash = first.intentHash; });
+  clock += 6000;
+  await binding.bindCall(URL_OP, undefined, async () => {
+    const next = binding.open(ctxAt("2000"));
+    assert.ok(next && "intentHash" in next, "expired, never-signed approvals must lapse for changed terms too");
+  });
+  assert.equal(ledger.get(firstHash)!.state, "expired", "the lapse is recorded, not silently skipped");
+  assert.deepEqual(ledger.unresolved().map((r) => r.state), ["approved"]);
+});
+
+test("P2 controls: same price after expiry lapses via begin(); before expiry same and changed price are both blocked", async () => {
+  const ledger = createMemoryOutcomeLedger(); let clock = 100000;
+  const binding = createOutcomeLedgerX402Binding({ ledger, now: () => clock });
+  await binding.bindCall(URL_OP, undefined, async () => assert.ok("intentHash" in binding.open(ctxAt("1000"))!));
+  // still live: both the same intent and a re-quote are refused, nothing lapses
+  clock += 1000;
+  await binding.bindCall(URL_OP, undefined, async () => {
+    assert.match(String((binding.open(ctxAt("1000")) as { abort: string }).abort), /^unresolved_attempt/);
+    assert.match(String((binding.open(ctxAt("2000")) as { abort: string }).abort), /^unresolved_operation/);
+  });
+  assert.equal(ledger.unresolved().length, 1);
+  // past expiry, same price: begin() records expired and opens anew
+  clock += 6000;
+  await binding.bindCall(URL_OP, undefined, async () => assert.ok("intentHash" in binding.open(ctxAt("1000"))!));
+  assert.deepEqual(ledger.unresolved().map((r) => r.state), ["approved"]);
+});
+
+test("P2 controls: signing and unknown rows never lapse on time, same or changed price", async () => {
+  for (const settle of ["signing", "unknown"] as const) {
+    const ledger = createMemoryOutcomeLedger(); let clock = 100000;
+    const binding = createOutcomeLedgerX402Binding({ ledger, now: () => clock });
+    let hash = "";
+    await binding.bindCall(URL_OP, undefined, async () => {
+      const r = binding.open(ctxAt("1000")); assert.ok(r && "intentHash" in r); hash = r.intentHash;
+      binding.close(hash, undefined as unknown as Parameters<typeof binding.close>[1]); // -> signing
+    });
+    if (settle === "unknown") ledger.markUnknown(hash, { cause: "response lost", now: clock });
+    assert.equal(ledger.get(hash)!.state, settle);
+    clock += 60 * 60 * 1000; // an hour, far past the 5 s approval
+    await binding.bindCall(URL_OP, undefined, async () => {
+      assert.match(String((binding.open(ctxAt("1000")) as { abort: string }).abort), /^unresolved_attempt/);
+      assert.match(String((binding.open(ctxAt("2000")) as { abort: string }).abort), /^unresolved_operation/);
+    });
+    assert.equal(ledger.get(hash)!.state, settle, `${settle} must survive the clock`);
+    assert.equal(ledger.unresolved().length, 1);
+  }
+});
+
+test("P2 restart: an expired never-signed approval left on disk lapses for a changed price in a fresh binding; an unknown row on disk still blocks", async () => {
+  const dir = tempDir("outcome-p2-restart-");
+  const file = join(dir, "outcomes.jsonl");
+  let clock = 100000;
+  // process 1: approved, then "crash" before markSigning
+  {
+    const binding = createOutcomeLedgerX402Binding({ ledger: createFileOutcomeLedger(file), now: () => clock });
+    await binding.bindCall(URL_OP, undefined, async () => assert.ok("intentHash" in binding.open(ctxAt("1000"))!));
+  }
+  clock += 6000;
+  // process 2: changed price is evaluated, the old row is recorded expired
+  {
+    const ledger = createFileOutcomeLedger(file);
+    const binding = createOutcomeLedgerX402Binding({ ledger, now: () => clock });
+    let h2 = "";
+    await binding.bindCall(URL_OP, undefined, async () => { const r = binding.open(ctxAt("2000")); assert.ok(r && "intentHash" in r); h2 = r.intentHash; binding.close(h2, undefined as unknown as Parameters<typeof binding.close>[1]); });
+    ledger.markUnknown(h2, { cause: "response lost", now: clock });
+    const states = createFileOutcomeLedger(file).unresolved().map((r) => r.state);
+    assert.deepEqual(states, ["unknown"]);
+  }
+  clock += 6000;
+  // process 3: the unknown row blocks a third price indefinitely
+  {
+    const binding = createOutcomeLedgerX402Binding({ ledger: createFileOutcomeLedger(file), now: () => clock });
+    await binding.bindCall(URL_OP, undefined, async () => assert.match(String((binding.open(ctxAt("3000")) as { abort: string }).abort), /^unresolved_operation/));
+  }
 });

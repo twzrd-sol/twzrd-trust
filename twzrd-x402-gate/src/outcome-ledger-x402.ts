@@ -63,6 +63,7 @@ import {
   OutcomeLedgerBlockedError,
   OutcomeLedgerExpiredError,
   type ApprovalBinding,
+  type AttemptRecord,
   type OutcomeLedger,
   type ValidationFact,
 } from "./outcome-ledger.js";
@@ -305,8 +306,21 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
       };
       // One unresolved attempt per operation, whatever the terms: a re-quoted
       // price on a task whose first payment is unknown must reconcile first.
+      // An `approved` row whose expiry passed before any signer ran is not an
+      // unresolved payment (the contract's one exception): record it expired
+      // and let the new terms be evaluated. `signing` and `unknown` never
+      // lapse on time; those are exactly the rows that must keep blocking.
       const op = operationKeyOf(approval);
-      const prior = ledger.unresolved().find((r) => r.intentHash !== h && operationKeyOf(r.approval) === op);
+      let prior: AttemptRecord | undefined;
+      for (const r of ledger.unresolved()) {
+        if (r.intentHash === h || operationKeyOf(r.approval) !== op) continue;
+        if (r.state === "approved" && !(t < Date.parse(r.approval.expiresAt))) {
+          ledger.lapse(r.intentHash, t);
+          continue;
+        }
+        prior = r;
+        break;
+      }
       if (prior) {
         return { abort: `${UNRESOLVED_OPERATION_REASON}:${h}:prior=${prior.intentHash} (${prior.state} since ${new Date(prior.updatedAt).toISOString()})` };
       }

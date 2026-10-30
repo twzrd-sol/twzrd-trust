@@ -206,6 +206,13 @@ export type OutcomeLedger = {
    * settlement source of truth and found no settlement for this attempt.
    */
   markNotSettled(intentHash: string, input: { reasonCodes?: string[]; now?: number }): AttemptRecord;
+  /**
+   * approved -> expired, only when the approval's expiry has passed and no
+   * signer ran. Returns the expired record, or null when the record is not a
+   * lapsed approval (any other state, including signing and unknown, is left
+   * exactly as it is: time alone never resolves a payment).
+   */
+  lapse(intentHash: string, now?: number): AttemptRecord | null;
   /** Latest attempt on this intent hash. Earlier attempts remain in the file only. */
   get(intentHash: string): AttemptRecord | null;
   /** Every record currently in an unresolved state. Reconcile these before paying again. */
@@ -388,6 +395,11 @@ function createLedger(records: Map<string, AttemptRecord>, usedDecisions: Set<st
     },
     refuse(intentHash, { reasonCodes, now = Date.now() }) {
       return transition(intentHash, "refused", { reason_codes: reasonCodes }, now);
+    },
+    lapse(intentHash, now = Date.now()) {
+      const cur = records.get(intentHash) ?? null;
+      if (!cur || !approvedLapsed(cur, now)) return null;
+      return transition(intentHash, "expired", { reason_codes: ["approval_expired"] }, now);
     },
     markSigning(intentHash, now = Date.now()) {
       const cur = records.get(intentHash) ?? null;

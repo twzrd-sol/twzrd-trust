@@ -239,7 +239,12 @@ to buy the same request twice names the operations with the `operationId`
 option (a job id). A named id is stored in the approval and is part of the
 attempt identity, so two named repeats are two attempts; the derived key is
 never stored. The check reads the ledger's unresolved set, so it survives a
-restart over the same file.
+restart over the same file. The contract's one exception applies here too: an
+`approved` row of the same operation whose expiry passed before any signer
+ran (a crash between the approval and `markSigning`) is recorded `expired` by
+the hook (`lapse()`) and does not block the new terms. `signing` and `unknown`
+rows never lapse on time, under the same or changed terms, before or after a
+restart.
 
 ### Settlement evidence: the seller's relay never completes an attempt
 
