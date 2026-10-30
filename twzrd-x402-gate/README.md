@@ -858,6 +858,27 @@ is recorded but never compared with `paid_to`. To record a later job-status body
 and append the row yourself. A proxy that pays internally and returns 200 never
 exposes a payment header, so no row is written for it.
 
+
+#### Outcome ledger (`outcomeLedger`)
+
+Pass `outcomeLedger` to keep one durable record per payment attempt, keyed on
+the intent hash of the selected terms plus the request (URL, method, body
+hash). The `signing` row is appended before the scheme signs, so a process
+that dies mid-payment restarts with an `unknown` record, and a later call for
+the same intent is refused in the pre-sign hook (`unresolved_attempt`) until
+an operator reconciles it. A relayed `PAYMENT-RESPONSE` with `success: false`
+is also `unknown`, not "not settled": the seller relayed it. States, the
+contract and the reconcile step: `docs/OUTCOME_CONTRACT.md`.
+
+```typescript
+import { createGuardedX402Fetch, sharedFileOutcomeLedger } from "twzrd-x402-gate";
+
+const ledger = sharedFileOutcomeLedger("./outcomes.jsonl");
+const guardedFetch = createGuardedX402Fetch({ client, outcomeLedger: ledger });
+// Before paying again after a crash or timeout:
+for (const rec of ledger.unresolved()) console.log(rec.state, rec.intentHash);
+```
+
 ### Networks (Solana mainnet and Base mainnet scored)
 
 The gate **recognizes** multi-chain 402s. **Solana mainnet and Base mainnet (`eip155:8453`)** run the scored preflight. Other EVM networks do not. `eip155:137` does not run `twzrdPreflight` or the scored preflight.
@@ -1331,6 +1352,9 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `unauthorized_recipient` | `allowedRecipients` is set and `payTo` is not in it. |
 | `amount_missing_or_malformed` | A spend rule is set and the amount is not a base-unit integer. |
 | `unsupported_or_non_usdc_asset` | A spend rule is set and the asset is not USDC on that network. |
+| `unresolved_attempt:<intent hash> (<state> since <time>)` | `outcomeLedger` is set and an earlier attempt on this exact intent (same terms, URL, method and body) is still `approved`, `signing` or `unknown`. Reconcile it first; a fresh call does not bypass it. |
+| `approval_expired:<intent hash>` | `outcomeLedger` is set and the attempt's approval lapsed between the checks and signing. |
+| `hook_threw:<error name>` | `outcomeLedger` is set and a pre-sign check threw instead of answering. Recorded as `refused`; the signer did not run. |
 
 ### `twzrd.safeFetch` verdicts
 

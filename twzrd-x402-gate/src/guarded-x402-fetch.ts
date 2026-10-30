@@ -1,6 +1,8 @@
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { isTwzrdAutoGateDisabled } from "./auto-gate.js";
 import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
+import { createOutcomeLedgerX402Binding, type OutcomeLedgerX402Options } from "./outcome-ledger-x402.js";
+import type { OutcomeLedger } from "./outcome-ledger.js";
 import { toMicroUsd } from "./intent.js";
 import { PAYMENT_DECISION_SCHEMA } from "./payment-decision.js";
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
@@ -44,6 +46,18 @@ export type GuardedX402FetchOptions = {
    * `createFileFulfillmentLog(path).record` to keep a JSONL file.
    */
   onFulfillment?: (record: FulfillmentRecord) => void;
+  /**
+   * Opt-in outcome ledger (outcome-ledger.ts). One durable record per
+   * attempt, keyed on the intent hash of the selected requirement + request.
+   * The `signing` row is appended BEFORE the scheme signs; a paid retry that
+   * throws or returns no PAYMENT-RESPONSE leaves the record `unknown`, and a
+   * later call for the same intent aborts in the hook (`unresolved_attempt`)
+   * until the record is reconciled. Pass a ledger, or options with a
+   * validator for the paid response. With a ledger set, pay through the
+   * returned fetch: calling client.createPaymentPayload() directly strands a
+   * `signing` record nothing resolves. See docs/OUTCOME_CONTRACT.md.
+   */
+  outcomeLedger?: OutcomeLedger | OutcomeLedgerX402Options;
 };
 
 type SpendEntry = { at: number; micro: bigint };
@@ -305,15 +319,23 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   const hourlyCap = parseLimit(options.hourlyBudgetCap, "hourlyBudgetCap");
   const recipients = options.allowedRecipients;
   const transport = options.fetch ?? globalThis.fetch.bind(globalThis);
-  const fetchImpl = options.onFulfillment
+  const now = options.now ?? Date.now;
+  const outcome = options.outcomeLedger
+    ? createOutcomeLedgerX402Binding(
+        "begin" in options.outcomeLedger
+          ? { ledger: options.outcomeLedger, now }
+          : { now, ...options.outcomeLedger },
+      )
+    : undefined;
+  const fulfilled = options.onFulfillment
     ? wrapFetchRecordFulfillment(transport, options.onFulfillment)
     : transport;
-  const now = options.now ?? Date.now;
+  const fetchImpl = outcome ? outcome.wrapTransport(fulfilled) : fulfilled;
   const entries: SpendEntry[] = [];
   let pendingMicro = 0n;
   const twzrdHook = createTwzrdPayKitBeforePaymentHook(options.twzrd);
 
-  const guardedHook = async (
+  const innerHook = async (
     context: BeforePaymentCreationContext,
   ): Promise<BeforePaymentCreationResult> => {
     const selected = context.selectedRequirements ?? context.requirements ?? {};
@@ -381,6 +403,26 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
     }
   };
 
+  // The outcome ledger brackets the checks: begin() before them, refuse() on
+  // an abort, markSigning() (durable) when they pass and before the scheme
+  // signs. An unresolved earlier attempt on the same intent aborts here.
+  const guardedHook = async (
+    context: BeforePaymentCreationContext,
+  ): Promise<BeforePaymentCreationResult> => {
+    if (!outcome) return innerHook(context);
+    const opened = outcome.open(context);
+    if (opened && "abort" in opened) return abort(opened.abort);
+    let result: BeforePaymentCreationResult;
+    try {
+      result = await innerHook(context);
+    } catch (err) {
+      // The signer did not run: refused is accurate, and the intent is not left in `approved`.
+      if (opened) outcome.close(opened.intentHash, { abort: true, reason: `hook_threw:${(err as Error)?.name ?? "Error"}` });
+      throw err;
+    }
+    return opened ? outcome.close(opened.intentHash, result) : result;
+  };
+
   // Register our composite hook once. It applies local limits first, then the
   // same official x402 pre-sign evaluator used by AutoGate 0.9.13.
   options.client.onBeforePaymentCreation(guardedHook);
@@ -418,11 +460,16 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       }
     }
     const paying = await getPayingFetch();
-    try {
-      return await paying(input, init);
-    } catch (error) {
-      throw explainCoreSpendControls(error);
-    }
+    const run = async () => {
+      try {
+        return await paying(input, init);
+      } catch (error) {
+        throw explainCoreSpendControls(error);
+      }
+    };
+    // With a ledger, the caller's own {url, method, body} is bound to this call so the
+    // pre-sign hook and the paid leg record the request actually being paid for.
+    return outcome ? outcome.bindCall(input, init, run) : run();
   };
 }
 
