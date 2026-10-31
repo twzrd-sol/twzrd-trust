@@ -4,8 +4,8 @@
 // last one). The fetch wrapper is the documented public API, so we export only that.
 export { CLIENT_VERSION } from "./version.js";
 export {
-  createDemandDeskWallet, demandDeskMessageHash,
-  type DemandDeskWalletContext, type DemandDeskWalletAdapter,
+  createDemandDeskWallet, demandDeskMessageHash, DEMAND_DESK_REPLAY_REASON, DEMAND_DESK_REPLAY_STATES, DemandDeskReplayError,
+  type DemandDeskWalletContext, type DemandDeskWalletAdapter, type DemandDeskReplayGuard,
 } from "./demand-desk-wallet.js";
 export { createTwzrdGate, defaultGate, type TwzrdGate } from "./gate.js";
 export { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
