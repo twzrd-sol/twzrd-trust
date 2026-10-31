@@ -45,13 +45,13 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 | Know which document is current | [docs/README.md](./docs/README.md): every document in this repository, labeled canonical, historical or internal, with the versions verified on the date shown. |
 | Build or publish from this checkout | [AGENTS.md](./AGENTS.md): what is source and what is a published-artifact mirror, the one supported install, and the fork relationship with the upstream monorepo. |
 
-## Versions, verified 2026-10-30
+## Versions, verified 2026-10-31
 
 Registry `latest` as read on that date. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
 
 | Package | Registry | This tree | Role |
 |---|---|---|---|
-| `twzrd-x402-gate` | npm **0.15.0** | 0.15.0 | Buyer-side gate SDK and CLIs; the one package with source here |
+| `twzrd-x402-gate` | npm **0.16.0** | 0.16.0 | Buyer-side gate SDK and CLIs; the one package with source here |
 | `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
 | `twzrd-receipt-verifier` | npm and PyPI 1.4.4 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
 | `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.2 / PyPI 0.2.3 | 0.6.2 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
@@ -304,10 +304,10 @@ What a card is, and what it is not:
 
 | Package | Pin | Description |
 |---|---|---|
-| `twzrd-x402-gate` | **@0.15.0** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
+| `twzrd-x402-gate` | **@0.16.0** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
 | `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
-| `twzrd-mcp-server` | **@0.6.0** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
+| `twzrd-mcp-server` | **@0.6.2** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.10** | Eliza / facilitator adapter |
 
 - **Document index (what is current, what is history):** [docs/README.md](./docs/README.md)
@@ -322,7 +322,7 @@ What a card is, and what it is not:
 
 ## Contributing and change control
 
-Issues and pull requests on this repository. A sample that does not run exactly as shown is a bug. The release policy for `twzrd-x402-gate` is the manual `publish` workflow with an `expected_version` check and npm provenance; the published 0.15.0 carries a provenance attestation from this repository (`npm view twzrd-x402-gate@0.16.0 dist.attestations`). Earlier releases did not all follow that path; [AGENTS.md](./AGENTS.md) records the fork history. A change to what the gate allows or refuses ships in a minor release with a `CHANGELOG.md` entry ([policy](./twzrd-x402-gate/CHANGELOG.md#versioning-policy-from-0110)). Artifact directories are resynced from the published tarball, never hand-edited ([AGENTS.md](./AGENTS.md)). Tests pin the documentation: the current install pin, the pay-path contract, the refusal-code tables and the generated ecosystem block are all asserted by `npm test`, so a doc that drifts from the code fails CI.
+Issues and pull requests on this repository. A sample that does not run exactly as shown is a bug. The release policy for `twzrd-x402-gate` is the manual `publish` workflow with an `expected_version` check and npm provenance; the published 0.16.0 carries a provenance attestation from this repository (`npm view twzrd-x402-gate@0.16.0 dist.attestations`). Earlier releases did not all follow that path; [AGENTS.md](./AGENTS.md) records the fork history. A change to what the gate allows or refuses ships in a minor release with a `CHANGELOG.md` entry ([policy](./twzrd-x402-gate/CHANGELOG.md#versioning-policy-from-0110)). Artifact directories are resynced from the published tarball, never hand-edited ([AGENTS.md](./AGENTS.md)). Tests pin the documentation: the current install pin, the pay-path contract, the refusal-code tables and the generated ecosystem block are all asserted by `npm test`, so a doc that drifts from the code fails CI.
 
 ## License
 
