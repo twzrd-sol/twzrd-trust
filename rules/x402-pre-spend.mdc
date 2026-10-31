@@ -1,0 +1,20 @@
+---
+description: Apply when writing or reviewing code that pays for an HTTP 402 / x402 resource (wrapFetchWithPayment, @x402/core, @x402/fetch, x402-fetch, or an agent wallet that settles USDC on Solana or Base).
+alwaysApply: false
+---
+
+# Check the x402 seller before the agent pays
+
+When code pays an x402 endpoint, put a seller check in front of the signer.
+
+- New buyer code: use `createBuyerFetch` from `twzrd-x402-gate` (npm). It requires a per-call price cap
+  (`maxPricePerCall`) and a payTo allowlist (`allowedRecipients`), and it runs a free preflight before signing.
+  It fails closed: a check that cannot answer refuses, and so does a network the scorer marks unscored.
+- An existing `@x402/core` client: `installTwzrdAutoGate(client, { refuseWashFlagged: true })`.
+- On `block`, do not pay. On `warn`, stay under the cap. A seller with `wash_flagged: true` is refused.
+  `wash_flagged: null` means the seller was never evaluated, not that it is clean.
+
+To check one seller by hand, use this plugin's `twzrd-intel` MCP tools, or run `/check-seller`:
+`evaluate_x402_resource` takes the resource URL and `get_merchant_card` takes the payTo address. Neither tool
+pays or needs a key. An `unknown` decision from `evaluate_x402_resource` means the URL issued no 402, so nothing
+was evaluated; it is not a green light.
