@@ -28,21 +28,21 @@
 ## What's new (newest first)
 
 - 2026-10-30: MPP `Payment` challenge beside x402 on `/v1/intel/trust/`, `/v1/intel/verify-endpoint`; `/v1/intel/quick/`, `/v1/intel/merchant/` since 2026-10-26.
-- 2026-10-25: `twzrd-x402-gate@0.15.0` refuses missing evidence by default.
+- 2026-10-25: `twzrd-x402-gate@0.16.0` refuses missing evidence by default.
 
 ## Core product: buyer gate (install before any x402 client signs)
 
 Install the gate in your x402 client so a `block` verdict refuses the payment
 before your wallet ever signs - the refusal itself is the product working.
-Primary seat: `twzrd-x402-gate@0.15.0` + `x402-solana@3.0.1`. Hook runs after
+Primary seat: `twzrd-x402-gate@0.16.0` + `x402-solana@3.0.1`. Hook runs after
 requirement selection, before `signTransaction`. Path B success = refuse
 transcript (`signer_invocation_count=0`).
 
 ```bash
-npm install twzrd-x402-gate@0.15.0 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.16.0 x402-solana@3.0.1
 # Prove refuse-before-sign. The gate's OPTIONAL peers are not auto-installed by
 # npm, so on a cold machine run the full line first:
-#   npm install twzrd-x402-gate@0.15.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+#   npm install twzrd-x402-gate@0.16.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 
