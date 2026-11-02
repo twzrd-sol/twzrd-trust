@@ -150,6 +150,36 @@ assertPinsInRange(join(repoRoot, "plugin-trustgate/README.md"));
 assertPinsInRange(join(repoRoot, "SKILL.md"));
 
 assert.match(rootReadme, new RegExp(`twzrd-x402-gate@${versionPattern}`));
+// Bold table cells (npm **x.y.z** and **@x.y.z**) do not match twzrd-x402-gate@, so currentPins() misses them.
+assert.match(
+  rootReadme,
+  new RegExp(
+    "\\| `twzrd-x402-gate` \\| npm \\*\\*" + versionPattern + "\\*\\* \\| " + versionPattern + " \\|",
+  ),
+  "version table registry and tree cells must name package.json",
+);
+assert.match(
+  rootReadme,
+  new RegExp("\\| `twzrd-x402-gate` \\| \\*\\*@" + versionPattern + "\\*\\* \\|"),
+  "packages table must pin package.json",
+);
+const mcpVersion = (
+  JSON.parse(readFileSync(join(repoRoot, "twzrd-mcp-server/package.json"), "utf8")) as { version: string }
+).version.replace(/\./g, "\\.");
+assert.match(
+  rootReadme,
+  new RegExp("\\| `twzrd-mcp-server` \\| \\*\\*@" + mcpVersion + "\\*\\* \\|"),
+  "packages table must pin the mirrored twzrd-mcp-server version",
+);
+assert.match(
+  rootReadme,
+  new RegExp("the published " + versionPattern + " carries a provenance attestation"),
+);
+assert.match(
+  readFileSync(join(repoRoot, "docs/security-assurance.md"), "utf8"),
+  new RegExp("The install pin is now " + versionPattern + "\\b"),
+);
+assert.match(gateReadme, /twzrd-log-verifier \(0\.5\.0\+\)/);
 
 const owned = [
   join(repoRoot, "README.md"),
