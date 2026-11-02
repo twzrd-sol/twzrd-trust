@@ -45,6 +45,16 @@ import { isTrueFlag } from "./config.js";
  *     the advertised `amount`. PaymentIntent v1 binds a single amount to a
  *     single payTo, so an approved sponsored charge would move strictly more
  *     money than the decision covered.
+ *   - SPLITS are refused (`MALFORMED_CHALLENGE`). `@solana/mpp` 0.7.0
+ *     `buildChargeTransaction` subtracts `methodDetails.splits` from the
+ *     primary amount and adds a transfer to each split recipient. A non-empty
+ *     `splits` array on the request or under `methodDetails` is more than one
+ *     leg. `methodDetails.feePayer: true` is not that.
+ *   - A field named at the top level and under `methodDetails` with two
+ *     different values is refused (`MALFORMED_CHALLENGE`). That client pays
+ *     `methodDetails.network` and `methodDetails.decimals`, and the top-level
+ *     `amount`, `currency`, and `recipient`. Silent preference for one side
+ *     would approve a different payment than the wallet signs.
  *   - CLUSTER must be a known cluster name (`UNKNOWN_CLUSTER` otherwise).
  *     mppx-solana's `resolveEndpoint` ends in `return cluster`, so a
  *     seller-supplied `cluster` is used verbatim AS THE RPC ENDPOINT URL. Our
@@ -141,6 +151,28 @@ const USD_PEGGED_ASSETS: Record<string, number> = {
   // USDT mainnet
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 6,
 };
+
+/** Mints that exist on Solana mainnet. `mainnet` and `mainnet-beta` are one cluster. */
+const MAINNET_MINTS = new Set([
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+]);
+
+/** Mints that exist on Solana devnet. A mainnet mint here is a different asset. */
+const DEVNET_MINTS = new Set([
+  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+  "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr",
+]);
+
+/**
+ * `@solana/mpp` 0.7.0 `normalizeNetwork` maps both spellings to `mainnet`.
+ * They share one RPC and one mint table.
+ */
+function canonicalCluster(cluster: string): string {
+  const lower = cluster.toLowerCase();
+  if (lower === "mainnet" || lower === "mainnet-beta") return "mainnet";
+  return lower;
+}
 
 export class TwzrdMppBlockError extends Error {
   readonly code:
@@ -262,7 +294,96 @@ export function mppChallengeToIntent(
       `[twzrd] MPP guard evaluates solana/charge only; got ${challenge.method}/${challenge.intent}`,
     );
   }
-  const req = challenge.request as Partial<MppSolanaChargeRequest>;
+  const raw = (challenge.request ?? {}) as Record<string, unknown>;
+  const details =
+    raw.methodDetails && typeof raw.methodDetails === "object" && !Array.isArray(raw.methodDetails)
+      ? (raw.methodDetails as Record<string, unknown>)
+      : {};
+  // Community mppx-solana puts decimals/cluster on the request. The Solana
+  // Foundation @solana/mpp charge, which intel.twzrd.xyz sends, nests them in
+  // methodDetails. When only one side names a field, that side is used. When
+  // both name it and the values differ, refuse: @solana/mpp 0.7.0
+  // buildChargeTransaction pays methodDetails.network and methodDetails.decimals,
+  // and the top-level amount, currency, and recipient.
+  const stringField = (value: unknown): string | undefined =>
+    typeof value === "string" && value ? value : undefined;
+  const isSet = (value: unknown): boolean =>
+    (typeof value === "string" && value.length > 0) ||
+    (typeof value === "number" && Number.isFinite(value));
+  const sameScalar = (top: unknown, nested: unknown): boolean => {
+    if (typeof top === "number" && typeof nested === "number") return top === nested;
+    if (
+      (typeof top === "string" || typeof top === "number") &&
+      (typeof nested === "string" || typeof nested === "number")
+    ) {
+      return String(top) === String(nested);
+    }
+    return false;
+  };
+  const refuseIfBothDiffer = (label: string, top: unknown, nested: unknown): void => {
+    if (!isSet(top) || !isSet(nested) || sameScalar(top, nested)) return;
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      `[twzrd] MPP charge ${label} is named twice and the values differ.` +
+        " @solana/mpp pays methodDetails.network and methodDetails.decimals," +
+        " and the top-level amount, currency, and recipient." +
+        " PaymentIntent v1 cannot bind both.",
+    );
+  };
+  const hasSplits = (value: unknown): boolean => {
+    if (value == null) return false;
+    if (Array.isArray(value)) return value.length > 0;
+    return true;
+  };
+  if (hasSplits(raw.splits) || hasSplits(details.splits)) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP charge splits are refused: @solana/mpp pays each split" +
+        " recipient in addition to the primary, and PaymentIntent v1 binds one" +
+        " amount to one payTo.",
+    );
+  }
+  refuseIfBothDiffer("recipient", raw.recipient, details.recipient);
+  refuseIfBothDiffer("currency", raw.currency, details.currency);
+  refuseIfBothDiffer("amount", raw.amount, details.amount);
+  refuseIfBothDiffer("decimals", raw.decimals, details.decimals);
+  const topCluster = stringField(raw.cluster) ?? stringField(raw.network);
+  const nestedCluster = stringField(details.cluster) ?? stringField(details.network);
+  if (
+    topCluster &&
+    nestedCluster &&
+    canonicalCluster(topCluster) !== canonicalCluster(nestedCluster)
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP charge cluster is named twice and the values differ." +
+        " @solana/mpp treats mainnet and mainnet-beta as one cluster." +
+        " Any other pair is two chains, and PaymentIntent v1 cannot bind both.",
+    );
+  }
+  const req = {
+    ...(raw as Partial<MppSolanaChargeRequest>),
+    recipient: stringField(raw.recipient) ?? stringField(details.recipient),
+    currency: stringField(raw.currency) ?? stringField(details.currency),
+    amount:
+      typeof raw.amount === "string" || typeof raw.amount === "number"
+        ? raw.amount
+        : typeof details.amount === "string" || typeof details.amount === "number"
+          ? details.amount
+          : undefined,
+    decimals:
+      typeof raw.decimals === "number"
+        ? raw.decimals
+        : typeof details.decimals === "number"
+          ? details.decimals
+          : undefined,
+    // Foundation uses methodDetails.network. Community uses cluster, sometimes network.
+    cluster:
+      stringField(raw.cluster) ??
+      stringField(raw.network) ??
+      stringField(details.cluster) ??
+      stringField(details.network),
+  };
   if (
     typeof req.recipient !== "string" ||
     !req.recipient ||
@@ -277,6 +398,8 @@ export function mppChallengeToIntent(
     );
   }
 
+  // methodDetails.feePayer === true is the Foundation SOL fee-payer flag, not
+  // this second token leg. Do not fold it into `sponsored`.
   // SPONSORSHIP: mppx-solana adds a SECOND transfer of `feeTokenAmount` to the
   // sponsor's fee payer, on top of `amount` to `recipient`. PaymentIntent v1
   // binds one amount to one payTo, so approving this would authorize strictly
@@ -311,6 +434,24 @@ export function mppChallengeToIntent(
         " chain and must not inherit mainnet reputation. Known clusters: " +
         [...KNOWN_CLUSTERS].join(", "),
     );
+  }
+
+  // MINT VERSUS CLUSTER: @solana/mpp 0.7.0 resolveStablecoinMint returns a raw
+  // mint unchanged, and buildChargeTransaction will sign a seller-supplied
+  // blockhash without fetching one from the named network. A devnet label plus
+  // the mainnet USDC mint is therefore a mainnet transfer scored as devnet.
+  const canonical = canonicalCluster(cluster);
+  const mintsForCluster =
+    canonical === "mainnet" ? MAINNET_MINTS : canonical === "devnet" ? DEVNET_MINTS : null;
+  if (USD_PEGGED_ASSETS[req.currency] !== undefined) {
+    if (mintsForCluster === null || !mintsForCluster.has(req.currency)) {
+      throw new TwzrdMppBlockError(
+        "MALFORMED_CHALLENGE",
+        `[twzrd] MPP charge mint ${req.currency} is not a USD-pegged mint on ${cluster}.` +
+          " mainnet and mainnet-beta accept mainnet mints only. devnet accepts devnet" +
+          " mints only. testnet, localnet, and localhost are not scored.",
+      );
+    }
   }
 
   const pegDecimals = USD_PEGGED_ASSETS[req.currency];

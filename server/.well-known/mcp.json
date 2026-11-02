@@ -4,13 +4,13 @@
     "name": "twzrd-agent-intel",
     "version": "0.5.13"
   },
-  "description": "Model Context Protocol server for TWZRD trust memory: free pre-spend checks on Solana and Base x402 sellers. Public Streamable HTTP at https://intel.twzrd.xyz/mcp; also stdio. Free preflight + discovery tools; Path A first hop /quick 0.001 on HTTP; Path B facilitator is HTTP GET /supported (feePayer GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP) + POST /verify + POST /settle (not MCP tool names). readiness_card.next_action.command is optional data under host policy (do not stop at the free card). Gate package: twzrd-x402-gate@0.15.0. Receipt version: v7. Not a wallet or payment network. Paste-ready Path A first hop is GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.001 USDC). Optional V7: GET /v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs. Those paths are TWZRD own-wallet smoke; before a real pay put the seller payTo in the path. Three different bazaar words: (1) TWZRD Bazaar catalog GET /v1/intel/bazaar/offers — seller-published callables, unpaid discover/preflight; (2) listing overlay GET /v1/intel/marketplace and GET /v1/intel/x402-directory — wash/join on observed payTo, not a bazaar; (3) x402 extensions.bazaar on a 402 — routeTemplate metadata, not the catalog.",
+  "description": "Model Context Protocol server for TWZRD trust memory: free pre-spend checks on Solana and Base x402 sellers. Public Streamable HTTP at https://intel.twzrd.xyz/mcp; also stdio. Free preflight + discovery tools; Path A first hop /quick 0.001 on HTTP; Path B facilitator is HTTP GET /supported (feePayer GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP) + POST /verify + POST /settle (not MCP tool names). readiness_card.next_action.command is optional data under host policy (do not stop at the free card). Gate package: twzrd-x402-gate@0.16.0. Receipt version: v7. Not a wallet or payment network. Paste-ready Path A first hop is GET /v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs (0.001 USDC). Optional V7: GET /v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs. Those paths are TWZRD own-wallet smoke; before a real pay put the seller payTo in the path. Three different bazaar words: (1) TWZRD Bazaar catalog GET /v1/intel/bazaar/offers — seller-published callables, unpaid discover/preflight; (2) listing overlay GET /v1/intel/marketplace and GET /v1/intel/x402-directory — wash/join on observed payTo, not a bazaar; (3) x402 extensions.bazaar on a 402 — routeTemplate metadata, not the catalog.",
   "version": "0.5.13",
   "capabilities": {
     "trust_memory": true,
     "receipt_version": "v7",
     "preflight_screening": "allow_warn_block_advisory",
-    "gate_package": "twzrd-x402-gate@0.15.0",
+    "gate_package": "twzrd-x402-gate@0.16.0",
     "facilitator_scheme": "exact",
     "facilitator_fee_payer": "GWRLgRB6diC2zG9BaoGJsan9T8JvJCk7usFruiefnfMP",
     "facilitator_http": {
@@ -83,7 +83,7 @@
     "published_to_pypi": true,
     "pypi_package": "twzrd-agent-intel",
     "pip": "pip install twzrd-agent-intel",
-    "buyer_gate_npm": "npm i twzrd-x402-gate@0.15.0",
+    "buyer_gate_npm": "npm i twzrd-x402-gate@0.16.0",
     "auto_pay_mcp_python": "pip install twzrd-mcp",
     "auto_pay_mcp_node": "npx -y twzrd-mcp-server --help",
     "auto_pay_mcp_config_node": {
@@ -130,7 +130,14 @@
       "method": "GET",
       "price_usdc": 0.05,
       "url": "https://intel.twzrd.xyz/v1/intel/trust/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
-      "description": "If 0.05 USDC is too much, first paid hop is GET /v1/intel/quick/{pubkey} at 0.001 USDC (score-only). This route is the portable V7 receipt: x402 counterparty trust, a live reputation check before payment for any Solana wallet, scored from observed wallet age, payment history, execution evidence, and counterparty breadth. Proven on mainnet. Optional query: seller_wallet (the seller you are about to pay; arms the settle-time trust gate -- settlement is refused, charged:false, if that seller scores below threshold; the scored pubkey itself is never gated)."
+      "description": "If 0.05 USDC is too much, first paid hop is GET /v1/intel/quick/{pubkey} at 0.001 USDC (score-only). This route is the portable V7 receipt: x402 counterparty trust, a live reputation check before payment for any Solana wallet, scored from observed wallet age, payment history, execution evidence, and counterparty breadth. Proven on mainnet. Optional query: seller_wallet (the seller you are about to pay; arms the settle-time trust gate -- settlement is refused, charged:false, if that seller scores below threshold; the scored pubkey itself is never gated).",
+      "mpp": {
+        "method": "solana",
+        "intent": "charge",
+        "currency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "challenge": "WWW-Authenticate: Payment, in the same 402 as x402",
+        "fee_payer_sponsored": true
+      }
     },
     {
       "protocol": "x402",
@@ -164,7 +171,14 @@
       "method": "POST",
       "price_usdc": 0.005,
       "url": "https://intel.twzrd.xyz/v1/intel/verify-endpoint",
-      "description": "SELLER-SIDE endpoint verification with a portable signed receipt. Probes your x402 surface (discovery docs, unpaid-402 conformance, wash screen on each resolved payTo) and returns an Ed25519 AgentReadinessReceipt of what was observed - including a failing result. The payment buys the work and the artifact, never the verdict: basis is endpoint_conformance and not_a_trust_vouch is always true, so a 'ready' card is not a recommendation to pay the seller and does not affect any ranking. Free unsigned equivalent: POST /v1/agent-readiness. Verify offline with npm/PyPI twzrd-receipt-verifier."
+      "description": "SELLER-SIDE endpoint verification with a portable signed receipt. Probes your x402 surface (discovery docs, unpaid-402 conformance, wash screen on each resolved payTo) and returns an Ed25519 AgentReadinessReceipt of what was observed - including a failing result. The payment buys the work and the artifact, never the verdict: basis is endpoint_conformance and not_a_trust_vouch is always true, so a 'ready' card is not a recommendation to pay the seller and does not affect any ranking. Free unsigned equivalent: POST /v1/agent-readiness. Verify offline with npm/PyPI twzrd-receipt-verifier.",
+      "mpp": {
+        "method": "solana",
+        "intent": "charge",
+        "currency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "challenge": "WWW-Authenticate: Payment, in the same 402 as x402",
+        "fee_payer_sponsored": true
+      }
     },
     {
       "protocol": "x402",
@@ -386,5 +400,5 @@
     "url": "https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs"
   },
   "package_version": "0.5.13",
-  "gate_npm": "twzrd-x402-gate@0.15.0"
+  "gate_npm": "twzrd-x402-gate@0.16.0"
 }

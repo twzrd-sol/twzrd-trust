@@ -14,6 +14,7 @@ cannot answer. Keep the reason in a local JSONL file.
 | Using PayAI `createX402Client({ beforePayment })` | `installTwzrdAutoGate("x402-solana")` |
 | Using MPP (`Mppx.create({ onChallenge })`) | `installTwzrdAutoGate("mpp")` |
 | Using the `@x402/mcp` client | `twzrdOnPaymentRequested` |
+| Signing with your own code, without this package | [the paste-in check](#refuse-before-you-sign-without-this-package) |
 | Keeping an older integration | `createGuardedX402Fetch`, `withTwzrdGuard`, `wrapFetchWithTwzrdGate`, or `twzrd.safeFetch` |
 
 `installTwzrdAutoGate` is one function with those adapters. `twzrd.safeFetch` is
@@ -37,6 +38,17 @@ wrapper:
   preflight uses the shared default `unsupportedNetworkMode: "observe"`, so
   those same unscored networks are allowed through without a reputation score.
   If you did set a spend cap, a non-USDC asset is still refused locally.
+
+**Paid score on warn (Path A), by seat.** When a seat has a paying fetch, a
+proceeding `warn` buys the $0.001 `GET /v1/intel/quick/{payTo}` and re-decides
+on that score: below the floor, the payment is refused. The fetch/payWrap form
+of `installTwzrdAutoGate` uses your payWrap as that fetch. The x402 client,
+`"x402-solana"` and `"pay-kit"` seats, and `withTwzrdGuard`, do it when you
+pass `x402Fetch`. With a paying fetch, the same defaults also buy the $0.05
+`/trust` receipt before an allowed payment above $2.50 (a warn takes `/quick`
+instead). `escalateOnWarn: false` and `requireReceipt: false` turn those off.
+`createBuyerFetch` makes no paid call, and the `"mpp"` seat has no paid hop. Details:
+[First paid hop on warn](#first-paid-hop-on-warn-revenue-path).
 
 ## Defaults by entry point
 
@@ -64,7 +76,7 @@ different switch: only `installTwzrdAutoGate` reads them, and
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.15.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.16.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -180,6 +192,88 @@ The offline demo proves a local refusal, not outside adoption. First outside
 use requires evidence from another agent using the installed wrapper on its
 own payment path.
 
+## Refuse before you sign without this package
+
+If your agent signs with its own code, paste this in front of the signer. It
+calls the two free routes the gate calls, `POST /v1/intel/preflight` and
+`GET /v1/intel/merchant_card/{payTo}`, and refuses on the same answers that
+`createBuyerFetch` refuses on. No key, wallet, or account. It runs server-side
+(Node 18+, Deno, Bun, Workers): intel does not answer browser CORS requests
+from other origins.
+
+<!-- paste-in-preflight:start -->
+```js
+const INTEL = "https://intel.twzrd.xyz/v1/intel";
+const refuse = (why) => { throw new Error(`refuse: ${why}`); };
+
+// Call with the payTo, USDC price, and URL of the offer your client selected,
+// before your wallet signs. Returns the card, or throws to refuse.
+async function beforeYouPay({ payTo, priceUsdc, resourceUrl }) {
+  if (!(Number.isFinite(priceUsdc) && priceUsdc >= 0)) refuse("price unknown");
+  const signal = AbortSignal.timeout(2000); // slow or down = refuse
+  const headers = { "content-type": "application/json", "x-twzrd-caller": "paste-in-preflight/1" };
+  const [pf, mc] = await Promise.all([
+    fetch(`${INTEL}/preflight`, { method: "POST", headers, signal,
+      body: JSON.stringify({ seller_wallet: payTo, price_usdc: priceUsdc, resource_url: resourceUrl }) }),
+    fetch(`${INTEL}/merchant_card/${encodeURIComponent(payTo)}?full=true`, { headers, signal }),
+  ]);
+  if (!pf.ok || !mc.ok) refuse(`intel HTTP ${pf.status}/${mc.status}`);
+  const card = (await pf.json()).readiness_card ?? {};
+  const cap = card.recommended_cap_usdc;
+  if (card.decision !== "allow" && card.decision !== "warn") refuse(`decision ${card.decision}`);
+  if (card.null_reason || card.score === null) refuse(`not evaluated (${card.null_reason})`);
+  if (!((card.trust_score ?? 0) >= 40)) refuse(`score ${card.trust_score} below 40`);
+  if (card.decision === "warn" && !Number.isFinite(cap)) refuse("warn without a cap");
+  if (Number.isFinite(cap) && priceUsdc > cap) refuse(`price ${priceUsdc} over cap ${cap}`);
+  // Wash: only a measured false with full coverage is clean. null or partial is unknown.
+  const m = await mc.json();
+  const coverage = String(m.wash_confidence || m.confidence || "").trim().toLowerCase();
+  if (m.wash_flagged !== false) refuse(`wash_flagged ${m.wash_flagged}`);
+  if (coverage !== "full" || m.wash_stale === true || m.ring_evaluated === false ||
+    m.circular_flow_signals?.ring_evaluated === false) refuse(`wash coverage ${coverage || "unknown"}`);
+  return card; // allow, or warn within its cap: now let your client sign
+}
+```
+<!-- paste-in-preflight:end -->
+
+Sign only if it returns. `amount` on an x402 offer (`maxAmountRequired` in v1)
+is in atomic units, and USDC has 6 decimals on Solana and Base:
+
+```js
+await beforeYouPay({ payTo: offer.payTo, priceUsdc: Number(offer.amount) / 1e6, resourceUrl });
+```
+
+Run against live intel on 2026-10-30, it let a warn seller through at its
+0.002 cap, and refused the same seller at 5 USDC (`price 5 over cap 1`), the
+refuse fixture `CnTmHDXVEafkc8sFSzNky9w5zwk63Bk2mHZZodorjhvR`
+(`decision block`), a wallet intel had never seen (`not evaluated
+(unknown_subject)`), and a malformed address (`intel HTTP 400/400`).
+`test/readme-paste-in-preflight.test.ts` runs this block and `createBuyerFetch`
+on the same intel answers and checks that both refuse the same payments.
+
+What it leaves out, and `createBuyerFetch` does: the `payTo` allowlist,
+`maxPricePerCall`, `expectedAmount`, the hourly budget, the local decision and
+spend logs, and refusing unscored networks. Only Solana mainnet and Base
+mainnet (`eip155:8453`) are scored, so refuse any other network before you call
+it. The `x-twzrd-caller` header labels the request in TWZRD's preflight log so
+paste-in installs can be counted; remove it if you prefer.
+
+Optional, and it spends 0.001 USDC per warn from your wallet: buy the paid
+score and re-decide, as the package's Path A does. `payingFetch` is your own
+x402-paying fetch. Like `quickCheck`, it never refuses because the paid call
+failed; it refuses only on a paid score below the floor.
+
+<!-- paste-in-preflight:start -->
+```js
+async function quickOnWarn(card, payTo, payingFetch) {
+  if (card.decision !== "warn") return;
+  const body = await payingFetch(`${INTEL}/quick/${encodeURIComponent(payTo)}`)
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (typeof body?.score === "number" && body.score < 40) refuse(`paid quick score ${body.score}`);
+}
+```
+<!-- paste-in-preflight:end -->
+
 ## Other integration APIs
 
 The existing APIs below retain their own defaults and optional switches.
@@ -222,7 +316,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.15.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.16.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -261,7 +355,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.15.0
+npm install twzrd-x402-gate@0.16.0
 ```
 
 ```typescript
@@ -306,7 +400,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.15.0
+npm install twzrd-x402-gate@0.16.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -326,7 +420,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.15.0 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.16.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -483,7 +577,7 @@ Dogfood (one public live proof path):
 npm i twzrd-x402-gate
 ```
 
-This doc describes **0.15.0**. Check `npm view twzrd-x402-gate version` for the latest release.
+This doc describes **0.16.0**. Check `npm view twzrd-x402-gate version` for the latest release.
 
 ### CLI commands (package `bin`)
 
@@ -638,6 +732,9 @@ fails closed rather than approve a payment it cannot bind:
 | Non-USD-pegged asset | `UNPRICED_ASSET` | Policy ceilings are USD; the wire amount is base-unit tokens. Pricing SOL would store `asset: solana:native` beside a **dollar** `amount` and lose the token quantity actually transferred. (A 1.5 SOL charge of `1500000000` at 9 decimals would otherwise evaluate as "$1.50" and sail under a $5 ceiling while moving ~$270.) USDC/USDT only until an intent version carries token amount + quote. |
 | Unknown cluster | `UNKNOWN_CLUSTER` | mppx-solana's `resolveEndpoint` returns an unrecognized `cluster` **verbatim as the RPC endpoint URL**, and a network string containing "solana" is otherwise scored as mainnet - so `solana:https://seller-rpc.example` would inherit mainnet reputation for a chain never observed. Known cluster names only. |
 | Misdeclared decimals | `MALFORMED_CHALLENGE` | A known stablecoin declaring the wrong decimals is a discount attempt, not a rounding error. |
+| Split charge | `MALFORMED_CHALLENGE` | A non-empty `splits` list, on the request or under `methodDetails`, makes `@solana/mpp` pay extra recipients. PaymentIntent v1 binds one amount to one payTo. |
+| Disagreeing fields | `MALFORMED_CHALLENGE` | The same field on the top level and in `methodDetails` with two values. `@solana/mpp` 0.7.0 pays `methodDetails.network` and `methodDetails.decimals`, and the top-level amount, currency, and recipient. `mainnet` and `mainnet-beta` are one cluster. |
+| Mint on the wrong cluster | `MALFORMED_CHALLENGE` | A raw mint is not rewritten to the named network, and a seller-supplied blockhash is signed as-is. Mainnet mints only on mainnet. Devnet mints only on devnet. |
 
 The intent binds a **digest of the entire normalized challenge**, not just
 `realm:id` - swapping `recipient` or `amount` under the same challenge id changes
@@ -858,6 +955,27 @@ is recorded but never compared with `paid_to`. To record a later job-status body
 and append the row yourself. A proxy that pays internally and returns 200 never
 exposes a payment header, so no row is written for it.
 
+
+#### Outcome ledger (`outcomeLedger`)
+
+Pass `outcomeLedger` to keep one durable record per payment attempt, keyed on
+the intent hash of the selected terms plus the request (URL, method, body
+hash). The `signing` row is appended before the scheme signs, so a process
+that dies mid-payment restarts with an `unknown` record, and a later call for
+the same intent is refused in the pre-sign hook (`unresolved_attempt`) until
+an operator reconciles it. A relayed `PAYMENT-RESPONSE` with `success: false`
+is also `unknown`, not "not settled": the seller relayed it. States, the
+contract and the reconcile step: `docs/OUTCOME_CONTRACT.md`.
+
+```typescript
+import { createGuardedX402Fetch, sharedFileOutcomeLedger } from "twzrd-x402-gate";
+
+const ledger = sharedFileOutcomeLedger("./outcomes.jsonl");
+const guardedFetch = createGuardedX402Fetch({ client, outcomeLedger: ledger });
+// Before paying again after a crash or timeout:
+for (const rec of ledger.unresolved()) console.log(rec.state, rec.intentHash);
+```
+
 ### Networks (Solana mainnet and Base mainnet scored)
 
 The gate **recognizes** multi-chain 402s. **Solana mainnet and Base mainnet (`eip155:8453`)** run the scored preflight. Other EVM networks do not. `eip155:137` does not run `twzrdPreflight` or the scored preflight.
@@ -887,7 +1005,7 @@ dependency on the log verifier — you wire it; it receives the receipt *and* th
 response, and `twzrd-log-verifier`'s results fit the verdict shape with no adapter:
 
 ```typescript
-import { verifyLogInclusion, verifyReceiptInLog } from "twzrd-log-verifier"; // npm i twzrd-log-verifier (0.3.0+)
+import { verifyLogInclusion, verifyReceiptInLog } from "twzrd-log-verifier"; // npm i twzrd-log-verifier (0.5.0+)
 
 // Today the log serves a single signing key (the receipt issuer key); pin it out of band.
 // When v0.2 ships a key directory, pass that here instead — same call.
@@ -1331,6 +1449,9 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `unauthorized_recipient` | `allowedRecipients` is set and `payTo` is not in it. |
 | `amount_missing_or_malformed` | A spend rule is set and the amount is not a base-unit integer. |
 | `unsupported_or_non_usdc_asset` | A spend rule is set and the asset is not USDC on that network. |
+| `unresolved_attempt:<intent hash> (<state> since <time>)` | `outcomeLedger` is set and an earlier attempt on this exact intent (same terms, URL, method and body) is still `approved`, `signing` or `unknown`. Reconcile it first; a fresh call does not bypass it. |
+| `approval_expired:<intent hash>` | `outcomeLedger` is set and the attempt's approval lapsed between the checks and signing. |
+| `hook_threw:<error name>` | `outcomeLedger` is set and a pre-sign check threw instead of answering. Recorded as `refused`; the signer did not run. |
 
 ### `twzrd.safeFetch` verdicts
 

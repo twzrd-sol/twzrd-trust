@@ -5,7 +5,9 @@
  * Verifies, with no trust in TWZRD's servers or code, that:
  *  - a receipt leaf is included in a signed tree head (inclusion proof);
  *  - a newer tree head only appended to an older one (consistency proof);
- *  - a tree head was anchored on Solana by the published authority;
+ *  - a tree head was anchored by the published anchor authority (its
+ *    signature and the head binding checked from the transaction bytes;
+ *    chain inclusion, success and block time as reported by the chosen RPC);
  *  - two tree heads that contradict each other are portable proof of
  *    log misbehavior (equivocation).
  */
@@ -91,13 +93,20 @@ export {
   parseAnchorHeadData,
   formatAnchorMemo,
   anchorMatchesSth,
+  ANCHOR_RPC_REPORTED_FACTS,
+  parseRawTransaction,
+  verifyTransactionSignatures,
   fetchAnchorTransaction,
   verifyAnchor,
   type AnchorPayload,
   type AnchorHeadPayload,
   type AnchorVerifyResult,
+  type AnchorLocalFact,
+  type AnchorRpcFact,
   type FetchedAnchorHead,
   type FetchedAnchorTx,
+  type ParsedTransaction,
+  type RawInstruction,
 } from "./anchor.js";
 export { checkEquivocation, type EquivocationResult } from "./equivocation.js";
 export { hexToBytes, bytesToHex, b58decode, b58encode, type FetchLike } from "./util.js";

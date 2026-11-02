@@ -4,8 +4,8 @@
 // last one). The fetch wrapper is the documented public API, so we export only that.
 export { CLIENT_VERSION } from "./version.js";
 export {
-  createDemandDeskWallet, demandDeskMessageHash,
-  type DemandDeskWalletContext, type DemandDeskWalletAdapter,
+  createDemandDeskWallet, demandDeskMessageHash, DEMAND_DESK_REPLAY_REASON, DEMAND_DESK_REPLAY_STATES, DemandDeskReplayError,
+  type DemandDeskWalletContext, type DemandDeskWalletAdapter, type DemandDeskReplayGuard,
 } from "./demand-desk-wallet.js";
 export { createTwzrdGate, defaultGate, type TwzrdGate } from "./gate.js";
 export { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
@@ -237,6 +237,40 @@ export {
   type SpendControlResult,
 } from "./spend-control.js";
 export { createFileSpendLedger } from "./spend-ledger-file.js";
+export {
+  OUTCOME_LEDGER_SCHEMA,
+  UNRESOLVED_STATES as OUTCOME_UNRESOLVED_STATES,
+  TERMINAL_STATES as OUTCOME_TERMINAL_STATES,
+  createMemoryOutcomeLedger,
+  createFileOutcomeLedger,
+  sharedFileOutcomeLedger,
+  OutcomeLedgerBlockedError,
+  OutcomeLedgerExpiredError,
+  OutcomeLedgerTransitionError,
+  type AttemptState,
+  type AttemptRecord,
+  type ApprovalBinding,
+  type SettlementFact,
+  type ValidationFact,
+  type CanAttemptResult,
+  type OutcomeLedger,
+} from "./outcome-ledger.js";
+export {
+  createOutcomeLedgerX402Binding,
+  defaultX402Validation,
+  x402AttemptIntentHash,
+  operationKeyOf,
+  X402_PAID_RESPONSE_RULE_V1,
+  UNBOUND_REQUEST_REASON,
+  UNRESOLVED_OPERATION_REASON,
+  MERCHANT_REPORTED_SETTLEMENT,
+  type BoundRequest,
+  type OutcomeLedgerX402Options,
+  type OutcomeLedgerX402Binding,
+  type OutcomeValidator,
+  type SettlementChecker,
+  type SettlementEvidence,
+} from "./outcome-ledger-x402.js";
 export {
   createFileDecisionLedger,
   DECISION_LEDGER_SCHEMA_VERSION,
