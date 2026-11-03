@@ -93,7 +93,7 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` dist-tag: **0.16.1** once published (npm `latest` reads 0.16.0 until then; 0.16.1 is the release this PR prepares (patch: opt-in Demand Desk replay guard, no default behavior change). `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
+- `latest` dist-tag: **0.16.1** once published (npm `latest` reads 0.16.0 until then; 0.16.1 is the release this PR prepares; it is a patch: opt-in Demand Desk replay guard, no default behavior change). `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
   public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.16.1 as the

@@ -274,6 +274,24 @@ async function quickOnWarn(card, payTo, payingFetch) {
 ```
 <!-- paste-in-preflight:end -->
 
+## Demand Desk replay guard (opt-in, 0.16.1)
+
+`createDemandDeskWallet` refuses a second vault spend on the same intent hash only when you pass `replayGuard`. If you leave it out, nothing changes. The guard reads the buyer-side outcome ledger before signing. If the intent is in `signing`, `unknown`, `completed` or `paid_incomplete`, it throws `DemandDeskReplayError` (`code: "vault_spend_replay"`). An `approved` record is moved to `signing` right before the signer call.
+
+```ts
+import { createDemandDeskWallet, createMemoryOutcomeLedger, DemandDeskReplayError } from "twzrd-x402-gate";
+
+const ledger = createMemoryOutcomeLedger(); // or createFileOutcomeLedger(path)
+const wallet = createDemandDeskWallet({
+  ...adapter, // messageBytes, expectation, signTransaction, sendTransaction, isActive
+  replayGuard: {
+    ledger,
+    // must return the same key you passed to ledger.begin({ intentHash, ... })
+    intentHash: (tx, context) => intentHashFor(tx, context),
+  },
+});
+```
+
 ## Other integration APIs
 
 The existing APIs below retain their own defaults and optional switches.
