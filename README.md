@@ -47,7 +47,7 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 
 ## Versions, verified 2026-10-31
 
-Registry `latest` as read on that date. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
+Registry `latest` as read on that date; the plugin-trustgate row was refreshed on 2026-11-03 after its 0.3.11 publication. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
 
 | Package | Registry | This tree | Role |
 |---|---|---|---|
@@ -56,7 +56,7 @@ Registry `latest` as read on that date. The tree column is what this checkout mi
 | `twzrd-receipt-verifier` | npm and PyPI 1.4.4 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
 | `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.2 / PyPI 0.2.3 | 0.6.2 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
 | `@wzrd_sol/eliza-plugin` | npm 0.10.1 | 0.10.1 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
-| `@wzrd_sol/plugin-trustgate` | npm 0.3.10 | 0.3.10 | elizaOS and facilitator settle hook |
+| `@wzrd_sol/plugin-trustgate` | npm 0.3.11 | 0.3.11 | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.5.0 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
 | `twzrd-log-verifier` | npm 0.5.0 | 0.5.0 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
