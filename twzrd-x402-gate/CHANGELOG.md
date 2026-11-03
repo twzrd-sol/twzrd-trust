@@ -30,7 +30,7 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
 ## 0.16.1 - 2026-11-03 (Demand Desk replay guard, opt-in)
 
-A patch release. The guard is opt-in: it runs only when the caller passes `replayGuard` to `createDemandDeskWallet`. Without `replayGuard`, no allow or refuse outcome changes.
+Adds optional ledger-backed replay protection to `createDemandDeskWallet`. Existing callers retain their behavior; protection requires explicitly configuring `replayGuard`.
 
 - **New, opt-in: `createDemandDeskWallet({ replayGuard: { ledger, intentHash } })`.** With an
   outcome ledger (#274) attached, a vault spend whose intent hash the ledger holds in
