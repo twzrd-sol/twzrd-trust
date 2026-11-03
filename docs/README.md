@@ -3,8 +3,8 @@
 Every Markdown document in this repository, what it is for, and whether it is
 **canonical** (describes the product as it is), **historical** (a dated record,
 kept as written) or **internal** (maintainer notes, not integrator guidance).
-Versions were verified on **2026-10-26** and live-surface facts on **2026-10-24**; the
-[README](../README.md#versions-verified-2026-10-30) carries the version table.
+The version table was re-read on **2026-10-31** (registry `latest` and this tree). The earlier document pass was **2026-10-26**; live-surface facts were checked **2026-10-24**. The
+[README](../README.md#versions-verified-2026-10-31) carries the version table.
 
 A canonical document that disagrees with the code is a bug: open an issue. A
 historical document is not updated when the product moves; its banner says
@@ -62,7 +62,7 @@ These READMEs are copies of the published tarball and are re-synced, never edite
 |---|---|---|
 | [twzrd-mcp-server/README.md](../twzrd-mcp-server/README.md) | canonical mirror | `twzrd-mcp-server@0.6.2` on npm (identical on 2026-10-26) |
 | [eliza-plugin/README.md](../eliza-plugin/README.md) | canonical mirror | `@wzrd_sol/eliza-plugin@0.10.1` on npm (identical on 2026-10-26) |
-| [plugin-trustgate/README.md](../plugin-trustgate/README.md) | canonical mirror | `@wzrd_sol/plugin-trustgate`; the tree holds 0.3.9 while npm is 0.3.10, resync pending |
+| [plugin-trustgate/README.md](../plugin-trustgate/README.md) | canonical mirror | `@wzrd_sol/plugin-trustgate@0.3.10` on npm (README identical on 2026-10-31) |
 | [eliza-plugin-source/README.md](../eliza-plugin-source/README.md) | canonical | The TypeScript source the Eliza plugin is published from; `README.publish.md` beside it is the README packed into the tarball |
 
 ## Historical records

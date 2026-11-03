@@ -28,6 +28,16 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## Unreleased (Demand Desk replay guard)
+
+- **New, opt-in: `createDemandDeskWallet({ replayGuard: { ledger, intentHash } })`.** With an
+  outcome ledger (#274) attached, a vault spend whose intent hash the ledger holds in
+  `signing`, `unknown`, `completed` or `paid_incomplete` is refused before the signer runs,
+  throwing `DemandDeskReplayError` with code `vault_spend_replay`. `refused`, `expired` and
+  `not_settled` allow a new spend. An `approved` record is moved to `signing` synchronously
+  right before the signer call. Two items with the same intent hash in one batch are refused
+  (`duplicate_in_batch`), and neither is signed. Without `replayGuard`, nothing changes.
+
 ## 0.16.0 - 2026-10-30 (Foundation MPP charge reaches preflight)
 
 A minor release under the policy above: a Foundation `@solana/mpp` solana/charge
