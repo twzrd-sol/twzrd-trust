@@ -76,7 +76,7 @@ different switch: only `installTwzrdAutoGate` reads them, and
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.16.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.16.1 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -274,6 +274,24 @@ async function quickOnWarn(card, payTo, payingFetch) {
 ```
 <!-- paste-in-preflight:end -->
 
+## Demand Desk replay guard (opt-in, 0.16.1)
+
+`createDemandDeskWallet` refuses a second vault spend on the same intent hash only when you pass `replayGuard`. If you leave it out, nothing changes. The guard reads the buyer-side outcome ledger before signing. If the intent is in `signing`, `unknown`, `completed` or `paid_incomplete`, it throws `DemandDeskReplayError` (`code: "vault_spend_replay"`). An `approved` record is moved to `signing` right before the signer call.
+
+```ts
+import { createDemandDeskWallet, createMemoryOutcomeLedger, DemandDeskReplayError } from "twzrd-x402-gate";
+
+const ledger = createMemoryOutcomeLedger(); // or createFileOutcomeLedger(path)
+const wallet = createDemandDeskWallet({
+  ...adapter, // messageBytes, expectation, signTransaction, sendTransaction, isActive
+  replayGuard: {
+    ledger,
+    // must return the same key you passed to ledger.begin({ intentHash, ... })
+    intentHash: (tx, context) => intentHashFor(tx, context),
+  },
+});
+```
+
 ## Other integration APIs
 
 The existing APIs below retain their own defaults and optional switches.
@@ -316,7 +334,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.16.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.16.1 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -355,7 +373,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.16.0
+npm install twzrd-x402-gate@0.16.1
 ```
 
 ```typescript
@@ -400,7 +418,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.16.0
+npm install twzrd-x402-gate@0.16.1
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -420,7 +438,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.16.0 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.16.1 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -577,7 +595,7 @@ Dogfood (one public live proof path):
 npm i twzrd-x402-gate
 ```
 
-This doc describes **0.16.0**. Check `npm view twzrd-x402-gate version` for the latest release.
+This doc describes **0.16.1**. Check `npm view twzrd-x402-gate version` for the latest release.
 
 ### CLI commands (package `bin`)
 
