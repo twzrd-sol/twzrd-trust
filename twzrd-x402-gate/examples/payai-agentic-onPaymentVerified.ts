@@ -10,7 +10,7 @@
  *   createTwzrdSettleGuard / twzrdPayerScreen / toPayaiVerifyResult
  *
  * Usage:
- *   npm install @payai/agentic-payments twzrd-x402-gate@0.12.5
+ *   npm install @payai/agentic-payments twzrd-x402-gate@0.16.0
  *   npx tsx examples/payai-agentic-onPaymentVerified.ts
  */
 import { AgentPayments } from "@payai/agentic-payments";
