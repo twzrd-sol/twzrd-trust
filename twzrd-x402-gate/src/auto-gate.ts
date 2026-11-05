@@ -54,6 +54,8 @@ import {
   type MppOnChallengeOptions,
   type MppChallenge,
 } from "./mpp-hook.js";
+import { createTwzrdIntelligenceProvider, type TwzrdIntelligenceOptions } from "./intelligence.js";
+import type { IntelligenceProvider } from "./policy-runtime.js";
 
 /**
  * Takes a guarded (pre-pay-checked) fetch and returns the fetch your agent actually
@@ -84,8 +86,20 @@ export type InstallAutoGateOptions = InstallAutoGateFetchOptions;
 export type InstallAutoGateX402Options = InstallX402ClientHookOptions &
   TwzrdAutoGateCommonOptions;
 
-export type InstallAutoGateMppOptions = MppOnChallengeOptions &
-  TwzrdAutoGateCommonOptions;
+export type InstallAutoGateMppOptions = Omit<MppOnChallengeOptions, "intelligence"> &
+  TwzrdAutoGateCommonOptions & {
+    /**
+     * Seller intelligence for the MPP seat. Default (undefined): the same live
+     * pipeline the x402 seats run (free preflight, readiness policy,
+     * merchant_card wash refuse, unknown wash refused, intel outage fail-closed)
+     * via createTwzrdIntelligenceProvider(intelligenceOptions). Pass a provider
+     * to replace it, or `false` for local policy only (spend caps, lists,
+     * mandates; no seller scoring, no wash check), the 0.16.1 behavior.
+     */
+    intelligence?: IntelligenceProvider | false;
+    /** Config for the default provider (intelBase, fetch, failOpen, ...). */
+    intelligenceOptions?: TwzrdIntelligenceOptions;
+  };
 
 type ClientInstallState = { disabled: boolean };
 
@@ -217,7 +231,14 @@ export function installTwzrdAutoGate(
     // before TWZRD_AUTO_GATE=0 kept gating forever while the x402-client seat
     // honoured the same variable per call. This installer re-reads it per call.
     // The inner factory does not read TWZRD_AUTO_GATE or TWZRD_GATE_ENABLED.
-    const gated = createTwzrdMppOnChallenge(mppOpts);
+    const { intelligence, intelligenceOptions, ...rest } = mppOpts ?? ({} as InstallAutoGateMppOptions);
+    const gated = createTwzrdMppOnChallenge({
+      ...(rest as MppOnChallengeOptions),
+      intelligence:
+        intelligence === false
+          ? undefined
+          : (intelligence ?? createTwzrdIntelligenceProvider(intelligenceOptions)),
+    });
     return async (
       challenge: MppChallenge,
       helpers: MppOnChallengeHelpers,

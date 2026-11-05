@@ -28,6 +28,23 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.16.2 - 2026-11-05 (security: MPP seat scores the seller by default)
+
+A patch that adds a refusal to close a security defect, as the policy above allows. Through
+0.16.1 a wash-flagged seller could be paid through the MPP seat.
+
+- `installTwzrdAutoGate("mpp")` now passes `createTwzrdIntelligenceProvider()` as
+  `intelligence` when the caller gives none. The MPP seat runs the same seller pipeline as
+  the x402 seats (free preflight, readiness policy, merchant_card wash refuse, unknown wash
+  refused, outage fail-closed). Through 0.16.1 it ran local policy only (spend caps, lists,
+  mandates) unless the caller passed a provider.
+- `intelligence: false` keeps the 0.16.1 behavior. `intelligenceOptions` configures the
+  default provider (`intelBase`, `fetch`, `failOpen`, ...).
+- The low-level `createTwzrdMppOnChallenge` factory is unchanged: no provider, no remote
+  check. Callers that use it directly must pass `intelligence` to get the wash check.
+- Test: `test/mpp-autogate-intel.test.ts` (wash refused before `createCredential`, outage
+  fail-closed, `false` opt-out, caller provider wins).
+
 ## 0.16.1 - 2026-11-03 (Demand Desk replay guard, opt-in)
 
 Adds optional ledger-backed replay protection to `createDemandDeskWallet`. Existing callers retain their behavior; protection requires explicitly configuring `replayGuard`.
