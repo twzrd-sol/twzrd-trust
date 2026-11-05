@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace=twzrd-x402-gate",
-    "test": "npm run build && npm run test --workspace=twzrd-x402-gate && npm run test --workspace=twzrd-log-verifier && npm run test --workspace=@wzrd_sol/eliza-plugin-source && npm run test:eliza-pack && npm run test:artifacts && npm run test:ecosystem && npm run test:guard-vectors && npm run test:mirror-sync && npm run test:plugin-layout",
+    "test": "npm run build && npm run test --workspace=twzrd-x402-gate && npm run test --workspace=twzrd-log-verifier && npm run test --workspace=@wzrd_sol/eliza-plugin-source && npm run test:eliza-pack && npm run test:artifacts && npm run test:ecosystem && npm run test:guard-vectors && npm run test:mirror-sync && npm run test:plugin-layout && npm run test:npm-verify",
     "test:eliza-pack": "node scripts/assert-eliza-publish-pack.mjs",
     "pack:eliza": "node scripts/pack-eliza-plugin.mjs",
     "resync:eliza": "node scripts/resync-eliza-plugin.mjs",
@@ -31,7 +31,8 @@
     "audit:prod": "node scripts/audit-prod.mjs",
     "ci": "npm run build && npm run typecheck && npm test && npm run audit:prod && npm run test:quickstart",
     "test:mirror-sync": "node --test scripts/sync-intel-mirror.test.mjs",
-    "test:plugin-layout": "node --test scripts/check-plugin-layout.test.mjs"
+    "test:plugin-layout": "node --test scripts/check-plugin-layout.test.mjs",
+    "test:npm-verify": "node --test scripts/verify-live-npm-version.test.mjs"
   },
   "devDependencies": {
     "tsx": "^4.23.12",
