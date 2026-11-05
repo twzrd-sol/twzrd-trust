@@ -1,6 +1,8 @@
 # Compatibility notes — twzrd-x402-gate (current release first; the 0.9.3 → 0.9.4 default change follows)
 
-0.16.1 is the released identity of this package once published (this release PR prepares it; npm `latest` is 0.16.0 until then). It is a patch: it adds an opt-in replay guard to `createDemandDeskWallet` (`replayGuard`, refusal code `vault_spend_replay`) and changes no default allow or refuse outcome.
+0.16.2 is the released identity of this package once published (this release PR prepares it; npm `latest` is 0.16.1 until then). It is a security patch: `installTwzrdAutoGate("mpp")` now scores the seller by default (merchant_card wash refuse, unknown wash refused, outage fail-closed); through 0.16.1 a wash-flagged MPP seller could be paid. `intelligence: false` restores the 0.16.1 behavior.
+
+0.16.1 (2026-11-03) is a patch: it adds an opt-in replay guard to `createDemandDeskWallet` (`replayGuard`, refusal code `vault_spend_replay`) and changes no default allow or refuse outcome.
 
 0.16.0 (2026-10-30) lets a Foundation `@solana/mpp` solana/charge, with `decimals` and `network` under `methodDetails`, reach preflight instead of throwing `MALFORMED_CHALLENGE`. `methodDetails.feePayer: true` stays a SOL fee-payer flag and is not `SPONSORED_CHARGE`. A non-empty `splits` list, and a field named twice with two values, are `MALFORMED_CHALLENGE`. That is an allow outcome a `0.15.0` install never had, so it ships as a minor. `^0.15.0` ranges never install it.
 
@@ -93,12 +95,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` dist-tag: **0.16.1** once published (npm `latest` reads 0.16.0 until then; 0.16.1 is the release this PR prepares; it is a patch: opt-in Demand Desk replay guard, no default behavior change). `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
+- `latest` dist-tag: **0.16.2** once published (npm `latest` reads 0.16.1 until then; 0.16.2 is the release this PR prepares; it is a security patch: the MPP auto-gate seat adds the default seller wash refusal). `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.16.1 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.16.2 as the
   maintained line (0.11.2 and 0.11.3 are deprecated on npm for security fixes).
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.16.1`) if you want
+  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.16.2`) if you want
   no change at all.
