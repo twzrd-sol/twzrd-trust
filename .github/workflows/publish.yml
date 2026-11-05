@@ -112,16 +112,12 @@ jobs:
           npm publish --access public --provenance
 
       - name: Verify against the live registry
-        # npm's registry is eventually consistent: poll with a deadline
-        run: |
-          for i in $(seq 1 18); do
-            LIVE=$(npm view twzrd-x402-gate@${{ inputs.expected_version }} version 2>/dev/null || true)
-            if [ "$LIVE" = "${{ inputs.expected_version }}" ]; then
-              echo "Verified live: twzrd-x402-gate@$LIVE (attempt $i)"
-              exit 0
-            fi
-            echo "Attempt $i/18: registry does not show ${{ inputs.expected_version }} yet, retrying in 10s..."
-            sleep 10
-          done
-          echo "::error::Registry still does not show ${{ inputs.expected_version }} after 3 minutes -- publish may have failed. Check manually."
-          exit 1
+        # Run 41740588074: publish of 0.16.1 succeeded at 23:38:20Z (npm:
+        # "may take a few minutes to become available"). The inline 18×10s
+        # poll ended 23:41:25Z; the registry recorded 0.16.1 at 23:41:29Z.
+        # Shared poller: ~10 min deadline, backoff, cache clear, npm view
+        # plus registry tarball/dist-tags. Does not publish.
+        working-directory: .
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: bash scripts/verify-live-npm-version.sh twzrd-x402-gate "$EXPECTED_VERSION"
