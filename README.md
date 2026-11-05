@@ -1,5 +1,12 @@
 # TWZRD
 
+> **Muse pilot (Meta Global AI Developer Hackathon):** a read-only MCP connector at
+> `https://intel.twzrd.xyz/muse/mcp` with 6 tools covering one listing (Vuori Kore Short,
+> Ink, US). `check_listing` returns `advertised`, `check_failed`, or `unknown_seller`, and
+> every result carries `authorizes_spend: false`. Discovery:
+> [`/.well-known/mcp.json`](https://intel.twzrd.xyz/.well-known/mcp.json).
+> Demo: [video](https://youtu.be/1RC4KLoi0gI).
+
 Pre-spend trust for agents that buy. Before an agent pays an x402 seller or
 buys a product from a store, TWZRD answers one question from public evidence:
 should this payment go ahead? The buyer-side gate turns that answer into a
