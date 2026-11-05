@@ -122,5 +122,6 @@ jobs:
 
       - name: Verify against the live registry
         # Run 39886755826: 18×10s ended 2026-10-23T01:59:31Z; npm recorded
-        # 0.8.1 at 2026-10-23T02:00:32Z. The script's default 36×10s covers that.
+        # 0.8.1 at 2026-10-23T02:00:32Z. The shared poller's ~10 min backoff
+        # window covers that lag. It does not publish.
         run: bash scripts/verify-live-npm-version.sh @wzrd_sol/eliza-plugin "${{ steps.ver.outputs.expected }}"
