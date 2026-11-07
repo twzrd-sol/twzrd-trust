@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolve } from "node:path";
 import { resolveConfig } from "./config.js";
-import { createFileDecisionLedger, type DecisionLedgerRow } from "./decision-ledger-file.js";
+import { sharedFileDecisionLedger, type DecisionLedgerRow } from "./decision-ledger-file.js";
 import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
 import { toMicroUsd } from "./intent.js";
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
@@ -68,12 +68,13 @@ type Attempt = {
   recorded: boolean;
   blocked?: BuyerFetchBlockedError;
   approvedForSigning?: boolean;
+  /** decision_id of the durable allow/warn row that permitted signing. */
+  decisionId?: string;
   input: { resource: string; pay_to?: string; network?: string; amount_micro?: string };
 };
 
 const clients = new WeakSet<object>();
 const pending = new WeakMap<SpendLedger, Map<string, bigint>>();
-const logs = new Map<string, ReturnType<typeof createFileDecisionLedger>>();
 const HOUR_MS = 3_600_000;
 
 function limit(value: string, name: string): bigint {
@@ -105,6 +106,19 @@ async function expectedMicro(
   return toMicroUsd(value);
 }
 
+/** `success` and `transaction` from a base64-JSON PAYMENT-RESPONSE; null when absent or unreadable. */
+function paymentResponseOf(response: Response): { success: boolean; transaction?: unknown; network?: unknown } | null {
+  const header = response.headers.get("PAYMENT-RESPONSE") || response.headers.get("X-PAYMENT-RESPONSE");
+  if (!header) return null;
+  try {
+    const value: unknown = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+    const settle = value as Record<string, unknown>;
+    if (typeof settle.success !== "boolean") return null;
+    return { success: settle.success, transaction: settle.transaction, network: settle.network };
+  } catch { return null; }
+}
+
 function recipientKey(value: string): string {
   return value.startsWith("0x") ? value.toLowerCase() : value;
 }
@@ -115,6 +129,9 @@ function recipientKey(value: string): string {
  * No paid scores, delivery capture or decision-reporting request is made.
  * Spend is committed before signing and conservatively retained on failure;
  * it records authorized attempts, not confirmed onchain settlement.
+ * When the paid response carries a PAYMENT-RESPONSE with a boolean success,
+ * an `x402_settlement` row with the facilitator-reported status and tx is
+ * appended, linked by decision_id; a missing header leaves no such row.
  */
 export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
   if (!options?.client || typeof options.client.onBeforePaymentCreation !== "function") {
@@ -137,9 +154,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
   const spendPath = resolve(options.spendLedgerFile ?? ".twzrd/spend.jsonl");
   if (decisionPath === spendPath) throw new TypeError("decisionFile and spendLedgerFile must be different files");
   const ledger = sharedFileSpendLedger(spendPath);
-  let log = logs.get(decisionPath);
-  if (!log) logs.set(decisionPath, (log = createFileDecisionLedger(decisionPath, { flushBeforeExit: false })));
-  const decisions = log;
+  const decisions = sharedFileDecisionLedger(decisionPath, { flushBeforeExit: false });
   const scope = `buyer-fetch:${options.budgetScope ?? "default"}`;
   let reservations = pending.get(ledger);
   if (!reservations) pending.set(ledger, (reservations = new Map()));
@@ -167,10 +182,11 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
 
   async function record(attempt: Attempt, outcome: DecisionLedgerRow["outcome"], reason: string): Promise<void> {
     try {
-      decisions.record({
+      const row = decisions.record({
         outcome, reason_codes: [reason], policy_version: "buyer-fetch.v2",
         input: attempt.input, signer_invocations: 0,
       });
+      if (outcome === "allow" || outcome === "warn") attempt.decisionId = row.decision_id;
       // A local record must be durable before this wrapper permits signing.
       await decisions.flush();
       attempt.recorded = true;
@@ -249,6 +265,20 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
       return refuse(current, "payment_without_approval");
     }
     const response = await raw(request, { redirect: "error" });
+    if (current?.approvedForSigning && current.decisionId &&
+      (request.headers.has("payment-signature") || request.headers.has("x-payment"))) {
+      const settle = paymentResponseOf(response);
+      if (settle) {
+        // Evidence only, never awaited: the response is already paid, so a slow or hung disk must
+        // not hold it. The row is queued; the ledger's scheduled flush writes it, and a write error
+        // surfaces on the next awaited flush (the next pre-sign decision fails closed) or on an
+        // explicit sharedFileDecisionLedger(decisionFile).flush() at shutdown.
+        try {
+          decisions.recordX402Settlement({ decision_id: current.decisionId, http_status: response.status,
+            network: settle.network, success: settle.success, transaction: settle.transaction });
+        } catch { /* the decision row already stands; settlement stays unrecorded */ }
+      }
+    }
     if (response.status === 402) {
       const attempt = attempts.getStore();
       if (attempt) attempt.challengeSeen = true;

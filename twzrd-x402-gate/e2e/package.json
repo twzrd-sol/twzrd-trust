@@ -1,0 +1,23 @@
+{
+  "name": "twzrd-x402-gate-e2e",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Real-runtime proof harness for the twzrd-x402-gate @x402/mcp pre-sign hook. NOT part of the published package. `block` phase is free (real production preflight, zero signing); `settle` phase spends one real $0.001 USDC payment on Solana mainnet and requires TWZRD_E2E_CONFIRM_SPEND=1.",
+  "type": "module",
+  "scripts": {
+    "proof:block": "tsx mcp-presign-proof.ts block",
+    "proof:settle": "tsx mcp-presign-proof.ts settle"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@solana/kit": "^5.1.0",
+    "@x402/core": "2.17.0",
+    "@x402/mcp": "2.17.0",
+    "@x402/svm": "2.17.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

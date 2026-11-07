@@ -2,7 +2,7 @@ import { isTrueFlag } from "./config.js";
 /**
  * TWZRD Payment Control on the Machine Payments Protocol (MPP) client path.
  *
- * Narrow scope (deliberate): Solana `charge` only. MPP's client SDK (`mppx`)
+ * Narrow scope (deliberate): Solana `charge` and Tempo `charge` only. MPP's client SDK (`mppx`)
  * signs AND broadcasts the Solana transaction inside `createCredential()`, so
  * the last deterministic checkpoint before money moves is the `onChallenge`
  * callback of `Mppx.create`. The guard returned by `createTwzrdMppOnChallenge`
@@ -16,7 +16,7 @@ import { isTrueFlag } from "./config.js";
  *              `treatWarnAsBlock: true` to refuse on warn too.
  *   - allow  → the guard calls `helpers.createCredential()` itself and returns
  *              the credential for the exact challenge it evaluated.
- *   - other methods/intents (tempo, stripe, session) → fail-closed by default
+ *   - other methods/intents (stripe, session) → fail-closed by default
  *              (`UNEVALUATED_METHOD`); opt out with `allowUnevaluated: true`.
  *
  * SCOPE LIMIT (honest): the guard is authoritative only when no
@@ -71,9 +71,18 @@ import { isTrueFlag } from "./config.js";
  */
 
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 import type { DecisionSigner, PaymentDecision } from "./decision-token.js";
-import { canonicalJson, type PaymentIntent } from "./intent.js";
+import { canonicalJson, toMicroUsd, type PaymentIntent } from "./intent.js";
+import {
+  createDefaultMppFulfillmentLedgerSink,
+  sharedFileDecisionLedger,
+} from "./decision-ledger-file.js";
+import {
+  createTwzrdIntelligenceProvider,
+  type TwzrdIntelligenceOptions,
+} from "./intelligence.js";
 import {
   evaluateIntent,
   type IntelligenceProvider,
@@ -117,6 +126,17 @@ export type MppSolanaChargeRequest = {
   sponsorPath?: string;
   feeTokenAmount?: string;
   feePayer?: string;
+};
+
+/** Structural mirror of the normalized mppx Tempo `charge` request. */
+export type MppTempoChargeRequest = {
+  /** TIP-20 base units, serialized as a decimal integer string. */
+  amount: string;
+  currency: string;
+  recipient: string;
+  methodDetails?: Record<string, unknown>;
+  description?: string;
+  externalId?: string;
 };
 
 /** mppx-solana's native-SOL sentinel (NATIVE_SOL_CURRENCY). */
@@ -164,6 +184,41 @@ const DEVNET_MINTS = new Set([
   "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr",
 ]);
 
+/** Tempo chain ids accepted by the client and the gate's known USD TIP-20 list. */
+const TEMPO_USD_ASSETS: Readonly<Record<number, ReadonlySet<string>>> = {
+  // mppx 0.17's default Tempo charge offers (OUSD, USDC.e) on mainnet and
+  // (OUSD, pathUSD) on Moderato. pathUSD is also deployed on mainnet.
+  4217: new Set([
+    "0x20c0000000000000000000006a37da5c996874be", // OUSD
+    "0x20c000000000000000000000b9537d11c60e8b50", // USDC.e
+    "0x20c0000000000000000000000000000000000000", // pathUSD
+  ]),
+  42431: new Set([
+    "0x20c0000000000000000000006a37da5c996874be", // OUSD
+    "0x20c0000000000000000000000000000000000000", // pathUSD
+  ]),
+};
+
+const TEMPO_REQUEST_FIELDS = new Set([
+  "amount",
+  "currency",
+  "recipient",
+  "description",
+  "externalId",
+  "methodDetails",
+  "network",
+  "chainId",
+]);
+const TEMPO_METHOD_DETAIL_FIELDS = new Set([
+  "chainId",
+  "feePayer",
+  "machineTokenEnabled",
+  "memo",
+  "splits",
+  "supportedModes",
+  "network",
+]);
+
 /**
  * `@solana/mpp` 0.7.0 `normalizeNetwork` maps both spellings to `mainnet`.
  * They share one RPC and one mint table.
@@ -183,7 +238,9 @@ export class TwzrdMppBlockError extends Error {
     /** Sponsored charge: a second, unbindable transfer to the sponsor. */
     | "SPONSORED_CHARGE"
     /** Cluster is not a known cluster name (i.e. it is a raw RPC endpoint). */
-    | "UNKNOWN_CLUSTER";
+    | "UNKNOWN_CLUSTER"
+    | "UNKNOWN_CHAIN"
+    | "DECISION_LOG_UNAVAILABLE";
   readonly reasonCodes?: string[];
   readonly decisionId?: string;
 
@@ -223,7 +280,10 @@ function baseUnitsToDecimal(units: string, decimals: number): string {
   const scale = 10n ** BigInt(decimals);
   const value = BigInt(t);
   const whole = value / scale;
-  const frac = (value % scale).toString().padStart(decimals, "0").replace(/0+$/, "");
+  const frac = (value % scale)
+    .toString()
+    .padStart(decimals, "0")
+    .replace(/0+$/, "");
   return frac ? `${whole}.${frac}` : `${whole}`;
 }
 
@@ -234,6 +294,8 @@ export type MppIntentContext = {
   method?: string;
   /** Spend purpose (matched against mandate.purposes). */
   purpose?: string;
+  /** Clock used to reject an expired challenge (Unix ms). */
+  now?: number;
 };
 
 /**
@@ -261,7 +323,9 @@ export function mppChallengeDigest(challenge: MppChallenge): string {
         .map((k) => [k, req[k] ?? null]),
     ),
   };
-  return createHash("sha256").update(canonicalJson(normalized), "utf8").digest("hex");
+  return createHash("sha256")
+    .update(canonicalJson(normalized), "utf8")
+    .digest("hex");
 }
 
 /** Structural deep-freeze so telemetry cannot mutate the challenge mid-flight. */
@@ -288,6 +352,9 @@ export function mppChallengeToIntent(
   challenge: MppChallenge,
   ctx?: MppIntentContext,
 ): PaymentIntent {
+  if (challenge.method === "tempo") {
+    return mppTempoChargeToIntent(challenge, ctx);
+  }
   if (challenge.method !== "solana" || challenge.intent !== "charge") {
     throw new TwzrdMppBlockError(
       "UNEVALUATED_METHOD",
@@ -296,7 +363,9 @@ export function mppChallengeToIntent(
   }
   const raw = (challenge.request ?? {}) as Record<string, unknown>;
   const details =
-    raw.methodDetails && typeof raw.methodDetails === "object" && !Array.isArray(raw.methodDetails)
+    raw.methodDetails &&
+    typeof raw.methodDetails === "object" &&
+    !Array.isArray(raw.methodDetails)
       ? (raw.methodDetails as Record<string, unknown>)
       : {};
   // Community mppx-solana puts decimals/cluster on the request. The Solana
@@ -311,7 +380,8 @@ export function mppChallengeToIntent(
     (typeof value === "string" && value.length > 0) ||
     (typeof value === "number" && Number.isFinite(value));
   const sameScalar = (top: unknown, nested: unknown): boolean => {
-    if (typeof top === "number" && typeof nested === "number") return top === nested;
+    if (typeof top === "number" && typeof nested === "number")
+      return top === nested;
     if (
       (typeof top === "string" || typeof top === "number") &&
       (typeof nested === "string" || typeof nested === "number")
@@ -320,7 +390,11 @@ export function mppChallengeToIntent(
     }
     return false;
   };
-  const refuseIfBothDiffer = (label: string, top: unknown, nested: unknown): void => {
+  const refuseIfBothDiffer = (
+    label: string,
+    top: unknown,
+    nested: unknown,
+  ): void => {
     if (!isSet(top) || !isSet(nested) || sameScalar(top, nested)) return;
     throw new TwzrdMppBlockError(
       "MALFORMED_CHALLENGE",
@@ -348,7 +422,8 @@ export function mppChallengeToIntent(
   refuseIfBothDiffer("amount", raw.amount, details.amount);
   refuseIfBothDiffer("decimals", raw.decimals, details.decimals);
   const topCluster = stringField(raw.cluster) ?? stringField(raw.network);
-  const nestedCluster = stringField(details.cluster) ?? stringField(details.network);
+  const nestedCluster =
+    stringField(details.cluster) ?? stringField(details.network);
   if (
     topCluster &&
     nestedCluster &&
@@ -368,7 +443,8 @@ export function mppChallengeToIntent(
     amount:
       typeof raw.amount === "string" || typeof raw.amount === "number"
         ? raw.amount
-        : typeof details.amount === "string" || typeof details.amount === "number"
+        : typeof details.amount === "string" ||
+            typeof details.amount === "number"
           ? details.amount
           : undefined,
     decimals:
@@ -442,7 +518,11 @@ export function mppChallengeToIntent(
   // the mainnet USDC mint is therefore a mainnet transfer scored as devnet.
   const canonical = canonicalCluster(cluster);
   const mintsForCluster =
-    canonical === "mainnet" ? MAINNET_MINTS : canonical === "devnet" ? DEVNET_MINTS : null;
+    canonical === "mainnet"
+      ? MAINNET_MINTS
+      : canonical === "devnet"
+        ? DEVNET_MINTS
+        : null;
   if (USD_PEGGED_ASSETS[req.currency] !== undefined) {
     if (mintsForCluster === null || !mintsForCluster.has(req.currency)) {
       throw new TwzrdMppBlockError(
@@ -503,6 +583,256 @@ export function mppChallengeToIntent(
   };
 }
 
+/**
+ * Normalize a Tempo `charge` challenge into PaymentIntent v1.
+ *
+ * Only the USD TIP-20 currencies used by mppx's Tempo charge defaults are
+ * priced, with the protocol's fixed six decimals. Split payments and the
+ * optional machine-token swap route are refused because they can execute
+ * additional transfers or consume a different input amount than this single
+ * payment intent covers. Chain ID must be explicit: the client can otherwise
+ * choose its configured wallet chain, which is not bound by the challenge.
+ */
+export function mppTempoChargeToIntent(
+  challenge: MppChallenge,
+  ctx?: MppIntentContext,
+): PaymentIntent {
+  if (challenge.method !== "tempo" || challenge.intent !== "charge") {
+    throw new TwzrdMppBlockError(
+      "UNEVALUATED_METHOD",
+      `[twzrd] MPP guard evaluates tempo/charge only; got ${challenge.method}/${challenge.intent}`,
+    );
+  }
+
+  if (
+    typeof challenge.id !== "string" ||
+    !challenge.id ||
+    typeof challenge.realm !== "string" ||
+    !challenge.realm
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo charge requires non-empty challenge id and realm",
+    );
+  }
+
+  const raw = challenge.request;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo charge request must be an object",
+    );
+  }
+  for (const key of Object.keys(raw)) {
+    if (!TEMPO_REQUEST_FIELDS.has(key)) {
+      throw new TwzrdMppBlockError(
+        "MALFORMED_CHALLENGE",
+        `[twzrd] MPP Tempo charge has unsupported request field ${JSON.stringify(key)}`,
+      );
+    }
+  }
+
+  const detailsValue = raw.methodDetails;
+  if (
+    detailsValue !== undefined &&
+    (!detailsValue ||
+      typeof detailsValue !== "object" ||
+      Array.isArray(detailsValue))
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo methodDetails must be an object",
+    );
+  }
+  const details = (detailsValue ?? {}) as Record<string, unknown>;
+  for (const key of Object.keys(details)) {
+    if (!TEMPO_METHOD_DETAIL_FIELDS.has(key)) {
+      throw new TwzrdMppBlockError(
+        "MALFORMED_CHALLENGE",
+        `[twzrd] MPP Tempo charge has unsupported methodDetails field ${JSON.stringify(key)}`,
+      );
+    }
+  }
+
+  if (
+    typeof raw.amount !== "string" ||
+    typeof raw.currency !== "string" ||
+    typeof raw.recipient !== "string"
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo charge requires string amount, currency, and recipient",
+    );
+  }
+  if (
+    !/^0x[0-9a-fA-F]{40}$/.test(raw.currency) ||
+    !/^0x[0-9a-fA-F]{40}$/.test(raw.recipient)
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo charge currency and recipient must be 20-byte EVM addresses",
+    );
+  }
+
+  const networkValues = [raw.network, details.network].filter(
+    (v) => v !== undefined,
+  );
+  if (
+    networkValues.some((v) => typeof v !== "string" || !/^eip155:\d+$/.test(v))
+  ) {
+    throw new TwzrdMppBlockError(
+      "UNKNOWN_CHAIN",
+      "[twzrd] MPP Tempo charge network must be a known eip155 CAIP-2 identifier",
+    );
+  }
+  const networkChainIds = networkValues.map((v) =>
+    Number(String(v).slice("eip155:".length)),
+  );
+  const chainIdValues = [raw.chainId, details.chainId].filter(
+    (v) => v !== undefined,
+  );
+  if (
+    chainIdValues.some(
+      (v) => typeof v !== "number" || !Number.isSafeInteger(v) || v <= 0,
+    )
+  ) {
+    throw new TwzrdMppBlockError(
+      "UNKNOWN_CHAIN",
+      "[twzrd] MPP Tempo charge chainId must be a positive safe integer",
+    );
+  }
+  const ids = [...(chainIdValues as number[]), ...networkChainIds];
+  if (ids.length === 0 || ids.some((id) => id !== ids[0])) {
+    throw new TwzrdMppBlockError(
+      "UNKNOWN_CHAIN",
+      "[twzrd] MPP Tempo charge requires one explicit, non-conflicting chain ID / CAIP-2 network",
+    );
+  }
+  const chainId = ids[0];
+  const network = `eip155:${chainId}`;
+  const assets = TEMPO_USD_ASSETS[chainId];
+  if (!assets) {
+    throw new TwzrdMppBlockError(
+      "UNKNOWN_CHAIN",
+      `[twzrd] MPP Tempo charge chain ${chainId} is not in the supported Tempo network set`,
+    );
+  }
+
+  const currency = raw.currency.toLowerCase();
+  if (!assets.has(currency)) {
+    throw new TwzrdMppBlockError(
+      "UNPRICED_ASSET",
+      `[twzrd] MPP Tempo charge currency ${raw.currency} is not a supported USD TIP-20 on ${network}`,
+    );
+  }
+
+  const amountBaseUnits = raw.amount;
+  const amountInteger = /^[0-9]+$/.test(amountBaseUnits)
+    ? BigInt(amountBaseUnits)
+    : 0n;
+  if (amountInteger <= 0n || amountInteger > (1n << 256n) - 1n) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo charge amount must be a positive base-10 integer",
+    );
+  }
+
+  if (Object.hasOwn(details, "splits")) {
+    const splits = details.splits;
+    if (!Array.isArray(splits)) {
+      throw new TwzrdMppBlockError(
+        "MALFORMED_CHALLENGE",
+        "[twzrd] MPP Tempo splits must be an array",
+      );
+    }
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo charge splits are refused: PaymentIntent v1 binds one recipient and amount",
+    );
+  }
+  if (
+    details.machineTokenEnabled !== undefined &&
+    typeof details.machineTokenEnabled !== "boolean"
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo machineTokenEnabled must be boolean",
+    );
+  }
+  if (details.machineTokenEnabled === true) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo machine-token route is refused because it may consume a different input amount",
+    );
+  }
+  if (
+    details.feePayer !== undefined &&
+    typeof details.feePayer !== "boolean" &&
+    (!details.feePayer ||
+      typeof details.feePayer !== "object" ||
+      Array.isArray(details.feePayer))
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo feePayer must be boolean or an object",
+    );
+  }
+  if (
+    details.memo !== undefined &&
+    (typeof details.memo !== "string" ||
+      !/^0x[0-9a-fA-F]{64}$/.test(details.memo))
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo memo must be a bytes32 hex value",
+    );
+  }
+  if (
+    details.supportedModes !== undefined &&
+    (!Array.isArray(details.supportedModes) ||
+      details.supportedModes.length === 0 ||
+      details.supportedModes.some((mode) => mode !== "pull" && mode !== "push"))
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP Tempo supportedModes must contain pull and/or push",
+    );
+  }
+
+  if (challenge.expires !== undefined) {
+    const expiryMs = Date.parse(challenge.expires);
+    const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(challenge.expires);
+    if (
+      !hasTimezone ||
+      !Number.isFinite(expiryMs) ||
+      expiryMs <= (ctx?.now ?? Date.now())
+    ) {
+      throw new TwzrdMppBlockError(
+        "MALFORMED_CHALLENGE",
+        "[twzrd] MPP Tempo charge expiry is malformed or already elapsed",
+      );
+    }
+  }
+
+  const amountUsd = baseUnitsToDecimal(amountBaseUnits, 6);
+  return {
+    protocol: "mpp",
+    network,
+    asset: currency,
+    amount: amountUsd,
+    payTo: raw.recipient.toLowerCase(),
+    resource: {
+      url: ctx?.resourceUrl,
+      method: ctx?.method,
+      operation: `mpp-charge:${challenge.realm}:${challenge.id}:${mppChallengeDigest(challenge)}`,
+    },
+    context: {
+      purpose: ctx?.purpose,
+      expiresAt: challenge.expires,
+    },
+  };
+}
+
 export type MppOnChallengeOptions = {
   /** Ed25519 decision signer (createLocalDecisionSigner() or a remote signer). */
   signer: DecisionSigner;
@@ -514,6 +844,8 @@ export type MppOnChallengeOptions = {
   ttlMs?: number;
   /** Clock, Unix ms. Injectable for tests. */
   now?: () => number;
+  /** Local append-only decision ledger. Defaults to .twzrd/decisions.jsonl. */
+  decisionFile?: string;
   /** Spend purpose bound into the intent. */
   purpose?: string;
   /** Resource URL bound into the intent (static or derived per challenge). */
@@ -523,7 +855,7 @@ export type MppOnChallengeOptions = {
   /** Refuse on a `warn` verdict too (default false: warn proceeds to pay). */
   treatWarnAsBlock?: boolean;
   /**
-   * Non-solana-charge challenges: fail-closed by default (throw
+   * Unevaluated methods/intents: fail-closed by default (throw
    * UNEVALUATED_METHOD before any credential exists). Set true to let mppx's
    * default flow handle them UNGATED.
    */
@@ -541,6 +873,100 @@ export type MppOnChallengeOptions = {
 export type MppOnChallengeHelpers = {
   createCredential: (context?: unknown) => Promise<string>;
 };
+
+export type MppChargeEvaluation = {
+  /** Exact normalized challenge that was evaluated. */
+  intent: PaymentIntent;
+  /** Signed policy result and its reason codes. */
+  decision: PaymentDecision;
+  /** Final action after `treatWarnAsBlock` is applied. */
+  disposition: "allow" | "warn" | "block";
+};
+
+export type TwzrdMppIntegrationChallenge = {
+  id: string;
+  realm?: string;
+  method: string;
+  intent: string;
+  request: Record<string, unknown>;
+  expires?: string;
+  description?: string;
+};
+
+export type TwzrdMppIntegrationOptions = Omit<
+  MppOnChallengeOptions,
+  "allowUnevaluated"
+> & {
+  intelligenceOptions?: TwzrdIntelligenceOptions;
+  /** Explicit opt-in to unscored networks; requires policy.maxAmountUsd. */
+  allowUnscoredNetwork?: boolean;
+};
+
+/**
+ * One-file MPP integration for client rails: decisions are durably recorded
+ * before the callback returns to the signer, and projected fulfillment events
+ * append to the same local ledger. No network reporting is enabled here.
+ */
+export function createTwzrdMppIntegration(
+  options: TwzrdMppIntegrationOptions,
+) {
+  const decisionFile = resolve(
+    options.decisionFile ?? ".twzrd/decisions.jsonl",
+  );
+  const ledger = sharedFileDecisionLedger(decisionFile, {
+    flushBeforeExit: true,
+  });
+  if (options.allowUnscoredNetwork && options.policy?.maxAmountUsd === undefined) {
+    throw new TypeError("allowUnscoredNetwork requires an explicit policy.maxAmountUsd ceiling");
+  }
+  const { intelligenceOptions, allowUnscoredNetwork, ...gateOptions } = options;
+  const integrationOptions = {
+    ...gateOptions,
+    decisionFile,
+    intelligence: options.intelligence ?? createTwzrdIntelligenceProvider({
+      ...intelligenceOptions,
+      failOpen: false,
+      unsupportedNetworkMode: allowUnscoredNetwork ? "observe" : "strict",
+    }),
+  };
+  return {
+    twzrdMppIntegration: true as const,
+    gate: async (challenge: TwzrdMppIntegrationChallenge) => {
+      const evaluation = await evaluateTwzrdMppChallenge(
+        { ...challenge, realm: challenge.realm ?? "" },
+        integrationOptions,
+      );
+      return {
+        disposition: evaluation.disposition,
+        decisionId: evaluation.decision.decisionId,
+        intentHash: evaluation.decision.intentHash,
+        reasonCodes: evaluation.decision.reasonCodes,
+      } as const;
+    },
+    onFulfillment: createDefaultMppFulfillmentLedgerSink(decisionFile),
+    flush: ledger.flush,
+  };
+}
+
+/**
+ * Evaluate an MPP challenge without creating a credential. This is the
+ * integration point for payment rails that own credential creation: they can
+ * evaluate the challenge, honor a block, then let their existing signer path
+ * continue for allow/warn. Unsupported methods and malformed challenges throw.
+ */
+export async function evaluateTwzrdMppChallenge(
+  challenge: MppChallenge,
+  options: Omit<MppOnChallengeOptions, "allowUnevaluated">,
+): Promise<MppChargeEvaluation> {
+  const result = await evaluateMppChallenge(challenge, options, false);
+  if (!result) {
+    throw new TwzrdMppBlockError(
+      "UNEVALUATED_METHOD",
+      "[twzrd] MPP challenge was not evaluated",
+    );
+  }
+  return result;
+}
 
 /**
  * TWZRD guard for `Mppx.create({ onChallenge })`.
@@ -567,62 +993,175 @@ export type MppOnChallengeHelpers = {
  */
 export function createTwzrdMppOnChallenge(
   options: MppOnChallengeOptions,
-): (challenge: MppChallenge, helpers: MppOnChallengeHelpers) => Promise<string | undefined> {
+): (
+  challenge: MppChallenge,
+  helpers: MppOnChallengeHelpers,
+) => Promise<string | undefined> {
   return async (challenge, helpers) => {
-    let intent: PaymentIntent;
-    try {
-      intent = mppChallengeToIntent(challenge, {
-        resourceUrl:
-          typeof options.resourceUrl === "function"
-            ? options.resourceUrl(challenge)
-            : options.resourceUrl,
-        method: options.method,
-        purpose: options.purpose,
-      });
-    } catch (error) {
-      const refusal = asBlockError(error, "MALFORMED_CHALLENGE");
-      if (refusal.code === "UNEVALUATED_METHOD" && options.allowUnevaluated) {
-        emitDecision(options, { challenge });
-        return undefined; // explicit opt-out: mppx default flow, ungated
-      }
-      emitDecision(options, { challenge, refusal });
-      throw refusal;
-    }
-
-    let decision: PaymentDecision;
-    try {
-      decision = await evaluateIntent(intent, {
-        signer: options.signer,
-        policy: options.policy,
-        mandate: options.mandate,
-        ledger: options.ledger,
-        intelligence: options.intelligence,
-        ttlMs: options.ttlMs,
-        now: options.now?.(),
-      });
-    } catch (error) {
-      // A runtime failure (bad amount, signer error) must never fall through to
-      // payment: refuse, exactly as a block would.
-      const refusal = asBlockError(error, "MALFORMED_CHALLENGE");
-      emitDecision(options, { challenge, intent, refusal });
-      throw refusal;
-    }
-    emitDecision(options, { challenge, intent, decision });
-
-    const refuse =
-      decision.decision === "block" ||
-      (decision.decision === "warn" && isTrueFlag(options.treatWarnAsBlock));
-    if (refuse) {
-      throw new TwzrdMppBlockError(
-        "PAYMENT_CONTROL_BLOCK",
-        `[twzrd] mpp_payment_control_${decision.decision}:${decision.reasonCodes.join(",")} payTo=${intent.payTo}`,
-        { reasonCodes: decision.reasonCodes, decisionId: decision.decisionId },
-      );
-    }
+    const evaluation = await evaluateMppChallenge(
+      challenge,
+      options,
+      Boolean(options.allowUnevaluated),
+    );
+    if (!evaluation) return undefined; // explicit opt-out: mppx default flow, ungated
+    if (evaluation.disposition === "block")
+      throw paymentControlError(evaluation);
     // allow (or warn, when not treated as block): create the credential for the
     // EXACT challenge evaluated.
     return helpers.createCredential();
   };
+}
+
+async function evaluateMppChallenge(
+  challenge: MppChallenge,
+  options: MppOnChallengeOptions,
+  allowUnevaluated: boolean,
+): Promise<MppChargeEvaluation | undefined> {
+  let intent: PaymentIntent;
+  try {
+    intent = mppChallengeToIntent(challenge, {
+      resourceUrl:
+        typeof options.resourceUrl === "function"
+          ? options.resourceUrl(challenge)
+          : options.resourceUrl,
+      method: options.method,
+      purpose: options.purpose,
+      now: options.now?.(),
+    });
+  } catch (error) {
+    const refusal = asBlockError(error, "MALFORMED_CHALLENGE");
+    if (refusal.code === "UNEVALUATED_METHOD" && allowUnevaluated) {
+      await persistMppDecision(options, {
+        outcome: "warn",
+        reasonCodes: ["reputation_unchecked"],
+        input: {},
+      });
+      emitDecision(options, { challenge });
+      return undefined;
+    }
+    await persistMppDecision(options, {
+      outcome: "block",
+      reasonCodes: [reasonCode(refusal.code)],
+      errorCode: refusal.code,
+      input: {},
+    });
+    emitDecision(options, { challenge, refusal });
+    throw refusal;
+  }
+
+  let decision: PaymentDecision;
+  try {
+    decision = await evaluateIntent(intent, {
+      signer: options.signer,
+      policy: options.policy,
+      mandate: options.mandate,
+      ledger: options.ledger,
+      intelligence: options.intelligence,
+      reputationUnchecked: !options.intelligence,
+      ttlMs: options.ttlMs,
+      now: options.now?.(),
+    });
+  } catch (error) {
+    const refusal = asBlockError(error, "MALFORMED_CHALLENGE");
+    await persistMppDecision(options, {
+      outcome: "error",
+      reasonCodes: ["mpp_evaluation_error"],
+      errorCode: refusal.code,
+      input: {
+        pay_to: intent.payTo,
+        resource: intent.resource?.url,
+        network: intent.network,
+        amount_micro: safeAmountMicro(intent.amount),
+      },
+    });
+    emitDecision(options, { challenge, intent, refusal });
+    throw refusal;
+  }
+
+  const disposition =
+    decision.decision === "block" ||
+    (decision.decision === "warn" && isTrueFlag(options.treatWarnAsBlock))
+      ? "block"
+      : decision.decision;
+  await persistMppDecision(options, {
+    decisionId: decision.decisionId,
+    outcome: disposition,
+    reasonCodes: decision.reasonCodes,
+    input: {
+      pay_to: intent.payTo,
+      resource: intent.resource?.url,
+      network: intent.network,
+      amount_micro: safeAmountMicro(intent.amount),
+    },
+  });
+  emitDecision(options, { challenge, intent, decision });
+  return { intent, decision, disposition };
+}
+
+function safeAmountMicro(amount: string): string | undefined {
+  try {
+    return toMicroUsd(amount).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function reasonCode(code: string): string {
+  return code
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .slice(0, 64);
+}
+
+async function persistMppDecision(
+  options: MppOnChallengeOptions,
+  entry: {
+    decisionId?: string;
+    outcome: "allow" | "warn" | "block" | "error";
+    reasonCodes: readonly string[];
+    errorCode?: string;
+    input: {
+      pay_to?: string;
+      resource?: string;
+      network?: string;
+      amount_micro?: string;
+    };
+  },
+): Promise<void> {
+  try {
+    const file = resolve(options.decisionFile ?? ".twzrd/decisions.jsonl");
+    const ledger = sharedFileDecisionLedger(file, { flushBeforeExit: false });
+    ledger.record({
+      ...(entry.decisionId ? { decision_id: entry.decisionId } : {}),
+      outcome: entry.outcome,
+      reason_codes: [...entry.reasonCodes],
+      policy_version: "mpp-gate.v1",
+      input: entry.input,
+      signer_invocations: 0,
+      ...(entry.errorCode
+        ? { error: { code: reasonCode(entry.errorCode) } }
+        : {}),
+    });
+    await ledger.flush();
+  } catch {
+    throw new TwzrdMppBlockError(
+      "DECISION_LOG_UNAVAILABLE",
+      "[twzrd] MPP decision could not be durably recorded; refusing payment",
+    );
+  }
+}
+
+function paymentControlError(
+  evaluation: MppChargeEvaluation,
+): TwzrdMppBlockError {
+  return new TwzrdMppBlockError(
+    "PAYMENT_CONTROL_BLOCK",
+    `[twzrd] mpp_payment_control_${evaluation.decision.decision}:${evaluation.decision.reasonCodes.join(",")} payTo=${evaluation.intent.payTo}`,
+    {
+      reasonCodes: evaluation.decision.reasonCodes,
+      decisionId: evaluation.decision.decisionId,
+    },
+  );
 }
 
 /** Normalize any thrown value into a TwzrdMppBlockError so callers can branch on .code. */
@@ -632,7 +1171,10 @@ function asBlockError(
 ): TwzrdMppBlockError {
   if (error instanceof TwzrdMppBlockError) return error;
   const message = error instanceof Error ? error.message : String(error);
-  return new TwzrdMppBlockError(fallback, `[twzrd] MPP evaluation failed: ${message}`);
+  return new TwzrdMppBlockError(
+    fallback,
+    `[twzrd] MPP evaluation failed: ${message}`,
+  );
 }
 
 function emitDecision(

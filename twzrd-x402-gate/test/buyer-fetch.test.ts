@@ -6,6 +6,7 @@ import test from "node:test";
 import { x402Client } from "@x402/fetch";
 import type { PaymentRequired, SchemeNetworkClient } from "@x402/core/types";
 import { createBuyerFetch, BuyerFetchBlockedError } from "../src/buyer-fetch.js";
+import { sharedFileDecisionLedger } from "../src/decision-ledger-file.js";
 import type { FulfillmentRecord } from "../src/fulfillment-record.js";
 import { createFileSpendLedger, __resetSharedFileSpendLedgers } from "../src/spend-ledger-file.js";
 
@@ -24,6 +25,7 @@ function setup(options: {
   dir?: string;
   signerFails?: boolean;
   coreDefaults?: boolean;
+  paymentResponse?: Record<string, unknown>;
 } = {}) {
   const dir = options.dir ?? mkdtempSync(join(tmpdir(), "twzrd-buyer-test-"));
   const state = { signs: 0, paid: 0, preflights: 0, network: [] as string[] };
@@ -62,7 +64,10 @@ function setup(options: {
     if (request.url !== URL) throw new Error(`Unexpected request: ${request.url}`);
     if (request.headers.has("payment-signature")) {
       state.paid++;
-      return Response.json({ ok: true });
+      if (!options.paymentResponse) return Response.json({ ok: true });
+      return Response.json({ ok: true }, { headers: {
+        "payment-response": Buffer.from(JSON.stringify(options.paymentResponse)).toString("base64"),
+      } });
     }
     return new Response(null, { status: 402, headers: {
       "payment-required": Buffer.from(JSON.stringify(payment)).toString("base64"),
@@ -75,7 +80,9 @@ function setup(options: {
     intelTimeoutMs: 20, fetch: transport };
   const run = () => createBuyerFetch(config);
   const rows = () => readFileSync(decisionFile, "utf8").trim().split("\n").map(line => JSON.parse(line));
-  return { dir, state, client, payment, transport, decisionFile, spendLedgerFile, config, run, rows };
+  // The post-payment settlement row is queued, not awaited; tests flush before reading it.
+  const flushed = async () => { await sharedFileDecisionLedger(decisionFile).flush(); return rows(); };
+  return { dir, state, client, payment, transport, decisionFile, spendLedgerFile, config, run, rows, flushed };
 }
 
 test("cap refuses a real paying fetch before preflight or signing and persists the reason", async () => {
@@ -425,4 +432,73 @@ test("onFulfillment keeps one local row for an approved paid call and none for a
   await new Promise(r => setTimeout(r, 20));
   assert.equal(none.length, 0);
   assert.equal(over.state.signs, 0);
+});
+
+const TX = "0x" + "ab".repeat(32);
+
+test("a settled PAYMENT-RESPONSE appends an x402_settlement row linked to the allow decision", async () => {
+  const h = setup({ paymentResponse: { success: true, transaction: TX, network: NETWORK, payer: OTHER } });
+  assert.equal((await h.run()(URL)).status, 200);
+  const rows = await h.flushed();
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].outcome, "allow");
+  assert.equal(rows[0].settlement, undefined, "the pre-sign decision row is never rewritten");
+  assert.equal(rows[1].record_type, "x402_settlement");
+  assert.equal(rows[1].schema_version, 3);
+  assert.equal(rows[1].decision_id, rows[0].decision_id);
+  assert.deepEqual(rows[1].settlement, { status: "settled", tx: TX });
+  assert.equal(rows[1].network, NETWORK);
+  assert.equal(rows[1].http_status, 200);
+});
+
+test("a failed PAYMENT-RESPONSE records settlement failed", async () => {
+  const h = setup({ paymentResponse: { success: false, errorReason: "insufficient_funds", transaction: "", network: NETWORK } });
+  await h.run()(URL).catch(() => undefined);
+  const rows = await h.flushed();
+  const settlement = rows.filter(r => r.record_type === "x402_settlement");
+  assert.equal(settlement.length, 1);
+  assert.equal(settlement[0].decision_id, rows[0].decision_id);
+  assert.deepEqual(settlement[0].settlement, { status: "failed" });
+});
+
+test("no PAYMENT-RESPONSE leaves settlement absent (not evaluated)", async () => {
+  const h = setup();
+  assert.equal((await h.run()(URL)).status, 200);
+  const rows = await h.flushed();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].outcome, "allow");
+  assert.equal(rows[0].settlement, undefined);
+  assert.ok(!rows.some(r => r.record_type === "x402_settlement"));
+});
+
+test("an unreadable transaction is dropped, not copied, and a non-boolean success writes nothing", async () => {
+  const bad = setup({ paymentResponse: { success: true, transaction: "not a tx <script>" } });
+  assert.equal((await bad.run()(URL)).status, 200);
+  await bad.flushed();
+  assert.deepEqual(bad.rows()[1].settlement, { status: "settled" });
+  assert.equal(bad.rows()[1].network, null);
+
+  const odd = setup({ paymentResponse: { success: "true", transaction: TX } });
+  assert.equal((await odd.run()(URL)).status, 200);
+  assert.equal((await odd.flushed()).length, 1);
+});
+
+test("a hung post-payment ledger write never holds the paid response", async () => {
+  const h = setup({ paymentResponse: { success: true, transaction: TX, network: NETWORK } });
+  const ledger = sharedFileDecisionLedger(h.decisionFile);
+  const realFlush = ledger.flush;
+  let calls = 0;
+  // The first flush is the durable pre-sign decision row; every later flush hangs forever.
+  ledger.flush = () => (++calls === 1 ? realFlush() : new Promise<void>(() => {}));
+  try {
+    const result = await Promise.race([
+      h.run()(URL).then(r => r.status),
+      new Promise<string>(resolve => setTimeout(() => resolve("stalled"), 1000)),
+    ]);
+    assert.equal(result, 200, "the paid response returns while the settlement write is pending");
+    assert.equal(h.rows()[0].outcome, "allow", "the pre-sign decision row is durable");
+  } finally {
+    ledger.flush = realFlush;
+  }
+  assert.ok((await h.flushed()).some(r => r.record_type === "x402_settlement"), "the queued row lands on the next flush");
 });

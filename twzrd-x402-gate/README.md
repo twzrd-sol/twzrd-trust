@@ -76,7 +76,7 @@ different switch: only `installTwzrdAutoGate` reads them, and
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.16.2 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.17.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -334,7 +334,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.16.2 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.17.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -373,7 +373,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.16.2
+npm install twzrd-x402-gate@0.17.0
 ```
 
 ```typescript
@@ -418,7 +418,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.16.2
+npm install twzrd-x402-gate@0.17.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -438,7 +438,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.16.2 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.17.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -595,7 +595,7 @@ Dogfood (one public live proof path):
 npm i twzrd-x402-gate
 ```
 
-This doc describes **0.16.2**. Check `npm view twzrd-x402-gate version` for the latest release.
+This doc describes **0.17.0**. Check `npm view twzrd-x402-gate version` for the latest release.
 
 ### CLI commands (package `bin`)
 
@@ -711,15 +711,19 @@ installTwzrdX402ClientHook(client, {
 - Hook binding test:
   [`test/intent-binding.test.ts`](./test/intent-binding.test.ts).
 
-### On MPP (Machine Payments Protocol) — Solana charge only
+### On MPP (Machine Payments Protocol)
+
+0.17.0 evaluates Solana `charge` and Tempo `charge`
+(`mppTempoChargeToIntent`, `evaluateTwzrdMppChallenge`, `createTwzrdMppIntegration`).
+Challenges other than those two fail closed. See the changelog heading `0.17.0`.
 
 `createTwzrdMppOnChallenge` guards `Mppx.create({ onChallenge })`. The mppx
 Solana method signs AND broadcasts the transaction inside `createCredential()`,
 so `onChallenge` is the last deterministic checkpoint before money moves - and
 mppx re-throws `onChallenge` errors, so a TWZRD block is an exception that means
 **`createCredential()` never runs and nothing signs**. On allow, the guard
-creates the credential for the exact challenge it evaluated; non-`solana/charge`
-challenges fail closed (`allowUnevaluated: true` to opt out).
+creates the credential for the exact challenge it evaluated; challenges other
+than Solana `charge` and Tempo `charge` fail closed (`allowUnevaluated: true` to opt out).
 
 ```typescript
 import { Mppx } from "mppx/client";
