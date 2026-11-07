@@ -122,12 +122,12 @@ async function run() {
     body_sha256: digest,
     receipt_reference_chain_verified: false,
     receipt_reference_finalized_slot: 12,
-    receipt_reference_mismatch: true,
+    receipt_reference_mismatch: "payee_mismatch",
     receipt_reference_unverified_reason: "verifier_error",
     receipt_reference_purchase_bound: null,
     receipt_reference_purchase_bound_reason: "not a token",
-    receipt_reference_local_acceptance: false,
-    receipt_reference_refusal_reason: "amount_mismatch",
+    receipt_reference_local_acceptance: "refused",
+    receipt_reference_refusal_reason: "reference_reused",
     response_body: "still private",
   };
   const kept = ledger.recordMppFulfillment(keptInput);
@@ -136,6 +136,14 @@ async function run() {
     body_sha256: "NOT-A-DIGEST",
     response_bytes: 2_000_000,
     receipt_reference_finalized_slot: -1,
+    receipt_reference_mismatch: "Payee Mismatch!",
+  });
+  const booleanMismatch = ledger.recordMppFulfillment({
+    ...unsafeInput,
+    receipt_reference_chain_verified: false,
+    // 0.17.0 typed this field boolean. A boolean carries no reason, so it is not stored.
+    receipt_reference_mismatch: true as unknown as string,
+    receipt_reference_local_acceptance: false as unknown as "refused",
   });
   await ledger.flush();
   assert.equal(kept.schema_version, MPP_FULFILLMENT_LEDGER_SCHEMA_VERSION);
@@ -143,15 +151,19 @@ async function run() {
   assert.equal(kept.body_sha256, digest);
   assert.equal(kept.receipt_reference_chain_verified, false);
   assert.equal(kept.receipt_reference_finalized_slot, 12);
-  assert.equal(kept.receipt_reference_mismatch, true);
+  assert.equal(kept.receipt_reference_mismatch, "payee_mismatch", "the failed-verification reason is kept");
   assert.equal(kept.receipt_reference_unverified_reason, "verifier_error");
   assert.equal(kept.receipt_reference_purchase_bound, null);
   assert.equal(kept.receipt_reference_purchase_bound_reason, null);
-  assert.equal(kept.receipt_reference_local_acceptance, false);
-  assert.equal(kept.receipt_reference_refusal_reason, "amount_mismatch");
+  assert.equal(kept.receipt_reference_local_acceptance, "refused", "the local verdict is kept");
+  assert.equal(kept.receipt_reference_refusal_reason, "reference_reused");
   assert.equal(dropped.body_sha256, null);
   assert.equal(dropped.response_bytes, null);
   assert.equal(dropped.receipt_reference_finalized_slot, null);
+  assert.equal(dropped.receipt_reference_mismatch, null, "a malformed reason is not stored");
+  assert.equal(booleanMismatch.receipt_reference_chain_verified, false);
+  assert.equal(booleanMismatch.receipt_reference_mismatch, null);
+  assert.equal(booleanMismatch.receipt_reference_local_acceptance, null, "0.17.0's boolean shape is not guessed at");
   const written = readFileSync(path, "utf8");
   assert.equal(written.includes(digest), true, "the body digest is retained");
   assert.equal(written.includes("still private"), false, "the response body is not retained");

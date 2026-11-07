@@ -68,11 +68,17 @@ export type MppFulfillmentLedgerRow = {
   /** Null means not evaluated, never clean. */
   receipt_reference_chain_verified: boolean | null;
   receipt_reference_finalized_slot: number | null;
-  receipt_reference_mismatch: boolean | null;
+  /**
+   * Why receipt-reference verification failed, as a lowercase token (`payee_mismatch`,
+   * `amount_mismatch`, ...). Set only with `receipt_reference_chain_verified: false`.
+   * Null when verification passed or did not run; the verdict is the boolean above.
+   */
+  receipt_reference_mismatch: string | null;
   receipt_reference_unverified_reason: string | null;
   receipt_reference_purchase_bound: boolean | null;
   receipt_reference_purchase_bound_reason: string | null;
-  receipt_reference_local_acceptance: boolean | null;
+  /** The buyer's local reference check: `accepted`, `refused`, or null when it did not run. */
+  receipt_reference_local_acceptance: "accepted" | "refused" | null;
   receipt_reference_refusal_reason: string | null;
 };
 
@@ -267,11 +273,11 @@ function sanitizeMppFulfillment(input: MppFulfillmentLedgerInput): MppFulfillmen
     body_sha256: safeBodySha256(input.body_sha256),
     receipt_reference_chain_verified: safeBoolean(input.receipt_reference_chain_verified),
     receipt_reference_finalized_slot: safeSlot(input.receipt_reference_finalized_slot),
-    receipt_reference_mismatch: safeBoolean(input.receipt_reference_mismatch),
+    receipt_reference_mismatch: safeReasonToken(input.receipt_reference_mismatch),
     receipt_reference_unverified_reason: safeReasonToken(input.receipt_reference_unverified_reason),
     receipt_reference_purchase_bound: safeBoolean(input.receipt_reference_purchase_bound),
     receipt_reference_purchase_bound_reason: safeReasonToken(input.receipt_reference_purchase_bound_reason),
-    receipt_reference_local_acceptance: safeBoolean(input.receipt_reference_local_acceptance),
+    receipt_reference_local_acceptance: safeLocalAcceptance(input.receipt_reference_local_acceptance),
     receipt_reference_refusal_reason: safeReasonToken(input.receipt_reference_refusal_reason),
   };
 }
@@ -295,6 +301,10 @@ function safeBodySha256(value: unknown): string | null {
 
 function safeSlot(value: unknown): number | null {
   return Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : null;
+}
+
+function safeLocalAcceptance(value: unknown): "accepted" | "refused" | null {
+  return value === "accepted" || value === "refused" ? value : null;
 }
 
 function safeReasonToken(value: unknown): string | null {

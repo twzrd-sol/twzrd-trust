@@ -28,6 +28,23 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.17.1 - 2026-11-07
+
+Fulfillment-ledger fix. No allow or refuse outcome changes.
+
+- `receipt_reference_mismatch` stores why receipt-reference verification failed, as a lowercase
+  token (`payee_mismatch`, `amount_mismatch`, ...). 0.17.0 typed it boolean and dropped every
+  string, so a failed check was written with its verdict (`receipt_reference_chain_verified:
+  false`) but a null reason, which reads as "not evaluated".
+- `receipt_reference_local_acceptance` stores `accepted` or `refused`. 0.17.0 typed it boolean
+  and dropped both values.
+- Both fields now match the record `@twzrd1111/clawrouter-mpp` 0.5.0 writes, so passing
+  `createTwzrdMppIntegration()` to its `createMppFetch` type-checks. A boolean in either field
+  is stored as null: it carries no reason, and the verdict stays on
+  `receipt_reference_chain_verified`.
+- A contract test copies the rail's record type and runs every reason it can send through the
+  file sink.
+
 ## 0.17.0 - 2026-11-07
 
 Tempo `charge` evaluation and the shared decision and fulfillment ledger. `0.16.2` remains the security patch that scores MPP sellers by default.
