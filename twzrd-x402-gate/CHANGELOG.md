@@ -28,9 +28,9 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## Unreleased (next minor: 0.17.0)
+## 0.17.0 - 2026-11-07
 
-Not published. `package.json` stays 0.16.2 until the publish commit.
+Tempo `charge` evaluation and the shared decision and fulfillment ledger. `0.16.2` remains the security patch that scores MPP sellers by default.
 
 - `mppTempoChargeToIntent` and `evaluateTwzrdMppChallenge` evaluate Tempo `charge` challenges
   on the mainnet and Moderato USD TIP-20 allowlists; unknown chains/assets, split transfers, and
