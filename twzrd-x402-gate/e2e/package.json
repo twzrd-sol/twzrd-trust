@@ -9,7 +9,7 @@
     "proof:settle": "tsx mcp-presign-proof.ts settle"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@solana/kit": "^5.1.0",
     "@x402/core": "2.17.0",
     "@x402/mcp": "2.17.0",
