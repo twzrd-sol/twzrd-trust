@@ -128,6 +128,8 @@ export type EvaluateIntentOptions = {
   policy?: SpendPolicy;
   mandate?: Mandate;
   intelligence?: IntelligenceProvider;
+  /** Mark local-only MPP evaluation when reputation intelligence is absent. */
+  reputationUnchecked?: boolean;
   ledger?: SpendLedger;
   signer: DecisionSigner;
   /** Token time-to-live in ms (default 120s — decisions are point-in-time). */
@@ -307,6 +309,9 @@ export async function evaluateIntent(
     }
     if (intel.decision === "block") block("INTEL_BLOCK");
     if (intel.decision === "warn") warn("INTEL_WARN");
+    if (intel.known === false && intel.decision === undefined) {
+      warn("reputation_unchecked");
+    }
     if (policy?.unknownCounterparty && intel.known === false) {
       if (amountMicro <= toMicroUsd(policy.unknownCounterparty.allowUnderUsd)) {
         warn("UNKNOWN_UNDER_LIMIT");
@@ -316,6 +321,9 @@ export async function evaluateIntent(
         block("UNKNOWN_ABOVE_LIMIT");
       }
     }
+  }
+  if (!blocked && !options.intelligence && options.reputationUnchecked) {
+    warn("reputation_unchecked");
   }
 
   /* 3b. Re-check the ledger caps in the same synchronous segment as the record

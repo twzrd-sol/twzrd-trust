@@ -28,6 +28,40 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## Unreleased (next minor: 0.17.0)
+
+Not published. `package.json` stays 0.16.2 until the publish commit.
+
+- `mppTempoChargeToIntent` and `evaluateTwzrdMppChallenge` evaluate Tempo `charge` challenges
+  on the mainnet and Moderato USD TIP-20 allowlists; unknown chains/assets, split transfers, and
+  machine-token routes refuse before credential creation.
+- MPP evaluations durably append allow/warn/block/error decisions to the existing
+  `.twzrd/decisions.jsonl` before the MPP signer can run. Ledger failure refuses the payment.
+- `createTwzrdMppIntegration` pairs the TWZRD intelligence evaluator (fail-closed on scored
+  networks) with a fulfillment sink that appends bounded MPP receipt/model-label rows to that same
+  ledger. No second receipt file or network contribution is enabled; seller-reported model labels
+  remain claims, not verification.
+- The combined integration blocks unscored networks by default, including Tempo mainnet and
+  Moderato, before any intelligence request. Explicit `allowUnscoredNetwork: true` requires
+  `policy.maxAmountUsd`, and local policy (the amount ceiling, lists, caps) then decides. With the
+  default provider no reputation runs on these networks: the gate fetches the payee's merchant card
+  for the wash check only, refuses `wash_flagged: true` (`WASH_FLAGGED`), keeps the allow when the
+  card is unreachable, and otherwise records a plain `ALLOW`, not a warning. `reputation_unchecked`
+  is recorded only when a caller-supplied `intelligence` provider returns `known: false` with no
+  decision.
+- Decision and fulfillment writers share one process-local append queue. Fulfillment rows are
+  schema version 3, discriminated from version-1 decision rows. The file sink keeps the complete-body
+  digest (`response_bytes`, `body_sha256`) and the receipt-reference verification fields. A null
+  verification field means not evaluated. The row does not store the response body, the raw receipt
+  header, or the raw challenge id.
+- `createBuyerFetch` appends an `x402_settlement` row (schema version 3) after a paid call whose
+  response carries a `PAYMENT-RESPONSE` with a boolean `success`, linked to the allow/warn decision
+  row by `decision_id`. It records the facilitator-reported status (`settled`/`failed`) and tx, not
+  an onchain confirmation. The row is queued without holding the response; a missing or unreadable
+  header leaves no row, which means "not evaluated", never "settled" or "failed".
+- The outcome ledger, its x402 binding, and the opt-in Demand Desk replay guard stay. This release
+  does not replace them with the decision ledger.
+
 ## 0.16.2 - 2026-11-05 (security: MPP seat scores the seller by default)
 
 A patch that adds a refusal to close a security defect, as the policy above allows. Through

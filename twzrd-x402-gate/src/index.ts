@@ -273,8 +273,15 @@ export {
 } from "./outcome-ledger-x402.js";
 export {
   createFileDecisionLedger,
+  createDefaultMppFulfillmentLedgerSink,
+  createMppFulfillmentLedgerSink,
+  sharedFileDecisionLedger,
   DECISION_LEDGER_SCHEMA_VERSION,
+  MPP_FULFILLMENT_LEDGER_SCHEMA_VERSION,
   type DecisionLedgerRow,
+  type MppFulfillmentLedgerRow,
+  type MppFulfillmentLedgerInput,
+  type MppFulfillmentSink,
   type RecordDecisionInput,
   type FileDecisionLedgerOptions,
 } from "./decision-ledger-file.js";
@@ -465,15 +472,22 @@ export {
 } from "./intent-adapters.js";
 export {
   createTwzrdMppOnChallenge,
+  createTwzrdMppIntegration,
+  evaluateTwzrdMppChallenge,
   mppChallengeToIntent,
+  mppTempoChargeToIntent,
   mppChallengeDigest,
   NATIVE_SOL_CURRENCY,
   TwzrdMppBlockError,
   type MppChallenge,
   type MppIntentContext,
+  type MppChargeEvaluation,
   type MppOnChallengeHelpers,
   type MppOnChallengeOptions,
+  type TwzrdMppIntegrationChallenge,
+  type TwzrdMppIntegrationOptions,
   type MppSolanaChargeRequest,
+  type MppTempoChargeRequest,
 } from "./mpp-hook.js";
 export {
   approvalToIntelligence,

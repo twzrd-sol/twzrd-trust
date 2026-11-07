@@ -711,15 +711,20 @@ installTwzrdX402ClientHook(client, {
 - Hook binding test:
   [`test/intent-binding.test.ts`](./test/intent-binding.test.ts).
 
-### On MPP (Machine Payments Protocol) — Solana charge only
+### On MPP (Machine Payments Protocol)
+
+Published 0.16.2 evaluates Solana `charge` only. Tempo `charge`
+(`mppTempoChargeToIntent`, `evaluateTwzrdMppChallenge`, `createTwzrdMppIntegration`)
+is in this source tree and is not in the published package. It ships in the next
+minor. See the changelog heading `Unreleased (next minor: 0.17.0)`.
 
 `createTwzrdMppOnChallenge` guards `Mppx.create({ onChallenge })`. The mppx
 Solana method signs AND broadcasts the transaction inside `createCredential()`,
 so `onChallenge` is the last deterministic checkpoint before money moves - and
 mppx re-throws `onChallenge` errors, so a TWZRD block is an exception that means
 **`createCredential()` never runs and nothing signs**. On allow, the guard
-creates the credential for the exact challenge it evaluated; non-`solana/charge`
-challenges fail closed (`allowUnevaluated: true` to opt out).
+creates the credential for the exact challenge it evaluated; challenges other
+than Solana `charge` and Tempo `charge` fail closed (`allowUnevaluated: true` to opt out).
 
 ```typescript
 import { Mppx } from "mppx/client";
