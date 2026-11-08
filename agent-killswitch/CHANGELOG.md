@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.1.3 (unreleased)
+## 0.1.4 (unreleased)
+
+No runtime change: `dist/` is built from the same source as 0.1.3.
+
+- Source and releases move to the public `twzrd-sol/twzrd-trust` repository
+  (`agent-killswitch/`). `repository` and `bugs` in `package.json` point there.
+- Published by the `publish-agent-killswitch.yml` workflow through npm
+  Trusted Publishing, with an npm provenance attestation.
+- The tarball now includes `LICENSE` (MIT).
+- The test script lets the shell expand `test/*.test.mjs`, so the tests also
+  run on Node 20.
+
+## 0.1.3 (2026-11-08)
 
 - `KILLSWITCH_FREE_MODELS` is an exact model allowlist. When it is set, any
   other model is vetoed with 403 `model_not_allowed` before upstream, and the
