@@ -32,31 +32,115 @@ interface TimedSpend {
 const REPLAY_MS = 48 * 3600 * 1000;
 const RETAIN_MS = 48 * 3600 * 1000;
 
-/** Append-only JSONL ledger (source of truth) + in-memory sliding windows. */
+/** Append-only JSONL ledger (source of truth) + in-memory sliding windows.
+ *
+ * Multi-instance: every Ledger tracks its own byte offset into the file.
+ * `refresh()` stats the file and reads only the bytes this instance has not
+ * consumed yet — including bytes another running copy appended. Budget
+ * decisions see every copy's spend without a restart. `window()` refreshes
+ * automatically, so both the chat-completions gate and /healthz get fresh
+ * windows on every read; callers do not have to remember.
+ *
+ * The kill switch file is deliberately outside this class.
+ */
 export class Ledger {
   private spends: TimedSpend[] = [];
   // In-flight holds: counted by window() but never written to the JSONL.
   // A crash drops them; an unsettled hold must not consume budget forever.
   private holds = new Map<number, TimedSpend>();
   private nextHoldId = 1;
+  // Incremental-read bookkeeping: bytes consumed from the file by this
+  // instance, a trailing unterminated line held between refreshes, and the
+  // stat snapshot the fast path uses to skip no-op reads.
+  private offset = 0;
+  private pending: Buffer = Buffer.alloc(0);
+  private lastSize = 0;
+  private lastMtimeMs = 0;
+  private lastInode = 0;
 
   constructor(private readonly filePath: string) {}
 
   /** Replay the last 48 h of the ledger to rebuild the windows. */
   load(): number {
     this.spends = [];
-    if (!fs.existsSync(this.filePath)) return 0;
+    this.offset = 0;
+    this.pending = Buffer.alloc(0);
+    this.lastSize = 0;
+    this.lastMtimeMs = 0;
+    this.lastInode = 0;
+    return this.refresh(true);
+  }
+
+  /**
+   * Stat the file and ingest whatever bytes this instance has not seen yet.
+   * When nothing changed, this costs one stat and no read. Returns the number
+   * of allowed lines applied.
+   *
+   * Torn tail: a chunk ending mid-line is held until the rest of the line
+   * arrives, so a torn write never crashes a refresh nor half-counts. A file
+   * that was truncated or replaced (new inode) resets the baseline and is
+   * re-read from the start; the 48 h retention window keeps that cheap.
+   */
+  refresh(force: boolean = false): number {
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(this.filePath);
+    } catch (err) {
+      if ((err as { code?: string }).code === "ENOENT") return 0;
+      throw err;
+    }
+    if (st.ino !== this.lastInode) {
+      // Rotation: start over against the new file.
+      this.offset = 0;
+      this.pending = Buffer.alloc(0);
+      this.spends = [];
+      this.lastInode = st.ino;
+    }
+    if (st.size < this.offset) {
+      // Truncated: same reset.
+      this.offset = 0;
+      this.pending = Buffer.alloc(0);
+      this.spends = [];
+    }
+    if (!force && st.size === this.lastSize && st.mtimeMs === this.lastMtimeMs) {
+      return 0;
+    }
+    const fh = fs.openSync(this.filePath, "r");
+    try {
+      const len = st.size - this.offset;
+      if (len <= 0) {
+        this.lastSize = st.size;
+        this.lastMtimeMs = st.mtimeMs;
+        return 0;
+      }
+      const buf = Buffer.alloc(len);
+      const bytesRead = fs.readSync(fh, buf, 0, len, this.offset);
+      const applied = this.ingest(buf.subarray(0, bytesRead));
+      this.offset += bytesRead;
+      this.lastSize = this.offset;
+      this.lastMtimeMs = st.mtimeMs;
+      return applied;
+    } finally {
+      fs.closeSync(fh);
+    }
+  }
+
+  /** Apply complete lines from a byte chunk, holding any unterminated tail. */
+  private ingest(chunk: Buffer): number {
+    const data = this.pending.length === 0 ? chunk : Buffer.concat([this.pending, chunk]);
+    const cut = data.lastIndexOf(0x0a); // last newline
+    const consumable = cut >= 0 ? data.subarray(0, cut) : Buffer.alloc(0);
+    this.pending = cut >= 0 ? Buffer.from(data.subarray(cut + 1)) : Buffer.from(data);
     const cutoff = Date.now() - REPLAY_MS;
-    let replayed = 0;
-    const content = fs.readFileSync(this.filePath, "utf8");
-    for (const raw of content.split("\n")) {
+    let applied = 0;
+    for (const raw of consumable.toString("utf8").split("\n")) {
       const line = raw.trim();
       if (!line) continue;
       let parsed: LedgerLine;
       try {
         parsed = JSON.parse(line) as LedgerLine;
       } catch {
-        continue; // A torn write must never break startup.
+        continue; // A torn write must never break a refresh.
       }
       if (!parsed.allowed) continue; // Vetoed calls cost nothing.
       const atMs = Date.parse(parsed.timestamp);
@@ -66,12 +150,17 @@ export class Ledger {
         totalTokens: parsed.total_tokens ?? 0,
         costUsd: parsed.cost_usd ?? 0,
       });
-      replayed++;
+      applied++;
     }
-    return replayed;
+    // Bound memory: drop anything older than the replay horizon.
+    if (this.spends.length > 10000) {
+      this.spends = this.spends.filter((s) => s.atMs >= Date.now() - RETAIN_MS);
+    }
+    return applied;
   }
 
   window(nowMs: number = Date.now()): SpendWindow {
+    this.refresh();
     let minuteTokens = 0;
     let hourUsd = 0;
     let dayUsd = 0;
@@ -114,8 +203,9 @@ export class Ledger {
   }
 
   append(line: LedgerLine): void {
+    const jsonLine = JSON.stringify(line) + "\n";
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.appendFileSync(this.filePath, JSON.stringify(line) + "\n", "utf8");
+    fs.appendFileSync(this.filePath, jsonLine, "utf8");
     if (line.allowed) {
       this.spends.push({
         atMs: Date.parse(line.timestamp),
@@ -127,6 +217,25 @@ export class Ledger {
       if (this.spends.length > 10000) {
         this.spends = this.spends.filter((s) => s.atMs >= cutoff);
       }
+    }
+    // Keep this instance's read cursor in sync with what it just wrote, so
+    // the next refresh cannot recount its own line.
+    this.noteWritten(jsonLine);
+  }
+
+  private noteWritten(chunk: string): void {
+    try {
+      const st = fs.statSync(this.filePath);
+      this.offset = st.size;
+      this.lastSize = st.size;
+      this.lastMtimeMs = st.mtimeMs;
+      this.lastInode = st.ino;
+    } catch {
+      // The file was unreadable right after the write; advance counters so a
+      // later refresh still cannot recount this line.
+      this.offset += Buffer.byteLength(chunk, "utf8");
+      this.lastSize = this.offset;
+      this.lastMtimeMs = Date.now();
     }
   }
 }
