@@ -206,36 +206,12 @@ export class Ledger {
     const jsonLine = JSON.stringify(line) + "\n";
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     fs.appendFileSync(this.filePath, jsonLine, "utf8");
-    if (line.allowed) {
-      this.spends.push({
-        atMs: Date.parse(line.timestamp),
-        totalTokens: line.total_tokens,
-        costUsd: line.cost_usd,
-      });
-      // Bound memory: drop anything older than the replay horizon.
-      const cutoff = Date.now() - RETAIN_MS;
-      if (this.spends.length > 10000) {
-        this.spends = this.spends.filter((s) => s.atMs >= cutoff);
-      }
-    }
-    // Keep this instance's read cursor in sync with what it just wrote, so
-    // the next refresh cannot recount its own line.
-    this.noteWritten(jsonLine);
-  }
-
-  private noteWritten(chunk: string): void {
-    try {
-      const st = fs.statSync(this.filePath);
-      this.offset = st.size;
-      this.lastSize = st.size;
-      this.lastMtimeMs = st.mtimeMs;
-      this.lastInode = st.ino;
-    } catch {
-      // The file was unreadable right after the write; advance counters so a
-      // later refresh still cannot recount this line.
-      this.offset += Buffer.byteLength(chunk, "utf8");
-      this.lastSize = this.offset;
-      this.lastMtimeMs = Date.now();
-    }
+    // The hold check reads spend from window(), which refreshes from the
+    // file. The append path deliberately does NOT cache appended bytes or
+    // move the read cursor: the cursor advances only in refresh(), by the
+    // bytes it parsed there. Anything a peer appended before or after this
+    // write is ingested exactly once, in file order, on the next check.
+    // (A cursor advanced by "whatever the file size was at the next stat"
+    // after our own write absorbs that peer line without parsing it.)
   }
 }

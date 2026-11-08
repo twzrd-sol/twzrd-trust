@@ -211,3 +211,28 @@ test("a multi-byte UTF-8 character split across reads is not corrupted", () => {
   fs.appendFileSync(file, fullBuf.subarray(cut));
   assert.equal(b.window().hourUsd, 0.5); // completed line parses and counts
 });
+
+test("a line a peer appends while we write is not skipped by our next check", () => {
+  const { dir, file } = tempLedgerPath();
+  ledgerDirs.push(dir);
+  const a = new Ledger(file);
+  const b = new Ledger(file);
+  assert.equal(a.load(), 0);
+  assert.equal(b.load(), 0);
+  // B appended before A ever looked; A appends now; B appends again right after.
+  fs.appendFileSync(file, allowedLine({ cost_usd: 0.5, request_id: "b1" }), "utf8");
+  a.append({
+    timestamp: new Date().toISOString(),
+    model: "gpt-4o-mini",
+    prompt_tokens: 10,
+    completion_tokens: 10,
+    total_tokens: 20,
+    cost_usd: 0.25,
+    allowed: true,
+    veto_reason: null,
+    request_id: "a1",
+  });
+  fs.appendFileSync(file, allowedLine({ cost_usd: 0.75, request_id: "b2" }), "utf8");
+  // A's cursor must not have absorbed B's lines: all three must count.
+  assert.equal(a.window().hourUsd, 1.5);
+});
