@@ -18,6 +18,10 @@ on:
       expected_commit:
         description: "Full 40-character commit SHA this run must be building"
         required: true
+      first_push:
+        description: "One-time operator attestation that this dispatch is the first create. Continues on registry denied/unauthorized only when this is the string true. A visible tag is still refused."
+        required: true
+        default: "false"
 
 permissions:
   contents: read
@@ -86,14 +90,27 @@ jobs:
         # "unauthorized" or "denied" means this token cannot see the package,
         # so the tag may exist; fail closed instead of building over it. The
         # old check treated any failed inspect as "absent".
+        # first_push=true is the operator saying this dispatch is the first
+        # create, so denied/unauthorized may continue. Inspect exit 0 still
+        # refuses even then: never overwrite a visible tag.
+        env:
+          FIRST_PUSH: ${{ inputs.first_push }}
         run: |
           if out=$(docker manifest inspect "$IMAGE:$EXPECTED_VERSION" 2>&1); then
-            echo "::error::$IMAGE:$EXPECTED_VERSION already exists. Bump the version instead of overwriting it."
+            echo "::error::$IMAGE:$EXPECTED_VERSION already exists. Bump the version instead of overwriting it. first_push does not override a visible tag."
             exit 1
           fi
           case "$out" in
             *"manifest unknown"*|*"no such manifest"*)
               echo "$IMAGE:$EXPECTED_VERSION is not published yet" ;;
+            *"denied"*|*"unauthorized"*)
+              if [ "$FIRST_PUSH" = "true" ]; then
+                echo "first_push is true: registry denied/unauthorized; continuing as the first create"
+              else
+                echo "::error::Cannot tell whether $IMAGE:$EXPECTED_VERSION exists (registry said: ${out:0:200}). Check the package's Actions access before re-running."
+                exit 1
+              fi
+              ;;
             *)
               echo "::error::Cannot tell whether $IMAGE:$EXPECTED_VERSION exists (registry said: ${out:0:200}). Check the package's Actions access before re-running."
               exit 1 ;;
