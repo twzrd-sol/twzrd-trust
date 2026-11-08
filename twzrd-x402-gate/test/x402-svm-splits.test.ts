@@ -15,6 +15,7 @@ import {
 } from "../src/payto.js";
 import {
   installTwzrdX402ClientHook,
+  mapX402SolanaRequirements,
   type BeforePaymentCreationContext,
   type BeforePaymentCreationResult,
   type X402ClientLike,
@@ -116,6 +117,14 @@ async function run() {
   assert.equal(SVM_SPLITS_REFUSED, "svm_splits_refused");
   // A non-exact SVM scheme is out of scope for this check.
   assert.equal(hasSvmExactSplits({ ...svm({ splits: [{ recipient: OTHER }] }), scheme: "upto" }), false);
+
+  // The mapped copy must still refuse. Dropping extra made the copy look clean.
+  const withSplits = svm({ splits: [{ recipient: OTHER, amount: "1" }] });
+  const mapped = mapX402SolanaRequirements(withSplits as never) as Record<string, unknown>;
+  assert.equal(hasSvmExactSplits(mapped), true, "clean map keeps extra.splits");
+  const conflicted = { ...withSplits, amount: "1000", maxAmountRequired: "2" };
+  const mappedConflict = mapX402SolanaRequirements(conflicted as never) as Record<string, unknown>;
+  assert.equal(hasSvmExactSplits(mappedConflict), true, "conflict map keeps extra.splits");
 
   // 2. Official x402Client hook: refused splits abort before payload creation,
   //    with no intel call. The hook's abort is what stops createPaymentPayload.
