@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.5 (unreleased)
+
+Tighter refusals: in-flight calls now count against the budgets.
+
+- An allowed call holds its pre-call estimate until it finishes, so a second
+  call checked while the first is in flight sees it. Before, two calls that
+  each fit could both pass and together overrun the hourly limit.
+- A request without `max_tokens` is checked at the per-request cap
+  (`max_cost_per_request_usd`, $0.50 by default) against the hourly and daily
+  limits. Before, it skipped the dollar check.
+- A call that finishes without usage writes the held estimate
+  (`"metered": "held_estimate"`) instead of nothing. This covers a 2xx with no
+  usage, a stream ending without a usage event, a timeout (504), an
+  unreachable upstream (502), or an error after the request was sent. It
+  counts in `hour_usd` and replays after a restart. A non-2xx upstream answer
+  without usage, such as a 402 challenge, still writes nothing.
+- Holds are not written to the ledger until the call ends; a crash mid-call
+  drops the hold. `/healthz` adds `in_flight`.
+
 ## 0.1.4 (2026-11-08)
 
 No runtime change: `dist/` is built from the same source as 0.1.3.

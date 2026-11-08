@@ -12,6 +12,13 @@ export interface LedgerLine {
   allowed: boolean;
   veto_reason: string | null;
   request_id: string | null;
+  /**
+   * How an allowed line was metered: "usage" from upstream, or
+   * "held_estimate" when the call finished without usage (timeout,
+   * unreachable upstream, a 2xx with no usage) and the pre-call hold stands.
+   * Absent on vetoes and on lines written before 0.1.5.
+   */
+  metered?: "usage" | "held_estimate";
 }
 
 interface TimedSpend {
@@ -28,6 +35,10 @@ const RETAIN_MS = 48 * 3600 * 1000;
 /** Append-only JSONL ledger (source of truth) + in-memory sliding windows. */
 export class Ledger {
   private spends: TimedSpend[] = [];
+  // In-flight holds: counted by window() but never written to the JSONL.
+  // A crash drops them; an unsettled hold must not consume budget forever.
+  private holds = new Map<number, TimedSpend>();
+  private nextHoldId = 1;
 
   constructor(private readonly filePath: string) {}
 
@@ -64,7 +75,7 @@ export class Ledger {
     let minuteTokens = 0;
     let hourUsd = 0;
     let dayUsd = 0;
-    for (const s of this.spends) {
+    for (const s of [...this.spends, ...this.holds.values()]) {
       const age = nowMs - s.atMs;
       if (age < 0) continue;
       if (age < 24 * 3600 * 1000) {
@@ -76,6 +87,30 @@ export class Ledger {
       }
     }
     return { minuteTokens, hourUsd, dayUsd };
+  }
+
+  /** Reserve an in-flight estimate. Synchronous: call it in the same turn as the gate check. */
+  hold(totalTokens: number, costUsd: number, atMs: number = Date.now()): number {
+    const id = this.nextHoldId++;
+    this.holds.set(id, { atMs, totalTokens, costUsd });
+    return id;
+  }
+
+  /** Drop a hold without recording spend (the call never reached a billable state). */
+  release(id: number): void {
+    this.holds.delete(id);
+  }
+
+  /** Replace a hold with a durable line (real usage or the held estimate). */
+  settle(id: number, line: LedgerLine): void {
+    // Append first: if the write throws, the hold keeps counting in memory.
+    this.append(line);
+    this.holds.delete(id);
+  }
+
+  /** Number of in-flight holds (for tests and /healthz). */
+  inFlight(): number {
+    return this.holds.size;
   }
 
   append(line: LedgerLine): void {

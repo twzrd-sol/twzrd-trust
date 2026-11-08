@@ -70,6 +70,17 @@ function startUpstream() {
           res.end("data: [DONE]\n\n");
           return;
         }
+        if (state.mode === "nousage") {
+          res.writeHead(200, { "content-type": "application/json", ...extra });
+          res.end(JSON.stringify({ id: "chatcmpl-stub", choices: [{ message: { role: "assistant", content: "hi" } }] }));
+          return;
+        }
+        if (state.mode === "stream-nousage") {
+          res.writeHead(200, { "content-type": "text/event-stream", ...extra });
+          res.write('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n');
+          res.end("data: [DONE]\n\n");
+          return;
+        }
         const headers = { "content-type": "application/json", ...extra };
         if (state.mode === "free") headers["x-free-model"] = "true";
         res.writeHead(200, headers);
@@ -415,7 +426,7 @@ test("a stream is forwarded, include_usage is injected, and the terminal usage i
   assert.ok(Math.abs(lines[0].cost_usd - expected) < 1e-12, `cost_usd ${lines[0].cost_usd}`);
 });
 
-test("upstream slower than timeout_ms returns 504 upstream_timeout and meters nothing", async () => {
+test("upstream slower than timeout_ms returns 504 upstream_timeout and keeps the held estimate", async () => {
   process.env.KILLSWITCH_UPSTREAM_TIMEOUT_MS = "150";
   upstream.state.delayMs = 2000;
   const port = await startKillswitch();
@@ -426,7 +437,16 @@ test("upstream slower than timeout_ms returns 504 upstream_timeout and meters no
   assert.equal(r.json.error.code, "upstream_timeout");
   assert.ok(Date.now() - started < 1500, "returned well before the upstream answered");
   assert.equal(upstream.state.hits, 1);
-  assert.deepEqual(readLedger(dir), []);
+  // No max_tokens: the hold is the per-request cap ($0.50 default) and no tokens.
+  const lines = readLedger(dir);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].allowed, true);
+  assert.equal(lines[0].metered, "held_estimate");
+  assert.equal(lines[0].cost_usd, 0.5);
+  assert.equal(lines[0].total_tokens, 0);
+  const h = await health(port);
+  assert.equal(h.hour_usd, 0.5);
+  assert.equal(h.in_flight, 0);
 });
 
 test("the pinned free model costs zero and an unknown model stays at the o1 rate", () => {
@@ -487,6 +507,10 @@ test("unreachable upstream returns 502 upstream_unreachable", async () => {
   const r = await chat(port, { model: "gpt-4o-mini", messages: [] });
   assert.equal(r.status, 502);
   assert.equal(r.json.error.code, "upstream_unreachable");
+  const lines = readLedger(dir);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].metered, "held_estimate");
+  assert.equal(lines[0].cost_usd, 0.5);
 });
 
 test("clientResponseHeaders copies payment headers and strips hop-by-hop and secrets", () => {
@@ -570,4 +594,114 @@ test("upstreamRequestHeaders injects Bearer apiKey and copies payment headers", 
     "x-payment": "pay-payload",
   });
   assert.equal(signature.authorization, "sig-blob");
+});
+
+function seedLedger(lines) {
+  fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "data", "spend-ledger.jsonl"),
+    lines.map((l) => JSON.stringify(l)).join("\n") + "\n",
+  );
+}
+
+function spentLine(agoMs, costUsd, totalTokens = 0, model = "gpt-4o") {
+  return { timestamp: new Date(Date.now() - agoMs).toISOString(), model, prompt_tokens: 0,
+    completion_tokens: 0, total_tokens: totalTokens, cost_usd: costUsd, allowed: true, veto_reason: null,
+    request_id: "seed" };
+}
+
+test("two overlapping allows: the second sees the first call's hold and is refused", async () => {
+  // $4.20 already spent this hour against the $5.00 default; o1 with
+  // max_tokens 8000 holds 8000 * $60/1M = $0.48 per call.
+  seedLedger([spentLine(10 * 60_000, 4.2)]);
+  upstream.state.delayMs = 300;
+  const port = await startKillswitch();
+  const body = { model: "o1", max_tokens: 8000, messages: [] };
+  const [a, b] = await Promise.all([chat(port, body), chat(port, body)]);
+  const statuses = [a.status, b.status].sort();
+  assert.deepEqual(statuses, [200, 429]);
+  const refused = a.status === 429 ? a : b;
+  assert.equal(refused.json.error.code, "budget_exceeded");
+  assert.equal(refused.json.error.spent_usd, 4.68);
+  assert.equal(upstream.state.hits, 1);
+  const h = await health(port);
+  assert.equal(h.in_flight, 0);
+});
+
+test("overlapping token holds: 35,000-token calls allow at 75,000 and refuse at 110,000", async () => {
+  // 5,000 tokens already in the last minute; default limit 100,000 tokens/min.
+  seedLedger([spentLine(10_000, 0.001, 5000, "gpt-4o-mini")]);
+  upstream.state.delayMs = 300;
+  const port = await startKillswitch();
+  const body = { model: "gpt-4o-mini", max_tokens: 35000, messages: [] };
+  const results = await Promise.all([chat(port, body), chat(port, body), chat(port, body)]);
+  const ok = results.filter((r) => r.status === 200);
+  const refused = results.filter((r) => r.status === 429);
+  assert.equal(ok.length, 2);
+  assert.equal(refused.length, 1);
+  assert.equal(refused[0].json.error.code, "budget_exceeded");
+  // spent_usd carries the minute tokens seen by the third check: 5,000 + 2 x 35,000.
+  assert.equal(refused[0].json.error.spent_usd, 75000);
+  assert.equal(upstream.state.hits, 2);
+});
+
+test("a call without max_tokens is checked at the per-request cap", async () => {
+  // $4.60 spent; the missing max_tokens counts as the $0.50 cap: 4.60 + 0.50 > 5.00.
+  seedLedger([spentLine(10 * 60_000, 4.6)]);
+  const port = await startKillswitch();
+  const r = await chat(port, { model: "gpt-4o-mini", messages: [] });
+  assert.equal(r.status, 429);
+  assert.equal(r.json.error.code, "budget_exceeded");
+  assert.equal(upstream.state.hits, 0);
+});
+
+test("a 200 JSON body with no usage keeps the held estimate and survives a restart", async () => {
+  upstream.state.mode = "nousage";
+  const port = await startKillswitch();
+  const r = await chat(port, { model: "o1", max_tokens: 1000, messages: [] });
+  assert.equal(r.status, 200);
+  const held = (1000 * 60) / 1_000_000;
+  const lines = readLedger(dir);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].metered, "held_estimate");
+  assert.equal(lines[0].total_tokens, 1000);
+  assert.ok(Math.abs(lines[0].cost_usd - held) < 1e-12, `cost_usd ${lines[0].cost_usd}`);
+  assert.ok(Math.abs((await health(port)).hour_usd - held) < 1e-12);
+
+  await close(servers.pop());
+  const port2 = await startKillswitch();
+  assert.ok(Math.abs((await health(port2)).hour_usd - held) < 1e-12);
+});
+
+test("a stream that ends at [DONE] with no usage event keeps the held estimate", async () => {
+  upstream.state.mode = "stream-nousage";
+  const port = await startKillswitch();
+  const r = await chat(port, { model: "gpt-4o", max_tokens: 2000, stream: true, messages: [] });
+  assert.equal(r.status, 200);
+  assert.match(r.text, /data: \[DONE\]/);
+  const held = (2000 * 10) / 1_000_000;
+  const lines = readLedger(dir);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].metered, "held_estimate");
+  assert.equal(lines[0].total_tokens, 2000);
+  assert.ok(Math.abs(lines[0].cost_usd - held) < 1e-12, `cost_usd ${lines[0].cost_usd}`);
+});
+
+test("usage replaces the hold with the real cost; a 402 challenge releases it with no line", async () => {
+  const port = await startKillswitch();
+  const r = await chat(port, { model: "gpt-4o-mini", max_tokens: 4000, messages: [] });
+  assert.equal(r.status, 200);
+  const lines = readLedger(dir);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].metered, "usage");
+  assert.equal(lines[0].total_tokens, 1500);
+
+  upstream.state.mode = "402";
+  const c = await chat(port, { model: "gpt-4o-mini", max_tokens: 4000, messages: [] });
+  assert.equal(c.status, 402);
+  assert.equal(readLedger(dir).length, 1);
+  const h = await health(port);
+  assert.equal(h.in_flight, 0);
+  const real = (1000 * 0.15 + 500 * 0.6) / 1_000_000;
+  assert.ok(Math.abs(h.hour_usd - real) < 1e-12, `hour_usd ${h.hour_usd}`);
 });

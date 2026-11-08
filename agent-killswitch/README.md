@@ -60,10 +60,35 @@ gracefully (HTTP 403 for the kill switch, 429 for budgets):
 
 If upstream does not answer within `timeout_ms` (default 60 s) the proxy
 returns 504 `upstream_timeout`; if it cannot be reached at all, 502
-`upstream_unreachable` (both `"type": "killswitch_error"`). A failed request
-is not metered, because no usage came back, but upstream may still bill a
-request it received before the timeout. A stream that has started is never
-cut off by the timeout.
+`upstream_unreachable` (both `"type": "killswitch_error"`). Upstream may
+still bill a request it received before the timeout, so the call keeps its
+pre-call hold (below) and the ledger records that estimate. A stream that has
+started is never cut off by the timeout.
+
+### In-flight holds
+
+An allowed call holds its pre-call estimate from the moment it passes the
+check until it finishes, so concurrent calls see each other's spend:
+
+- **With `max_tokens`**: the token hold is `max_tokens`, and the dollar hold
+  is all of those tokens at the model's output rate.
+- **Without `max_tokens`**: the dollar estimate is the per-request cap
+  (`max_cost_per_request_usd`, $0.50 by default), and the hourly and daily
+  checks run against it. There is no token estimate, so the token hold is 0.
+
+When the call ends, the hold becomes a ledger line:
+
+- **Upstream reports usage**: the real cost is written (`"metered": "usage"`).
+- **The call finished without usage**: the held estimate is written
+  (`"metered": "held_estimate"`). This covers a 2xx with no usage, a stream
+  that ends without a usage event, a timeout, an unreachable upstream, or an
+  error after the request was sent. A restart replays it.
+- **Upstream answers non-2xx without usage** (for example a 402 payment
+  challenge): the hold is released and no spend is written.
+
+A veto before the request is sent leaves no hold. Holds live in memory only:
+a crash while a call is in flight drops its hold rather than charging an
+unsettled estimate forever. `/healthz` reports `in_flight`.
 
 ## What the kill switch protects against
 
@@ -109,7 +134,8 @@ environment variable. Leave it unset for the normal keyed OpenAI proxy.
 
 Every decision — allowed or vetoed — appends one line to the JSONL ledger
 with timestamp, model, token counts, `cost_usd`, `allowed`, `veto_reason`,
-and `request_id`. Restart replays the last 48 h to rebuild the spend
+and `request_id`; allowed lines also carry `metered` (`usage` or
+`held_estimate`). An allowed line is written when the call ends. Restart replays the last 48 h to rebuild the spend
 windows; the ledger file is the source of truth.
 
 ## Tests
@@ -122,7 +148,10 @@ Offline: a stub upstream on `127.0.0.1` stands in for OpenAI, so no key,
 network or spend is needed. Covered: the default kill file (403, upstream
 never called), the kill API, ledger replay over the hourly limit (429),
 replay skipping vetoed, stale and torn lines, metered cost on a normal and
-a streamed request surviving a restart, the 504/502 upstream failures, an
+a streamed request surviving a restart, the 504/502 upstream failures
+keeping the held estimate, overlapping calls seeing each other's holds
+(dollars and tokens), the per-request cap standing in for a missing
+`max_tokens`, a 200 and a stream without usage keeping the hold, an
 upstream HTTP 402 whose `WWW-Authenticate` / `PAYMENT-REQUIRED` challenge
 reaches the client, a paid retry whose `X-Payment` / `Payment-Signature` /
 `X-Payment-Signature` headers reach upstream, and `Payment-Receipt` /

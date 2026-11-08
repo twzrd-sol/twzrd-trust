@@ -9,6 +9,8 @@ export interface UpstreamUsage {
 export interface ForwardResult {
   status: number;
   usage: UpstreamUsage | null;
+  /** "answered": upstream sent a response. "timeout" / "unreachable": the proxy wrote 504 / 502. */
+  outcome: "answered" | "timeout" | "unreachable";
 }
 
 /** RFC 9110 hop-by-hop headers. Never copy these from client or upstream. */
@@ -146,9 +148,9 @@ export function upstreamRequestHeaders(
 }
 
 /**
- * Upstream timed out (504) or could not be reached (502). Nothing is
- * metered: no usage came back, though upstream may still bill a request it
- * received before the timeout.
+ * Upstream timed out (504) or could not be reached (502). No usage came
+ * back; the caller keeps the pre-call hold, because upstream may still bill
+ * a request it received before the timeout.
  */
 function upstreamFailure(clientRes: ServerResponse, timedOut: boolean): ForwardResult {
   const status = timedOut ? 504 : 502;
@@ -162,7 +164,7 @@ function upstreamFailure(clientRes: ServerResponse, timedOut: boolean): ForwardR
       },
     }),
   );
-  return { status, usage: null };
+  return { status, usage: null, outcome: timedOut ? "timeout" : "unreachable" };
 }
 
 function num(v: unknown): number {
@@ -235,13 +237,14 @@ export async function forwardChatCompletion(
   if (!streaming) {
     clientRes.writeHead(upstreamRes.status, responseHeaders(upstreamRes, { "content-type": "application/json" }));
     clientRes.end(text);
-    if (!upstreamRes.ok) return { status: upstreamRes.status, usage: null };
+    if (!upstreamRes.ok) return { status: upstreamRes.status, usage: null, outcome: "answered" };
     try {
       const parsed = JSON.parse(text) as { usage?: Partial<UpstreamUsage> };
       const u = parsed.usage;
-      if (!u) return { status: upstreamRes.status, usage: null };
+      if (!u) return { status: upstreamRes.status, usage: null, outcome: "answered" };
       return {
         status: upstreamRes.status,
+        outcome: "answered",
         usage: {
           prompt_tokens: num(u.prompt_tokens),
           completion_tokens: num(u.completion_tokens),
@@ -249,7 +252,7 @@ export async function forwardChatCompletion(
         },
       };
     } catch {
-      return { status: upstreamRes.status, usage: null };
+      return { status: upstreamRes.status, usage: null, outcome: "answered" };
     }
   }
 
@@ -266,7 +269,7 @@ export async function forwardChatCompletion(
   );
   if (!upstreamRes.ok || !upstreamRes.body) {
     clientRes.end(text);
-    return { status: upstreamRes.status, usage: null };
+    return { status: upstreamRes.status, usage: null, outcome: "answered" };
   }
 
   let usage: UpstreamUsage | null = null;
@@ -300,5 +303,5 @@ export async function forwardChatCompletion(
     }
   }
   clientRes.end();
-  return { status: upstreamRes.status, usage };
+  return { status: upstreamRes.status, usage, outcome: "answered" };
 }
