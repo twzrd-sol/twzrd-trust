@@ -76,16 +76,55 @@ jobs:
           npm ci
           npm run ci
 
+      - name: Pre-check for existing image tag
+        # If the GHCR container package does not exist (404 or empty version
+        # list), no tag exists and the push cannot overwrite anything.  This
+        # avoids the case where `docker manifest inspect` returns "denied"
+        # instead of "manifest unknown" for a brand-new image whose package
+        # is not visible to the actions GITHUB_TOKEN.
+        #
+        # API contract:
+        #   404 / empty versions → no tag can exist → proceed safely
+        #   200 with versions    → package exists → fall through to docker inspect
+        run: |
+          set -euo pipefail
+          pkg_name="${IMAGE##*/}"
+          api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/packages/container/${pkg_name}"
+          http_code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "$api_url" 2>/dev/null || echo "000")
+          if [ "$http_code" != "200" ]; then
+            echo "GHCR package not returned 200 (got $http_code): package absent, no tag can exist; proceeding"
+          else
+            echo "GHCR package $pkg_name exists"
+            has_version=$(curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "$api_url" 2>/dev/null | python3 -c "
+              import sys, json
+              versions = json.load(sys.stdin)
+              print('yes' if len(versions) > 0 else 'no')
+            " 2>/dev/null || echo "error")
+            if [ "$has_version" = "error" ]; then
+              echo "::error::Failed to parse package versions from API."
+              exit 1
+            elif [ "$has_version" = "yes" ]; then
+              echo "Package has tags; falling through to docker manifest inspect."
+            else
+              echo "Package has no versions yet: $pkg_name is not published, proceeding"
+            fi
+          fi
+
       - name: Log in to GHCR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       - name: Refuse to overwrite an existing version tag
-        # Only a registry answer of "manifest unknown" counts as "tag absent".
+        # After the pre-check above handles the 404/empty case (first push),
+        # this step runs docker manifest inspect for every subsequent run.
+        # Only "manifest unknown" means the tag is absent.
         # "unauthorized" or "denied" means this token cannot see the package,
-        # so the tag may exist; fail closed instead of building over it. The
-        # old check treated any failed inspect as "absent".
+        # so the tag may exist; fail closed instead of building over it.
         run: |
           if out=$(docker manifest inspect "$IMAGE:$EXPECTED_VERSION" 2>&1); then
             echo "::error::$IMAGE:$EXPECTED_VERSION already exists. Bump the version instead of overwriting it."
