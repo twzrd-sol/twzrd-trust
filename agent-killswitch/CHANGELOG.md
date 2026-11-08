@@ -18,6 +18,10 @@ Tighter refusals: in-flight calls now count against the budgets.
   without usage, such as a 402 challenge, still writes nothing.
 - Holds are not written to the ledger until the call ends; a crash mid-call
   drops the hold. `/healthz` adds `in_flight`.
+- README: says the proxy caps a bill rather than stopping a loop (a $0 loop
+  keeps running until the kill file is touched), that the pre-call checks do
+  not count prompt tokens, that traffic which never reaches the proxy is not
+  capped, and that `nvidia/nemotron-3.5-bolt` is priced at $0.
 
 ## 0.1.4 (2026-11-08)
 

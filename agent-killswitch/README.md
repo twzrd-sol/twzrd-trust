@@ -6,7 +6,10 @@ you an instant file-based kill switch, and writes every decision to an
 append-only JSONL ledger.
 
 Point any OpenAI client at it by changing one variable — `OPENAI_BASE_URL` —
-and a runaway agent can never silently burn more than you allow.
+and calls through the proxy are refused once they would cross the limits you
+set. It caps a bill: it does not detect a loop, and a loop that costs $0 (a
+free model) keeps running until you touch the kill file. It listens on
+`127.0.0.1` by default and talks to one configured upstream.
 
 ## 5-minute setup (Docker)
 
@@ -92,8 +95,11 @@ unsettled estimate forever. `/healthz` reports `in_flight`.
 
 ## What the kill switch protects against
 
-It stops a **runaway** agent: a loop, a retry storm, a prompt that will not
-end. It does not stop an **adversarial** one. Any local process that can
+It caps what a **runaway** agent can spend (a loop, a retry storm, a prompt
+that will not end) and refuses the next call once a limit would be crossed.
+It does not stop the loop itself: calls that stay under the limits keep
+going until you touch the kill file, and a call already sent upstream runs
+to its end. It does not stop an **adversarial** agent either. Any local process that can
 write the kill file's directory, or reach `127.0.0.1:4020` while the kill
 API is on, can lift the kill with `rm` or `POST /reset`, and that includes
 the agent itself. If the agent could act against you:
@@ -103,7 +109,8 @@ the agent itself. If the agent could act against you:
 - set `KILLSWITCH_KILL_API=false` so `/kill` and `/reset` are off (the file
   still works);
 - keep the upstream key out of the agent's environment, or it can call
-  upstream directly and skip the proxy.
+  upstream directly and skip the proxy. Traffic that never reaches the
+  proxy's port is not capped.
 
 ## Configuration
 
@@ -163,9 +170,15 @@ Costs use a static per-model table (`src/pricing.ts`, checked against
 OpenAI's published prices). There are no live pricing fetches by design.
 An **unknown model is billed at the most expensive known rate** (currently
 o1 at **$15 input / $60 output per million tokens**) rather than rejected —
-failing closed on cost beats failing open. That is why a free Nemotron call
-logged `cost_usd` 0.001215 rather than $0.00: Nemotron is not in the table,
-so the proxy assumed o1. The ledger shows exactly what was assumed.
+failing closed on cost beats failing open. A model id that is not in the
+table, even a free one, is priced as o1; `nvidia/nemotron-3.5-bolt` is listed
+at $0. The ledger shows exactly what was assumed.
+
+The checks before a call do not count prompt tokens. The per-request cap
+prices `max_tokens` at the model's output rate (or uses the cap itself when
+`max_tokens` is missing), so a very large prompt with a small `max_tokens`
+is forwarded. Its real cost, prompt included, enters the hourly and daily
+windows when upstream reports usage.
 
 Upstream payment headers an MPP/x402 buyer needs — `WWW-Authenticate`
 challenges, `PAYMENT-REQUIRED`, `Payment-Receipt`, and `X-Payment-*` — are
