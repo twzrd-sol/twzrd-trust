@@ -33,7 +33,7 @@ export interface GateInput {
   killed: boolean;
   window: SpendWindow;
   model: string;
-  /** Requested max_tokens, if the client sent one. Without it no pessimistic check is possible. */
+  /** Requested max_tokens, if the client sent one. Without it the dollar estimate is the per-request cap. */
   maxTokens: number | null;
   maxTokensPerMinute: number;
   maxUsdPerHour: number;
@@ -43,7 +43,24 @@ export interface GateInput {
   allowedModels?: readonly string[] | null;
 }
 
-/** Pure pre-call budget evaluator. No I/O, no tokenizer. */
+export interface RequestEstimate {
+  /** Tokens held against the per-minute window: max_tokens, or 0 without it. */
+  tokens: number;
+  /** Dollars held against the hourly and daily windows. */
+  usd: number;
+}
+
+/**
+ * Pre-call estimate, used both by evaluateGate and by the in-flight hold.
+ * With max_tokens: all of them at the output rate. Without it there is no
+ * token estimate, and the dollar estimate is the per-request cap.
+ */
+export function requestEstimate(model: string, maxTokens: number | null, maxCostPerRequestUsd: number): RequestEstimate {
+  if (maxTokens === null) return { tokens: 0, usd: maxCostPerRequestUsd };
+  return { tokens: maxTokens, usd: pessimisticRequestCostUsd(model, maxTokens) };
+}
+
+/** Pure pre-call budget evaluator. No I/O, no tokenizer. The window must include in-flight holds. */
 export function evaluateGate(input: GateInput): GateDecision {
   if (input.killed) {
     return {
@@ -67,10 +84,12 @@ export function evaluateGate(input: GateInput): GateDecision {
     };
   }
 
-  // Token velocity gate: recorded tokens in the last 60 s plus this
-  // request's max_tokens as a stand-in for its eventual size.
-  const estTokens = input.maxTokens ?? 0;
-  if (input.window.minuteTokens + estTokens > input.maxTokensPerMinute) {
+  // The same estimate the caller holds while the request is in flight.
+  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd);
+
+  // Token velocity gate: tokens in the last 60 s (recorded and in flight)
+  // plus this request's max_tokens as a stand-in for its eventual size.
+  if (input.window.minuteTokens + est.tokens > input.maxTokensPerMinute) {
     return {
       allowed: false,
       status: 429,
@@ -81,41 +100,38 @@ export function evaluateGate(input: GateInput): GateDecision {
     };
   }
 
-  // Pessimistic cost gate: assume every requested max_token bills at the
-  // output rate. Requests without max_tokens skip this check and are metered
-  // on actual usage instead.
-  if (input.maxTokens !== null) {
-    const pessimistic = pessimisticRequestCostUsd(input.model, input.maxTokens);
-    if (pessimistic > input.maxCostPerRequestUsd) {
-      return {
-        allowed: false,
-        status: 429,
-        code: "per_request_cap",
-        message: `Request could cost $${pessimistic.toFixed(4)}, over the per-request cap $${input.maxCostPerRequestUsd.toFixed(2)}`,
-        spentUsd: pessimistic,
-        limitUsd: input.maxCostPerRequestUsd,
-      };
-    }
-    if (input.window.hourUsd + pessimistic > input.maxUsdPerHour) {
-      return {
-        allowed: false,
-        status: 429,
-        code: "budget_exceeded",
-        message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} would be exceeded`,
-        spentUsd: input.window.hourUsd,
-        limitUsd: input.maxUsdPerHour,
-      };
-    }
-    if (input.window.dayUsd + pessimistic > input.maxUsdPerDay) {
-      return {
-        allowed: false,
-        status: 429,
-        code: "budget_exceeded",
-        message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} would be exceeded`,
-        spentUsd: input.window.dayUsd,
-        limitUsd: input.maxUsdPerDay,
-      };
-    }
+  // Pessimistic cost gate: every requested max_token bills at the output
+  // rate. Without max_tokens the request is assumed to cost the per-request
+  // cap, so the hourly and daily checks still run.
+  if (est.usd > input.maxCostPerRequestUsd) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "per_request_cap",
+      message: `Request could cost $${est.usd.toFixed(4)}, over the per-request cap $${input.maxCostPerRequestUsd.toFixed(2)}`,
+      spentUsd: est.usd,
+      limitUsd: input.maxCostPerRequestUsd,
+    };
+  }
+  if (input.window.hourUsd + est.usd > input.maxUsdPerHour) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} would be exceeded`,
+      spentUsd: input.window.hourUsd,
+      limitUsd: input.maxUsdPerHour,
+    };
+  }
+  if (input.window.dayUsd + est.usd > input.maxUsdPerDay) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} would be exceeded`,
+      spentUsd: input.window.dayUsd,
+      limitUsd: input.maxUsdPerDay,
+    };
   }
 
   // Hard caps apply even without max_tokens: an already-blown window vetoes.

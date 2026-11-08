@@ -3,10 +3,10 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadConfig } from "./config.js";
-import { checkKillSwitch, evaluateGate, vetoBody } from "./gate.js";
+import { checkKillSwitch, evaluateGate, requestEstimate, vetoBody } from "./gate.js";
 import { Ledger } from "./ledger.js";
 import { costUsd } from "./pricing.js";
-import { forwardChatCompletion } from "./proxy.js";
+import { forwardChatCompletion, type ForwardResult } from "./proxy.js";
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
@@ -72,6 +72,7 @@ async function handle(
       killed: checkKillSwitch(cfg.killFilePath),
       hour_usd: w.hourUsd,
       day_usd: w.dayUsd,
+      in_flight: ledger.inFlight(),
     });
     return;
   }
@@ -145,30 +146,75 @@ async function handle(
     return;
   }
 
-  // Allowed: forward, then meter on the actual usage reported upstream.
-  const result = await forwardChatCompletion(
-    cfg.upstreamBaseUrl,
-    cfg.apiKey,
-    body,
-    res,
-    requestId,
-    cfg.upstreamTimeoutMs,
-    req.headers,
-  );
-  if (result.usage) {
+  // Allowed: hold the same estimate the check used, in this turn (no await
+  // between the check and the hold), so a concurrent request sees it.
+  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd);
+  const holdId = ledger.hold(est.tokens, est.usd, Date.parse(now));
+
+  let result: ForwardResult | null = null;
+  try {
+    result = await forwardChatCompletion(
+      cfg.upstreamBaseUrl,
+      cfg.apiKey,
+      body,
+      res,
+      requestId,
+      cfg.upstreamTimeoutMs,
+      req.headers,
+    );
+  } finally {
+    settleHold(ledger, holdId, result, { now, model, requestId, est });
+  }
+}
+
+/**
+ * Turn the in-flight hold into a ledger line once the call ends.
+ * - Upstream usage: the hold is dropped and the real cost is written.
+ * - No usage after a 2xx (JSON without usage, a stream that ended without a
+ *   usage event), a timeout, an unreachable upstream, or an error after the
+ *   request was sent: the held estimate is written, so a restart replays it.
+ * - An answered non-2xx without usage (for example a 402 payment challenge)
+ *   was not served and is not billed: the hold is released, nothing is written.
+ */
+function settleHold(
+  ledger: Ledger,
+  holdId: number,
+  result: ForwardResult | null,
+  ctx: { now: string; model: string; requestId: string; est: { tokens: number; usd: number } },
+): void {
+  if (result?.usage) {
     const u = result.usage;
-    ledger.append({
-      timestamp: now,
-      model,
+    ledger.settle(holdId, {
+      timestamp: ctx.now,
+      model: ctx.model,
       prompt_tokens: u.prompt_tokens,
       completion_tokens: u.completion_tokens,
       total_tokens: u.total_tokens,
-      cost_usd: costUsd(model, u.prompt_tokens, u.completion_tokens),
+      cost_usd: costUsd(ctx.model, u.prompt_tokens, u.completion_tokens),
       allowed: true,
       veto_reason: null,
-      request_id: requestId,
+      request_id: ctx.requestId,
+      metered: "usage",
     });
+    return;
   }
+  const answeredUnbilled = result !== null && result.outcome === "answered" && (result.status < 200 || result.status >= 300);
+  if (answeredUnbilled) {
+    ledger.release(holdId);
+    return;
+  }
+  ledger.settle(holdId, {
+    timestamp: ctx.now,
+    model: ctx.model,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: ctx.est.tokens,
+    cost_usd: ctx.est.usd,
+    allowed: true,
+    veto_reason: null,
+    request_id: ctx.requestId,
+    metered: "held_estimate",
+  });
 }
 
 // CLI entry: `node dist/index.js [config.yaml]`.
