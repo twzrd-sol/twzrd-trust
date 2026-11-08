@@ -1,0 +1,114 @@
+name: Publish agent-killswitch to npm
+
+# workflow_dispatch ONLY: nothing an outside branch or PR does can publish.
+# A person presses the button and names the version and commit to ship.
+#
+# Auth: npm Trusted Publishing (OIDC) only. @twzrd1111/agent-killswitch already
+# exists on npm, so no token path is needed. The run fails at `npm publish`,
+# after every check, until this workflow
+# (twzrd-sol/twzrd-trust / .github/workflows/publish-agent-killswitch.yml)
+# is added as the package's trusted publisher on npmjs.com.
+#
+# Permissions: contents: read (nothing is tagged or pushed);
+# id-token: write (OIDC and npm provenance).
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: 'agent-killswitch/package.json version this run must publish (MAJOR.MINOR.PATCH)'
+        required: true
+      expected_commit:
+        description: 'Full 40-character commit SHA this run must be publishing'
+        required: true
+
+concurrency:
+  group: publish-agent-killswitch
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: agent-killswitch
+    env:
+      PACKAGE: '@twzrd1111/agent-killswitch'
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+      EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: agent-killswitch/package-lock.json
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Refuse unless name, version and commit match the request
+        run: |
+          if ! printf '%s' "$EXPECTED_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::expected_version '$EXPECTED_VERSION' is not MAJOR.MINOR.PATCH -- refusing."
+            exit 1
+          fi
+          NAME=$(node -p "require('./package.json').name")
+          ACTUAL=$(node -p "require('./package.json').version")
+          COMMIT=$(git rev-parse HEAD)
+          if [ "$NAME" != "$PACKAGE" ]; then
+            echo "::error::package.json names $NAME, expected $PACKAGE -- refusing."
+            exit 1
+          fi
+          if [ "$ACTUAL" != "$EXPECTED_VERSION" ]; then
+            echo "::error::package.json is $ACTUAL, you confirmed $EXPECTED_VERSION -- refusing."
+            exit 1
+          fi
+          if [ "$COMMIT" != "$EXPECTED_COMMIT" ]; then
+            echo "::error::checked out $COMMIT, you confirmed $EXPECTED_COMMIT -- refusing."
+            exit 1
+          fi
+          echo "Confirmed: publishing $PACKAGE@$ACTUAL from $COMMIT"
+
+      - name: Refuse a version the registry already has
+        # Only a registry 404 or an empty answer counts as "not published";
+        # any other failure means the answer is unknown, so fail closed.
+        run: |
+          if out=$(npm view "$PACKAGE@$EXPECTED_VERSION" version 2>&1); then
+            if [ -n "$out" ]; then
+              echo "::error::$PACKAGE@$out is already on npm -- bump the version instead."
+              exit 1
+            fi
+          fi
+          case "$out" in
+            *E404*|"") echo "$PACKAGE@$EXPECTED_VERSION is not published yet" ;;
+            *) echo "::error::Cannot tell whether $PACKAGE@$EXPECTED_VERSION exists (npm said: ${out:0:200})."; exit 1 ;;
+          esac
+
+      - name: Install dependencies (agent-killswitch/package-lock.json)
+        run: npm ci
+
+      - name: Typecheck and test
+        run: npm run ci
+
+      - name: Show the tarball contents
+        run: npm pack --dry-run
+
+      - name: Publish with OIDC trusted publishing and provenance
+        run: |
+          # Trusted publishing needs npm 11.5.1+.
+          npm install -g npm@11.21.2
+          npm --version
+          # setup-node writes _authToken=${NODE_AUTH_TOKEN}; an empty expansion
+          # makes npm skip OIDC and die ENEEDAUTH (publish.yml, run 34089898111).
+          NPMRC_PATH="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$NPMRC_PATH" ]; then sed -i '/_authToken/d' "$NPMRC_PATH"; fi
+          if [ -f "$HOME/.npmrc" ] && [ "$HOME/.npmrc" != "$NPMRC_PATH" ]; then sed -i '/_authToken/d' "$HOME/.npmrc"; fi
+          npm publish --access public --provenance
+
+      - name: Verify against the live registry
+        run: bash ../scripts/verify-live-npm-version.sh "$PACKAGE" "$EXPECTED_VERSION"

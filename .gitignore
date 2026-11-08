@@ -16,3 +16,4 @@ block-proof-*.json
 twzrd-evidence-bundle-*.json
 bundle.json
 /offline-refusal-proof.json
+agent-killswitch/dist/

@@ -1,0 +1,53 @@
+{
+  "name": "@twzrd1111/agent-killswitch",
+  "version": "0.1.3",
+  "description": "Drop-in local reverse proxy that enforces hard token/cost budgets on OpenAI-compatible chat completions, with an instant file-based kill switch and an append-only JSONL spend ledger.",
+  "license": "MIT",
+  "author": "TWZRD",
+  "type": "module",
+  "homepage": "https://www.npmjs.com/package/@twzrd1111/agent-killswitch",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
+    "directory": "agent-killswitch"
+  },
+  "bugs": {
+    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
+  },
+  "keywords": [
+    "openai",
+    "proxy",
+    "budget",
+    "kill-switch",
+    "cost-control",
+    "agents"
+  ],
+  "files": [
+    "dist",
+    "config.example.yaml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "npm run build && node --test \"test/*.test.mjs\"",
+    "ci": "npm run typecheck && npm test",
+    "start": "node dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
