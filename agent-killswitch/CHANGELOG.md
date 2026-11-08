@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.4 (unreleased)
+## 0.1.4 (2026-11-08)
 
 No runtime change: `dist/` is built from the same source as 0.1.3.
 
