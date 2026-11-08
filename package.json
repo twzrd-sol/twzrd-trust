@@ -2,7 +2,7 @@
   "name": "twzrd-trust-monorepo",
   "version": "0.9.3",
   "private": true,
-  "description": "TWZRD trust monorepo — buyer-side x402 spend control and trust tooling on Solana",
+  "description": "TWZRD trust monorepo \u2014 buyer-side x402 spend control and trust tooling on Solana",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace=twzrd-x402-gate",
-    "test": "npm run build && npm run test --workspace=twzrd-x402-gate && npm run test --workspace=twzrd-log-verifier && npm run test --workspace=@wzrd_sol/eliza-plugin-source && npm run test:eliza-pack && npm run test:artifacts && npm run test:ecosystem && npm run test:guard-vectors && npm run test:mirror-sync && npm run test:plugin-layout && npm run test:npm-verify",
+    "test": "npm run build && npm run test --workspace=twzrd-x402-gate && npm run test --workspace=twzrd-log-verifier && npm run test:agent-killswitch && npm run test --workspace=@wzrd_sol/eliza-plugin-source && npm run test:eliza-pack && npm run test:artifacts && npm run test:ecosystem && npm run test:guard-vectors && npm run test:mirror-sync && npm run test:plugin-layout && npm run test:npm-verify",
     "test:eliza-pack": "node scripts/assert-eliza-publish-pack.mjs",
     "pack:eliza": "node scripts/pack-eliza-plugin.mjs",
     "resync:eliza": "node scripts/resync-eliza-plugin.mjs",
@@ -32,7 +32,8 @@
     "ci": "npm run build && npm run typecheck && npm test && npm run audit:prod && npm run test:quickstart",
     "test:mirror-sync": "node --test scripts/sync-intel-mirror.test.mjs",
     "test:plugin-layout": "node --test scripts/check-plugin-layout.test.mjs",
-    "test:npm-verify": "node --test scripts/verify-live-npm-version.test.mjs"
+    "test:npm-verify": "node --test scripts/verify-live-npm-version.test.mjs",
+    "test:agent-killswitch": "npm ci --prefix agent-killswitch && npm run ci --prefix agent-killswitch"
   },
   "devDependencies": {
     "tsx": "^4.23.12",

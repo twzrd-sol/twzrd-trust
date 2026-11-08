@@ -1,0 +1,27 @@
+upstream:
+  base_url: "https://api.openai.com/v1"
+  # Name of the env var holding the upstream API key. The key itself is
+  # never stored in this file.
+  api_key_env: "OPENAI_API_KEY"
+  # Give up on upstream after this many ms (504 to the client). Covers the
+  # response headers, and the whole body when not streaming. 0 disables.
+  timeout_ms: 60000
+
+limits:
+  max_tokens_per_minute: 100000
+  max_usd_per_hour: 5.00
+  max_usd_per_day: 25.00
+  max_cost_per_request_usd: 0.50
+
+kill_switch:
+  # When this file exists, every chat-completion request is vetoed
+  # immediately without contacting upstream. `touch ./data/.kill` to stop.
+  # Under data/ so the Docker volume mount exposes it to the host.
+  file_path: "./data/.kill"
+  enable_api_endpoint: true
+
+logging:
+  path: "./data/spend-ledger.jsonl"
+
+server:
+  port: 4020
