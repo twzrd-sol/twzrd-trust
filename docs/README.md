@@ -37,7 +37,7 @@ where the current state lives.
 | [glama-listing.md](./glama-listing.md) | canonical | Directory listing copy: zero-setup proof, sample responses, install options, outage behaviour |
 | [SUPPORT_MATRIX.md](./SUPPORT_MATRIX.md) | canonical | Which surfaces are supported, secondary or deprecated, and who is accountable |
 | [ACCESS_AND_RECOVERY.md](./ACCESS_AND_RECOVERY.md) | canonical | Accountability register for repositories, registries, hosting and DNS; no credentials |
-| [MILESTONE.md](../MILESTONE.md) | canonical | The seven-day external integration milestone and how it would be proven; not yet attempted |
+| [MILESTONE.md](../MILESTONE.md) | canonical | How a seven-day external integration is measured |
 | [server/agent-card.md](../server/agent-card.md) | canonical | Human-readable agent card for the hosted MCP |
 | [SKILL.md](../SKILL.md) | canonical mirror | Byte copy of the live `https://intel.twzrd.xyz/skill.md`; re-synced from live, never edited here (the listing-key fingerprint in the README is the independent pin) |
 

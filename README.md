@@ -35,7 +35,7 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 
 | You want to | Do this |
 |---|---|
-| See a refusal with nothing installed | Run the [hosted recorded demonstration](#hosted-recorded-demonstration) below: one `curl`, no wallet, no key. |
+| See a refusal with nothing installed | Run the [hosted no-spend check](#hosted-no-spend-check) below: one `curl`, no wallet, no key. |
 | Put the gate on a paying agent | [`twzrd-x402-gate/QUICKSTART.md`](./twzrd-x402-gate/QUICKSTART.md), then the [package README](./twzrd-x402-gate/README.md) for entry points and defaults. |
 | Call the checks from an MCP client | Add `https://intel.twzrd.xyz/mcp`; the tool list is live (`tools/list`). Agent contract: [llms.txt](https://intel.twzrd.xyz/llms.txt). |
 | Review the cryptography and the claims | [REVIEW.md](./REVIEW.md) (bind-v1, with mainnet ground truth), [docs/security-assurance.md](./docs/security-assurance.md), [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md), [docs/transparency-log.md](./docs/transparency-log.md), [SECURITY.md](./SECURITY.md). |
@@ -57,7 +57,7 @@ Registry `latest` as read on that date. The tree column is what this checkout mi
 | `twzrd-preflight` | npm 0.5.0 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
 | `twzrd-log-verifier` | npm 0.5.0 | 0.5.0 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
-| `@twzrd1111/agent-killswitch` | npm 0.1.4 | 0.1.5 (source in `agent-killswitch/`) | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
+| `@twzrd1111/agent-killswitch` | npm 0.1.5 | 0.1.5 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
 
 ---
 
@@ -80,7 +80,7 @@ See the [package README](./twzrd-x402-gate/README.md) for the install and live
 client wiring. `/quick` and `/trust` stay optional seller-score products; the
 wrapper buys neither and makes no fulfillment claim.
 
-## Hosted recorded demonstration
+## Hosted no-spend check
 
 Run this one-line command with **no wallet, no API key, and no configuration**:
 
