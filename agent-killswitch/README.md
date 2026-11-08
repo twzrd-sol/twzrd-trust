@@ -5,8 +5,8 @@ A drop-in local reverse proxy that sits in front of any OpenAI-compatible
 you an instant file-based kill switch, and writes every decision to an
 append-only JSONL ledger.
 
-Point any OpenAI client at it by changing one variable — `OPENAI_BASE_URL` —
-and a runaway agent can never silently burn more than you allow.
+Point any OpenAI client at it by changing one variable, `OPENAI_BASE_URL`.
+Spend stays inside the caps you set. The proxy does not stop the agent from looping.
 
 ## 5-minute setup (Docker)
 
@@ -92,8 +92,9 @@ unsettled estimate forever. `/healthz` reports `in_flight`.
 
 ## What the kill switch protects against
 
-It stops a **runaway** agent: a loop, a retry storm, a prompt that will not
-end. It does not stop an **adversarial** one. Any local process that can
+It caps a runaway bill: repeated calls, a retry storm, a large `max_tokens`.
+It does not notice a repeated thought, and a loop that spends nothing keeps
+running. It does not stop an adversarial process. Any local process that can
 write the kill file's directory, or reach `127.0.0.1:4020` while the kill
 API is on, can lift the kill with `rm` or `POST /reset`, and that includes
 the agent itself. If the agent could act against you:

@@ -1,26 +1,17 @@
 # TWZRD
 
-> **Muse pilot (Meta Global AI Developer Hackathon):** a read-only MCP connector at
-> `https://intel.twzrd.xyz/muse/mcp` with 6 tools covering one listing (Vuori Kore Short,
-> Ink, US). `check_listing` returns `advertised`, `check_failed`, or `unknown_seller`, and
-> every result carries `authorizes_spend: false`. Discovery:
-> [`/.well-known/mcp.json`](https://intel.twzrd.xyz/.well-known/mcp.json).
-> Demo: [video](https://youtu.be/1RC4KLoi0gI).
-
 Pre-spend trust for agents that buy. Before an agent pays an x402 seller or
 buys a product from a store, TWZRD answers one question from public evidence:
 should this payment go ahead? The buyer-side gate turns that answer into a
-refusal before the wallet signs. This repository is the public source of truth
-for the hosted checks, the npm packages, the receipt and record formats, and
-the proofs behind them.
+refusal before the wallet signs. This repository is the public source for the
+hosted checks, the npm packages, and the receipt and record formats.
+
+Install `twzrd-x402-gate@0.18.0` and start with the
+[buyer quickstart](./twzrd-x402-gate/QUICKSTART.md).
 
 Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
 allowlist, mandatory free preflight, and a local decision record before signing.
-`createBuyerFetch` is the front door (since `twzrd-x402-gate@0.12.3`); its
-`expectedAmount` quote binding needs `twzrd-x402-gate@0.12.4` or later. Install
-the current release, `twzrd-x402-gate@0.18.0`, and start with the
-[runnable buyer wrapper quickstart](./twzrd-x402-gate/QUICKSTART.md).
-The other toolkit APIs below remain available with their existing defaults.
+`createBuyerFetch` is the front door.
 
 - **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1**, verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** USDC, paid by the buyer over x402 (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable [`twzrd.payment_decision.v1`](./docs/payment-decision-v1-spec.md) record from its own decision, signed locally with your own signer; TWZRD never holds a key.
 - **Product listings:** a free check of a store product URL and its asking price against a card TWZRD published from the store's public pages. The card is an observer card, not a merchant attestation, and a match is never permission to spend ([details](#product-listings-check-the-listing-before-you-buy)).
@@ -33,13 +24,12 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 **Shopping check** • free `check_listing` on the hosted MCP · report: https://twzrd.xyz/shopping-check/vuori-kore/  
 **Agent contract** • https://intel.twzrd.xyz/llms.txt · https://intel.twzrd.xyz/.well-known/agent.json
 
-## What is live, what is a pilot, what is not claimed
+## What ships
 
-- **Live on mainnet:** the hosted checks (`https://intel.twzrd.xyz/mcp` and the REST routes below), `twzrd-x402-gate` on npm, the offline `twzrd-receipt-verifier`, the receipt transparency log with on-chain anchors (one per advanced tree head, hourly cadence), and the no-spend recorded demonstration at `/v1/intel/demo-gate`.
-- **Networks:** the free checks score x402 sellers on Solana mainnet and Base mainnet (`eip155:8453`), and the gate runs the scored preflight on both. The paid `/quick` and `/trust` endpoints accept the buyer's $0.001 or $0.05 USDC payment on either chain but score a Solana seller wallet only, so signed V7 receipts cover Solana sellers. EVM chains other than Base are recognized but not scored. The examples below use the Solana seat; see the gate's [network table](./twzrd-x402-gate/README.md#networks-solana-mainnet-and-base-mainnet-scored) for Base.
-- **Pilot:** the product-listing lane runs against a single listing-evidence card (Vuori Kore Short, Ink, US). Vouch-mode calibration ([#5](https://github.com/twzrd-sol/twzrd-trust/issues/5)) and token-safety previews ([#207](https://github.com/twzrd-sol/twzrd-trust/issues/207), [#214](https://github.com/twzrd-sol/twzrd-trust/issues/214)) are open work, not shipped features.
-- **Not yet attempted:** the [seven-day external integration milestone](./MILESTONE.md). Every proof in this repository is TWZRD-operated mechanism evidence, not outside adoption.
-- **Not claimed:** identity of a person, company or agent; checkout, purchase completion or delivery; permission to spend (`authorizes_spend` is always false). See [What TWZRD does not claim](#how-the-pieces-fit).
+- **Hosted checks and the gate.** `https://intel.twzrd.xyz/mcp` and the REST routes below, `twzrd-x402-gate` on npm, the offline `twzrd-receipt-verifier`, and the receipt transparency log (one on-chain anchor per advanced tree head, hourly). A no-spend recorded run is at `/v1/intel/demo-gate`.
+- **Networks.** Free checks score x402 sellers on Solana mainnet and Base mainnet (`eip155:8453`), and the gate runs the scored preflight on both. The paid `/quick` and `/trust` endpoints accept the buyer's payment on either chain and score a Solana seller wallet, so signed V7 receipts cover Solana sellers. Other EVM chains are recognized and not scored. The examples below use the Solana seat. The gate's [network table](./twzrd-x402-gate/README.md#networks-solana-mainnet-and-base-mainnet-scored) covers Base.
+- **Listings.** One published card: Vuori Kore Short, Ink, US. `authorizes_spend` is always false.
+- **Out of scope.** Identity of a person, company, or agent. Checkout, purchase completion, or delivery. Permission to spend. See [What TWZRD does not claim](#how-the-pieces-fit).
 
 ## Start here, by what you came to do
 
@@ -82,7 +72,7 @@ npm run buyer-demo --workspace=twzrd-x402-gate
 This uses the real x402 client against an offline 402 fixture. It prints
 `reason: price_cap_exceeded`, `signer_invocations: 0` and `usdc_spent: 0`, and
 writes `.twzrd/demo-decisions.jsonl` locally. It makes no network request and
-needs no wallet. This is internal demonstration evidence, not outside use.
+needs no wallet.
 
 For an installed consumer, pack the gate and install the tarball with its
 optional `@x402/core` and `@x402/fetch` peers; then run `npx twzrd-buyer-demo`.
@@ -172,7 +162,7 @@ npm test --workspace=twzrd-x402-gate
 npm run gate-eval-refuse --workspace=twzrd-x402-gate
 ```
 
-`gate-eval-refuse` is the hello-world that closes (0 USDC, `signer_invocation_count: 0`).
+`gate-eval-refuse` spends nothing and does not call the signer (`signer_invocation_count: 0`).
 It needs egress to `https://intel.twzrd.xyz`. Artifact dirs (`eliza-plugin/`,
 `plugin-trustgate/`, `twzrd-mcp-server/`) are `dist/` mirrors — do not try to
 build or demo them locally. Hosted MCP: `https://intel.twzrd.xyz/mcp`.
