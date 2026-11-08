@@ -88,10 +88,50 @@ export const PAYTO_FIELD_CONFLICT = "payto_field_conflict";
  * digit has no safe reading. Refused on every entry point before intel (0.11.2).
  */
 export const AMOUNT_MALFORMED = "amount_malformed";
+/**
+ * An SVM `exact` requirement that carries `extra.splits` (0.18.0). The x402
+ * spec lets a Solana exact offer name up to 8 extra recipients with absolute
+ * amounts while payTo keeps the remainder. The gate scores payTo only, so a
+ * split would route money to recipients nobody scored: refused before intel
+ * and before any signature, on every entry point that reads the requirement
+ * through resolveRequirementFields. Mirrors the MPP splits refusal in
+ * mpp-hook.ts.
+ */
+export const SVM_SPLITS_REFUSED = "svm_splits_refused";
 export type RequirementFieldConflict =
   | typeof AMOUNT_FIELD_CONFLICT
   | typeof PAYTO_FIELD_CONFLICT
-  | typeof AMOUNT_MALFORMED;
+  | typeof AMOUNT_MALFORMED
+  | typeof SVM_SPLITS_REFUSED;
+
+/** CAIP-2 `solana:<genesis>` or a legacy v1 name (`solana`, `solana-devnet`). */
+function isSvmNetwork(network: unknown): boolean {
+  if (typeof network !== "string") return false;
+  const n = network.trim().toLowerCase();
+  return n === "solana" || n.startsWith("solana:") || n.startsWith("solana-");
+}
+
+/**
+ * True when an SVM exact requirement names extra recipients.
+ * - A non-empty `extra.splits` array is refused.
+ * - `extra.splits` present but not an array is malformed: refused (fail closed).
+ * - An empty array, or no `splits` key, names no extra recipient: allowed.
+ * A missing scheme on an SVM entry is read as `exact` (fail closed).
+ * EVM requirements are not checked: x402 defines no splits for EVM exact, and
+ * the EVM exact clients pay payTo only.
+ */
+export function hasSvmExactSplits(req: unknown): boolean {
+  if (req === null || typeof req !== "object") return false;
+  const r = req as Record<string, unknown>;
+  if (!isSvmNetwork(r.network)) return false;
+  if (r.scheme != null && String(r.scheme).trim().toLowerCase() !== "exact") return false;
+  const extra = r.extra;
+  if (extra === null || typeof extra !== "object" || Array.isArray(extra)) return false;
+  if (!Object.hasOwn(extra, "splits")) return false;
+  const splits = (extra as Record<string, unknown>).splits;
+  if (!Array.isArray(splits)) return true;
+  return splits.length > 0;
+}
 
 const BASE_UNIT_AMOUNT = /^[0-9]+$/;
 
@@ -155,7 +195,9 @@ export function resolveRequirementFields(req: unknown): {
         ? AMOUNT_MALFORMED
         : pay.conflict
           ? PAYTO_FIELD_CONFLICT
-          : undefined,
+          : hasSvmExactSplits(r)
+            ? SVM_SPLITS_REFUSED
+            : undefined,
   };
 }
 

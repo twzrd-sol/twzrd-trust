@@ -95,6 +95,8 @@ export type WashSelectedRequirements = {
   asset?: string;
   resource?: string;
   scheme?: string;
+  /** Carried on a conflicted entry so the re-read still sees `extra.splits`. */
+  extra?: unknown;
 };
 
 export type WashDeclaredResource = string | { url?: string };
@@ -183,6 +185,7 @@ export function mapWashRequirements(
       asset: requirements.asset as string | undefined,
       resource,
       scheme: requirements.scheme as string | undefined,
+      extra: requirements.extra,
     };
   }
   return {

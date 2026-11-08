@@ -26,6 +26,8 @@ export {
   AMOUNT_FIELD_CONFLICT,
   AMOUNT_MALFORMED,
   PAYTO_FIELD_CONFLICT,
+  SVM_SPLITS_REFUSED,
+  hasSvmExactSplits,
   isBaseUnitAmount,
   TWZRD_FEE_PAYER,
 } from "./payto.js";

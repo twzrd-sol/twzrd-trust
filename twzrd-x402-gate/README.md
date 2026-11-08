@@ -76,7 +76,7 @@ different switch: only `installTwzrdAutoGate` reads them, and
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.17.1 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.18.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -334,7 +334,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.17.1 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.18.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -373,7 +373,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.17.1
+npm install twzrd-x402-gate@0.18.0
 ```
 
 ```typescript
@@ -418,7 +418,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.17.1
+npm install twzrd-x402-gate@0.18.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -438,7 +438,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.17.1 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.18.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -595,7 +595,7 @@ Dogfood (one public live proof path):
 npm i twzrd-x402-gate
 ```
 
-This doc describes **0.17.1**. Check `npm view twzrd-x402-gate version` for the latest release.
+This doc describes **0.18.0**. Check `npm view twzrd-x402-gate version` for the latest release.
 
 ### CLI commands (package `bin`)
 
@@ -1394,6 +1394,7 @@ Approval reasons, for `onDecision` consumers: `twzrd_allow`, `twzrd_warn_allowed
 |---|---|
 | `amount_field_conflict`, `payto_field_conflict` | The requirement's v1 and v2 price fields (`maxAmountRequired` / `amount`) or recipient fields (`payTo` / `pay_to`) disagree. Two spellings of the same 0x address are one recipient. |
 | `amount_malformed` | The amount is present but is not an ASCII base-unit integer (a sign, decimal point, exponent, whitespace or non-ASCII digit). Refused before intel on every entry point (0.11.2+); `twzrd.safeFetch` reports it as `malformed_amount`. |
+| `svm_splits_refused` | A Solana `exact` requirement carries `extra.splits` (a non-empty array, or any value that is not an array). The gate scores `payTo` only, so extra recipients would be paid unscored. An empty array or no `splits` key is allowed; EVM requirements are not checked. Refused before intel and before signing on every entry point (0.18.0+). |
 | `payment_control_unevaluable: missing <field>` | Payment Control is on and the requirement has no amount or `payTo`. |
 | `payment_control_block:<reason codes>` | Payment Control (`paymentControl` option) refused the intent. |
 | `twzrd_escalated_warn_block (paid quick score <score> < <floor>)` | `escalateOnWarn` bought the $0.001 `/quick` score and it is below the floor. |
@@ -1439,7 +1440,7 @@ reasons also refuse here.
 |---|---|
 | `presigned_payment_not_allowed` | The caller's request already carries a payment header. |
 | `use_buyer_fetch_for_payment` | The client's hook ran for a payment not made through the returned fetch. |
-| `amount_field_conflict`, `payto_field_conflict`, `amount_malformed` | As in the client hook table. |
+| `amount_field_conflict`, `payto_field_conflict`, `amount_malformed`, `svm_splits_refused` | As in the client hook table. |
 | `recipient_missing` | The selected offer names no recipient. |
 | `unauthorized_recipient` | `payTo` is not in `allowedRecipients` (an empty list refuses all). |
 | `unsupported_or_non_usdc_asset` | The asset is not USDC on that network. |
@@ -1466,7 +1467,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 |---|---|
 | `price_cap_exceeded` | The price is above `maxPricePerCall`. |
 | `hourly_budget_exceeded` | The payment would take spend in the last hour above `hourlyBudgetCap`. |
-| `amount_field_conflict`, `payto_field_conflict` | As in the client hook table. |
+| `amount_field_conflict`, `payto_field_conflict`, `svm_splits_refused` | As in the client hook table. |
 | `recipient_missing` | `allowedRecipients` is set and the requirement names no recipient. |
 | `unauthorized_recipient` | `allowedRecipients` is set and `payTo` is not in it. |
 | `amount_missing_or_malformed` | A spend rule is set and the amount is not a base-unit integer. |
@@ -1483,7 +1484,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 |---|---|
 | `unparseable_402` | The 402 has no readable payment requirements. |
 | `network_not_allowed` | No offer is on an `allowNetworks` network. |
-| `amount_field_conflict`, `payto_field_conflict` | As above. |
+| `amount_field_conflict`, `payto_field_conflict`, `svm_splits_refused` | As above. |
 | `no_payable_requirement` | No offer names both a recipient and an amount. |
 | `malformed_amount` | The amount is not a base-unit integer. |
 | `non_usdc_asset` | On Solana or Base, the offer names an asset that is not USDC (the budget counts micro-USDC). |
