@@ -1,13 +1,12 @@
-# The 7-day milestone
+# External integration week
 
 > One external agent with a funded wallet routes **every** x402 payment
 > through TWZRD for seven consecutive days.
 
-This is TWZRD's first commercial proof point. Everything in this repo — the
-gate, bind-v1, the receipts, the ledger — is the machinery behind it. This
-document makes the milestone measurable enough that a third party can check
-whether it happened, because an adoption claim we grade ourselves is worth as
-little as an unsigned ledger day.
+This document states how a third party checks that week. The gate, bind-v1,
+the receipts, and the ledger are the product. An adoption claim graded only
+by the operator is not evidence. As of 2026-10-24, no external operator has
+recorded a qualifying week.
 
 ## Definition
 

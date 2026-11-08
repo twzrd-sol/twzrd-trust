@@ -59,11 +59,11 @@ there is nothing to "serve". After the **root** install, run commands from
 - Build: `npm run build` (`tsc` → emits `dist/`, `src` only).
 - Test: `npm test` — `tsx --test` over `test/*.test.ts` (self-contained; no
   external services).
-- Hello-world (closes, 0 USDC): `npm run gate-eval-refuse` — buyer trust gate
+- No-spend refusal: `npm run gate-eval-refuse`. The buyer trust gate
   refuses a bad merchant before the wallet signs (`signer_invocation_count: 0`,
-  `usdc_spent: 0`). `npm run x402-solana-before-payment-proof` is a **seat**
-  proof; it can exit 2 when the live clean fixture is wash-flagged. Do not use
-  it as the first demo.
+  `usdc_spent: 0`). `npm run x402-solana-before-payment-proof` is a seat
+  proof; it can exit 2 when the live clean fixture is wash-flagged. Do not
+  use it as the first check.
 
 **Fork relationship with the upstream monorepo.** TWZRD's private upstream monorepo
 keeps its own copy of `twzrd-x402-gate`. It is an intentional **fork** of this package,

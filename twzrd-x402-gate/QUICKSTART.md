@@ -192,8 +192,9 @@ using that policy as the host allowlist. Live proof (needs egress):
 
 ## 2. Prove it blocked something (spends nothing)
 
-Hello-world that closes from this package (needs a prior **repo-root** `npm ci`
-and `npm run build`; do not `npm ci` in this directory):
+Refusal check from this package. It spends nothing and does not call the
+signer. Needs a prior **repo-root** `npm ci` and `npm run build`; do not
+`npm ci` in this directory:
 
 ```bash
 npm run gate-eval-refuse
@@ -201,7 +202,7 @@ npm run gate-eval-refuse
 ```
 
 Optional seat proofs (live intel; the clean-fixture leg can exit 2 when
-`CLEAN_PAYTO` is wash-flagged — that is not the first demo):
+`CLEAN_PAYTO` is wash-flagged. That is not the first check.):
 
 ```bash
 # Stock-client seat proof (beforePayment). Needs x402-solana@3.0.1.
