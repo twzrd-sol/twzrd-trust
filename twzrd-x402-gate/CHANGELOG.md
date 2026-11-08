@@ -28,7 +28,7 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
-## 0.18.0 (unreleased)
+## 0.18.0 - 2026-11-08
 
 New refusal: Solana `exact` splits.
 
