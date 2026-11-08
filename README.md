@@ -11,7 +11,7 @@ Install `twzrd-x402-gate@0.18.0` and start with the
 
 Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
 allowlist, mandatory free preflight, and a local decision record before signing.
-`createBuyerFetch` is the front door.
+`createBuyerFetch` is the front door. Its `expectedAmount` quote binding needs `twzrd-x402-gate@0.12.4` or later.
 
 - **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1**, verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** USDC, paid by the buyer over x402 (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable [`twzrd.payment_decision.v1`](./docs/payment-decision-v1-spec.md) record from its own decision, signed locally with your own signer; TWZRD never holds a key.
 - **Product listings:** a free check of a store product URL and its asking price against a card TWZRD published from the store's public pages. The card is an observer card, not a merchant attestation, and a match is never permission to spend ([details](#product-listings-check-the-listing-before-you-buy)).
