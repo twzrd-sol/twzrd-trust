@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.5 (unreleased)
+## 0.1.5 (2026-11-08)
 
 Tighter refusals: in-flight calls now count against the budgets.
 
