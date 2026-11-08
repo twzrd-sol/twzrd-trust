@@ -52,7 +52,7 @@ npm run gate-eval-refuse --workspace=twzrd-x402-gate
 ```
 
 Do not `npm ci` inside `twzrd-x402-gate/`. That nested lockfile is publish-only.
-`gate-eval-refuse` is the hello-world that closes (0 USDC). The
+`gate-eval-refuse` spends nothing and does not call the signer. The
 `x402-solana-before-payment-proof` script is a seat proof and can fail when
 the live clean fixture is wash-flagged.
 
