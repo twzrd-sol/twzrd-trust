@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.6 (unreleased)
+
+Multi-instance spend is now visible across copies.
+
+- Each proxy tracks its own byte offset into the JSONL ledger. Before every
+  budget check — on `/v1/chat/completions` and on `/healthz` — it stats the
+  file and reads the lines other running copies appended since its last read.
+  Two proxies against one ledger now share the hourly and daily windows
+  instead of each spending their own; the same two-copy overspend that 0.1.5
+  closed for in-flight calls, now closed for copies.
+- A line without its terminating newline is held until the rest arrives, so a
+  torn write never crashes a refresh nor half-counts. A truncated or replaced
+  ledger (new inode) resets the read position and is re-read in full within
+  the same 48 h retention window the startup replay uses.
+- The kill switch file is unchanged: it vetoes every copy the moment it
+  exists, independent of the ledger.
+
 ## 0.1.5 (2026-11-08)
 
 Tighter refusals: in-flight calls now count against the budgets.
