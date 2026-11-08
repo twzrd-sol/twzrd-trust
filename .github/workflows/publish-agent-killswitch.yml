@@ -74,6 +74,21 @@ jobs:
           fi
           echo "Confirmed: publishing $PACKAGE@$ACTUAL from $COMMIT"
 
+      - name: Refuse unless the CHANGELOG dates this version
+        # The heading must read "## X.Y.Z (YYYY-MM-DD)"; "(unreleased)" or a
+        # missing entry refuses, the same rule pack-smoke applies to the gate.
+        run: |
+          HEADING=$(awk -v h="## $EXPECTED_VERSION" '$0 == h || index($0, h " ") == 1 { print; exit }' CHANGELOG.md)
+          if [ -z "$HEADING" ]; then
+            echo "::error::CHANGELOG.md has no '## $EXPECTED_VERSION' entry -- refusing."
+            exit 1
+          fi
+          if ! [[ "$HEADING" =~ ^"## $EXPECTED_VERSION ("[0-9]{4}-[0-9]{2}-[0-9]{2}")"$ ]]; then
+            echo "::error::CHANGELOG.md says '$HEADING', not '## $EXPECTED_VERSION (YYYY-MM-DD)' -- date it before publishing."
+            exit 1
+          fi
+          echo "CHANGELOG: $HEADING"
+
       - name: Refuse a version the registry already has
         # Only a registry 404 or an empty answer counts as "not published";
         # any other failure means the answer is unknown, so fail closed.
