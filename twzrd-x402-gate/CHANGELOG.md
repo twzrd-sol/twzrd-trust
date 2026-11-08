@@ -28,6 +28,27 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 
+## 0.18.0 (unreleased)
+
+New refusal: Solana `exact` splits.
+
+- An x402 requirement on a Solana network (`solana:<genesis>`, or legacy `solana` /
+  `solana-devnet`) with scheme `exact` that carries `extra.splits` is refused with
+  `svm_splits_refused`, before intel and before any signature, on every buyer path that reads
+  the requirement through `resolveRequirementFields` (client hook, guarded fetch, buyer fetch,
+  paying fetch, `withTwzrdGuard`, `evaluate_x402_resource`, `twzrd.safeFetch`, spend control).
+  The x402 spec lets an SVM exact offer name up to 8 extra recipients with absolute amounts,
+  payTo keeping the remainder; the gate scores payTo only, so a split would pay recipients
+  nobody scored. This mirrors the MPP splits refusal.
+- A non-empty array, or a `splits` value that is not an array, is refused. An empty array or
+  no `splits` key names no extra recipient and is allowed. A Solana entry with no scheme is
+  read as `exact`. EVM requirements are not checked: x402 defines no splits for EVM exact.
+- Defense in depth, not a security patch: the `@x402/svm` 2.29 exact client ignores
+  `extra.splits` and pays payTo the full amount, so no money reached an unscored recipient
+  through it. A client that honors splits would.
+- `mapWashRequirements` keeps `extra` on a refused entry so the wash re-check sees the split.
+- New exports: `SVM_SPLITS_REFUSED`, `hasSvmExactSplits`.
+
 ## 0.17.1 - 2026-11-07
 
 Fulfillment-ledger fix. No allow or refuse outcome changes.
