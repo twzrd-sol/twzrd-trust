@@ -2,6 +2,21 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.20.0 (2026-11-09)
+
+Track 5 Binding Plane (`twzrd.binding_policy.v1` + `.kill` / `.pause` sentinels) and Track 6 SVM Execution Write-Ahead Log (`twzrd.svm_wal.v1`).
+
+- **Track 5 Binding Plane (`src/binding-plane.ts`):**
+  - `parseBindingPolicy`, `bindingPolicyToGateConfig`, and `bindingPolicyToSpendControlOptions` parse and validate the shared `twzrd.binding_policy.v1` policy envelope with section-isolated fail-closed checks (`compute` vs `payment`).
+  - `checkKillSwitchFile`, `checkPauseSwitchFile`, `readSentinelState`, and atomic `writePauseSentinel` (temp file + `fsyncSync` + `renameSync`) implement `.kill` and `.pause` (`twzrd.pause_sentinel.v1`) coordination with `agent-killswitch`.
+  - When `stateDir` (`TWZRD_STATE_DIR`), `killFilePath`, or `pauseFilePath` is configured, `twzrdApprovePayment` and `spendControlSafeFetch` refuse before intel and before signing on `.kill` (`twzrd_kill_switch`), active `.pause` (`twzrd_payment_paused`), or a corrupt `.pause` file (`twzrd_pause_corrupt`).
+  - When `tripPauseOnBlockMs` (`TWZRD_TRIP_PAUSE_ON_BLOCK_MS`) is set alongside `stateDir` or `pauseFilePath`, a blocked payment atomically writes `<stateDir>/.pause` carrying `{ until_unix_ms, reason, decision_id }` so the sibling compute proxy halts (`429 payment_gate_halt`).
+- **Track 6 SVM Execution WAL (`src/svm-wal.ts`):**
+  - `createFileSvmWal` and `sharedFileSvmWal` persist a two-phase `sha256` hash-chained JSONL write-ahead log (`twzrd.svm_wal.v1`).
+  - `appendIntent` writes and flushes (`fsyncSync`) a `payment_intent` row (`intent_id`, `challenge_hash`, `payment_decision_id`, `pay_to`, `amount_micro`, `network`, `prev`) before any signing key is invoked (`wal_intent_write_failed` with `signerInvocations: 0` if `fsync` fails).
+  - `appendReceipt` writes and flushes (`fsyncSync`) a terminal `payment_receipt` row (`confirmed` | `failed` | `expired_blockhash`) after RPC confirmation.
+  - Pre-sign replay: a `challenge_hash` with a confirmed receipt returns the recorded `txSignature` idempotently (`signerInvocations: 0`). Any unresolved `payment_intent` freezes new payments (`wal_unresolved_intent`, `signerInvocations: 0`) and holds `heldMicro()` against cumulative `maxSpend` until `recoverUnresolvedIntents(poller)` writes the terminal receipt.
+
 ## 0.19.0 (2026-11-08)
 
 `mapX402SolanaRequirements` keeps `extra` on both return paths. A caller that scores the mapped object still sees `extra.splits`. The shipped `beforePayment` hook already evaluated the original requirements.

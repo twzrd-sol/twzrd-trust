@@ -1,6 +1,6 @@
 # Compatibility notes — twzrd-x402-gate (current release first; the 0.9.3 → 0.9.4 default change follows)
 
-0.19.0 is the released identity of this package. `mapX402SolanaRequirements` keeps `extra` on both return paths, so a mapped Solana requirement still carries `extra.splits`. 0.18.0 refuses a Solana `exact` requirement that carries `extra.splits` (`svm_splits_refused`) on the original object; see `CHANGELOG.md`. It evaluates Tempo `charge` challenges (`mppTempoChargeToIntent`, `evaluateTwzrdMppChallenge`, `createTwzrdMppIntegration`) and appends decision and fulfillment rows, schema version 3, to the shared file ledger. Unscored networks, including Tempo mainnet and Moderato, block unless `allowUnscoredNetwork: true` and `policy.maxAmountUsd` are both set. 0.16.2 remains the security patch: `installTwzrdAutoGate("mpp")` scores the seller by default; through 0.16.1 a wash-flagged MPP seller could be paid. `intelligence: false` restores the 0.16.1 behavior.
+0.20.0 is the released identity of this package. It adds the Track 5 Binding Plane (`twzrd.binding_policy.v1`, `.kill`/`.pause` sentinels, `tripPauseOnBlockMs`) and the Track 6 SVM Execution Write-Ahead Log (`twzrd.svm_wal.v1`, synchronous pre-sign `fsync` of `payment_intent` and post-RPC `payment_receipt`, loop freeze `wal_unresolved_intent`, and `recoverUnresolvedIntents`); see `CHANGELOG.md`. 0.19.0 kept `extra` on both return paths of `mapX402SolanaRequirements`, so a mapped Solana requirement still carries `extra.splits`. 0.18.0 refuses a Solana `exact` requirement that carries `extra.splits` (`svm_splits_refused`) on the original object; see `CHANGELOG.md`. It evaluates Tempo `charge` challenges (`mppTempoChargeToIntent`, `evaluateTwzrdMppChallenge`, `createTwzrdMppIntegration`) and appends decision and fulfillment rows, schema version 3, to the shared file ledger. Unscored networks, including Tempo mainnet and Moderato, block unless `allowUnscoredNetwork: true` and `policy.maxAmountUsd` are both set. 0.16.2 remains the security patch: `installTwzrdAutoGate("mpp")` scores the seller by default; through 0.16.1 a wash-flagged MPP seller could be paid. `intelligence: false` restores the 0.16.1 behavior.
 
 0.16.1 (2026-11-03) is a patch: it adds an opt-in replay guard to `createDemandDeskWallet` (`replayGuard`, refusal code `vault_spend_replay`) and changes no default allow or refuse outcome.
 
@@ -95,12 +95,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` dist-tag: **0.19.0**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
+- `latest` dist-tag: **0.20.0**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.19.0 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.20.0 as the
   maintained line (0.11.2 and 0.11.3 are deprecated on npm for security fixes).
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.19.0`) if you want
+  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.20.0`) if you want
   no change at all.
