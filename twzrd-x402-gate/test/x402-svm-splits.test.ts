@@ -55,9 +55,9 @@ const REFUSED: Array<[string, Record<string, unknown>]> = [
   ["bare mainnet-beta network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "mainnet-beta")],
   ["bare devnet network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "devnet")],
   ["bare testnet network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "testnet")],
-  ["bare mainnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "5eykt4UsFv8P8NJdTREYpY1vzqKqZKvdp")],
-  ["bare devnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1")],
-  ["bare testnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsRJ")],
+  ["bare mainnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d")],
+  ["bare devnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG")],
+  ["bare testnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY")],
   ["missing network with base58 payTo", { ...svm({ splits: [{ recipient: OTHER, amount: "1" }] }), network: undefined }],
   ["scheme absent", { ...svm({ splits: [{ recipient: OTHER, amount: "1" }] }), scheme: undefined }],
 ];
