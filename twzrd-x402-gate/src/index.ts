@@ -236,6 +236,7 @@ export {
   verifyOfferBindingAfterPay,
   type OfferBindingCheck,
   type SpendControlOptions,
+  type SpendControlPayResult,
   type SpendControlResult,
 } from "./spend-control.js";
 export { createFileSpendLedger } from "./spend-ledger-file.js";
@@ -583,7 +584,6 @@ export {
 export {
   BINDING_POLICY_SCHEMA,
   PAUSE_SENTINEL_SCHEMA,
-  DEFAULT_CAP_PAUSE_WINDOW_MS,
   parseBindingPolicy,
   bindingPolicyToGateConfig,
   bindingPolicyToSpendControlOptions,
@@ -603,8 +603,10 @@ export {
   SVM_WAL_SCHEMA,
   createFileSvmWal,
   sharedFileSvmWal,
+  isWellFormedTxSignature,
   __resetSharedFileSvmWals,
   type SvmWal,
+  type SvmWalConfirmationStatus,
   type SvmWalIntentRow,
   type SvmWalReceiptRow,
   type SvmWalRow,

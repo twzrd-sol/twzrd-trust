@@ -17,7 +17,6 @@ import {
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import {
-  DEFAULT_CAP_PAUSE_WINDOW_MS,
   isFatalGateRefusal,
   readSentinelState,
   writePauseSentinel,
@@ -483,10 +482,12 @@ export async function twzrdApprovePayment(
       cfg.pauseFilePath ??
       process.env.KILLSWITCH_PAUSE_FILE ??
       (pauseDir ? path.join(pauseDir, ".pause") : undefined);
+    // Opt-in (default off), and only for a fatal refusal: an outage, an
+    // unevaluated seller, or a malformed input never pauses the planes.
     const ttlMs =
-      cfg.tripPauseOnBlockMs === 0
-        ? 0
-        : (cfg.tripPauseOnBlockMs ?? DEFAULT_CAP_PAUSE_WINDOW_MS);
+      typeof cfg.tripPauseOnBlockMs === "number" && Number.isFinite(cfg.tripPauseOnBlockMs)
+        ? cfg.tripPauseOnBlockMs
+        : 0;
     if (!res.approved && ttlMs > 0 && pausePath && isFatalGateRefusal(res.reason)) {
       try {
         writePauseSentinel(pausePath, {

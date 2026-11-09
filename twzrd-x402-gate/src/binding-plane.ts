@@ -504,13 +504,15 @@ export function readSentinelState(opts: {
   return { active: false };
 }
 
-export const DEFAULT_CAP_PAUSE_WINDOW_MS = 3_600_000;
-
 /**
  * True only for fatal refusals (budget/cap exhaustion or confirmed blocked/malicious
- * seller/offer) that should write a `.pause` sentinel to halt compute re-reasoning.
- * Transient outages (`twzrd_fail_closed`), unevaluated sellers, unknown coverage,
- * and malformed inputs do not write `.pause`.
+ * seller/offer). These are the only refusals that write `.pause` when the caller
+ * opted in with `tripPauseOnBlockMs` (default off). Transient outages
+ * (`twzrd_fail_closed`), unevaluated sellers, unknown coverage, and malformed
+ * inputs never write `.pause`.
+ *
+ * A cumulative-cap trip in `spendControlSafeFetch` is separate: it writes
+ * `.pause` until the budget window has room again, without the opt-in.
  */
 export function isFatalGateRefusal(reason: string | undefined): boolean {
   if (!reason) return false;
