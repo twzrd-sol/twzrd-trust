@@ -580,3 +580,20 @@ export {
   requireForeignPayerInput,
   assertHttpsTarget,
 } from "./foreign-key.js";
+export {
+  BINDING_POLICY_SCHEMA,
+  PAUSE_SENTINEL_SCHEMA,
+  parseBindingPolicy,
+  bindingPolicyToGateConfig,
+  bindingPolicyToSpendControlOptions,
+  checkKillSwitchFile,
+  checkPauseSwitchFile,
+  readSentinelState,
+  writePauseSentinel,
+  type BindingComputePolicyV1,
+  type BindingPaymentPolicyV1,
+  type BindingPolicyV1,
+  type PauseSentinelV1,
+  type PauseSwitchState,
+  type SentinelState,
+} from "./binding-plane.js";

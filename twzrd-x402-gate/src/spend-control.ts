@@ -8,6 +8,9 @@
  * second ledger type. The default is one process-scoped in-memory ledger;
  * use `ledgerFile` for restart-safe cumulative enforcement.
  */
+import * as path from "node:path";
+import { randomUUID } from "node:crypto";
+import { readSentinelState, writePauseSentinel } from "./binding-plane.js";
 import { toMicroUsd } from "./intent.js";
 import { classifyNetwork } from "./network.js";
 import {
@@ -75,6 +78,14 @@ export type SpendControlOptions = {
   ledgerFile?: string;
   agentId?: string;
   mandateId?: string;
+  /** Optional Track 5 binding-plane sentinel directory. */
+  stateDir?: string;
+  /** Explicit `.kill` sentinel path override. */
+  killFilePath?: string;
+  /** Explicit `.pause` sentinel path override. */
+  pauseFilePath?: string;
+  /** Optional TTL (ms) to write `<stateDir>/.pause` when a payment is blocked. */
+  tripPauseOnBlockMs?: number;
 };
 
 export type SpendControlResult = {
@@ -208,6 +219,51 @@ export async function spendControlSafeFetch(
   url: string,
   opts: SpendControlOptions = {},
 ): Promise<SpendControlResult> {
+  const stateDir = opts.stateDir ?? process.env.TWZRD_STATE_DIR;
+  const killFilePath = opts.killFilePath;
+  const pauseFilePath = opts.pauseFilePath;
+  const rawTripPause = opts.tripPauseOnBlockMs ?? process.env.TWZRD_TRIP_PAUSE_ON_BLOCK_MS;
+  const tripPauseNum =
+    typeof rawTripPause === "number"
+      ? rawTripPause
+      : rawTripPause == null || rawTripPause === ""
+        ? NaN
+        : Number(rawTripPause);
+  const tripPauseOnBlockMs =
+    Number.isFinite(tripPauseNum) && tripPauseNum > 0 ? Math.floor(tripPauseNum) : undefined;
+
+  if (stateDir || killFilePath || pauseFilePath) {
+    const sentinel = readSentinelState({ stateDir, killFilePath, pauseFilePath });
+    if (sentinel.active) {
+      const reason =
+        sentinel.mode === "kill"
+          ? "twzrd_kill_switch"
+          : sentinel.mode === "corrupt_pause"
+            ? "twzrd_pause_corrupt"
+            : "twzrd_payment_paused";
+      return { verdict: "block", reason, signerInvocations: 0 };
+    }
+  }
+
+  const tripPause = (blockReason: string | undefined, decisionId?: string) => {
+    if (tripPauseOnBlockMs && blockReason && (pauseFilePath || stateDir)) {
+      const target = pauseFilePath ?? path.join(stateDir!, ".pause");
+      try {
+        writePauseSentinel(target, {
+          ttlMs: tripPauseOnBlockMs,
+          reason: blockReason,
+          decisionId: decisionId ?? opts.decisionId ?? randomUUID(),
+        });
+      } catch {
+        /* best-effort backpressure file write */
+      }
+    }
+  };
+  const blockResult = (res: SpendControlResult, decisionId?: string): SpendControlResult => {
+    tripPause(res.reason, decisionId);
+    return res;
+  };
+
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const file = opts.ledgerFile ?? process.env.TWZRD_SPEND_LEDGER_FILE;
   // One shared instance per path: a per-call ledger corrupts the hash chain
@@ -224,10 +280,10 @@ export async function spendControlSafeFetch(
   try {
     body = await paymentRequiredFromResponse(res);
   } catch {
-    return { verdict: "block", reason: "unparseable_402", signerInvocations: 0 };
+    return blockResult({ verdict: "block", reason: "unparseable_402", signerInvocations: 0 });
   }
   if (body === null) {
-    return { verdict: "block", reason: "unparseable_402", signerInvocations: 0 };
+    return blockResult({ verdict: "block", reason: "unparseable_402", signerInvocations: 0 });
   }
   rememberRawInvoice(body, url);
   const list = (body.accepts ?? []) as Array<Record<string, unknown>>;
@@ -235,7 +291,7 @@ export async function spendControlSafeFetch(
     ? list.filter((e) => netOk(String(e.network ?? ""), String(e.payTo ?? e.pay_to ?? ""), opts.allowNetworks))
     : list;
   if (opts.allowNetworks?.length && list.length > 0 && filtered.length === 0) {
-    return { verdict: "block", reason: "network_not_allowed", signerInvocations: 0 };
+    return blockResult({ verdict: "block", reason: "network_not_allowed", signerInvocations: 0 });
   }
   const selected = pickRequirements(filtered.length ? filtered : []) as Record<string, unknown>;
   if (!selected.resource) {
@@ -247,24 +303,24 @@ export async function spendControlSafeFetch(
   if (conflict) {
     // safeFetch has always reported a bad amount as malformed_amount; keep it.
     const reason = conflict === "amount_malformed" ? "malformed_amount" : conflict;
-    return { verdict: "block", reason, signerInvocations: 0 };
+    return blockResult({ verdict: "block", reason, signerInvocations: 0 });
   }
   if (!payTo || amountMicro == null) {
-    return { verdict: "block", reason: "no_payable_requirement", signerInvocations: 0 };
+    return blockResult({ verdict: "block", reason: "no_payable_requirement", signerInvocations: 0 });
   }
   // AUDIT FIX: "-100" / "0.5" / "1e6" previously slid under the cap or threw.
   if (!/^\d+$/.test(String(amountMicro))) {
-    return { verdict: "block", reason: "malformed_amount", signerInvocations: 0 };
+    return blockResult({ verdict: "block", reason: "malformed_amount", signerInvocations: 0 });
   }
   // The budget counts `amount` as micro-USDC. Any other named asset is in its own
   // base units, so an 8-decimal mint would be counted ~100x low (0.11.1).
   if (priceUsdcFromAmountMicro(String(amountMicro), selected) === undefined) {
-    return { verdict: "block", reason: "non_usdc_asset", signerInvocations: 0 };
+    return blockResult({ verdict: "block", reason: "non_usdc_asset", signerInvocations: 0 });
   }
   const spendMicro = BigInt(String(amountMicro));
   const maxMicro = opts.maxSpend != null ? toMicroUsd(opts.maxSpend) : undefined;
   if (maxMicro != null && spendMicro > maxMicro) {
-    return { verdict: "block", reason: "over_max_spend", signerInvocations: 0 };
+    return blockResult({ verdict: "block", reason: "over_max_spend", signerInvocations: 0 });
   }
   const now = Date.now();
   const WIN = 365 * 24 * 3600 * 1000;
@@ -290,7 +346,7 @@ export async function spendControlSafeFetch(
     const pending = pendingFor(ledger);
     for (const key of keys) {
       if (ledger.spentMicro(key, WIN, now) + (pending.get(key) ?? 0n) + spendMicro > maxMicro) {
-        return { verdict: "block", reason: "over_cumulative_spend", signerInvocations: 0 };
+        return blockResult({ verdict: "block", reason: "over_cumulative_spend", signerInvocations: 0 });
       }
     }
     // No await between the check above and this reservation: that is what
@@ -308,15 +364,17 @@ export async function spendControlSafeFetch(
     let preflightId = typeof opts.preflightId === "number" ? opts.preflightId : undefined;
     if (opts.preflight) {
       const card = await opts.preflight(payTo, price);
-      if (card.decision === "block") return { verdict: "block", reason: "intel_block", signerInvocations: 0 };
-      if (card.decision === "warn") verdict = "warn";
       if (typeof card.decisionId === "string" && card.decisionId.length > 0) {
         decisionId = card.decisionId;
       }
       if (typeof card.preflight_id === "number") preflightId = card.preflight_id;
+      if (card.decision === "block") {
+        return blockResult({ verdict: "block", reason: "intel_block", signerInvocations: 0 }, decisionId);
+      }
+      if (card.decision === "warn") verdict = "warn";
     }
     if (opts.requireDecisionBind && !decisionId) {
-      return { verdict: "block", reason: "decision_bind_required", signerInvocations: 0 };
+      return blockResult({ verdict: "block", reason: "decision_bind_required", signerInvocations: 0 }, decisionId);
     }
     let stamped = null as ReturnType<typeof stampResourceBind> | null;
     if (opts.requireOfferBinding) {
@@ -331,12 +389,13 @@ export async function spendControlSafeFetch(
     let signerInvocations = 0;
     if (opts.requireOfferBinding) {
       const leaf_hash = stamped?.leaf_hash ?? null;
-      const refuseNoCompose = (): SpendControlResult => ({
-        verdict: "block",
-        reason: "bind_required_no_compose",
-        signerInvocations: 0,
-        receipt: refuseBindReceipt(leaf_hash),
-      });
+      const refuseNoCompose = (): SpendControlResult =>
+        blockResult({
+          verdict: "block",
+          reason: "bind_required_no_compose",
+          signerInvocations: 0,
+          receipt: refuseBindReceipt(leaf_hash),
+        }, decisionId);
       if (!leaf_hash || !opts.composeBoundTransaction) {
         return refuseNoCompose();
       }
@@ -359,7 +418,10 @@ export async function spendControlSafeFetch(
       });
       const receipt = checked.receipt;
       if (checked.verdict === "block") {
-        return { verdict: "block", reason: checked.reason ?? "bind_mismatch", receipt, signerInvocations: 0 };
+        return blockResult(
+          { verdict: "block", reason: checked.reason ?? "bind_mismatch", receipt, signerInvocations: 0 },
+          decisionId,
+        );
       }
       if (opts.pay) {
         signerInvocations = 1;

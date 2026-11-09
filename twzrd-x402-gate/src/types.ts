@@ -214,6 +214,22 @@ export type TwzrdGateConfig = {
     /** Unique per-run id (e.g. crypto.randomUUID()). Echo it in your transcript. */
     runId: string;
   };
+  /**
+   * Optional Track 5 binding-plane sentinel directory. When set (or via
+   * TWZRD_STATE_DIR), the gate checks `<stateDir>/.kill` and `<stateDir>/.pause`
+   * before evaluating or signing any payment.
+   */
+  stateDir?: string;
+  /** Explicit `.kill` sentinel path override. */
+  killFilePath?: string;
+  /** Explicit `.pause` sentinel path override. */
+  pauseFilePath?: string;
+  /**
+   * Optional TTL (ms) to write `<stateDir>/.pause` when a payment is blocked,
+   * halting the sibling compute proxy (`429 payment_gate_halt`) with the
+   * refusal's `decision_id` and `reason`. Env: TWZRD_TRIP_PAUSE_ON_BLOCK_MS.
+   */
+  tripPauseOnBlockMs?: number;
 };
 
 export type TwzrdApproveContext = {

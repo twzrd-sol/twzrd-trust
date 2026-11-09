@@ -28,6 +28,10 @@ export type ResolvedTwzrdGateConfig = {
   onWarnUpsell?: (ctx: TwzrdUpsellContext) => void | Promise<void>;
   /** Opt-in preflight run attribution (see TwzrdGateConfig.attribution). */
   attribution?: { integration: string; runId: string };
+  stateDir?: string;
+  killFilePath?: string;
+  pauseFilePath?: string;
+  tripPauseOnBlockMs?: number;
 };
 
 function parseBlockDecisions(raw: string | undefined): Set<string> {
@@ -187,6 +191,20 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     attribution = { integration: attrIntegration, runId: attrRunId };
   }
 
+  const rawStateDir = overrides?.stateDir ?? process.env.TWZRD_STATE_DIR;
+  const stateDir = typeof rawStateDir === "string" && rawStateDir.trim() !== "" ? rawStateDir.trim() : undefined;
+  const killFilePath =
+    typeof overrides?.killFilePath === "string" && overrides.killFilePath.trim() !== ""
+      ? overrides.killFilePath.trim()
+      : undefined;
+  const pauseFilePath =
+    typeof overrides?.pauseFilePath === "string" && overrides.pauseFilePath.trim() !== ""
+      ? overrides.pauseFilePath.trim()
+      : undefined;
+  const rawTripPause = overrides?.tripPauseOnBlockMs ?? process.env.TWZRD_TRIP_PAUSE_ON_BLOCK_MS;
+  const tripPauseNum = typeof rawTripPause === "number" ? rawTripPause : rawTripPause == null || rawTripPause === "" ? NaN : Number(rawTripPause);
+  const tripPauseOnBlockMs = Number.isFinite(tripPauseNum) && tripPauseNum > 0 ? Math.floor(tripPauseNum) : undefined;
+
   return {
     intelBase,
     preflightMinScore,
@@ -203,5 +221,9 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     fetch: fetchFn,
     onWarnUpsell: overrides?.onWarnUpsell,
     attribution,
+    ...(stateDir !== undefined ? { stateDir } : {}),
+    ...(killFilePath !== undefined ? { killFilePath } : {}),
+    ...(pauseFilePath !== undefined ? { pauseFilePath } : {}),
+    ...(tripPauseOnBlockMs !== undefined ? { tripPauseOnBlockMs } : {}),
   };
 }
