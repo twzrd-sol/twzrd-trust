@@ -13,20 +13,17 @@ free model) keeps running until you touch the kill file. It listens on
 
 ## 5-minute setup (Docker)
 
+No config file is required. A missing `config.yaml` uses the built-in defaults, including `127.0.0.1:4020` and `https://api.openai.com/v1`. `OPENAI_API_KEY` must already be set in the shell. Mount `./data` only so the ledger and the kill file live on the host.
+
 ```sh
-# 1. Configure (or just use env vars)
-cp config.example.yaml config.yaml
-
-# 2. Run — the only secret is your upstream key
-docker build -t agent-killswitch .     # installs from package-lock.json (npm ci)
-docker run -d --name killswitch \
+docker pull ghcr.io/twzrd-sol/agent-killswitch:0.1.6
+mkdir -p data
+docker run --rm \
   -p 127.0.0.1:4020:4020 \
-  -e OPENAI_API_KEY="$OPENAI_API_KEY" \
-  -v "$PWD/config.yaml:/app/config.yaml:ro" \
+  -e OPENAI_API_KEY \
   -v "$PWD/data:/app/data" \
-  agent-killswitch
+  ghcr.io/twzrd-sol/agent-killswitch:0.1.6
 
-# 3. Point any OpenAI client at it
 export OPENAI_BASE_URL="http://127.0.0.1:4020/v1"
 ```
 
@@ -43,8 +40,10 @@ touch ./data/.kill     # or: curl -X POST http://127.0.0.1:4020/kill
 rm ./data/.kill        # or: curl -X POST http://127.0.0.1:4020/reset
 ```
 
-With the Docker setup above, `data/` is mounted from the host, so the
-host-side `touch ./data/.kill` reaches the container.
+With the Docker setup above, `data/` is mounted from the host, so
+`touch ./data/.kill` in that directory reaches the container. Without the
+mount, the kill file stays inside the container and a host-side `touch`
+does not stop it.
 
 **Upgrading from 0.1.0 or 0.1.1:** the default kill file moved from `./.kill`
 to `./data/.kill`. The old `config.example.yaml` set `file_path: "./.kill"`
