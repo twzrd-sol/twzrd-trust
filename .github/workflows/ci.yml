@@ -12,13 +12,18 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # PRs get a single-node smoke: the full gate is local-ci/gate (root
+  # `npm run ci` on the box), which merge-gated requires. Main pushes keep
+  # the full matrix plus the full suite as the post-merge backstop.
+  # Job names are stable: CoS tables track offline-proof/verify by name.
   offline-proof:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22, 24]
+        # PRs: node 20 only. Main: full 20/22/24 matrix.
+        node: ${{ github.event_name == 'pull_request' && fromJSON('[20]') || fromJSON('[20, 22, 24]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,5 +54,15 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run ci
+      - run: npm run build
+      - run: npm run typecheck
+      # PR smoke: gate + killswitch suites. Full `npm run ci` (all
+      # workspaces, audit:prod, quickstart, ecosystem) runs on main
+      # pushes below and as local-ci/gate before merge.
+      - name: Smoke tests (pull requests)
+        if: github.event_name == 'pull_request'
+        run: npm test --workspace=twzrd-x402-gate && npm run test:agent-killswitch
+      - name: Full gate (main pushes)
+        if: github.event_name != 'pull_request'
+        run: npm run ci
       - run: python3 -m unittest counsel_orchestration.test_decide
