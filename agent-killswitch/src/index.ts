@@ -219,10 +219,7 @@ function settleHold(
   });
 }
 
-// CLI entry: `agent-killswitch [config.yaml]` (the package bin), or
-// `node dist/index.js [config.yaml]` when running from a checkout. Compare
-// real paths: under a bin symlink (npm or npx) `process.argv[1]` is the
-// shim's path, not this module's, so a basename comparison never matches.
+// Follow npm/npx bin symlinks: argv[1] is the shim, not this file.
 function invokedAsMain(): boolean {
   const invoked = process.argv[1];
   if (!invoked) return false;

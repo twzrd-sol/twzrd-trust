@@ -16,7 +16,10 @@ free model) keeps running until you touch the kill file. It listens on
 Requires Node.js 20 or newer. No global install needed:
 
 ```sh
-# 1. Run — the only secret is your upstream key. With no config.yaml in
+# 1. One directory for the ledger and the kill file (same as the Docker flow)
+mkdir -p ./data
+
+# 2. Run — the only secret is your upstream key. With no config.yaml in
 #    the working directory the proxy uses the defaults from
 #    config.example.yaml (upstream https://api.openai.com/v1, port 4020,
 #    kill file ./data/.kill, ledger ./data/spend-ledger.jsonl).
