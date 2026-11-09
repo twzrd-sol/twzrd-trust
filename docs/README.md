@@ -4,7 +4,7 @@ Every Markdown document in this repository, what it is for, and whether it is
 **canonical** (describes the product as it is), **historical** (a dated record,
 kept as written) or **internal** (maintainer notes, not integrator guidance).
 The version table was re-read on **2026-11-09** (registry `latest` and this tree; see the registry-cell drift note under Package mirrors). The earlier document pass was **2026-10-26**; live-surface facts were checked **2026-10-24**. The
-[README](../README.md#versions-verified-2026-11-08) carries the version table; [REPO-MAP.md](./REPO-MAP.md) maps the folders, not just the documents.
+[README](../README.md#versions-verified-2026-11-09) carries the version table; [REPO-MAP.md](./REPO-MAP.md) maps the folders, not just the documents.
 
 A canonical document that disagrees with the code is a bug: open an issue. A
 historical document is not updated when the product moves; its banner says
@@ -59,7 +59,7 @@ where the current state lives.
 
 ## Package mirrors
 
-These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-09: gate 0.18.0, killswitch 0.1.6, mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
+These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-09: gate 0.19.0, killswitch 0.1.6 (tree 0.1.7), mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
 
 | Document | Status | Mirrors |
 |---|---|---|
