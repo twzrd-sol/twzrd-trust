@@ -36,21 +36,33 @@ from, so `touch ./data/.kill` stops it.
 ## 5-minute setup (Docker)
 
 ```sh
-# 1. Configure (or just use env vars)
-cp config.example.yaml config.yaml
+docker pull ghcr.io/twzrd-sol/agent-killswitch:0.1.6
 
-# 2. Run — the only secret is your upstream key
-docker build -t agent-killswitch .     # installs from package-lock.json (npm ci)
-docker run -d --name killswitch \
+mkdir -p ./data
+
+docker run --rm \
   -p 127.0.0.1:4020:4020 \
-  -e OPENAI_API_KEY="$OPENAI_API_KEY" \
-  -v "$PWD/config.yaml:/app/config.yaml:ro" \
-  -v "$PWD/data:/app/data" \
-  agent-killswitch
-
-# 3. Point any OpenAI client at it
-export OPENAI_BASE_URL="http://127.0.0.1:4020/v1"
+  -v "$(pwd)/data:/app/data" \
+  -e OPENAI_API_KEY \
+  ghcr.io/twzrd-sol/agent-killswitch:0.1.6
 ```
+
+Then:
+
+```sh
+export OPENAI_BASE_URL=http://127.0.0.1:4020/v1
+```
+
+Emergency stop, from the directory where Docker was launched:
+
+```sh
+touch ./data/.kill
+```
+
+A missing config file already uses the defaults, so you do not need to copy
+`config.yaml`. The host `./data` mount is only for the ledger and
+`touch ./data/.kill`. The mounted directory preserves the ledger across
+restarts. Workers sharing budgets must mount the same host directory.
 
 Works with LangChain, AutoGen, CrewAI, Vercel AI SDK, Cursor, and anything
 else that speaks `/v1/chat/completions` — streaming included.
@@ -65,8 +77,9 @@ touch ./data/.kill     # or: curl -X POST http://127.0.0.1:4020/kill
 rm ./data/.kill        # or: curl -X POST http://127.0.0.1:4020/reset
 ```
 
-With the Docker setup above, `data/` is mounted from the host, so the
-host-side `touch ./data/.kill` reaches the container.
+With the Docker setup above, `./data` is mounted from the host, so from
+the directory where Docker was launched, `touch ./data/.kill` reaches the
+container.
 
 **Upgrading from 0.1.0 or 0.1.1:** the default kill file moved from `./.kill`
 to `./data/.kill`. The old `config.example.yaml` set `file_path: "./.kill"`
@@ -136,8 +149,9 @@ the agent itself. If the agent could act against you:
 
 ## Configuration
 
-YAML file plus env overrides (env wins). Copy `config.example.yaml` to
-`config.yaml` and edit the limits:
+YAML file plus env overrides (env wins). A missing config file uses the
+defaults below. Copy `config.example.yaml` to `config.yaml` only if you
+want to edit the limits in a file:
 
 | Env var | YAML key | Default |
 |---|---|---|
