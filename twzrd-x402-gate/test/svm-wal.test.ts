@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   SVM_WAL_SCHEMA,
@@ -59,13 +61,13 @@ test("SvmWal writes hash-chained payment_intent and payment_receipt rows with fs
       payTo: SELLER,
       amountMicro: "25000",
       network: SOL,
-      txSignature: "5SigWalTest1111111111111111111111111111111111",
       lastValidBlockHeight: 300_000_000,
       atUnixMs: 1_700_000_000_000,
     });
     assert.equal(intent.schema, SVM_WAL_SCHEMA);
     assert.equal(intent.kind, "payment_intent");
     assert.equal(intent.prev, "genesis");
+    assert.equal("tx_signature" in intent, false, "Lock 11: pre-sign payment_intent must not have tx_signature");
     assert.equal(fsyncCount, 1);
     assert.equal(wal.hasUnresolvedIntent(), true);
     assert.equal(wal.heldMicro(), 25000n);
@@ -108,6 +110,55 @@ test("SvmWal writes hash-chained payment_intent and payment_receipt rows with fs
       assert.equal(lookup.receipt.tx_signature, "5SigWalTest1111111111111111111111111111111111");
       assert.equal(lookup.receipt.slot, 312_345_678);
     }
+    wal.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Lock 11 & Lock 14: payment_intent rejects tx_signature, and source does not claim callback is a signing enclave", () => {
+  const dir = tmpDir();
+  try {
+    const walFile = path.join(dir, "lock11-wal.jsonl");
+    const wal = createFileSvmWal(walFile);
+    assert.throws(
+      () =>
+        wal.appendIntent({
+          challengeHash: CHALLENGE_HASH_1,
+          paymentDecisionId: "dec_lock11",
+          payTo: SELLER,
+          amountMicro: "10000",
+          network: SOL,
+          ...({ txSignature: "5IllegalPreSignSig" } as Record<string, unknown>),
+        }),
+      /must not carry tx_signature before signing/i,
+    );
+    wal.close();
+
+    // Also reject a payment_intent row on disk that carries tx_signature
+    const diskWalFile = path.join(dir, "lock11-disk-wal.jsonl");
+    fs.writeFileSync(
+      diskWalFile,
+      JSON.stringify({
+        schema: SVM_WAL_SCHEMA,
+        kind: "payment_intent",
+        intent_id: "int_bad_1",
+        challenge_hash: CHALLENGE_HASH_1,
+        payment_decision_id: "dec_1",
+        pay_to: SELLER,
+        amount_micro: "1000",
+        network: SOL,
+        tx_signature: "5IllegalDiskSig",
+        at_unix_ms: 1000,
+        prev: "genesis",
+      }) + "\n",
+    );
+    assert.throws(() => createFileSvmWal(diskWalFile), /must not carry tx_signature before signing/i);
+
+    // Lock 14: source does not call the in-process callback a "signing enclave"
+    const walSrcPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/svm-wal.ts");
+    const walSrc = fs.readFileSync(walSrcPath, "utf8");
+    assert.doesNotMatch(walSrc, /signing enclave/i);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -134,6 +185,7 @@ test("pre-sign fsync failure aborts before the signing key is invoked (signerInv
         signerCalls += 1;
         return {
           txSignature: "5ShouldNeverSign1111111111111111111111111111",
+          slot: 100,
           response: new Response("paid", { status: 200 }),
         };
       },
@@ -142,24 +194,26 @@ test("pre-sign fsync failure aborts before the signing key is invoked (signerInv
     assert.equal(res.verdict, "block");
     assert.equal(res.reason, "wal_intent_write_failed");
     assert.equal(res.signerInvocations, 0);
-    assert.equal(signerCalls, 0, "signing enclave must never be called when WAL fsync fails");
+    assert.equal(signerCalls, 0, "payer callback must never be called when WAL fsync fails");
+    failingWal.close();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("crash after broadcast with no receipt freezes the loop on restart until RPC recovery resolves the intent", async () => {
+test("Hole 2 & crash recovery: recovered confirmed spend counts against maxSpend cap and prevents overspend", async () => {
   const dir = tmpDir();
   try {
     __resetSharedFileSvmWals();
     const walFile = path.join(dir, "crash-wal.jsonl");
 
-    // 1. First call signs and broadcasts, then throws (simulating process death/network drop before receipt)
+    // 1. First call ($0.015) signs and broadcasts, then throws (simulating process death/network drop before receipt)
     let signerCalls = 0;
     await assert.rejects(
       () =>
         spendControlSafeFetch("https://merchant.example/api/v1", {
           svmWalFile: walFile,
+          maxSpend: "0.020",
           decisionId: "dec_crash_1",
           fetch: (async () => challengeResponse("15000")) as unknown as typeof fetch,
           pay: async () => {
@@ -180,11 +234,16 @@ test("crash after broadcast with no receipt freezes the loop on restart until RP
     // 3. Any new payment attempt while unresolved is refused before signing (wal_unresolved_intent)
     const blocked = await spendControlSafeFetch("https://merchant.example/api/v2", {
       svmWal: reloadedWal,
+      maxSpend: "0.020",
       decisionId: "dec_after_crash",
       fetch: (async () => challengeResponse("5000", "https://merchant.example/api/v2")) as unknown as typeof fetch,
       pay: async () => {
         signerCalls += 1;
-        return { response: new Response("paid", { status: 200 }) };
+        return {
+          txSignature: "5ShouldNotRun",
+          slot: 1,
+          response: new Response("paid", { status: 200 }),
+        };
       },
     });
     assert.equal(blocked.verdict, "block");
@@ -197,9 +256,9 @@ test("crash after broadcast with no receipt freezes the loop on restart until RP
       status: "pending",
     }));
     assert.equal(pendingRec.resolved, 0);
-    assert.equal(PendingStillFrozen(reloadedWal), true);
+    assert.equal(reloadedWal.hasUnresolvedIntent(), true);
 
-    // 5. RPC recovery observes finalized transaction on chain -> writes payment_receipt and unfreezes loop
+    // 5. RPC recovery observes finalized transaction on chain ($0.015) -> writes payment_receipt and unfreezes loop
     const confirmedSig = "5RecoveredSigFromRpc1111111111111111111111111";
     const resolvedRec = await reloadedWal.recoverUnresolvedIntents(async (intent) => {
       assert.equal(intent.payment_decision_id, "dec_crash_1");
@@ -214,14 +273,38 @@ test("crash after broadcast with no receipt freezes the loop on restart until RP
     assert.equal(reloadedWal.heldMicro(), 0n);
     assert.equal(reloadedWal.confirmedMicro(), 15000n);
 
-    // 6. Retrying the exact same challenge + decisionId now returns the confirmed signature idempotently with 0 signer calls
+    // 6. Hole 2: Requesting $0.010 (10,000 micro-USDC) under a $0.020 (20,000 micro-USDC) cap after recovering $0.015 (15,000) MUST be blocked ($0.025 > $0.020)!
+    const overspendAttempt = await spendControlSafeFetch("https://merchant.example/api/v3", {
+      svmWal: reloadedWal,
+      maxSpend: "0.020",
+      decisionId: "dec_overspend_after_recovery",
+      fetch: (async () => challengeResponse("10000", "https://merchant.example/api/v3")) as unknown as typeof fetch,
+      pay: async () => {
+        signerCalls += 1;
+        return {
+          txSignature: "5OverspendSig",
+          slot: 320_000_002,
+          response: new Response("paid", { status: 200 }),
+        };
+      },
+    });
+    assert.equal(overspendAttempt.verdict, "block");
+    assert.equal(overspendAttempt.reason, "over_cumulative_spend");
+    assert.equal(overspendAttempt.signerInvocations, 0);
+    assert.equal(signerCalls, 1, "recovered $0.015 + new $0.010 must be blocked under $0.020 cap");
+
+    // 7. Retrying the exact same confirmed challenge + decisionId returns the confirmed signature idempotently with 0 signer calls
     const idempotent = await spendControlSafeFetch("https://merchant.example/api/v1", {
       svmWal: reloadedWal,
       decisionId: "dec_crash_1",
       fetch: (async () => challengeResponse("15000")) as unknown as typeof fetch,
       pay: async () => {
         signerCalls += 1;
-        return { response: new Response("paid-again", { status: 200 }) };
+        return {
+          txSignature: "5DupSig",
+          slot: 320_000_003,
+          response: new Response("paid-again", { status: 200 }),
+        };
       },
     });
     assert.equal(idempotent.verdict, "allow");
@@ -234,9 +317,134 @@ test("crash after broadcast with no receipt freezes the loop on restart until RP
   }
 });
 
-function PendingStillFrozen(wal: ReturnType<typeof createFileSvmWal>): boolean {
-  return wal.hasUnresolvedIntent();
-}
+test("Hole 3: single-writer lock prevents concurrent process or instance writes from breaking the WAL hash chain", () => {
+  const dir = tmpDir();
+  try {
+    const walFile = path.join(dir, "locked-wal.jsonl");
+    const wal1 = createFileSvmWal(walFile);
+    const intent1 = wal1.appendIntent({
+      challengeHash: CHALLENGE_HASH_1,
+      paymentDecisionId: "dec_lock_1",
+      payTo: SELLER,
+      amountMicro: "5000",
+      network: SOL,
+    });
+    wal1.appendReceipt({
+      intentId: intent1.intent_id,
+      status: "confirmed",
+      txSignature: "5SigLock111111111111111111111111111111111111",
+      slot: 101,
+    });
+
+    // 1. A second process attempting to open or write to walFile while wal1 holds the lock is refused
+    const child = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "-e",
+        `
+        import { createFileSvmWal } from ${JSON.stringify(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/svm-wal.ts"))};
+        const w = createFileSvmWal(${JSON.stringify(walFile)});
+        w.appendIntent({
+          challengeHash: ${JSON.stringify(CHALLENGE_HASH_2)},
+          paymentDecisionId: "dec_child",
+          payTo: ${JSON.stringify(SELLER)},
+          amountMicro: "5000",
+          network: ${JSON.stringify(SOL)},
+        });
+        `,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.notEqual(child.status, 0, "second process must be refused by single-writer lock");
+    assert.match(child.stderr, /wal_single_writer_lock/);
+
+    // 2. Two instances in the same process: stale instance cannot overwrite after newer instance advances the file
+    const staleInstance = createFileSvmWal(walFile);
+    const intent2 = wal1.appendIntent({
+      challengeHash: CHALLENGE_HASH_2,
+      paymentDecisionId: "dec_lock_2",
+      payTo: SELLER,
+      amountMicro: "5000",
+      network: SOL,
+    });
+    wal1.appendReceipt({
+      intentId: intent2.intent_id,
+      status: "confirmed",
+      txSignature: "5SigLock222222222222222222222222222222222222",
+      slot: 102,
+    });
+    assert.throws(
+      () =>
+        staleInstance.appendIntent({
+          challengeHash: "c".repeat(64),
+          paymentDecisionId: "dec_stale",
+          payTo: SELLER,
+          amountMicro: "5000",
+          network: SOL,
+        }),
+      /wal_single_writer_lock/,
+    );
+
+    wal1.close();
+
+    // 3. Reopening the WAL succeeds cleanly with an unbroken hash chain
+    const reopened = createFileSvmWal(walFile);
+    assert.equal(reopened.confirmedMicro(), 10000n);
+    reopened.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Hole 4: an empty payer callback response without txSignature and slot is refused and never gets a confirmed receipt", async () => {
+  const dir = tmpDir();
+  try {
+    const walFile = path.join(dir, "unconfirmed-wal.jsonl");
+    const wal = createFileSvmWal(walFile);
+
+    // 1. Direct appendReceipt with status="confirmed" and missing signature/slot throws
+    const directIntent = wal.appendIntent({
+      challengeHash: CHALLENGE_HASH_1,
+      paymentDecisionId: "dec_direct_unconfirmed",
+      payTo: SELLER,
+      amountMicro: "10000",
+      network: SOL,
+    });
+    assert.throws(
+      () =>
+        wal.appendReceipt({
+          intentId: directIntent.intent_id,
+          status: "confirmed",
+          txSignature: null,
+          slot: null,
+        }),
+      /confirmed payment_receipt requires non-empty tx_signature and positive integer slot/i,
+    );
+    wal.close();
+
+    // 2. spendControlSafeFetch with an empty payer response ({} or missing txSignature/slot) refuses with wal_unconfirmed_payment and leaves intent pending
+    const walFile2 = path.join(dir, "unconfirmed-fetch-wal.jsonl");
+    const wal2 = createFileSvmWal(walFile2);
+    const res = await spendControlSafeFetch("https://merchant.example/api/v1", {
+      svmWal: wal2,
+      decisionId: "dec_empty_pay",
+      fetch: (async () => challengeResponse("10000")) as unknown as typeof fetch,
+      pay: async () => ({
+        response: new Response("paid-without-chain-proof", { status: 200 }),
+      }),
+    });
+    assert.equal(res.verdict, "block");
+    assert.equal(res.reason, "wal_unconfirmed_payment");
+    assert.equal(res.signerInvocations, 1);
+    assert.equal(wal2.hasUnresolvedIntent(), true, "intent must stay unresolved when payer returned no signature/slot");
+    assert.equal(wal2.confirmedMicro(), 0n, "unverified payment must not be marked confirmed");
+    wal2.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("expired blockhash recovery releases the held budget so a fresh attempt can sign", async () => {
   const dir = tmpDir();
@@ -281,6 +489,7 @@ test("expired blockhash recovery releases the held budget so a fresh attempt can
     });
     assert.notEqual(retryIntent.intent_id, intent.intent_id);
     assert.equal(wal.hasUnresolvedIntent(), true);
+    wal.close();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -346,11 +555,16 @@ test("bindingPolicyToSpendControlOptions maps svm_wal_file and unresolved WAL he
       ...opts,
       svmWal: wal,
       fetch: (async () => challengeResponse("10000", "https://merchant.example/api/v2")) as unknown as typeof fetch,
-      pay: async () => ({ response: new Response("paid", { status: 200 }) }),
+      pay: async () => ({
+        txSignature: "5Sig",
+        slot: 1,
+        response: new Response("paid", { status: 200 }),
+      }),
     });
     assert.equal(overCap.verdict, "block");
     assert.equal(overCap.reason, "over_cumulative_spend");
     assert.equal(overCap.signerInvocations, 0);
+    wal.close();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

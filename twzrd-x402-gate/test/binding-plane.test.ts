@@ -6,6 +6,7 @@ import * as path from "node:path";
 
 import {
   BINDING_POLICY_SCHEMA,
+  DEFAULT_CAP_PAUSE_WINDOW_MS,
   PAUSE_SENTINEL_SCHEMA,
   bindingPolicyToGateConfig,
   bindingPolicyToSpendControlOptions,
@@ -15,6 +16,9 @@ import {
   readSentinelState,
   writePauseSentinel,
 } from "../src/binding-plane.js";
+import { installTwzrdAutoGate } from "../src/auto-gate.js";
+import { createLocalDecisionSigner } from "../src/decision-token.js";
+import { createTwzrdMppOnChallenge, type MppChallenge } from "../src/mpp-hook.js";
 import { twzrdApprovePayment } from "../src/policy.js";
 import { spendControlSafeFetch } from "../src/spend-control.js";
 
@@ -72,7 +76,7 @@ test("parseBindingPolicy validates twzrd.binding_policy.v1 and maps payment conf
   }
 });
 
-test("parseBindingPolicy fails closed on unknown keys or malformed values, while section-scoped parsing isolates sections", () => {
+test("Lock 1: parseBindingPolicy validates only the payment domain by default and isolates compute errors", () => {
   assert.throws(
     () => parseBindingPolicy({ schema: "twzrd.binding_policy.v1", unknown_top: true }),
     /unknown top-level key/i,
@@ -85,16 +89,14 @@ test("parseBindingPolicy fails closed on unknown keys or malformed values, while
       }),
     /unknown payment key/i,
   );
-  // Section-scoped payment parser ignores compute section typos (P8 section isolation).
-  const paymentOnly = parseBindingPolicy(
-    {
-      schema: "twzrd.binding_policy.v1",
-      compute: { bad_compute_key: -1 } as unknown as Record<string, unknown>,
-      payment: { max_spend_usdc: "0.10" },
-    },
-    { section: "payment" },
-  );
-  assert.equal(paymentOnly.payment?.max_spend_usdc, "0.10");
+  // Default call (no options) ignores compute section typos (Lock 1).
+  const paymentDefault = parseBindingPolicy({
+    schema: "twzrd.binding_policy.v1",
+    compute: { bad_compute_key: -1 } as unknown as Record<string, unknown>,
+    payment: { max_spend_usdc: "0.10" },
+  });
+  assert.equal(paymentDefault.payment?.max_spend_usdc, "0.10");
+  assert.equal(paymentDefault.compute, undefined);
 });
 
 test("sentinel protocol v1: .kill, active .pause, expired .pause, and corrupt .pause enforce fail-closed semantics", () => {
@@ -136,9 +138,36 @@ test("sentinel protocol v1: .kill, active .pause, expired .pause, and corrupt .p
   }
 });
 
-test("Seat 1 payment refusal with tripPauseOnBlockMs writes .pause carrying decision_id and halts subsequent calls", async () => {
+test("Hole 5: fatal refusals and cap breaches write .pause using the default cap window without caller setting tripPauseOnBlockMs, while non-fatal refusals do not", async () => {
   const dir = tmpDir();
   try {
+    const pausePath = path.join(dir, ".pause");
+
+    // 1. Non-fatal refusal (transient preflight outage) must NOT write .pause
+    const outage = await twzrdApprovePayment(
+      { sellerWallet: SELLER, priceUsdc: 0.05, chain: SOL, asset: USDC },
+      {
+        intelBase: "https://intel.example",
+        fetch: (async () => new Response("unavailable", { status: 503 })) as unknown as typeof fetch,
+        preflightMinScore: 40,
+        blockDecisions: new Set(["block"]),
+        failOpen: false,
+        gateOnCanSpend: false,
+        refuseUnevaluated: true,
+        refuseUncappedWarn: true,
+        intelTimeoutMs: 2000,
+        refuseWashFlagged: false,
+        refuseWashUnknown: false,
+        washMaxUsdc: null,
+        unsupportedNetworkMode: "observe",
+        stateDir: dir,
+      },
+    );
+    assert.equal(outage.approved, false);
+    assert.match(outage.reason, /^twzrd_fail_closed/);
+    assert.equal(fs.existsSync(pausePath), false, "non-fatal outage must not write .pause");
+
+    // 2. Fatal refusal (twzrd_decision_block) writes .pause with the default 1h cap window even when tripPauseOnBlockMs is omitted
     let intelHits = 0;
     const denyFetch: typeof fetch = (async () => {
       intelHits += 1;
@@ -150,7 +179,7 @@ test("Seat 1 payment refusal with tripPauseOnBlockMs writes .pause carrying deci
       );
     }) as unknown as typeof fetch;
 
-    // First payment attempt hits intel, gets blocked, and trips .pause
+    const beforeMs = Date.now();
     const first = await twzrdApprovePayment(
       { sellerWallet: SELLER, priceUsdc: 0.05, chain: SOL, asset: USDC },
       {
@@ -168,21 +197,22 @@ test("Seat 1 payment refusal with tripPauseOnBlockMs writes .pause carrying deci
         washMaxUsdc: null,
         unsupportedNetworkMode: "observe",
         stateDir: dir,
-        tripPauseOnBlockMs: 60_000,
       },
     );
     assert.equal(first.approved, false);
     assert.equal(first.reason, "twzrd_decision_block");
     assert.equal(intelHits, 1);
 
-    // .pause sentinel exists and carries the exact decisionId from the refusal
-    const pausePath = path.join(dir, ".pause");
     const pauseState = checkPauseSwitchFile(pausePath);
     assert.equal(pauseState.paused, true);
     assert.equal(pauseState.decisionId, first.decisionId);
     assert.equal(pauseState.reason, "twzrd_decision_block");
+    assert.ok(
+      pauseState.untilUnixMs! >= beforeMs + DEFAULT_CAP_PAUSE_WINDOW_MS - 1000,
+      "default .pause TTL must use the 1h cap window",
+    );
 
-    // Second payment attempt short-circuits on .pause before calling intel
+    // 3. Subsequent calls short-circuit on .pause before hitting intel
     const second = await twzrdApprovePayment(
       { sellerWallet: SELLER, priceUsdc: 0.05, chain: SOL, asset: USDC },
       {
@@ -204,40 +234,80 @@ test("Seat 1 payment refusal with tripPauseOnBlockMs writes .pause carrying deci
     );
     assert.equal(second.approved, false);
     assert.match(second.reason, /^twzrd_payment_paused/);
-    assert.equal(intelHits, 1, "active .pause must short-circuit before hitting intel");
+    assert.equal(intelHits, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
-    // spendControlSafeFetch also honours active .kill and .pause with signerInvocations === 0
-    let signerRuns = 0;
-    const challengeRes = () =>
-      new Response(
-        JSON.stringify({
-          x402Version: 1,
-          accepts: [
-            {
-              scheme: "exact",
-              network: SOL,
-              payTo: SELLER,
-              maxAmountRequired: "10000",
-              asset: USDC,
-              resource: "https://merchant.example/api",
-            },
-          ],
-        }),
-        { status: 402, headers: { "content-type": "application/json" } },
-      );
-
-    const safePaused = await spendControlSafeFetch("https://merchant.example/api", {
-      stateDir: dir,
-      fetch: (async () => challengeRes()) as unknown as typeof fetch,
-      pay: async () => {
-        signerRuns += 1;
-        return { response: new Response("paid", { status: 200 }) };
+test("Hole 1: MPP hook honours .kill and .pause sentinels before creating any payment credential", async () => {
+  const dir = tmpDir();
+  try {
+    const challenge: MppChallenge = {
+      id: "chal_mpp_sentinel_1",
+      realm: "merchant.example",
+      method: "solana",
+      intent: "charge",
+      request: {
+        amount: "10000",
+        currency: USDC,
+        decimals: 6,
+        recipient: SELLER,
       },
+    };
+    const decisionFile = path.join(dir, "decisions.jsonl");
+
+    // 1. With .kill present in stateDir, createTwzrdMppOnChallenge refuses before createCredential()
+    fs.writeFileSync(path.join(dir, ".kill"), "killed\n");
+    let credCalls = 0;
+    const onChallenge = createTwzrdMppOnChallenge({
+      signer: createLocalDecisionSigner(),
+      stateDir: dir,
+      decisionFile,
+      intelligence: () => ({ counterpartyKnown: true, washFlagged: false }),
     });
-    assert.equal(safePaused.verdict, "block");
-    assert.equal(safePaused.reason, "twzrd_payment_paused");
-    assert.equal(safePaused.signerInvocations, 0);
-    assert.equal(signerRuns, 0);
+
+    await assert.rejects(
+      () =>
+        onChallenge(challenge, {
+          createCredential: async () => {
+            credCalls += 1;
+            return "cred_should_not_exist";
+          },
+        }),
+      /twzrd_kill_switch/,
+    );
+    assert.equal(credCalls, 0, "MPP hook must not create a credential when .kill is present");
+    fs.unlinkSync(path.join(dir, ".kill"));
+
+    // 2. With active .pause present (via TWZRD_STATE_DIR env + installTwzrdAutoGate('mpp')), refuses before createCredential()
+    writePauseSentinel(path.join(dir, ".pause"), {
+      ttlMs: 60_000,
+      reason: "budget_exceeded",
+      decisionId: "dec_ks_cap_1",
+    });
+    process.env.TWZRD_STATE_DIR = dir;
+    try {
+      const autoMppHook = installTwzrdAutoGate("mpp", {
+        signer: createLocalDecisionSigner(),
+        decisionFile,
+        intelligence: () => ({ counterpartyKnown: true, washFlagged: false }),
+      }) as (c: MppChallenge, h: { createCredential: () => Promise<string> }) => Promise<string | undefined>;
+
+      await assert.rejects(
+        () =>
+          autoMppHook(challenge, {
+            createCredential: async () => {
+              credCalls += 1;
+              return "cred_should_not_exist";
+            },
+          }),
+        /twzrd_payment_paused/,
+      );
+      assert.equal(credCalls, 0, "MPP auto-gate seat must not create a credential when .pause is active");
+    } finally {
+      delete process.env.TWZRD_STATE_DIR;
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

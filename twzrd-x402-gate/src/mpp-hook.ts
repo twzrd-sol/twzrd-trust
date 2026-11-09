@@ -71,8 +71,14 @@ import { isTrueFlag } from "./config.js";
  */
 
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
+import {
+  DEFAULT_CAP_PAUSE_WINDOW_MS,
+  isFatalGateRefusal,
+  readSentinelState,
+  writePauseSentinel,
+} from "./binding-plane.js";
 import type { DecisionSigner, PaymentDecision } from "./decision-token.js";
 import { canonicalJson, toMicroUsd, type PaymentIntent } from "./intent.js";
 import {
@@ -867,6 +873,14 @@ export type MppOnChallengeOptions = {
     decision?: PaymentDecision;
     refusal?: TwzrdMppBlockError;
   }) => void;
+  /** Optional Track 5 binding-plane sentinel directory. */
+  stateDir?: string;
+  /** Explicit `.kill` sentinel path override. */
+  killFilePath?: string;
+  /** Explicit `.pause` sentinel path override. */
+  pauseFilePath?: string;
+  /** Optional TTL (ms) to write `<stateDir>/.pause` when a payment is blocked. */
+  tripPauseOnBlockMs?: number;
 };
 
 /** Helpers passed by mppx to onChallenge. */
@@ -1017,6 +1031,41 @@ async function evaluateMppChallenge(
   options: MppOnChallengeOptions,
   allowUnevaluated: boolean,
 ): Promise<MppChargeEvaluation | undefined> {
+  const stateDir = options.stateDir ?? process.env.TWZRD_STATE_DIR;
+  const killFilePath = options.killFilePath ?? process.env.KILLSWITCH_KILL_FILE;
+  const pauseFilePath = options.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE;
+  const sentinel = readSentinelState({
+    stateDir: stateDir ?? "./data",
+    killFilePath,
+    pauseFilePath,
+    now: options.now?.(),
+  });
+  if (sentinel.active) {
+    const code =
+      sentinel.mode === "kill"
+        ? "twzrd_kill_switch"
+        : sentinel.mode === "corrupt_pause"
+          ? "twzrd_pause_corrupt"
+          : "twzrd_payment_paused";
+    const refusal = new TwzrdMppBlockError(
+      "PAYMENT_CONTROL_BLOCK",
+      `[twzrd] ${code}`,
+      {
+        reasonCodes: [code],
+        ...(sentinel.decisionId ? { decisionId: sentinel.decisionId } : {}),
+      },
+    );
+    await persistMppDecision(options, {
+      ...(sentinel.decisionId ? { decisionId: sentinel.decisionId } : {}),
+      outcome: "block",
+      reasonCodes: [code],
+      errorCode: refusal.code,
+      input: {},
+    });
+    emitDecision(options, { challenge, refusal });
+    throw refusal;
+  }
+
   let intent: PaymentIntent;
   try {
     intent = mppChallengeToIntent(challenge, {
@@ -1083,6 +1132,36 @@ async function evaluateMppChallenge(
     (decision.decision === "warn" && isTrueFlag(options.treatWarnAsBlock))
       ? "block"
       : decision.decision;
+  if (disposition === "block") {
+    const fatalReason = decision.reasonCodes.find((c) => isFatalGateRefusal(c));
+    const pauseTarget =
+      pauseFilePath ?? (stateDir ? join(stateDir, ".pause") : undefined);
+    const rawTripPause = options.tripPauseOnBlockMs ?? process.env.TWZRD_TRIP_PAUSE_ON_BLOCK_MS;
+    const tripPauseNum =
+      typeof rawTripPause === "number"
+        ? rawTripPause
+        : rawTripPause == null || rawTripPause === ""
+          ? NaN
+          : Number(rawTripPause);
+    const ttlMs =
+      rawTripPause === 0 || rawTripPause === "0"
+        ? 0
+        : Number.isFinite(tripPauseNum) && tripPauseNum > 0
+          ? Math.floor(tripPauseNum)
+          : DEFAULT_CAP_PAUSE_WINDOW_MS;
+    if (fatalReason && pauseTarget && ttlMs > 0) {
+      try {
+        writePauseSentinel(pauseTarget, {
+          ttlMs,
+          reason: fatalReason,
+          decisionId: decision.decisionId,
+          now: options.now?.(),
+        });
+      } catch {
+        /* best-effort backpressure file write */
+      }
+    }
+  }
   await persistMppDecision(options, {
     decisionId: decision.decisionId,
     outcome: disposition,

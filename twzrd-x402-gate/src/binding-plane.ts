@@ -247,10 +247,11 @@ function validatePaymentSection(raw: unknown): BindingPaymentPolicyV1 | undefine
 /**
  * Parse and validate a `twzrd.binding_policy.v1` envelope.
  *
- * By default (`section: "all"`), both `compute` and `payment` sections are
- * validated fail-closed. Passing `section: "compute"` or `section: "payment"`
- * validates only that reader's section (plus top-level keys and `state_dir`),
- * so a misconfiguration in the sibling section does not take down this reader.
+ * By default (`section: "payment"`), the payment gate validates only the
+ * `payment` section (plus top-level keys and `state_dir`), so a
+ * misconfiguration in `compute` does not take down the payment reader.
+ * Pass `section: "all"` or `section: "compute"` when validating the compute
+ * section.
  */
 export function parseBindingPolicy(
   raw: unknown,
@@ -270,7 +271,7 @@ export function parseBindingPolicy(
     }
   }
   const stateDir = assertNonEmptyStr(raw.state_dir, "state_dir");
-  const section = options.section ?? "all";
+  const section = options.section ?? "payment";
   const compute =
     section === "all" || section === "compute" ? validateComputeSection(raw.compute) : undefined;
   const payment =
@@ -501,6 +502,48 @@ export function readSentinelState(opts: {
   }
 
   return { active: false };
+}
+
+export const DEFAULT_CAP_PAUSE_WINDOW_MS = 3_600_000;
+
+/**
+ * True only for fatal refusals (budget/cap exhaustion or confirmed blocked/malicious
+ * seller/offer) that should write a `.pause` sentinel to halt compute re-reasoning.
+ * Transient outages (`twzrd_fail_closed`), unevaluated sellers, unknown coverage,
+ * and malformed inputs do not write `.pause`.
+ */
+export function isFatalGateRefusal(reason: string | undefined): boolean {
+  if (!reason) return false;
+  const r = reason.trim();
+  if (
+    r === "over_cumulative_spend" ||
+    r === "over_max_spend" ||
+    r === "twzrd_budget_exceeded" ||
+    r === "hourly_budget_exceeded" ||
+    r === "price_cap_exceeded" ||
+    r === "intel_block" ||
+    r === "INTEL_BLOCK" ||
+    r === "twzrd_wash_flagged" ||
+    r === "WASH_FLAGGED" ||
+    r === "svm_splits_refused" ||
+    r === "bind_mismatch" ||
+    r === "MANDATE_MONTHLY_CEILING" ||
+    r === "MANDATE_MAX_PER_TX" ||
+    r === "MANDATE_PAYEE_BLOCKED" ||
+    r === "POLICY_MAX_AMOUNT" ||
+    r === "POLICY_BLOCKLIST"
+  ) {
+    return true;
+  }
+  if (
+    r.startsWith("twzrd_decision_") ||
+    r.startsWith("twzrd_wash_flagged_above_cap_") ||
+    r.startsWith("twzrd_over_recommended_cap_") ||
+    r.startsWith("twzrd_score_")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
