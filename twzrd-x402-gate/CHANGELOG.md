@@ -2,6 +2,10 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.19.0 (2026-11-08)
+
+`mapX402SolanaRequirements` keeps `extra` on both return paths. A caller that scores the mapped object still sees `extra.splits`. The shipped `beforePayment` hook already evaluated the original requirements.
+
 ## Versioning policy (from 0.11.0)
 
 - **A change to what the gate allows or refuses ships in a minor release** (0.x.0 while

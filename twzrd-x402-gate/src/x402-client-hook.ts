@@ -801,6 +801,11 @@ export function mapX402SolanaRequirements(
     resourceFromReq ??
     flattenDeclaredResource(context?.declaredResource) ??
     context?.requestUrl;
+  // Keep extra on every return. Dropping it let a caller score the mapped
+  // object and never see extra.splits.
+  const carried = Object.prototype.hasOwnProperty.call(requirements, "extra")
+    ? { extra: requirements.extra as X402SelectedRequirements["extra"] }
+    : {};
   // A conflicted entry keeps its RAW fields. Collapsing them into one value
   // here used to launder the conflict: every check downstream saw a clean,
   // consistent entry while the client paid from the original.
@@ -814,6 +819,7 @@ export function mapX402SolanaRequirements(
       asset: requirements.asset as string | undefined,
       resource,
       scheme: requirements.scheme as string | undefined,
+      ...carried,
     };
   }
   return {
@@ -825,6 +831,7 @@ export function mapX402SolanaRequirements(
     asset: requirements.asset as string | undefined,
     resource,
     scheme: requirements.scheme as string | undefined,
+    ...carried,
   };
 }
 
