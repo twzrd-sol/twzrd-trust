@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.7 (unreleased)
+
+The package now starts from `npx`.
+
+- `package.json` declares a `bin` entry (`agent-killswitch` →
+  `dist/index.js`) and `src/index.ts` carries the `#!/usr/bin/env node`
+  shebang, so `npx --yes @twzrd1111/agent-killswitch` installs the package
+  and starts the proxy directly. Before, the published package had no
+  `bin`, so `npx` installed it and exited without starting anything. The
+  Docker path is unchanged.
+- The CLI entry check compared `import.meta.url` against `process.argv[1]`'s
+  basename. Under a bin symlink that basename is `agent-killswitch`, not
+  `index.js`, so the comparison never matched and the process exited 0
+  without listening. It now compares the real paths of the invoked file and
+  this module, so every npm/npx shim starts the server.
+- README: adds an npm / npx setup section next to the Docker one, with the
+  env-var-only path (no `config.yaml` needed when the defaults fit).
+
 ## 0.1.6 (2026-11-08)
 
 Multi-instance spend is now visible across copies.

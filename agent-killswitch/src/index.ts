@@ -1,7 +1,9 @@
+#!/usr/bin/env node
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import { checkKillSwitch, evaluateGate, requestEstimate, vetoBody } from "./gate.js";
 import { Ledger } from "./ledger.js";
@@ -217,11 +219,17 @@ function settleHold(
   });
 }
 
-// CLI entry: `node dist/index.js [config.yaml]`.
-const invokedAsMain = process.argv[1] !== undefined && import.meta.url.endsWith(
-  process.argv[1].split("/").pop() ?? "",
-);
-if (invokedAsMain) {
+// Follow npm/npx bin symlinks: argv[1] is the shim, not this file.
+function invokedAsMain(): boolean {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  try {
+    return fs.realpathSync(invoked) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+if (invokedAsMain()) {
   if (process.argv[2]) process.env.KILLSWITCH_CONFIG = process.argv[2];
   const cfg = loadConfig(process.env.KILLSWITCH_CONFIG ?? "./config.yaml");
   const port = Number(process.env.KILLSWITCH_PORT ?? process.env.PORT ?? cfg.port);
