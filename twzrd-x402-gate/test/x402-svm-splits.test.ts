@@ -15,6 +15,7 @@ import {
 } from "../src/payto.js";
 import {
   installTwzrdX402ClientHook,
+  mapX402SolanaRequirements,
   type BeforePaymentCreationContext,
   type BeforePaymentCreationResult,
   type X402ClientLike,
@@ -51,6 +52,13 @@ const REFUSED: Array<[string, Record<string, unknown>]> = [
   ["null splits", svm({ splits: null })],
   ["legacy solana network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "solana")],
   ["legacy solana-devnet network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "solana-devnet")],
+  ["bare mainnet-beta network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "mainnet-beta")],
+  ["bare devnet network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "devnet")],
+  ["bare testnet network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "testnet")],
+  ["bare mainnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d")],
+  ["bare devnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG")],
+  ["bare testnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY")],
+  ["missing network with base58 payTo", { ...svm({ splits: [{ recipient: OTHER, amount: "1" }] }), network: undefined }],
   ["scheme absent", { ...svm({ splits: [{ recipient: OTHER, amount: "1" }] }), scheme: undefined }],
 ];
 const ALLOWED: Array<[string, Record<string, unknown>]> = [
@@ -66,6 +74,28 @@ const ALLOWED: Array<[string, Record<string, unknown>]> = [
       amount: "10000",
       asset: USDC_BASE,
       extra: { name: "USD Coin", version: "2", splits: [{ recipient: OTHER, amount: "9000" }] },
+    },
+  ],
+  [
+    "missing network with EVM payTo stays out of scope",
+    {
+      scheme: "exact",
+      network: undefined,
+      payTo: EVM_SELLER,
+      amount: "10000",
+      asset: USDC_BASE,
+      extra: { splits: [{ recipient: OTHER, amount: "9000" }] },
+    },
+  ],
+  [
+    "unknown network with extra.splits stays out of scope",
+    {
+      scheme: "exact",
+      network: "eip155:1",
+      payTo: EVM_SELLER,
+      amount: "10000",
+      asset: USDC_BASE,
+      extra: { splits: [{ recipient: OTHER, amount: "9000" }] },
     },
   ],
 ];
@@ -116,6 +146,19 @@ async function run() {
   assert.equal(SVM_SPLITS_REFUSED, "svm_splits_refused");
   // A non-exact SVM scheme is out of scope for this check.
   assert.equal(hasSvmExactSplits({ ...svm({ splits: [{ recipient: OTHER }] }), scheme: "upto" }), false);
+
+  // The mapped copy must still refuse. Dropping extra made the copy look clean.
+  const withSplits = svm({ splits: [{ recipient: OTHER, amount: "1" }] });
+  const mapped = mapX402SolanaRequirements(withSplits as never) as Record<string, unknown>;
+  assert.equal(hasSvmExactSplits(mapped), true, "clean map keeps extra.splits");
+  const conflicted = { ...withSplits, amount: "1000", maxAmountRequired: "2" };
+  const mappedConflict = mapX402SolanaRequirements(conflicted as never) as Record<string, unknown>;
+  assert.equal(hasSvmExactSplits(mappedConflict), true, "conflict map keeps extra.splits");
+  // The detector fold: a bare cluster name on the mapped copy still refuses.
+  const bareMapped = mapX402SolanaRequirements(
+    svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "mainnet-beta") as never,
+  ) as Record<string, unknown>;
+  assert.equal(hasSvmExactSplits(bareMapped), true, "bare-name map keeps extra.splits");
 
   // 2. Official x402Client hook: refused splits abort before payload creation,
   //    with no intel call. The hook's abort is what stops createPaymentPayload.

@@ -5,7 +5,8 @@
 ### Repo layout / what is actually developable
 
 This repo is a **public mirror**. Most top-level directories are published-artifact
-mirrors, **not** buildable source:
+mirrors, **not** buildable source. For the folder-level atlas — every top-level
+path, its role, and the invariants — see [docs/REPO-MAP.md](./docs/REPO-MAP.md):
 
 - `twzrd-x402-gate/` — the primary package with real `src/` + `test/`. Gate
   development, linting, building, and testing happens here **after a root install**.
@@ -83,6 +84,6 @@ needs to re-sync divergence between the two packages, start from that PR.
   egress; they spend **no** USDC. If egress is blocked these demos fail even
   though unit tests pass.
 - `x402-solana` is an optional peer. Consumers install
-  `twzrd-x402-gate@0.18.0 x402-solana@3.0.1`. This checkout lists `x402-solana`
+  `twzrd-x402-gate@0.19.0 x402-solana@3.0.1`. This checkout lists `x402-solana`
   as a gate **devDependency** so the seat is present after root `npm ci`. It is
   still not required to typecheck, build, or run `gate-eval-refuse`.

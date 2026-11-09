@@ -104,11 +104,21 @@ export type RequirementFieldConflict =
   | typeof AMOUNT_MALFORMED
   | typeof SVM_SPLITS_REFUSED;
 
-/** CAIP-2 `solana:<genesis>` or a legacy v1 name (`solana`, `solana-devnet`). */
-function isSvmNetwork(network: unknown): boolean {
-  if (typeof network !== "string") return false;
-  const n = network.trim().toLowerCase();
-  return n === "solana" || n.startsWith("solana:") || n.startsWith("solana-");
+/**
+ * Whether a requirement is on Solana, read through the shared
+ * `solanaCluster` (network.ts) so the splits detector cannot disagree with
+ * classifyNetwork and the USDC table. That covers CAIP-2 `solana:<genesis>`
+ * and legacy v1 names, plus bare cluster names (`mainnet-beta`, `devnet`,
+ * `testnet`), bare genesis ids, and a missing network with a base58 payTo
+ * (legacy integrators; an EVM `payTo` stays out of scope).
+ */
+function isSvmNetwork(network: unknown, payTo?: unknown): boolean {
+  return (
+    solanaCluster(
+      typeof network === "string" ? network : undefined,
+      typeof payTo === "string" ? payTo : undefined,
+    ) !== undefined
+  );
 }
 
 /**
@@ -123,7 +133,7 @@ function isSvmNetwork(network: unknown): boolean {
 export function hasSvmExactSplits(req: unknown): boolean {
   if (req === null || typeof req !== "object") return false;
   const r = req as Record<string, unknown>;
-  if (!isSvmNetwork(r.network)) return false;
+  if (!isSvmNetwork(r.network, r.payTo ?? r.pay_to)) return false;
   if (r.scheme != null && String(r.scheme).trim().toLowerCase() !== "exact") return false;
   const extra = r.extra;
   if (extra === null || typeof extra !== "object" || Array.isArray(extra)) return false;
