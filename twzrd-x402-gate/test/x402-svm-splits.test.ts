@@ -52,6 +52,13 @@ const REFUSED: Array<[string, Record<string, unknown>]> = [
   ["null splits", svm({ splits: null })],
   ["legacy solana network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "solana")],
   ["legacy solana-devnet network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "solana-devnet")],
+  ["bare mainnet-beta network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "mainnet-beta")],
+  ["bare devnet network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "devnet")],
+  ["bare testnet network", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "testnet")],
+  ["bare mainnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "5eykt4UsFv8P8NJdTREYpY1vzqKqZKvdp")],
+  ["bare devnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1")],
+  ["bare testnet genesis id", svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsRJ")],
+  ["missing network with base58 payTo", { ...svm({ splits: [{ recipient: OTHER, amount: "1" }] }), network: undefined }],
   ["scheme absent", { ...svm({ splits: [{ recipient: OTHER, amount: "1" }] }), scheme: undefined }],
 ];
 const ALLOWED: Array<[string, Record<string, unknown>]> = [
@@ -67,6 +74,28 @@ const ALLOWED: Array<[string, Record<string, unknown>]> = [
       amount: "10000",
       asset: USDC_BASE,
       extra: { name: "USD Coin", version: "2", splits: [{ recipient: OTHER, amount: "9000" }] },
+    },
+  ],
+  [
+    "missing network with EVM payTo stays out of scope",
+    {
+      scheme: "exact",
+      network: undefined,
+      payTo: EVM_SELLER,
+      amount: "10000",
+      asset: USDC_BASE,
+      extra: { splits: [{ recipient: OTHER, amount: "9000" }] },
+    },
+  ],
+  [
+    "unknown network with extra.splits stays out of scope",
+    {
+      scheme: "exact",
+      network: "eip155:1",
+      payTo: EVM_SELLER,
+      amount: "10000",
+      asset: USDC_BASE,
+      extra: { splits: [{ recipient: OTHER, amount: "9000" }] },
     },
   ],
 ];
@@ -125,6 +154,11 @@ async function run() {
   const conflicted = { ...withSplits, amount: "1000", maxAmountRequired: "2" };
   const mappedConflict = mapX402SolanaRequirements(conflicted as never) as Record<string, unknown>;
   assert.equal(hasSvmExactSplits(mappedConflict), true, "conflict map keeps extra.splits");
+  // The detector fold: a bare cluster name on the mapped copy still refuses.
+  const bareMapped = mapX402SolanaRequirements(
+    svm({ splits: [{ recipient: OTHER, amount: "1" }] }, "mainnet-beta") as never,
+  ) as Record<string, unknown>;
+  assert.equal(hasSvmExactSplits(bareMapped), true, "bare-name map keeps extra.splits");
 
   // 2. Official x402Client hook: refused splits abort before payload creation,
   //    with no intel call. The hook's abort is what stops createPaymentPayload.
