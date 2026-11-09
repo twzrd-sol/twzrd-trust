@@ -597,3 +597,20 @@ export {
   type PauseSwitchState,
   type SentinelState,
 } from "./binding-plane.js";
+export {
+  SVM_WAL_SCHEMA,
+  createFileSvmWal,
+  sharedFileSvmWal,
+  __resetSharedFileSvmWals,
+  type SvmWal,
+  type SvmWalIntentRow,
+  type SvmWalReceiptRow,
+  type SvmWalRow,
+  type SvmWalReceiptStatus,
+  type SvmWalLookupResult,
+  type SvmWalPollOutcome,
+  type SvmWalPoller,
+  type AppendSvmWalIntentInput,
+  type AppendSvmWalReceiptInput,
+  type CreateSvmWalOptions,
+} from "./svm-wal.js";

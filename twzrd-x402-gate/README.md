@@ -1495,6 +1495,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `decision_bind_required` | A signed decision is required and none was bound. |
 | `bind_required_no_compose`, `bind_required_no_settlement`, `bind_required_no_leaf_hash`, `bind_mismatch` | A resource bind was required and could not be built or did not match. |
 | `twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt` | Track 5 `.kill` or `.pause` sentinel is active (or `.pause` is corrupt) in `stateDir`. |
+| `wal_unresolved_intent`, `wal_intent_write_failed` | Track 6 SVM write-ahead log (`svmWal` / `svmWalFile` / `TWZRD_SVM_WAL_FILE`) has an earlier `payment_intent` with no `payment_receipt` (loop frozen until `recoverUnresolvedIntents` polls RPC), or the pre-sign `fsync` of `payment_intent` failed (`signerInvocations = 0`). |
 
 ### Held vault-spend copy (`decideHeldVaultSpend`)
 

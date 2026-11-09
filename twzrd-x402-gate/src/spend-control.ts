@@ -26,12 +26,15 @@ import {
 import { sharedFileSpendLedger } from "./spend-ledger-file.js";
 import {
   rememberRawInvoice,
+  resourceBindLeafHash,
+  resourceBindLeafHashV2,
   resourceBindMemo,
   stampResourceBind,
   type ResourceBindReq,
   type ResourceBindSchema,
 } from "./resource-bind.js";
 import { evaluateResourceBindLegsFromSvmTx } from "./resource-bind-tx.js";
+import { sharedFileSvmWal, type SvmWal } from "./svm-wal.js";
 import { resourceUrlFromPaymentRequired } from "./x402-client-hook.js";
 import type { X402PaymentRequiredBody } from "./types.js";
 
@@ -55,7 +58,12 @@ export type SpendControlOptions = {
     selected: Record<string, unknown>;
     /** Present after a hard bind-v1 verify on the compose path. */
     transactionBase64?: string;
-  }) => Promise<{ transactionBase64?: string; response?: Response }>;
+  }) => Promise<{
+    transactionBase64?: string;
+    response?: Response;
+    txSignature?: string;
+    slot?: number;
+  }>;
   /**
    * Build, but do not sign or submit, the bound SVM transaction. Required
    * with `requireOfferBinding`; the gate verifies these exact bytes before it
@@ -86,6 +94,10 @@ export type SpendControlOptions = {
   pauseFilePath?: string;
   /** Optional TTL (ms) to write `<stateDir>/.pause` when a payment is blocked. */
   tripPauseOnBlockMs?: number;
+  /** Optional Track 6 SVM write-ahead log (WAL) instance. */
+  svmWal?: SvmWal;
+  /** Path for the Track 6 SVM write-ahead log JSONL file when `svmWal` is omitted. */
+  svmWalFile?: string;
 };
 
 export type SpendControlResult = {
@@ -94,6 +106,8 @@ export type SpendControlResult = {
   response?: Response;
   receipt?: { strength: string; leaf_hash: string | null; fact_type: "resource_bound" };
   signerInvocations: number;
+  /** Settled or replayed transaction signature when recorded in SvmWal. */
+  txSignature?: string;
 };
 
 export type OfferBindingCheck = {
@@ -269,6 +283,8 @@ export async function spendControlSafeFetch(
   // One shared instance per path: a per-call ledger corrupts the hash chain
   // under concurrency and gives the reservation below no stable identity.
   const ledger = opts.ledger ?? (file ? sharedFileSpendLedger(file) : defaultMemoryLedger);
+  const walFile = opts.svmWalFile ?? process.env.TWZRD_SVM_WAL_FILE;
+  const wal = opts.svmWal ?? (walFile ? sharedFileSvmWal(walFile) : undefined);
   const res = await fetchImpl(url);
   if (res.status !== 402) return { verdict: "allow", response: res, signerInvocations: 0 };
   // AUDIT FIX: read PAYMENT-REQUIRED (base64 JSON, x402 v2) BEFORE the body —
@@ -344,8 +360,9 @@ export async function spendControlSafeFetch(
   let release = (): void => {};
   if (maxMicro != null) {
     const pending = pendingFor(ledger);
+    const walHeld = wal ? wal.heldMicro() : 0n;
     for (const key of keys) {
-      if (ledger.spentMicro(key, WIN, now) + (pending.get(key) ?? 0n) + spendMicro > maxMicro) {
+      if (ledger.spentMicro(key, WIN, now) + (pending.get(key) ?? 0n) + walHeld + spendMicro > maxMicro) {
         return blockResult({ verdict: "block", reason: "over_cumulative_spend", signerInvocations: 0 });
       }
     }
@@ -384,9 +401,42 @@ export async function spendControlSafeFetch(
         decisionId ? { decision_id: decisionId, preflight_id: preflightId } : undefined,
       );
     }
+    const bindReq: ResourceBindReq = {
+      payTo,
+      amount: String(amountMicro),
+      asset: String(selected.asset ?? ""),
+      network: String(selected.network ?? ""),
+      resource: String(resource ?? url),
+      scheme: String(selected.scheme ?? "exact"),
+    };
+    const walChallengeHash =
+      stamped?.leaf_hash ??
+      (decisionId
+        ? resourceBindLeafHashV2(bindReq, { decision_id: decisionId, preflight_id: preflightId })
+        : resourceBindLeafHash(bindReq));
+
+    if (wal) {
+      const existing = wal.lookupChallenge(walChallengeHash);
+      if (existing.state === "confirmed") {
+        return {
+          verdict,
+          response: res,
+          signerInvocations: 0,
+          ...(existing.receipt.tx_signature ? { txSignature: existing.receipt.tx_signature } : {}),
+        };
+      }
+      if (wal.hasUnresolvedIntent()) {
+        return blockResult(
+          { verdict: "block", reason: "wal_unresolved_intent", signerInvocations: 0 },
+          decisionId,
+        );
+      }
+    }
+
     let response = res;
     let txb64: string | undefined;
     let signerInvocations = 0;
+    let settledTxSig: string | undefined;
     if (opts.requireOfferBinding) {
       const leaf_hash = stamped?.leaf_hash ?? null;
       const refuseNoCompose = (): SpendControlResult =>
@@ -424,23 +474,89 @@ export async function spendControlSafeFetch(
         );
       }
       if (opts.pay) {
+        let walIntentId: string | undefined;
+        if (wal) {
+          try {
+            const walIntent = wal.appendIntent({
+              challengeHash: walChallengeHash,
+              paymentDecisionId: decisionId ?? "unbound",
+              payTo,
+              amountMicro: String(amountMicro),
+              network: String(network ?? "solana"),
+            });
+            walIntentId = walIntent.intent_id;
+          } catch {
+            return blockResult(
+              { verdict: "block", reason: "wal_intent_write_failed", receipt, signerInvocations: 0 },
+              decisionId,
+            );
+          }
+        }
         signerInvocations = 1;
         signed = true;
         const paid = await opts.pay({ url, paymentRequired: offer, selected, transactionBase64: txb64 });
         if (paid.response) response = paid.response;
+        settledTxSig = paid.txSignature;
+        if (wal && walIntentId) {
+          wal.appendReceipt({
+            intentId: walIntentId,
+            status: "confirmed",
+            txSignature: paid.txSignature ?? null,
+            slot: paid.slot ?? null,
+          });
+        }
       }
       if (signerInvocations > 0) recordSpend();
-      return { verdict, response, receipt, signerInvocations };
+      return {
+        verdict,
+        response,
+        receipt,
+        signerInvocations,
+        ...(settledTxSig ? { txSignature: settledTxSig } : {}),
+      };
     }
     if (opts.pay) {
+      let walIntentId: string | undefined;
+      if (wal) {
+        try {
+          const walIntent = wal.appendIntent({
+            challengeHash: walChallengeHash,
+            paymentDecisionId: decisionId ?? "unbound",
+            payTo,
+            amountMicro: String(amountMicro),
+            network: String(network ?? "solana"),
+          });
+          walIntentId = walIntent.intent_id;
+        } catch {
+          return blockResult(
+            { verdict: "block", reason: "wal_intent_write_failed", signerInvocations: 0 },
+            decisionId,
+          );
+        }
+      }
       signerInvocations = 1;
       signed = true;
       const paid = await opts.pay({ url, paymentRequired: offer, selected });
       if (paid.response) response = paid.response;
+      settledTxSig = paid.txSignature;
+      if (wal && walIntentId) {
+        wal.appendReceipt({
+          intentId: walIntentId,
+          status: "confirmed",
+          txSignature: paid.txSignature ?? null,
+          slot: paid.slot ?? null,
+        });
+      }
     }
     let receipt: SpendControlResult["receipt"];
     if (signerInvocations > 0) recordSpend();
-    return { verdict, response, receipt, signerInvocations };
+    return {
+      verdict,
+      response,
+      receipt,
+      signerInvocations,
+      ...(settledTxSig ? { txSignature: settledTxSig } : {}),
+    };
   } finally {
     // Runs after recordSpend() on the success paths (both synchronous), so
     // there is no instant where neither the record nor the reservation counts.
