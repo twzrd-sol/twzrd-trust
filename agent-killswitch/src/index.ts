@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
-import { checkKillSwitch, checkPauseSwitch, evaluateGate, requestEstimate, vetoBody } from "./gate.js";
+import { checkKillSwitch, checkPauseSwitch, evaluateGate, requestEstimate, vetoBody, writePauseSwitch } from "./gate.js";
 import { Ledger } from "./ledger.js";
 import { costUsd } from "./pricing.js";
 import { forwardChatCompletion, type ForwardResult } from "./proxy.js";
@@ -149,6 +149,18 @@ async function handle(
   });
 
   if (!decision.allowed) {
+    if (decision.code === "budget_exceeded" && decision.pauseWindowMs) {
+      try {
+        writePauseSwitch(cfg.pauseFilePath, {
+          ttlMs: decision.pauseWindowMs,
+          reason: "budget_exceeded",
+          decisionId: requestId,
+          now: nowMs,
+        });
+      } catch {
+        /* best-effort backpressure file write */
+      }
+    }
     ledger.append({
       timestamp: now,
       model,

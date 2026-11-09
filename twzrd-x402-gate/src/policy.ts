@@ -16,7 +16,12 @@ import {
 } from "./network.js";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
-import { readSentinelState, writePauseSentinel } from "./binding-plane.js";
+import {
+  DEFAULT_CAP_PAUSE_WINDOW_MS,
+  isFatalGateRefusal,
+  readSentinelState,
+  writePauseSentinel,
+} from "./binding-plane.js";
 import { withDeadline } from "./deadline.js";
 import { QUICK_PRICE_USDC } from "./quick.js";
 import type {
@@ -449,42 +454,43 @@ export async function twzrdApprovePayment(
   const cfg = config ?? resolveConfig();
   const decisionId = randomUUID();
 
-  if (cfg.stateDir || cfg.killFilePath || cfg.pauseFilePath) {
-    const sentinel = readSentinelState({
-      stateDir: cfg.stateDir,
-      killFilePath: cfg.killFilePath,
-      pauseFilePath: cfg.pauseFilePath,
-    });
-    if (sentinel.active) {
-      const reason =
-        sentinel.mode === "kill"
-          ? "twzrd_kill_switch"
-          : sentinel.mode === "corrupt_pause"
-            ? "twzrd_pause_corrupt"
-            : `twzrd_payment_paused (${sentinel.reason})`;
-      return {
-        decisionId,
-        approved: false,
-        verdict: "block",
-        score: null,
-        card: {},
-        reason,
-        policyAction: "block",
-      };
-    }
+  const sentinel = readSentinelState({
+    stateDir: cfg.stateDir ?? process.env.TWZRD_STATE_DIR ?? "./data",
+    killFilePath: cfg.killFilePath ?? process.env.KILLSWITCH_KILL_FILE,
+    pauseFilePath: cfg.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE,
+  });
+  if (sentinel.active) {
+    const reason =
+      sentinel.mode === "kill"
+        ? "twzrd_kill_switch"
+        : sentinel.mode === "corrupt_pause"
+          ? "twzrd_pause_corrupt"
+          : `twzrd_payment_paused (${sentinel.reason})`;
+    return {
+      decisionId,
+      approved: false,
+      verdict: "block",
+      score: null,
+      card: {},
+      reason,
+      policyAction: "block",
+    };
   }
 
   const finalize = (res: TwzrdApprovalResult): TwzrdApprovalResult => {
-    if (
-      !res.approved &&
-      typeof cfg.tripPauseOnBlockMs === "number" &&
-      cfg.tripPauseOnBlockMs > 0 &&
-      (cfg.pauseFilePath || cfg.stateDir)
-    ) {
-      const pauseTarget = cfg.pauseFilePath ?? path.join(cfg.stateDir!, ".pause");
+    const pauseDir = cfg.stateDir ?? process.env.TWZRD_STATE_DIR;
+    const pausePath =
+      cfg.pauseFilePath ??
+      process.env.KILLSWITCH_PAUSE_FILE ??
+      (pauseDir ? path.join(pauseDir, ".pause") : undefined);
+    const ttlMs =
+      cfg.tripPauseOnBlockMs === 0
+        ? 0
+        : (cfg.tripPauseOnBlockMs ?? DEFAULT_CAP_PAUSE_WINDOW_MS);
+    if (!res.approved && ttlMs > 0 && pausePath && isFatalGateRefusal(res.reason)) {
       try {
-        writePauseSentinel(pauseTarget, {
-          ttlMs: cfg.tripPauseOnBlockMs,
+        writePauseSentinel(pausePath, {
+          ttlMs,
           reason: res.reason,
           decisionId: res.decisionId,
         });

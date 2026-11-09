@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { pessimisticRequestCostUsd } from "./pricing.js";
 
 export type VetoCode =
@@ -34,6 +35,8 @@ export interface GateDecision {
   spentUsd: number;
   limitUsd: number;
   decisionId?: string | null;
+  /** Cap window duration (ms) when a budget_exceeded veto should write .pause. */
+  pauseWindowMs?: number;
 }
 
 /** Instant kill switch: the mere existence of the file vetoes everything. */
@@ -158,6 +161,37 @@ export function checkPauseSwitch(filePath: string, now = Date.now()): PauseSwitc
   };
 }
 
+/**
+ * Atomically write a `.pause` sentinel (temp file + fsync + rename) when a
+ * budget cap is breached so the sibling payment gate halts for the cap window.
+ */
+export function writePauseSwitch(
+  filePath: string,
+  input: { ttlMs: number; reason: string; decisionId?: string; now?: number },
+): void {
+  if (typeof input.ttlMs !== "number" || !Number.isFinite(input.ttlMs) || input.ttlMs <= 0) {
+    return;
+  }
+  const now = input.now ?? Date.now();
+  const payload = {
+    schema: PAUSE_SENTINEL_SCHEMA,
+    until_unix_ms: Math.floor(now + input.ttlMs),
+    reason: String(input.reason ?? "").trim() || "budget_exceeded",
+    ...(input.decisionId ? { decision_id: input.decisionId } : {}),
+  };
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = `${filePath}.${process.pid}.${now}.tmp`;
+  const fd = fs.openSync(tmpPath, "w", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(payload) + "\n", "utf8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, filePath);
+}
+
 export interface GateInput {
   killed: boolean;
   paused?: boolean;
@@ -205,7 +239,7 @@ export function evaluateGate(input: GateInput): GateDecision {
     };
   }
 
-  if (input.paused) {
+  if (input.paused && input.pauseReason !== "budget_exceeded") {
     const detail = input.pauseReason ? `: ${input.pauseReason}` : "";
     return {
       allowed: false,
@@ -242,6 +276,7 @@ export function evaluateGate(input: GateInput): GateDecision {
       message: `Token-per-minute limit ${input.maxTokensPerMinute} would be exceeded`,
       spentUsd: input.window.minuteTokens,
       limitUsd: input.maxTokensPerMinute,
+      pauseWindowMs: 60_000,
     };
   }
 
@@ -266,6 +301,7 @@ export function evaluateGate(input: GateInput): GateDecision {
       message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} would be exceeded`,
       spentUsd: input.window.hourUsd,
       limitUsd: input.maxUsdPerHour,
+      pauseWindowMs: 3_600_000,
     };
   }
   if (input.window.dayUsd + est.usd > input.maxUsdPerDay) {
@@ -276,6 +312,7 @@ export function evaluateGate(input: GateInput): GateDecision {
       message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} would be exceeded`,
       spentUsd: input.window.dayUsd,
       limitUsd: input.maxUsdPerDay,
+      pauseWindowMs: 86_400_000,
     };
   }
 
@@ -288,6 +325,7 @@ export function evaluateGate(input: GateInput): GateDecision {
       message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} hit`,
       spentUsd: input.window.hourUsd,
       limitUsd: input.maxUsdPerHour,
+      pauseWindowMs: 3_600_000,
     };
   }
   if (input.window.dayUsd >= input.maxUsdPerDay) {
@@ -298,6 +336,20 @@ export function evaluateGate(input: GateInput): GateDecision {
       message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} hit`,
       spentUsd: input.window.dayUsd,
       limitUsd: input.maxUsdPerDay,
+      pauseWindowMs: 86_400_000,
+    };
+  }
+
+  if (input.paused) {
+    const detail = input.pauseReason ? `: ${input.pauseReason}` : "";
+    return {
+      allowed: false,
+      status: 429,
+      code: "payment_gate_halt",
+      message: `Payment gate pause active${detail}`,
+      spentUsd: input.window.hourUsd,
+      limitUsd: input.maxUsdPerHour,
+      decisionId: input.pauseDecisionId ?? null,
     };
   }
 

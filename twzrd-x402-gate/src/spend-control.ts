@@ -10,7 +10,12 @@
  */
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
-import { readSentinelState, writePauseSentinel } from "./binding-plane.js";
+import {
+  DEFAULT_CAP_PAUSE_WINDOW_MS,
+  isFatalGateRefusal,
+  readSentinelState,
+  writePauseSentinel,
+} from "./binding-plane.js";
 import { toMicroUsd } from "./intent.js";
 import { classifyNetwork } from "./network.js";
 import {
@@ -195,11 +200,18 @@ const defaultMemoryLedger = createMemorySpendLedger();
  * race — see sharedFileSpendLedger's note.
  */
 const pendingByLedger = new WeakMap<SpendLedger, Map<string, bigint>>();
+const ledgerRecordedWalIntents = new WeakMap<SpendLedger, Set<string>>();
 
 function pendingFor(ledger: SpendLedger): Map<string, bigint> {
   let pending = pendingByLedger.get(ledger);
   if (!pending) pendingByLedger.set(ledger, (pending = new Map()));
   return pending;
+}
+
+function recordedWalIntentsFor(ledger: SpendLedger): Set<string> {
+  let set = ledgerRecordedWalIntents.get(ledger);
+  if (!set) ledgerRecordedWalIntents.set(ledger, (set = new Set()));
+  return set;
 }
 
 /** Reserve `micro` under each key; returns the (idempotent) release. */
@@ -234,8 +246,8 @@ export async function spendControlSafeFetch(
   opts: SpendControlOptions = {},
 ): Promise<SpendControlResult> {
   const stateDir = opts.stateDir ?? process.env.TWZRD_STATE_DIR;
-  const killFilePath = opts.killFilePath;
-  const pauseFilePath = opts.pauseFilePath;
+  const killFilePath = opts.killFilePath ?? process.env.KILLSWITCH_KILL_FILE;
+  const pauseFilePath = opts.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE;
   const rawTripPause = opts.tripPauseOnBlockMs ?? process.env.TWZRD_TRIP_PAUSE_ON_BLOCK_MS;
   const tripPauseNum =
     typeof rawTripPause === "number"
@@ -244,28 +256,45 @@ export async function spendControlSafeFetch(
         ? NaN
         : Number(rawTripPause);
   const tripPauseOnBlockMs =
-    Number.isFinite(tripPauseNum) && tripPauseNum > 0 ? Math.floor(tripPauseNum) : undefined;
+    rawTripPause === 0 || rawTripPause === "0"
+      ? 0
+      : Number.isFinite(tripPauseNum) && tripPauseNum > 0
+        ? Math.floor(tripPauseNum)
+        : DEFAULT_CAP_PAUSE_WINDOW_MS;
 
-  if (stateDir || killFilePath || pauseFilePath) {
-    const sentinel = readSentinelState({ stateDir, killFilePath, pauseFilePath });
-    if (sentinel.active) {
-      const reason =
-        sentinel.mode === "kill"
-          ? "twzrd_kill_switch"
-          : sentinel.mode === "corrupt_pause"
-            ? "twzrd_pause_corrupt"
-            : "twzrd_payment_paused";
-      return { verdict: "block", reason, signerInvocations: 0 };
-    }
+  const sentinel = readSentinelState({
+    stateDir: stateDir ?? "./data",
+    killFilePath,
+    pauseFilePath,
+  });
+  if (sentinel.active) {
+    const reason =
+      sentinel.mode === "kill"
+        ? "twzrd_kill_switch"
+        : sentinel.mode === "corrupt_pause"
+          ? "twzrd_pause_corrupt"
+          : "twzrd_payment_paused";
+    return { verdict: "block", reason, signerInvocations: 0 };
   }
 
+  const file = opts.ledgerFile ?? process.env.TWZRD_SPEND_LEDGER_FILE;
+  const walFile = opts.svmWalFile ?? process.env.TWZRD_SVM_WAL_FILE;
+  const pauseTarget =
+    pauseFilePath ??
+    (stateDir
+      ? path.join(stateDir, ".pause")
+      : walFile
+        ? path.join(path.dirname(walFile), ".pause")
+        : file
+          ? path.join(path.dirname(file), ".pause")
+          : undefined);
+
   const tripPause = (blockReason: string | undefined, decisionId?: string) => {
-    if (tripPauseOnBlockMs && blockReason && (pauseFilePath || stateDir)) {
-      const target = pauseFilePath ?? path.join(stateDir!, ".pause");
+    if (tripPauseOnBlockMs > 0 && pauseTarget && isFatalGateRefusal(blockReason)) {
       try {
-        writePauseSentinel(target, {
+        writePauseSentinel(pauseTarget, {
           ttlMs: tripPauseOnBlockMs,
-          reason: blockReason,
+          reason: blockReason!,
           decisionId: decisionId ?? opts.decisionId ?? randomUUID(),
         });
       } catch {
@@ -279,11 +308,9 @@ export async function spendControlSafeFetch(
   };
 
   const fetchImpl = opts.fetch ?? globalThis.fetch;
-  const file = opts.ledgerFile ?? process.env.TWZRD_SPEND_LEDGER_FILE;
   // One shared instance per path: a per-call ledger corrupts the hash chain
   // under concurrency and gives the reservation below no stable identity.
   const ledger = opts.ledger ?? (file ? sharedFileSpendLedger(file) : defaultMemoryLedger);
-  const walFile = opts.svmWalFile ?? process.env.TWZRD_SVM_WAL_FILE;
   const wal = opts.svmWal ?? (walFile ? sharedFileSvmWal(walFile) : undefined);
   const res = await fetchImpl(url);
   if (res.status !== 402) return { verdict: "allow", response: res, signerInvocations: 0 };
@@ -343,12 +370,14 @@ export async function spendControlSafeFetch(
   const agentKey = `agent:${opts.agentId ?? "default"}`;
   const merchantKey = `merchant:${payTo}`;
   const mandateKey = `mandate:${opts.mandateId ?? "default"}`;
+  const recordedWalSet = recordedWalIntentsFor(ledger);
   // Idempotent: the success paths record before returning, and the finally
   // block records again for an ambiguous failure; the ledger must see one entry.
   let recorded = false;
-  const recordSpend = () => {
+  const recordSpend = (walIntentId?: string) => {
     if (recorded) return;
     recorded = true;
+    if (walIntentId) recordedWalSet.add(walIntentId);
     ledger.record(agentKey, spendMicro, now);
     ledger.record(merchantKey, spendMicro, now);
     ledger.record(mandateKey, spendMicro, now);
@@ -360,9 +389,16 @@ export async function spendControlSafeFetch(
   let release = (): void => {};
   if (maxMicro != null) {
     const pending = pendingFor(ledger);
-    const walHeld = wal ? wal.heldMicro() : 0n;
     for (const key of keys) {
-      if (ledger.spentMicro(key, WIN, now) + (pending.get(key) ?? 0n) + walHeld + spendMicro > maxMicro) {
+      const walExtra = wal
+        ? wal.spentMicro({
+            payTo: key === merchantKey ? payTo : undefined,
+            windowMs: WIN,
+            now,
+            excludeIntentIds: recordedWalSet,
+          })
+        : 0n;
+      if (ledger.spentMicro(key, WIN, now) + (pending.get(key) ?? 0n) + walExtra + spendMicro > maxMicro) {
         return blockResult({ verdict: "block", reason: "over_cumulative_spend", signerInvocations: 0 });
       }
     }
@@ -495,18 +531,30 @@ export async function spendControlSafeFetch(
         signerInvocations = 1;
         signed = true;
         const paid = await opts.pay({ url, paymentRequired: offer, selected, transactionBase64: txb64 });
-        if (paid.response) response = paid.response;
-        settledTxSig = paid.txSignature;
+        if (paid?.response) response = paid.response;
+        settledTxSig = paid?.txSignature;
         if (wal && walIntentId) {
+          const hasConfirmedSettlement =
+            typeof paid?.txSignature === "string" &&
+            paid.txSignature.trim().length > 0 &&
+            typeof paid?.slot === "number" &&
+            Number.isInteger(paid.slot) &&
+            paid.slot > 0;
+          if (!hasConfirmedSettlement) {
+            return blockResult(
+              { verdict: "block", reason: "wal_unconfirmed_payment", receipt, signerInvocations },
+              decisionId,
+            );
+          }
           wal.appendReceipt({
             intentId: walIntentId,
             status: "confirmed",
-            txSignature: paid.txSignature ?? null,
-            slot: paid.slot ?? null,
+            txSignature: paid.txSignature!.trim(),
+            slot: paid.slot!,
           });
         }
+        recordSpend(walIntentId);
       }
-      if (signerInvocations > 0) recordSpend();
       return {
         verdict,
         response,
@@ -515,8 +563,8 @@ export async function spendControlSafeFetch(
         ...(settledTxSig ? { txSignature: settledTxSig } : {}),
       };
     }
+    let walIntentId: string | undefined;
     if (opts.pay) {
-      let walIntentId: string | undefined;
       if (wal) {
         try {
           const walIntent = wal.appendIntent({
@@ -537,19 +585,31 @@ export async function spendControlSafeFetch(
       signerInvocations = 1;
       signed = true;
       const paid = await opts.pay({ url, paymentRequired: offer, selected });
-      if (paid.response) response = paid.response;
-      settledTxSig = paid.txSignature;
+      if (paid?.response) response = paid.response;
+      settledTxSig = paid?.txSignature;
       if (wal && walIntentId) {
+        const hasConfirmedSettlement =
+          typeof paid?.txSignature === "string" &&
+          paid.txSignature.trim().length > 0 &&
+          typeof paid?.slot === "number" &&
+          Number.isInteger(paid.slot) &&
+          paid.slot > 0;
+        if (!hasConfirmedSettlement) {
+          return blockResult(
+            { verdict: "block", reason: "wal_unconfirmed_payment", signerInvocations },
+            decisionId,
+          );
+        }
         wal.appendReceipt({
           intentId: walIntentId,
           status: "confirmed",
-          txSignature: paid.txSignature ?? null,
-          slot: paid.slot ?? null,
+          txSignature: paid.txSignature!.trim(),
+          slot: paid.slot!,
         });
       }
     }
     let receipt: SpendControlResult["receipt"];
-    if (signerInvocations > 0) recordSpend();
+    if (signerInvocations > 0) recordSpend(walIntentId);
     return {
       verdict,
       response,
@@ -560,10 +620,11 @@ export async function spendControlSafeFetch(
   } finally {
     // Runs after recordSpend() on the success paths (both synchronous), so
     // there is no instant where neither the record nor the reservation counts.
-    // If pay() threw after the signer ran, the outcome is unknown: commit the
-    // spend (conservative) before dropping the reservation, so the next call
-    // still sees it. Only a path that never reached the signer releases free.
-    if (signed) recordSpend();
+    // If pay() threw after the signer ran without a WAL, the outcome is unknown:
+    // commit the spend (conservative) before dropping the reservation. When a WAL
+    // is active, the unresolved payment_intent row in the WAL holds the budget
+    // until recoverUnresolvedIntents resolves it.
+    if (signed && !wal) recordSpend();
     release();
   }
 }

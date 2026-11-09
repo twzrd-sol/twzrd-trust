@@ -259,3 +259,52 @@ test("cross-reader conformance: Seat 1 payment refusal writes .pause and halts a
   assert.equal(halted.json.error.decision_id, approval.decisionId);
   assert.equal(upstream.state.hits, 1, "upstream must not be called while payment gate pause is active");
 });
+
+test("Hole 5: hitting the cap in agent-killswitch writes .pause for the cap window and halts the payment gate", async () => {
+  const { twzrdApprovePayment, resolveConfig } = await import(
+    "../../twzrd-x402-gate/dist/index.js"
+  );
+
+  process.env.KILLSWITCH_MAX_USD_HOUR = "0.01";
+  process.env.KILLSWITCH_MAX_COST_REQUEST = "0.05";
+  const port = await startKillswitch();
+
+  // Request without max_tokens is estimated at $0.05 > $0.01 hourly limit -> budget_exceeded
+  const beforeMs = Date.now();
+  const vetoed = await chat(port, { model: "gpt-4o", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(vetoed.status, 429);
+  assert.equal(vetoed.json.error.code, "budget_exceeded");
+  assert.equal(upstream.state.hits, 0);
+
+  // .pause file was written with the 1h hourly cap window
+  const pauseFile = path.join(dir, "data", ".pause");
+  assert.equal(fs.existsSync(pauseFile), true, "hitting budget_exceeded must write .pause");
+  const pauseState = checkPauseSwitch(pauseFile);
+  assert.equal(pauseState.paused, true);
+  assert.equal(pauseState.reason, "budget_exceeded");
+  assert.ok(
+    pauseState.untilUnixMs >= beforeMs + 3_600_000 - 1000,
+    "hourly cap breach must write a 1h .pause window",
+  );
+
+  // Payment gate immediately sees ./data/.pause and halts before hitting intel
+  let intelHits = 0;
+  const approval = await twzrdApprovePayment(
+    {
+      sellerWallet: "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk",
+      priceUsdc: 0.001,
+      chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    },
+    resolveConfig({
+      stateDir: path.join(dir, "data"),
+      fetch: async () => {
+        intelHits += 1;
+        return new Response("{}", { status: 200 });
+      },
+    }),
+  );
+  assert.equal(approval.approved, false);
+  assert.match(approval.reason, /^twzrd_payment_paused/);
+  assert.equal(intelHits, 0, "payment gate must halt on killswitch-written .pause before hitting intel");
+});
