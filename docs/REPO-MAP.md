@@ -16,11 +16,16 @@ monorepo keeps its own copy of the gate; this repo is an intentional fork in
 places — see [AGENTS.md](../AGENTS.md) for the fork relationship and the one
 supported install.
 
-There are **two buildable products here**; everything else is a published
-artifact mirrored in or meta-infrastructure:
+The tree builds four packages. Two are headline products:
 
 - **`twzrd-x402-gate`** — the buyer-side gate (npm `twzrd-x402-gate`). Source here.
 - **`agent-killswitch`** — the local spend proxy (npm `@twzrd1111/agent-killswitch`, `ghcr.io/twzrd-sol/agent-killswitch`). Source here.
+
+The other two are supporting source, small by design: **`twzrd-log-verifier`**
+(offline transparency-log verifier) and **`eliza-plugin-source`** (what
+`@wzrd_sol/eliza-plugin` is published from). `counsel_orchestration/` is
+experiment source exercised by CI, not a published package. Everything else
+top-level is a published artifact mirrored in, or meta-infrastructure.
 
 ## Top-level paths
 
@@ -44,6 +49,7 @@ artifact mirrored in or meta-infrastructure:
 | `twzrd-mcp-server/` | `twzrd-mcp-server@0.6.2` (dist only) | resync from live tarball |
 | `server/` | The hosted site's public static files: `llms.txt`, `.well-known/`, `agent-card.md` | `.github/workflows/intel-mirror-sync.yml` |
 | `SKILL.md` | Byte copy of `https://intel.twzrd.xyz/skill.md`. Root copy **and** `skills/twzrd-trust/SKILL.md` must stay byte-identical; `scripts/check-plugin-layout.test.mjs` asserts it. | re-sync from live |
+| `skills/` | The loadable skill artifact directory: `skills/twzrd-trust/SKILL.md`, byte-pinned to root `SKILL.md` | same rule — re-sync from live, never hand-edit |
 
 ### Docs, meta, and manifests
 
@@ -69,9 +75,10 @@ artifact mirrored in or meta-infrastructure:
    `check-gate-release-drift.test.mjs`).
 4. No new top-level directory without an entry here and in
    [docs/README.md](./README.md).
-5. Mirrors stay mirrors. The only two products with buildable source are
-   `twzrd-x402-gate` and `agent-killswitch`; the verifier
-   (`twzrd-log-verifier`) is source too, small by design.
+5. Mirrors stay mirrors. The buildable sources are `twzrd-x402-gate`,
+   `agent-killswitch`, `twzrd-log-verifier`, and `eliza-plugin-source`;
+   `counsel_orchestration/` is experiment source, not a published package.
+   The headline products are the first two.
 6. Registry listings (npm, GHCR, Glama, MCP registries, ClawHub) are changed
    by publish workflows under typed orders, never as a docs edit.
 
