@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.8 (2026-11-09)
+
+Track 5 Binding Plane: shared `twzrd.binding_policy.v1` config envelope and `.pause` payment-gate backpressure sentinel.
+
+- `loadConfig` accepts a `twzrd.binding_policy.v1` YAML/JSON document (`state_dir`, `compute`, `payment`) alongside the existing `config.yaml` layout, validating `compute` keys fail-closed while ignoring `payment` keys owned by `twzrd-x402-gate`.
+- `checkPauseSwitch` reads `<state_dir>/.pause` (`twzrd.pause_sentinel.v1`):
+  - Active (`now < until_unix_ms`): vetoes `/v1/chat/completions` with HTTP 429 `payment_gate_halt` before any upstream call, surfacing `decision_id` in the veto error object and on `GET /healthz` (`paused: true`, `pause_until_unix_ms`, `pause_reason`, `pause_decision_id`).
+  - Expired (`now >= until_unix_ms`): allows requests through without requiring manual unlink.
+  - Corrupt or unreadable `.pause`: fails closed with HTTP 429 `payment_gate_halt` (`corrupt_pause_sentinel`).
+- `POST /reset` clears both `.kill` and `.pause`.
+
 ## 0.1.7 (2026-11-09)
 
 The package now starts from `npx`.
