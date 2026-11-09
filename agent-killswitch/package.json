@@ -1,10 +1,13 @@
 {
   "name": "@twzrd1111/agent-killswitch",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Drop-in local reverse proxy that enforces hard token/cost budgets on OpenAI-compatible chat completions, with an instant file-based kill switch and an append-only JSONL spend ledger.",
   "license": "MIT",
   "author": "TWZRD",
   "type": "module",
+  "bin": {
+    "agent-killswitch": "./dist/index.js"
+  },
   "homepage": "https://www.npmjs.com/package/@twzrd1111/agent-killswitch",
   "repository": {
     "type": "git",

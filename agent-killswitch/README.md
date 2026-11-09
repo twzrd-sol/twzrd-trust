@@ -11,6 +11,28 @@ set. It caps a bill: it does not detect a loop, and a loop that costs $0 (a
 free model) keeps running until you touch the kill file. It listens on
 `127.0.0.1` by default and talks to one configured upstream.
 
+## 5-minute setup (npm / npx)
+
+Requires Node.js 20 or newer. No global install needed:
+
+```sh
+# 1. Run — the only secret is your upstream key. With no config.yaml in
+#    the working directory the proxy uses the defaults from
+#    config.example.yaml (upstream https://api.openai.com/v1, port 4020,
+#    kill file ./data/.kill, ledger ./data/spend-ledger.jsonl).
+OPENAI_API_KEY="$OPENAI_API_KEY" npx --yes @twzrd1111/agent-killswitch
+
+# 2. Point any OpenAI client at it
+export OPENAI_BASE_URL="http://127.0.0.1:4020/v1"
+```
+
+To change limits or the upstream, write a `config.yaml` and pass it as the
+first argument — `npx --yes @twzrd1111/agent-killswitch ./config.yaml` — or
+set `KILLSWITCH_CONFIG`. `config.example.yaml` in this repository is a full
+reference; every value has a `KILLSWITCH_*` env override (table below). The
+kill file and the ledger land in `./data/` under the directory you run
+from, so `touch ./data/.kill` stops it.
+
 ## 5-minute setup (Docker)
 
 ```sh
