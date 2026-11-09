@@ -53,6 +53,10 @@ jobs:
             echo "::error::expected_version '$EXPECTED_VERSION' is not MAJOR.MINOR.PATCH. Refusing."
             exit 1
           fi
+          if [ ${#EXPECTED_COMMIT} -ne 40 ]; then
+            echo "::error::expected_commit ('$EXPECTED_COMMIT' is $((${#EXPECTED_COMMIT})) chars) must be exactly 40 hex chars. Refusing."
+            exit 1
+          fi
           actual_version=$(node -p "require('./package.json').version")
           actual_commit=$(git rev-parse HEAD)
           if [ "$actual_version" != "$EXPECTED_VERSION" ]; then
