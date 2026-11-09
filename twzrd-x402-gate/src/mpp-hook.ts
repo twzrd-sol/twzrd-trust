@@ -74,7 +74,6 @@ import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import {
-  DEFAULT_CAP_PAUSE_WINDOW_MS,
   isFatalGateRefusal,
   readSentinelState,
   writePauseSentinel,
@@ -879,7 +878,10 @@ export type MppOnChallengeOptions = {
   killFilePath?: string;
   /** Explicit `.pause` sentinel path override. */
   pauseFilePath?: string;
-  /** Optional TTL (ms) to write `<stateDir>/.pause` when a payment is blocked. */
+  /**
+   * Opt-in, default off. TTL (ms) for a `.pause` written when a challenge is
+   * refused for a fatal reason (see `isFatalGateRefusal`).
+   */
   tripPauseOnBlockMs?: number;
 };
 
@@ -1032,39 +1034,10 @@ async function evaluateMppChallenge(
   allowUnevaluated: boolean,
 ): Promise<MppChargeEvaluation | undefined> {
   const stateDir = options.stateDir ?? process.env.TWZRD_STATE_DIR;
-  const killFilePath = options.killFilePath ?? process.env.KILLSWITCH_KILL_FILE;
   const pauseFilePath = options.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE;
-  const sentinel = readSentinelState({
-    stateDir: stateDir ?? "./data",
-    killFilePath,
-    pauseFilePath,
-    now: options.now?.(),
-  });
-  if (sentinel.active) {
-    const code =
-      sentinel.mode === "kill"
-        ? "twzrd_kill_switch"
-        : sentinel.mode === "corrupt_pause"
-          ? "twzrd_pause_corrupt"
-          : "twzrd_payment_paused";
-    const refusal = new TwzrdMppBlockError(
-      "PAYMENT_CONTROL_BLOCK",
-      `[twzrd] ${code}`,
-      {
-        reasonCodes: [code],
-        ...(sentinel.decisionId ? { decisionId: sentinel.decisionId } : {}),
-      },
-    );
-    await persistMppDecision(options, {
-      ...(sentinel.decisionId ? { decisionId: sentinel.decisionId } : {}),
-      outcome: "block",
-      reasonCodes: [code],
-      errorCode: refusal.code,
-      input: {},
-    });
-    emitDecision(options, { challenge, refusal });
-    throw refusal;
-  }
+  // First thing, before the challenge is even parsed: no policy outcome, outage
+  // setting, or opt-out below can reach a credential past `.kill` or `.pause`.
+  await refuseOnMppSentinel(challenge, options);
 
   let intent: PaymentIntent;
   try {
@@ -1143,12 +1116,9 @@ async function evaluateMppChallenge(
         : rawTripPause == null || rawTripPause === ""
           ? NaN
           : Number(rawTripPause);
+    // Opt-in: unset, empty, zero, or unparsable all mean off.
     const ttlMs =
-      rawTripPause === 0 || rawTripPause === "0"
-        ? 0
-        : Number.isFinite(tripPauseNum) && tripPauseNum > 0
-          ? Math.floor(tripPauseNum)
-          : DEFAULT_CAP_PAUSE_WINDOW_MS;
+      Number.isFinite(tripPauseNum) && tripPauseNum > 0 ? Math.floor(tripPauseNum) : 0;
     if (fatalReason && pauseTarget && ttlMs > 0) {
       try {
         writePauseSentinel(pauseTarget, {
@@ -1174,7 +1144,52 @@ async function evaluateMppChallenge(
     },
   });
   emitDecision(options, { challenge, intent, decision });
+  // Last look. The decision above took time (intel, signing, a durable ledger
+  // write) and the caller creates the credential next: a `.kill` or `.pause`
+  // that landed in between still stops it.
+  if (disposition !== "block") await refuseOnMppSentinel(challenge, options);
   return { intent, decision, disposition };
+}
+
+/**
+ * The binding-plane veto for MPP: throws PAYMENT_CONTROL_BLOCK while `.kill`
+ * is present or `.pause` is active or unreadable. Same files and the same
+ * fail-closed reading as `twzrdApprovePayment`.
+ */
+async function refuseOnMppSentinel(
+  challenge: MppChallenge,
+  options: MppOnChallengeOptions,
+): Promise<void> {
+  const sentinel = readSentinelState({
+    stateDir: options.stateDir ?? process.env.TWZRD_STATE_DIR ?? "./data",
+    killFilePath: options.killFilePath ?? process.env.KILLSWITCH_KILL_FILE,
+    pauseFilePath: options.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE,
+    now: options.now?.(),
+  });
+  if (!sentinel.active) return;
+  const code =
+    sentinel.mode === "kill"
+      ? "twzrd_kill_switch"
+      : sentinel.mode === "corrupt_pause"
+        ? "twzrd_pause_corrupt"
+        : "twzrd_payment_paused";
+  const refusal = new TwzrdMppBlockError(
+    "PAYMENT_CONTROL_BLOCK",
+    `[twzrd] ${code}`,
+    {
+      reasonCodes: [code],
+      ...(sentinel.decisionId ? { decisionId: sentinel.decisionId } : {}),
+    },
+  );
+  await persistMppDecision(options, {
+    ...(sentinel.decisionId ? { decisionId: sentinel.decisionId } : {}),
+    outcome: "block",
+    reasonCodes: [code],
+    errorCode: refusal.code,
+    input: {},
+  });
+  emitDecision(options, { challenge, refusal });
+  throw refusal;
 }
 
 function safeAmountMicro(amount: string): string | undefined {

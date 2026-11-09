@@ -1383,8 +1383,8 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | `twzrd_wash_unknown` | The merchant card answered but has not fully answered the wash question: no card (including a 4xx), no `wash_flagged` boolean (missing or `null`, even beside confidence `full`; from 0.13.0), wash confidence other than `full` (for example `partial_inbound_only`, `base_2cycle`), `ring_evaluated: false`, or `wash_stale: true`. Never reported as an outage; `failOpen` does not open it. Scored networks only. | default from 0.13.0 (`refuseWashUnknown`; opt out with `refuseWashUnknown: false`; opt-in in 0.12.x; also needs `refuseWashFlagged`, which is on by default) |
 | `twzrd_fail_closed (<error>)` | The preflight did not answer (non-2xx, non-JSON, network error, or no answer within `intelTimeoutMs`). | fail-closed unless `failOpen` |
 | `twzrd_card_unreachable_fail_closed (<error>)` | The merchant card did not answer (5xx, 429, non-JSON, network error, or no answer within `intelTimeoutMs`). A 4xx is an answer, not an outage. With `failOpen` the payment is allowed and the result carries `cardUnreachable: true` (the wash check did not run). | fail-closed unless `failOpen` |
-| `twzrd_kill_switch` | Track 5 `.kill` sentinel file is present in `stateDir` (`<stateDir>/.kill` or `killFilePath`). | when `stateDir` or `killFilePath` is set |
-| `twzrd_payment_paused (<reason>)`, `twzrd_pause_corrupt` | Track 5 `.pause` sentinel (`<stateDir>/.pause` or `pauseFilePath`) is active (`now < until_unix_ms`) or unreadable/corrupt (fail-closed). | when `stateDir` or `pauseFilePath` is set |
+| `twzrd_kill_switch` | Track 5 `.kill` sentinel file is present in `stateDir` (`<stateDir>/.kill` or `killFilePath`). | always; `stateDir` defaults to `./data` |
+| `twzrd_payment_paused (<reason>)`, `twzrd_pause_corrupt` | Track 5 `.pause` sentinel (`<stateDir>/.pause` or `pauseFilePath`) is active (`now < until_unix_ms`) or unreadable/corrupt (fail-closed). | always; `stateDir` defaults to `./data` |
 
 Approval reasons, for `onDecision` consumers: `twzrd_allow`, `twzrd_warn_allowed`,
 `twzrd_unevaluated_within_cap_<price>_le_<cap>`, `twzrd_wash_capped_<price>_le_<cap>`,
@@ -1490,12 +1490,14 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `no_payable_requirement` | No offer names both a recipient and an amount. |
 | `malformed_amount` | The amount is not a base-unit integer. |
 | `non_usdc_asset` | On Solana or Base, the offer names an asset that is not USDC (the budget counts micro-USDC). |
-| `over_max_spend`, `over_cumulative_spend` | The payment, or the running total, would pass `maxSpend`. |
+| `over_max_spend`, `over_cumulative_spend` | The payment, or the running total, would pass `maxSpend`. With `stateDir` or `pauseFilePath` set, `over_cumulative_spend` also writes `.pause` until the budget window has room for the refused amount; it never writes `.kill`. |
 | `intel_block` | The injected preflight answered `block`. |
 | `decision_bind_required` | A signed decision is required and none was bound. |
 | `bind_required_no_compose`, `bind_required_no_settlement`, `bind_required_no_leaf_hash`, `bind_mismatch` | A resource bind was required and could not be built or did not match. |
-| `twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt` | Track 5 `.kill` or `.pause` sentinel is active (or `.pause` is corrupt) in `stateDir`. |
-| `wal_unresolved_intent`, `wal_intent_write_failed`, `wal_unconfirmed_payment` | Track 6 SVM write-ahead log (`svmWal` / `svmWalFile` / `TWZRD_SVM_WAL_FILE`) has an earlier `payment_intent` with no `payment_receipt` (loop frozen until `recoverUnresolvedIntents` polls RPC), the pre-sign `fsync` of `payment_intent` failed (`signerInvocations = 0`), or the payer callback returned without both a non-empty `txSignature` and a positive integer `slot`. |
+| `twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt` | Track 5 `.kill` or `.pause` sentinel is active (or `.pause` is corrupt) in `stateDir` (default `./data`). The MPP entry points refuse on the same sentinel before a credential is created. |
+| `wal_unresolved_intent`, `wal_intent_write_failed`, `wal_unconfirmed_payment` | Track 6 SVM write-ahead log (`svmWal` / `svmWalFile` / `TWZRD_SVM_WAL_FILE`) has an earlier `payment_intent` with no `payment_receipt` (loop frozen until `recoverUnresolvedIntents` polls RPC), the pre-sign `fsync` of `payment_intent` failed (`signerInvocations = 0`), or the payer ran and its return does not prove settlement (`signerInvocations = 1`). Proof is a well-formed `txSignature` with a positive integer `slot` and `confirmationStatus` `confirmed` or `finalized`, or with `facilitatorSettlement: { verified: true, facilitator }`. Without it no receipt is written and the intent stays unresolved. |
+
+With a WAL configured, a payment is counted from its WAL row alone (held while unresolved, spent once confirmed) and is not also written to the spend ledger. One writer owns a WAL file at a time: a second `createFileSvmWal` on the same path, in this process or another, throws `wal_single_writer_lock`. To run `recoverUnresolvedIntents` in the process that pays, use the instance you passed as `svmWal`, or `sharedFileSvmWal(path)` for the one `svmWalFile` opens; call `close()` before handing the file to another owner.
 
 ### Held vault-spend copy (`decideHeldVaultSpend`)
 
@@ -1528,8 +1530,8 @@ Checked on a transaction the gate already holds, before any socket. A refusal ap
 | `onReceipt` | — | — | Callback after receipt is captured |
 | `disabled` (`installTwzrdAutoGate` only) | `TWZRD_AUTO_GATE=0`/`false` | `false` | Bypass the guard entirely — `payWrap` gets the raw, unguarded fetch |
 | `attribution` | `TWZRD_ATTRIBUTION_INTEGRATION` + `TWZRD_ATTRIBUTION_RUN_ID` | — | Opt-in run attribution (see below) |
-| `stateDir` | `TWZRD_STATE_DIR` | — | Track 5 sentinel directory (`<stateDir>/.kill` and `<stateDir>/.pause`) shared with `agent-killswitch` |
-| `tripPauseOnBlockMs` | `TWZRD_TRIP_PAUSE_ON_BLOCK_MS` | — | When > 0 and `stateDir` (or `pauseFilePath`) is set, writes `<stateDir>/.pause` on a blocked payment with `{ until_unix_ms, reason, decision_id }` |
+| `stateDir` | `TWZRD_STATE_DIR` | `./data` (read only) | Track 5 sentinel directory (`<stateDir>/.kill` and `<stateDir>/.pause`) shared with `agent-killswitch`. The default is only read; the gate writes `.pause` only when `stateDir` or `pauseFilePath` is set |
+| `tripPauseOnBlockMs` | `TWZRD_TRIP_PAUSE_ON_BLOCK_MS` | off | When > 0 and `stateDir` (or `pauseFilePath`) is set, a fatal refusal (decision block, wash flag, policy or mandate ceiling) writes `<stateDir>/.pause` with `{ until_unix_ms, reason, decision_id }`. A transient refusal (intel outage) does not |
 
 ## Gate adoption proof (no-spend harness)
 

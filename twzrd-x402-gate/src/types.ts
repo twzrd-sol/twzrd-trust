@@ -225,9 +225,11 @@ export type TwzrdGateConfig = {
   /** Explicit `.pause` sentinel path override. */
   pauseFilePath?: string;
   /**
-   * Optional TTL (ms) to write `<stateDir>/.pause` when a payment is blocked,
-   * halting the sibling compute proxy (`429 payment_gate_halt`) with the
-   * refusal's `decision_id` and `reason`. Env: TWZRD_TRIP_PAUSE_ON_BLOCK_MS.
+   * Opt-in, off by default. TTL (ms) of the `<stateDir>/.pause` written when a
+   * payment is refused for a fatal reason (`isFatalGateRefusal`), halting the
+   * sibling compute proxy (`429 payment_gate_halt`) with the refusal's
+   * `decision_id` and `reason`. A transient refusal (intel outage) never
+   * writes it. Env: TWZRD_TRIP_PAUSE_ON_BLOCK_MS.
    */
   tripPauseOnBlockMs?: number;
 };

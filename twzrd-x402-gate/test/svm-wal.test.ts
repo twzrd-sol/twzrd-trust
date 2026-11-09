@@ -24,6 +24,11 @@ function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "gate-svm-wal-"));
 }
 
+/** A well-formed Solana signature fixture: 88 base58 characters. */
+function sig(tag: string): string {
+  return ("5" + tag.replace(/[^1-9A-HJ-NP-Za-km-z]/g, "")).padEnd(88, "x").slice(0, 88);
+}
+
 function challengeResponse(amount = "10000", resource = "https://merchant.example/api/v1") {
   return new Response(
     JSON.stringify({
@@ -88,8 +93,9 @@ test("SvmWal writes hash-chained payment_intent and payment_receipt rows with fs
     const receipt = wal.appendReceipt({
       intentId: intent.intent_id,
       status: "confirmed",
-      txSignature: "5SigWalTest1111111111111111111111111111111111",
+      txSignature: sig("SigWalTest"),
       slot: 312_345_678,
+      confirmationStatus: "finalized",
       atUnixMs: 1_700_000_005_000,
     });
     assert.equal(receipt.schema, SVM_WAL_SCHEMA);
@@ -100,17 +106,22 @@ test("SvmWal writes hash-chained payment_intent and payment_receipt rows with fs
     assert.equal(wal.heldMicro(), 0n);
     assert.equal(wal.confirmedMicro(), 25000n);
 
-    // Re-open from disk: replays hash chain and preserves confirmed lookup
+    assert.equal(receipt.confirmation_status, "finalized");
+
+    // Re-open from disk: replays hash chain and preserves confirmed lookup.
+    // One owner per file, so the first writer releases the lock first.
+    wal.close();
     const replayed = createFileSvmWal(walFile);
     assert.equal(replayed.hasUnresolvedIntent(), false);
     assert.equal(replayed.confirmedMicro(), 25000n);
     const lookup = replayed.lookupChallenge(CHALLENGE_HASH_1);
     assert.equal(lookup.state, "confirmed");
     if (lookup.state === "confirmed") {
-      assert.equal(lookup.receipt.tx_signature, "5SigWalTest1111111111111111111111111111111111");
+      assert.equal(lookup.receipt.tx_signature, sig("SigWalTest"));
       assert.equal(lookup.receipt.slot, 312_345_678);
+      assert.equal(lookup.receipt.confirmation_status, "finalized");
     }
-    wal.close();
+    replayed.close();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -259,7 +270,7 @@ test("Hole 2 & crash recovery: recovered confirmed spend counts against maxSpend
     assert.equal(reloadedWal.hasUnresolvedIntent(), true);
 
     // 5. RPC recovery observes finalized transaction on chain ($0.015) -> writes payment_receipt and unfreezes loop
-    const confirmedSig = "5RecoveredSigFromRpc1111111111111111111111111";
+    const confirmedSig = sig("RecoveredSigFromRpc");
     const resolvedRec = await reloadedWal.recoverUnresolvedIntents(async (intent) => {
       assert.equal(intent.payment_decision_id, "dec_crash_1");
       return {
@@ -332,7 +343,7 @@ test("Hole 3: single-writer lock prevents concurrent process or instance writes 
     wal1.appendReceipt({
       intentId: intent1.intent_id,
       status: "confirmed",
-      txSignature: "5SigLock111111111111111111111111111111111111",
+      txSignature: sig("SigLock1"),
       slot: 101,
     });
 
@@ -360,8 +371,9 @@ test("Hole 3: single-writer lock prevents concurrent process or instance writes 
     assert.notEqual(child.status, 0, "second process must be refused by single-writer lock");
     assert.match(child.stderr, /wal_single_writer_lock/);
 
-    // 2. Two instances in the same process: stale instance cannot overwrite after newer instance advances the file
-    const staleInstance = createFileSvmWal(walFile);
+    // 2. A second instance in the same process is refused when it opens the file,
+    //    before it can read a stale tail or append anything.
+    assert.throws(() => createFileSvmWal(walFile), /wal_single_writer_lock/);
     const intent2 = wal1.appendIntent({
       challengeHash: CHALLENGE_HASH_2,
       paymentDecisionId: "dec_lock_2",
@@ -372,22 +384,23 @@ test("Hole 3: single-writer lock prevents concurrent process or instance writes 
     wal1.appendReceipt({
       intentId: intent2.intent_id,
       status: "confirmed",
-      txSignature: "5SigLock222222222222222222222222222222222222",
+      txSignature: sig("SigLock2"),
       slot: 102,
     });
+
+    wal1.close();
+    // A closed writer no longer owns the file and cannot append.
     assert.throws(
       () =>
-        staleInstance.appendIntent({
+        wal1.appendIntent({
           challengeHash: "c".repeat(64),
-          paymentDecisionId: "dec_stale",
+          paymentDecisionId: "dec_closed",
           payTo: SELLER,
           amountMicro: "5000",
           network: SOL,
         }),
       /wal_single_writer_lock/,
     );
-
-    wal1.close();
 
     // 3. Reopening the WAL succeeds cleanly with an unbroken hash chain
     const reopened = createFileSvmWal(walFile);
@@ -420,7 +433,7 @@ test("Hole 4: an empty payer callback response without txSignature and slot is r
           txSignature: null,
           slot: null,
         }),
-      /confirmed payment_receipt requires non-empty tx_signature and positive integer slot/i,
+      /confirmed payment_receipt requires a well-formed tx_signature/i,
     );
     wal.close();
 
@@ -541,7 +554,11 @@ test("bindingPolicyToSpendControlOptions maps svm_wal_file and unresolved WAL he
     const opts = bindingPolicyToSpendControlOptions(policy, dir);
     assert.equal(opts.svmWalFile, path.resolve(dir, "state", "custom-svm-wal.jsonl"));
 
-    // Seed an unresolved 15,000 micro-USDC intent in a WAL; a 10,000 micro-USDC request against maxSpend=0.02 (20,000) is blocked by over_cumulative_spend before wal_unresolved_intent
+    // Seed an unresolved 15,000 micro-USDC intent in a WAL. The held amount counts
+    // against maxSpend=0.02 (20,000), so a 10,000 micro-USDC request cannot pass;
+    // it is refused as the freeze it is (wal_unresolved_intent), not as a cap trip:
+    // the held amount may still turn out unspent, and a cap trip would pause both
+    // planes until the budget window moves.
     const wal = createFileSvmWal(opts.svmWalFile!);
     wal.appendIntent({
       challengeHash: CHALLENGE_HASH_1,
@@ -562,8 +579,32 @@ test("bindingPolicyToSpendControlOptions maps svm_wal_file and unresolved WAL he
       }),
     });
     assert.equal(overCap.verdict, "block");
-    assert.equal(overCap.reason, "over_cumulative_spend");
+    assert.equal(overCap.reason, "wal_unresolved_intent");
     assert.equal(overCap.signerInvocations, 0);
+    assert.equal(
+      wal.spentMicro({ scope: "agent:default", windowMs: 365 * 24 * 3600 * 1000 }),
+      15000n,
+      "the unresolved amount is held against the cap",
+    );
+    assert.equal(fs.existsSync(path.join(opts.stateDir!, ".pause")), false, "a frozen WAL does not write .pause");
+
+    // Once recovery proves the payment landed, the same request is a real cap trip.
+    await wal.recoverUnresolvedIntents(async () => ({
+      status: "confirmed",
+      txSignature: sig("HeldThenLanded"),
+      slot: 320_000_010,
+      confirmationStatus: "finalized",
+    }));
+    const tripped = await spendControlSafeFetch("https://merchant.example/api/v2", {
+      ...opts,
+      svmWal: wal,
+      fetch: (async () => challengeResponse("10000", "https://merchant.example/api/v2")) as unknown as typeof fetch,
+      pay: async () => ({ response: new Response("paid", { status: 200 }) }),
+    });
+    assert.equal(tripped.reason, "over_cumulative_spend");
+    assert.equal(tripped.signerInvocations, 0);
+    assert.equal(fs.existsSync(path.join(opts.stateDir!, ".pause")), true, "a real cap trip pauses until the window moves");
+    assert.equal(fs.existsSync(path.join(opts.stateDir!, ".kill")), false);
     wal.close();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

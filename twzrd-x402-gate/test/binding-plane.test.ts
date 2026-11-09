@@ -6,7 +6,6 @@ import * as path from "node:path";
 
 import {
   BINDING_POLICY_SCHEMA,
-  DEFAULT_CAP_PAUSE_WINDOW_MS,
   PAUSE_SENTINEL_SCHEMA,
   bindingPolicyToGateConfig,
   bindingPolicyToSpendControlOptions,
@@ -138,12 +137,12 @@ test("sentinel protocol v1: .kill, active .pause, expired .pause, and corrupt .p
   }
 });
 
-test("Hole 5: fatal refusals and cap breaches write .pause using the default cap window without caller setting tripPauseOnBlockMs, while non-fatal refusals do not", async () => {
+test("Hole 5: tripPauseOnBlockMs is opt-in; when set, a fatal refusal writes .pause with that TTL and a non-fatal refusal does not", async () => {
   const dir = tmpDir();
   try {
     const pausePath = path.join(dir, ".pause");
 
-    // 1. Non-fatal refusal (transient preflight outage) must NOT write .pause
+    // 1. Non-fatal refusal (transient preflight outage) must NOT write .pause, even when the trip is switched on
     const outage = await twzrdApprovePayment(
       { sellerWallet: SELLER, priceUsdc: 0.05, chain: SOL, asset: USDC },
       {
@@ -161,13 +160,14 @@ test("Hole 5: fatal refusals and cap breaches write .pause using the default cap
         washMaxUsdc: null,
         unsupportedNetworkMode: "observe",
         stateDir: dir,
+        tripPauseOnBlockMs: 60_000,
       },
     );
     assert.equal(outage.approved, false);
     assert.match(outage.reason, /^twzrd_fail_closed/);
     assert.equal(fs.existsSync(pausePath), false, "non-fatal outage must not write .pause");
 
-    // 2. Fatal refusal (twzrd_decision_block) writes .pause with the default 1h cap window even when tripPauseOnBlockMs is omitted
+    // 2. Fatal refusal (twzrd_decision_block) with tripPauseOnBlockMs omitted: refused, and no sentinel is written
     let intelHits = 0;
     const denyFetch: typeof fetch = (async () => {
       intelHits += 1;
@@ -179,40 +179,53 @@ test("Hole 5: fatal refusals and cap breaches write .pause using the default cap
       );
     }) as unknown as typeof fetch;
 
+    const gateConfig = {
+      intelBase: "https://intel.example",
+      fetch: denyFetch,
+      preflightMinScore: 40,
+      blockDecisions: new Set(["block"]),
+      failOpen: false,
+      gateOnCanSpend: false,
+      refuseUnevaluated: true,
+      refuseUncappedWarn: true,
+      intelTimeoutMs: 2000,
+      refuseWashFlagged: false,
+      refuseWashUnknown: false,
+      washMaxUsdc: null,
+      unsupportedNetworkMode: "observe" as const,
+      stateDir: dir,
+    };
+    const unarmed = await twzrdApprovePayment(
+      { sellerWallet: SELLER, priceUsdc: 0.05, chain: SOL, asset: USDC },
+      gateConfig,
+    );
+    assert.equal(unarmed.approved, false);
+    assert.equal(unarmed.reason, "twzrd_decision_block");
+    assert.equal(intelHits, 1);
+    assert.equal(fs.existsSync(pausePath), false, "tripPauseOnBlockMs is off unless the caller sets it");
+
+    // 3. The same fatal refusal with the trip switched on writes .pause with the caller's TTL
     const beforeMs = Date.now();
     const first = await twzrdApprovePayment(
       { sellerWallet: SELLER, priceUsdc: 0.05, chain: SOL, asset: USDC },
-      {
-        intelBase: "https://intel.example",
-        fetch: denyFetch,
-        preflightMinScore: 40,
-        blockDecisions: new Set(["block"]),
-        failOpen: false,
-        gateOnCanSpend: false,
-        refuseUnevaluated: true,
-        refuseUncappedWarn: true,
-        intelTimeoutMs: 2000,
-        refuseWashFlagged: false,
-        refuseWashUnknown: false,
-        washMaxUsdc: null,
-        unsupportedNetworkMode: "observe",
-        stateDir: dir,
-      },
+      { ...gateConfig, tripPauseOnBlockMs: 60_000 },
     );
+    const afterMs = Date.now();
     assert.equal(first.approved, false);
     assert.equal(first.reason, "twzrd_decision_block");
-    assert.equal(intelHits, 1);
+    assert.equal(intelHits, 2);
 
     const pauseState = checkPauseSwitchFile(pausePath);
     assert.equal(pauseState.paused, true);
     assert.equal(pauseState.decisionId, first.decisionId);
     assert.equal(pauseState.reason, "twzrd_decision_block");
     assert.ok(
-      pauseState.untilUnixMs! >= beforeMs + DEFAULT_CAP_PAUSE_WINDOW_MS - 1000,
-      "default .pause TTL must use the 1h cap window",
+      pauseState.untilUnixMs! >= beforeMs + 60_000 && pauseState.untilUnixMs! <= afterMs + 60_000,
+      ".pause expiry is the caller's TTL, not a built-in window",
     );
+    assert.equal(fs.existsSync(path.join(dir, ".kill")), false, "a block trip never writes .kill");
 
-    // 3. Subsequent calls short-circuit on .pause before hitting intel
+    // 4. Subsequent calls short-circuit on .pause before hitting intel
     const second = await twzrdApprovePayment(
       { sellerWallet: SELLER, priceUsdc: 0.05, chain: SOL, asset: USDC },
       {
@@ -234,7 +247,7 @@ test("Hole 5: fatal refusals and cap breaches write .pause using the default cap
     );
     assert.equal(second.approved, false);
     assert.match(second.reason, /^twzrd_payment_paused/);
-    assert.equal(intelHits, 1);
+    assert.equal(intelHits, 2);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
