@@ -15,6 +15,8 @@ import {
   solanaCluster,
 } from "./network.js";
 import { randomUUID } from "node:crypto";
+import * as path from "node:path";
+import { readSentinelState, writePauseSentinel } from "./binding-plane.js";
 import { withDeadline } from "./deadline.js";
 import { QUICK_PRICE_USDC } from "./quick.js";
 import type {
@@ -447,6 +449,52 @@ export async function twzrdApprovePayment(
   const cfg = config ?? resolveConfig();
   const decisionId = randomUUID();
 
+  if (cfg.stateDir || cfg.killFilePath || cfg.pauseFilePath) {
+    const sentinel = readSentinelState({
+      stateDir: cfg.stateDir,
+      killFilePath: cfg.killFilePath,
+      pauseFilePath: cfg.pauseFilePath,
+    });
+    if (sentinel.active) {
+      const reason =
+        sentinel.mode === "kill"
+          ? "twzrd_kill_switch"
+          : sentinel.mode === "corrupt_pause"
+            ? "twzrd_pause_corrupt"
+            : `twzrd_payment_paused (${sentinel.reason})`;
+      return {
+        decisionId,
+        approved: false,
+        verdict: "block",
+        score: null,
+        card: {},
+        reason,
+        policyAction: "block",
+      };
+    }
+  }
+
+  const finalize = (res: TwzrdApprovalResult): TwzrdApprovalResult => {
+    if (
+      !res.approved &&
+      typeof cfg.tripPauseOnBlockMs === "number" &&
+      cfg.tripPauseOnBlockMs > 0 &&
+      (cfg.pauseFilePath || cfg.stateDir)
+    ) {
+      const pauseTarget = cfg.pauseFilePath ?? path.join(cfg.stateDir!, ".pause");
+      try {
+        writePauseSentinel(pauseTarget, {
+          ttlMs: cfg.tripPauseOnBlockMs,
+          reason: res.reason,
+          decisionId: res.decisionId,
+        });
+      } catch {
+        /* best-effort backpressure file write; never mask the refusal */
+      }
+    }
+    return res;
+  };
+
   // Missing payTo is not approved. The reason is
   // twzrd_unidentifiable_payment_recipient, not twzrd_missing_payTo.
   // That is not an unknown_subject card: on Solana mainnet and Base mainnet,
@@ -455,14 +503,14 @@ export async function twzrdApprovePayment(
   // failOpen is only the buyer preflight outage switch. Unset, that outage
   // does not sign. It does not approve a missing payTo.
   if (!(context.sellerWallet ?? context.payTo)) {
-    return {
+    return finalize({
       decisionId,
       approved: false,
       verdict: "block",
       score: null,
       card: {},
       reason: "twzrd_unidentifiable_payment_recipient",
-    };
+    });
   }
 
   // A computed price that is negative or not finite has no safe reading: a
@@ -472,7 +520,7 @@ export async function twzrdApprovePayment(
     typeof context.priceUsdc === "number" &&
     (!Number.isFinite(context.priceUsdc) || context.priceUsdc < 0)
   ) {
-    return {
+    return finalize({
       decisionId,
       approved: false,
       verdict: "block",
@@ -480,7 +528,7 @@ export async function twzrdApprovePayment(
       card: {},
       reason: "twzrd_invalid_price",
       policyAction: "block",
-    };
+    });
   }
 
   // Classify before the scored preflight. Solana mainnet and Base mainnet
@@ -515,7 +563,7 @@ export async function twzrdApprovePayment(
     // Observe + refuseWashFlagged (default): still GET merchant_card.
     if (undecided.policyAction === "block" || !cfg.refuseWashFlagged) {
       unsupportedLog(undecided.policyAction);
-      return {
+      return finalize({
         decisionId,
         approved: undecided.approved,
         verdict: "unknown",
@@ -526,7 +574,7 @@ export async function twzrdApprovePayment(
         networkSupported: undecided.networkSupported,
         reputationScored: false,
         policyAction: undecided.policyAction,
-      };
+      });
     }
     const wash = await tightenWithMerchantCardWash({
       seller: context.sellerWallet ?? context.payTo,
@@ -540,7 +588,7 @@ export async function twzrdApprovePayment(
       failClosedOnOutage: false,
     });
     unsupportedLog(wash.approved ? "allow" : "block");
-    return {
+    return finalize({
       decisionId,
       approved: wash.approved,
       verdict: wash.verdict,
@@ -554,7 +602,7 @@ export async function twzrdApprovePayment(
       networkSupported: undecided.networkSupported,
       reputationScored: false,
       policyAction: wash.approved ? "allow" : "block",
-    };
+    });
   }
 
   // A USDC gate that cannot price the asset has nothing to evaluate. Every cap
@@ -571,7 +619,7 @@ export async function twzrdApprovePayment(
       payTo: context.payTo ?? context.sellerWallet,
     })
   ) {
-    return {
+    return finalize({
       decisionId,
       approved: false,
       verdict: "block",
@@ -582,7 +630,7 @@ export async function twzrdApprovePayment(
       networkSupported: true,
       reputationScored: true,
       policyAction: "block",
-    };
+    });
   }
 
   try {
@@ -631,7 +679,7 @@ export async function twzrdApprovePayment(
       context.priceUsdc > result.recommendedCapUsdc
     ) {
       // Reason starts with twzrd_over_recommended_cap_.
-      return {
+      return finalize({
         ...result,
         decisionId,
         approved: false,
@@ -643,7 +691,7 @@ export async function twzrdApprovePayment(
         networkSupported: true,
         reputationScored: true,
         policyAction: "block",
-      };
+      });
     }
 
     // Trustless step 3: free merchant_card wash refuse (default on).
@@ -662,7 +710,7 @@ export async function twzrdApprovePayment(
       failClosedOnOutage: true,
     });
 
-    return {
+    return finalize({
       ...result,
       decisionId,
       approved: wash.approved,
@@ -676,7 +724,7 @@ export async function twzrdApprovePayment(
       networkSupported: true,
       reputationScored: true,
       policyAction: wash.approved ? "allow" : "block",
-    };
+    });
   } catch (err) {
     // Buyer outage, TWZRD_FAIL_OPEN unset: twzrdApprovePayment returns
     // approved false, reason twzrd_fail_closed, and the wallet does not sign.
@@ -686,7 +734,7 @@ export async function twzrdApprovePayment(
     if (!cfg.failOpen) {
       const msg = String((err as Error)?.message ?? err).slice(0, 120);
       console.warn(`[twzrd-x402-gate] payment BLOCKED: gate unreachable (fail-closed) — ${msg}.`);
-      return {
+      return finalize({
         decisionId,
         approved: false,
         verdict: "block",
@@ -698,7 +746,7 @@ export async function twzrdApprovePayment(
         networkSupported: true,
         reputationScored: true,
         policyAction: "block",
-      };
+      });
     }
     // fail-open: preflight unreachable must not hard-block the agent's payment
     return {

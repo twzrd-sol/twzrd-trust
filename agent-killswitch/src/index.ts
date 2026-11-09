@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
-import { checkKillSwitch, evaluateGate, requestEstimate, vetoBody } from "./gate.js";
+import { checkKillSwitch, checkPauseSwitch, evaluateGate, requestEstimate, vetoBody } from "./gate.js";
 import { Ledger } from "./ledger.js";
 import { costUsd } from "./pricing.js";
 import { forwardChatCompletion, type ForwardResult } from "./proxy.js";
@@ -69,9 +69,18 @@ async function handle(
 
   if (req.method === "GET" && url.pathname === "/healthz") {
     const w = ledger.window();
+    const pause = checkPauseSwitch(cfg.pauseFilePath);
     json(res, 200, {
       ok: true,
       killed: checkKillSwitch(cfg.killFilePath),
+      paused: pause.paused,
+      ...(pause.paused
+        ? {
+            pause_until_unix_ms: pause.untilUnixMs,
+            pause_reason: pause.reason,
+            pause_decision_id: pause.decisionId,
+          }
+        : {}),
       hour_usd: w.hourUsd,
       day_usd: w.dayUsd,
       in_flight: ledger.inFlight(),
@@ -87,12 +96,14 @@ async function handle(
   }
 
   if (cfg.enableKillApi && req.method === "POST" && url.pathname === "/reset") {
-    try {
-      fs.unlinkSync(cfg.killFilePath);
-    } catch {
-      /* already absent */
+    for (const p of [cfg.killFilePath, cfg.pauseFilePath]) {
+      try {
+        fs.unlinkSync(p);
+      } catch {
+        /* already absent */
+      }
     }
-    json(res, 200, { ok: true, killed: false });
+    json(res, 200, { ok: true, killed: false, paused: false });
     return;
   }
 
@@ -118,10 +129,15 @@ async function handle(
   const requestId =
     (req.headers["x-request-id"] as string | undefined) ??
     (typeof body["request_id"] === "string" ? (body["request_id"] as string) : randomUUID());
-  const now = new Date().toISOString();
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
+  const pause = checkPauseSwitch(cfg.pauseFilePath, nowMs);
 
   const decision = evaluateGate({
     killed: checkKillSwitch(cfg.killFilePath),
+    paused: pause.paused,
+    pauseReason: pause.reason,
+    pauseDecisionId: pause.decisionId,
     window: ledger.window(),
     model,
     maxTokens,

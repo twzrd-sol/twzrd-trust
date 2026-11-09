@@ -1383,6 +1383,8 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | `twzrd_wash_unknown` | The merchant card answered but has not fully answered the wash question: no card (including a 4xx), no `wash_flagged` boolean (missing or `null`, even beside confidence `full`; from 0.13.0), wash confidence other than `full` (for example `partial_inbound_only`, `base_2cycle`), `ring_evaluated: false`, or `wash_stale: true`. Never reported as an outage; `failOpen` does not open it. Scored networks only. | default from 0.13.0 (`refuseWashUnknown`; opt out with `refuseWashUnknown: false`; opt-in in 0.12.x; also needs `refuseWashFlagged`, which is on by default) |
 | `twzrd_fail_closed (<error>)` | The preflight did not answer (non-2xx, non-JSON, network error, or no answer within `intelTimeoutMs`). | fail-closed unless `failOpen` |
 | `twzrd_card_unreachable_fail_closed (<error>)` | The merchant card did not answer (5xx, 429, non-JSON, network error, or no answer within `intelTimeoutMs`). A 4xx is an answer, not an outage. With `failOpen` the payment is allowed and the result carries `cardUnreachable: true` (the wash check did not run). | fail-closed unless `failOpen` |
+| `twzrd_kill_switch` | Track 5 `.kill` sentinel file is present in `stateDir` (`<stateDir>/.kill` or `killFilePath`). | when `stateDir` or `killFilePath` is set |
+| `twzrd_payment_paused (<reason>)`, `twzrd_pause_corrupt` | Track 5 `.pause` sentinel (`<stateDir>/.pause` or `pauseFilePath`) is active (`now < until_unix_ms`) or unreadable/corrupt (fail-closed). | when `stateDir` or `pauseFilePath` is set |
 
 Approval reasons, for `onDecision` consumers: `twzrd_allow`, `twzrd_warn_allowed`,
 `twzrd_unevaluated_within_cap_<price>_le_<cap>`, `twzrd_wash_capped_<price>_le_<cap>`,
@@ -1492,6 +1494,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `intel_block` | The injected preflight answered `block`. |
 | `decision_bind_required` | A signed decision is required and none was bound. |
 | `bind_required_no_compose`, `bind_required_no_settlement`, `bind_required_no_leaf_hash`, `bind_mismatch` | A resource bind was required and could not be built or did not match. |
+| `twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt` | Track 5 `.kill` or `.pause` sentinel is active (or `.pause` is corrupt) in `stateDir`. |
 
 ### Held vault-spend copy (`decideHeldVaultSpend`)
 
@@ -1524,6 +1527,8 @@ Checked on a transaction the gate already holds, before any socket. A refusal ap
 | `onReceipt` | — | — | Callback after receipt is captured |
 | `disabled` (`installTwzrdAutoGate` only) | `TWZRD_AUTO_GATE=0`/`false` | `false` | Bypass the guard entirely — `payWrap` gets the raw, unguarded fetch |
 | `attribution` | `TWZRD_ATTRIBUTION_INTEGRATION` + `TWZRD_ATTRIBUTION_RUN_ID` | — | Opt-in run attribution (see below) |
+| `stateDir` | `TWZRD_STATE_DIR` | — | Track 5 sentinel directory (`<stateDir>/.kill` and `<stateDir>/.pause`) shared with `agent-killswitch` |
+| `tripPauseOnBlockMs` | `TWZRD_TRIP_PAUSE_ON_BLOCK_MS` | — | When > 0 and `stateDir` (or `pauseFilePath`) is set, writes `<stateDir>/.pause` on a blocked payment with `{ until_unix_ms, reason, decision_id }` |
 
 ## Gate adoption proof (no-spend harness)
 

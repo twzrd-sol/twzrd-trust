@@ -1,7 +1,23 @@
 import * as fs from "node:fs";
 import { pessimisticRequestCostUsd } from "./pricing.js";
 
-export type VetoCode = "budget_exceeded" | "kill_switch" | "per_request_cap" | "model_not_allowed";
+export type VetoCode =
+  | "budget_exceeded"
+  | "kill_switch"
+  | "payment_gate_halt"
+  | "per_request_cap"
+  | "model_not_allowed";
+
+export const PAUSE_SENTINEL_SCHEMA = "twzrd.pause_sentinel.v1" as const;
+
+export interface PauseSwitchState {
+  paused: boolean;
+  corrupt: boolean;
+  expired: boolean;
+  untilUnixMs: number | null;
+  reason: string | null;
+  decisionId: string | null;
+}
 
 export interface SpendWindow {
   minuteTokens: number;
@@ -11,12 +27,13 @@ export interface SpendWindow {
 
 export interface GateDecision {
   allowed: boolean;
-  /** HTTP status to return on veto: 403 for the kill switch, 429 for budgets. */
+  /** HTTP status to return on veto: 403 for the kill switch, 429 for budgets and payment gate pauses. */
   status: number;
   code: VetoCode | null;
   message: string;
   spentUsd: number;
   limitUsd: number;
+  decisionId?: string | null;
 }
 
 /** Instant kill switch: the mere existence of the file vetoes everything. */
@@ -29,8 +46,123 @@ export function checkKillSwitch(filePath: string): boolean {
   }
 }
 
+/**
+ * Payment-gate backpressure sentinel (.pause).
+ *
+ * - Missing file (ENOENT): not paused.
+ * - Unreadable, non-JSON, unknown schema, or invalid until_unix_ms: fail closed (paused=true, corrupt=true).
+ * - Valid until_unix_ms > now: paused (429 payment_gate_halt).
+ * - Valid until_unix_ms <= now: expired, not paused (allows requests without mutating disk).
+ */
+export function checkPauseSwitch(filePath: string, now = Date.now()): PauseSwitchState {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return {
+        paused: false,
+        corrupt: false,
+        expired: false,
+        untilUnixMs: null,
+        reason: null,
+        decisionId: null,
+      };
+    }
+    return {
+      paused: true,
+      corrupt: true,
+      expired: false,
+      untilUnixMs: null,
+      reason: "corrupt_pause_sentinel",
+      decisionId: null,
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {
+      paused: true,
+      corrupt: true,
+      expired: false,
+      untilUnixMs: null,
+      reason: "corrupt_pause_sentinel",
+      decisionId: null,
+    };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      paused: true,
+      corrupt: true,
+      expired: false,
+      untilUnixMs: null,
+      reason: "corrupt_pause_sentinel",
+      decisionId: null,
+    };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  if ("schema" in obj && obj["schema"] !== PAUSE_SENTINEL_SCHEMA) {
+    return {
+      paused: true,
+      corrupt: true,
+      expired: false,
+      untilUnixMs: null,
+      reason: "corrupt_pause_sentinel",
+      decisionId: null,
+    };
+  }
+
+  const until = obj["until_unix_ms"];
+  if (typeof until !== "number" || !Number.isFinite(until) || until <= 0) {
+    return {
+      paused: true,
+      corrupt: true,
+      expired: false,
+      untilUnixMs: null,
+      reason: "corrupt_pause_sentinel",
+      decisionId: null,
+    };
+  }
+
+  const reason =
+    typeof obj["reason"] === "string" && obj["reason"].trim().length > 0
+      ? obj["reason"].trim()
+      : null;
+  const decisionId =
+    typeof obj["decision_id"] === "string" && obj["decision_id"].trim().length > 0
+      ? obj["decision_id"].trim()
+      : null;
+
+  if (now < until) {
+    return {
+      paused: true,
+      corrupt: false,
+      expired: false,
+      untilUnixMs: until,
+      reason: reason ?? "payment_gate_halt",
+      decisionId,
+    };
+  }
+
+  return {
+    paused: false,
+    corrupt: false,
+    expired: true,
+    untilUnixMs: until,
+    reason,
+    decisionId,
+  };
+}
+
 export interface GateInput {
   killed: boolean;
+  paused?: boolean;
+  pauseReason?: string | null;
+  pauseDecisionId?: string | null;
   window: SpendWindow;
   model: string;
   /** Requested max_tokens, if the client sent one. Without it the dollar estimate is the per-request cap. */
@@ -70,6 +202,19 @@ export function evaluateGate(input: GateInput): GateDecision {
       message: "Kill switch engaged",
       spentUsd: input.window.hourUsd,
       limitUsd: input.maxUsdPerHour,
+    };
+  }
+
+  if (input.paused) {
+    const detail = input.pauseReason ? `: ${input.pauseReason}` : "";
+    return {
+      allowed: false,
+      status: 429,
+      code: "payment_gate_halt",
+      message: `Payment gate pause active${detail}`,
+      spentUsd: input.window.hourUsd,
+      limitUsd: input.maxUsdPerHour,
+      decisionId: input.pauseDecisionId ?? null,
     };
   }
 
@@ -168,6 +313,7 @@ export function vetoBody(decision: GateDecision): object {
       message: decision.message,
       spent_usd: round4(decision.spentUsd),
       limit_usd: decision.limitUsd,
+      ...(decision.decisionId ? { decision_id: decision.decisionId } : {}),
     },
   };
 }
