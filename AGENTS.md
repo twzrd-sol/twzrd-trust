@@ -5,7 +5,8 @@
 ### Repo layout / what is actually developable
 
 This repo is a **public mirror**. Most top-level directories are published-artifact
-mirrors, **not** buildable source:
+mirrors, **not** buildable source. For the folder-level atlas — every top-level
+path, its role, and the invariants — see [docs/REPO-MAP.md](./docs/REPO-MAP.md):
 
 - `twzrd-x402-gate/` — the primary package with real `src/` + `test/`. Gate
   development, linting, building, and testing happens here **after a root install**.

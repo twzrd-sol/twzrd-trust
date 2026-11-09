@@ -3,8 +3,8 @@
 Every Markdown document in this repository, what it is for, and whether it is
 **canonical** (describes the product as it is), **historical** (a dated record,
 kept as written) or **internal** (maintainer notes, not integrator guidance).
-The version table was re-read on **2026-10-31** (registry `latest` and this tree). The earlier document pass was **2026-10-26**; live-surface facts were checked **2026-10-24**. The
-[README](../README.md#versions-verified-2026-10-31) carries the version table.
+The version table was re-read on **2026-11-09** (registry `latest` and this tree; see the registry-cell drift note under Package mirrors). The earlier document pass was **2026-10-26**; live-surface facts were checked **2026-10-24**. The
+[README](../README.md#versions-verified-2026-11-08) carries the version table; [REPO-MAP.md](./REPO-MAP.md) maps the folders, not just the documents.
 
 A canonical document that disagrees with the code is a bug: open an issue. A
 historical document is not updated when the product moves; its banner says
@@ -21,6 +21,9 @@ where the current state lives.
 | [twzrd-x402-gate/CHANGELOG.md](../twzrd-x402-gate/CHANGELOG.md) | canonical | Release history and the versioning policy (a change to allow/refuse ships in a minor) |
 | [twzrd-x402-gate/COMPATIBILITY.md](../twzrd-x402-gate/COMPATIBILITY.md) | canonical | Registry state, dist-tags, and the behavioural changes between releases, newest first |
 | [AGENTS.md](../AGENTS.md) | canonical | What is source and what is a published-artifact mirror; the one supported install; the fork relationship with the upstream monorepo |
+| [REPO-MAP.md](./REPO-MAP.md) | canonical | Folder-level atlas: every top-level path, its role (source / published-artifact mirror / docs / manifests), who may edit it, and the invariants that keep mirrors mirrors |
+| [agent-killswitch/README.md](../agent-killswitch/README.md) | canonical | The local OpenAI-compatible spend proxy: token/dollar ceilings, file kill switch, append-only JSONL ledger, multi-instance shared ledger. Its tests run in CI (`test:agent-killswitch`); releases go by `publish-agent-killswitch.yml` and the GHCR image workflow |
+| [agent-killswitch/CHANGELOG.md](../agent-killswitch/CHANGELOG.md) | canonical | killswitch release history (0.1.6 current). The publish workflow refuses an undated entry |
 | [SECURITY.md](../SECURITY.md) | canonical | Disclosure policy and scope |
 
 ## Product and ecosystem
@@ -56,13 +59,13 @@ where the current state lives.
 
 ## Package mirrors
 
-These READMEs are copies of the published tarball and are re-synced, never edited here.
+These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-09: gate 0.18.0, killswitch 0.1.6, mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
 
 | Document | Status | Mirrors |
 |---|---|---|
 | [twzrd-mcp-server/README.md](../twzrd-mcp-server/README.md) | canonical mirror | `twzrd-mcp-server@0.6.2` on npm (identical on 2026-10-26) |
 | [eliza-plugin/README.md](../eliza-plugin/README.md) | canonical mirror | `@wzrd_sol/eliza-plugin@0.10.1` on npm (identical on 2026-10-26) |
-| [plugin-trustgate/README.md](../plugin-trustgate/README.md) | canonical mirror | `@wzrd_sol/plugin-trustgate@0.3.10` on npm (README identical on 2026-10-31) |
+| [plugin-trustgate/README.md](../plugin-trustgate/README.md) | canonical mirror | `@wzrd_sol/plugin-trustgate@0.3.10` in this tree; registry `latest` is **0.3.11** (read 2026-11-09) — resync pending in draft PR #288; do not hand-edit here |
 | [eliza-plugin-source/README.md](../eliza-plugin-source/README.md) | canonical | The TypeScript source the Eliza plugin is published from; `README.publish.md` beside it is the README packed into the tarball |
 
 ## Historical records
