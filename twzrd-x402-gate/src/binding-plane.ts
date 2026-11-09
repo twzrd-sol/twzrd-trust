@@ -59,6 +59,7 @@ export type BindingPaymentPolicyV1 = {
   require_decision_bind?: boolean;
   trip_pause_on_block_ms?: number;
   ledger_file?: string;
+  svm_wal_file?: string;
 };
 
 export type BindingPolicyV1 = {
@@ -126,6 +127,7 @@ const PAYMENT_KEYS = new Set([
   "require_decision_bind",
   "trip_pause_on_block_ms",
   "ledger_file",
+  "svm_wal_file",
 ]);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -238,6 +240,7 @@ function validatePaymentSection(raw: unknown): BindingPaymentPolicyV1 | undefine
       "payment.trip_pause_on_block_ms",
     ),
     ledger_file: assertNonEmptyStr(raw.ledger_file, "payment.ledger_file"),
+    svm_wal_file: assertNonEmptyStr(raw.svm_wal_file, "payment.svm_wal_file"),
   };
 }
 
@@ -323,6 +326,9 @@ export function bindingPolicyToSpendControlOptions(
     ledgerFile: p.ledger_file
       ? path.resolve(baseDir, p.ledger_file)
       : path.join(stateDir, "payment-spend-ledger.jsonl"),
+    svmWalFile: p.svm_wal_file
+      ? path.resolve(baseDir, p.svm_wal_file)
+      : path.join(stateDir, "svm-wal.jsonl"),
     ...(p.max_spend_usdc !== undefined ? { maxSpend: p.max_spend_usdc } : {}),
     ...(p.allow_networks !== undefined ? { allowNetworks: [...p.allow_networks] } : {}),
     ...(p.require_offer_binding !== undefined
