@@ -446,6 +446,27 @@ async function tightenWithMerchantCardWash(input: {
   };
 }
 
+/**
+ * The refusal a `.kill` or an in-force `.pause` calls for right now, or
+ * undefined when neither is present. Reads the files on every call. The gate
+ * asks on entry and again at each point where it starts a payment of its own
+ * or hands a go-ahead to a signer: a sentinel can land while it is awaiting
+ * intel, a paid hop, or a disk write, and one read at entry would miss it.
+ */
+export function twzrdSentinelRefusal(
+  cfg?: Pick<ResolvedTwzrdGateConfig, "stateDir" | "killFilePath" | "pauseFilePath">,
+): string | undefined {
+  const sentinel = readSentinelState({
+    stateDir: cfg?.stateDir ?? process.env.TWZRD_STATE_DIR ?? "./data",
+    killFilePath: cfg?.killFilePath ?? process.env.KILLSWITCH_KILL_FILE,
+    pauseFilePath: cfg?.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE,
+  });
+  if (!sentinel.active) return undefined;
+  if (sentinel.mode === "kill") return "twzrd_kill_switch";
+  if (sentinel.mode === "corrupt_pause") return "twzrd_pause_corrupt";
+  return `twzrd_payment_paused (${sentinel.reason})`;
+}
+
 export async function twzrdApprovePayment(
   context: TwzrdApproveContext,
   config?: ResolvedTwzrdGateConfig,
@@ -453,18 +474,9 @@ export async function twzrdApprovePayment(
   const cfg = config ?? resolveConfig();
   const decisionId = randomUUID();
 
-  const sentinel = readSentinelState({
-    stateDir: cfg.stateDir ?? process.env.TWZRD_STATE_DIR ?? "./data",
-    killFilePath: cfg.killFilePath ?? process.env.KILLSWITCH_KILL_FILE,
-    pauseFilePath: cfg.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE,
-  });
-  if (sentinel.active) {
-    const reason =
-      sentinel.mode === "kill"
-        ? "twzrd_kill_switch"
-        : sentinel.mode === "corrupt_pause"
-          ? "twzrd_pause_corrupt"
-          : `twzrd_payment_paused (${sentinel.reason})`;
+  const sentinelRefusal = (): TwzrdApprovalResult | undefined => {
+    const reason = twzrdSentinelRefusal(cfg);
+    if (reason === undefined) return undefined;
     return {
       decisionId,
       approved: false,
@@ -474,9 +486,16 @@ export async function twzrdApprovePayment(
       reason,
       policyAction: "block",
     };
-  }
+  };
+  const haltedOnEntry = sentinelRefusal();
+  if (haltedOnEntry) return haltedOnEntry;
 
   const finalize = (res: TwzrdApprovalResult): TwzrdApprovalResult => {
+    // Last look. The entry check above ran before the awaited intel calls; a
+    // `.kill` or `.pause` can land while they are in flight. An approval is
+    // re-checked against the files at the moment it is returned, fail-open
+    // included, and nothing is awaited between this read and the return.
+    if (res.approved) return sentinelRefusal() ?? res;
     const pauseDir = cfg.stateDir ?? process.env.TWZRD_STATE_DIR;
     const pausePath =
       cfg.pauseFilePath ??
@@ -755,8 +774,9 @@ export async function twzrdApprovePayment(
         policyAction: "block",
       });
     }
-    // fail-open: preflight unreachable must not hard-block the agent's payment
-    return {
+    // fail-open: preflight unreachable must not hard-block the agent's payment.
+    // It still goes through finalize: fail-open never skips the sentinels.
+    return finalize({
       decisionId,
       approved: true,
       verdict: "warn",
@@ -768,6 +788,6 @@ export async function twzrdApprovePayment(
       networkSupported: true,
       reputationScored: true,
       policyAction: "allow",
-    };
+    });
   }
 }

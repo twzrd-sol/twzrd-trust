@@ -1,5 +1,6 @@
 import type { ResolvedTwzrdGateConfig } from "./config.js";
 import { distinctOffers, firstRefusedOffer } from "./all-offers.js";
+import { twzrdSentinelRefusal } from "./policy.js";
 import type { X402McpPaymentRequest, X402McpPaymentRequestedContext } from "./types.js";
 
 /**
@@ -61,6 +62,13 @@ export async function twzrdOnPaymentRequested(
     return true;
   } catch {
     if (!config?.failOpen) return false;
-    return true; // fail-open fallback
+    // fail-open fallback. It never skips the sentinels: whatever threw may have
+    // thrown before any approval read them.
+    const halted = twzrdSentinelRefusal(config);
+    if (halted !== undefined) {
+      console.warn("[twzrd] blocked x402 payment:", halted, { tool: toolName });
+      return false;
+    }
+    return true;
   }
 }

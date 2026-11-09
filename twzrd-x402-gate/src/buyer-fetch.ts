@@ -5,7 +5,7 @@ import { sharedFileDecisionLedger, type DecisionLedgerRow } from "./decision-led
 import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
 import { toMicroUsd } from "./intent.js";
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
-import { twzrdApprovePayment } from "./policy.js";
+import { twzrdApprovePayment, twzrdSentinelRefusal } from "./policy.js";
 import type { SpendLedger } from "./policy-runtime.js";
 import { sharedFileSpendLedger } from "./spend-ledger-file.js";
 import type { X402ClientLike } from "./x402-client-hook.js";
@@ -247,6 +247,9 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
       await record(attempt, approval.verdict === "warn" ? "warn" : "allow", approval.reason);
       // Check abort again after the async disk write, immediately before commit/sign.
       if (attempt.signal?.aborted) return refuse(attempt, "request_aborted");
+      // Same for the sentinels: the approval read them before that write was awaited.
+      const halted = twzrdSentinelRefusal(cfg);
+      if (halted !== undefined) return refuse(attempt, halted.split(/[ (]/)[0]);
       try { ledger.record(scope, micro, Date.now()); }
       catch { return refuse(attempt, "spend_ledger_unavailable"); }
       attempt.approvedForSigning = true;
