@@ -207,6 +207,12 @@ export interface GateInput {
   maxCostPerRequestUsd: number;
   /** When set, any other model is vetoed before budget math and before upstream. */
   allowedModels?: readonly string[] | null;
+  /**
+   * Models priced at $0 for this request when they have no price row (see
+   * priceFor). The caller passes the free allowlist for an unpaid call and
+   * nothing for a call that carries a payment credential.
+   */
+  zeroPriceModels?: readonly string[] | null;
 }
 
 export interface RequestEstimate {
@@ -274,7 +280,7 @@ export function evaluateGate(input: GateInput): GateDecision {
   }
 
   // The same estimate the caller holds while the request is in flight.
-  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.allowedModels);
+  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels);
 
   // Token velocity gate: tokens in the last 60 s (recorded and in flight)
   // plus this request's max_tokens as a stand-in for its eventual size.

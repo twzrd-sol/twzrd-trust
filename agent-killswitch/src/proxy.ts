@@ -86,6 +86,25 @@ function authorizationScheme(auth: string): string {
   return (space < 0 ? trimmed : trimmed.slice(0, space)).toLowerCase();
 }
 
+/**
+ * True when the client sent anything an MPP/x402 seller treats as payment:
+ * `x-payment`, `payment-signature`, any `x-payment-*`, or an
+ * `Authorization: Payment ...` credential. Such a call can cost money even
+ * with no API key, so it is never priced from the free allowlist.
+ */
+export function carriesPaymentCredential(clientHeaders: IncomingHttpHeaders): boolean {
+  for (const [name, value] of Object.entries(clientHeaders)) {
+    if (value === undefined) continue;
+    const n = name.toLowerCase();
+    if (n === "x-payment" || n === "payment-signature" || n.startsWith("x-payment-")) return true;
+    if (n === "authorization") {
+      const auth = Array.isArray(value) ? value[0] : value;
+      if (auth && authorizationScheme(auth) === "payment") return true;
+    }
+  }
+  return false;
+}
+
 function sameAsConfiguredBearer(auth: string, apiKey: string): boolean {
   const m = /^bearer\s+(.*)$/i.exec(auth.trim());
   return m !== null && m[1] === apiKey;

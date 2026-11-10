@@ -8,7 +8,7 @@ import { loadConfig } from "./config.js";
 import { checkKillSwitch, checkPauseSwitch, evaluateGate, requestEstimate, vetoBody, writePauseSwitch } from "./gate.js";
 import { Ledger } from "./ledger.js";
 import { costUsd } from "./pricing.js";
-import { forwardChatCompletion, type ForwardResult } from "./proxy.js";
+import { carriesPaymentCredential, forwardChatCompletion, type ForwardResult } from "./proxy.js";
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
@@ -133,6 +133,12 @@ async function handle(
   const now = new Date(nowMs).toISOString();
   const pause = checkPauseSwitch(cfg.pauseFilePath, nowMs);
 
+  // The free allowlist prices an unlisted model at $0 only for an unpaid
+  // call. Keyless mode is also how an MPP/x402 buyer runs the proxy, and a
+  // call that carries a payment credential can cost money, so it keeps the
+  // fail-closed price.
+  const zeroPriceModels: readonly string[] = carriesPaymentCredential(req.headers) ? [] : cfg.freeModels;
+
   const decision = evaluateGate({
     killed: checkKillSwitch(cfg.killFilePath),
     paused: pause.paused,
@@ -146,6 +152,7 @@ async function handle(
     maxUsdPerDay: cfg.maxUsdPerDay,
     maxCostPerRequestUsd: cfg.maxCostPerRequestUsd,
     allowedModels: cfg.freeModels,
+    zeroPriceModels,
   });
 
   if (!decision.allowed) {
@@ -178,7 +185,7 @@ async function handle(
 
   // Allowed: hold the same estimate the check used, in this turn (no await
   // between the check and the hold), so a concurrent request sees it.
-  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd, cfg.freeModels);
+  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd, zeroPriceModels);
   const holdId = ledger.hold(est.tokens, est.usd, Date.parse(now));
 
   let result: ForwardResult | null = null;
@@ -193,7 +200,7 @@ async function handle(
       req.headers,
     );
   } finally {
-    settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: cfg.freeModels });
+    settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: zeroPriceModels });
   }
 }
 

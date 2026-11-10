@@ -184,7 +184,19 @@ list is your statement that it costs nothing, which is what a local model
 behind Ollama or a free catalog entry is. The dollar limits then never
 trip for it; the per-minute token limit and the kill file still apply. A
 listed model that does have a price row (`gpt-4o`, for example) keeps that
-price. Do not list a model your upstream bills for some other way.
+price, and a dated or suffixed id of a priced model (`gpt-4o-2024-11-20`)
+keeps the o1 fallback.
+
+The $0 price is for unpaid calls only. Keyless mode is also how an
+MPP/x402 buyer runs the proxy, so a call that carries a payment credential
+(`X-Payment`, `Payment-Signature`, any `X-Payment-*`, or `Authorization:
+Payment ...`) is priced as if the model were not on the list, and the
+dollar limits apply to it. Do not list a model your upstream bills for in
+a way the proxy cannot see.
+
+A $0 call without `max_tokens` holds nothing before it is sent, so a burst
+of parallel calls to a local model all reach upstream; the per-minute token
+limit counts them once the responses land.
 
 Every decision — allowed or vetoed — appends one line to the JSONL ledger
 with timestamp, model, token counts, `cost_usd`, `allowed`, `veto_reason`,

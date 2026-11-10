@@ -29,6 +29,15 @@ function mostExpensive(): ModelPrice {
   return top;
 }
 
+/** A dated or suffixed id of a priced model (`gpt-4o-2024-11-20`) is not a free model. */
+function looksLikePricedModel(model: string): boolean {
+  for (const [id, p] of Object.entries(PRICES)) {
+    if (p.inputPerMTok === 0 && p.outputPerMTok === 0) continue;
+    if (model.startsWith(`${id}-`) || model.startsWith(`${id}:`)) return true;
+  }
+  return false;
+}
+
 const FREE: ModelPrice = { inputPerMTok: 0, outputPerMTok: 0 };
 
 /**
@@ -36,13 +45,15 @@ const FREE: ModelPrice = { inputPerMTok: 0, outputPerMTok: 0 };
  * compute.free_models). A model on it that has no row in the table is the
  * operator's statement that it costs nothing (a local Ollama model, a free
  * catalog entry), so it is priced at $0 and not at the o1 fallback. A model
- * that does have a row keeps that row: listing `gpt-4o` as free does not
- * zero a priced model. Token limits apply either way.
+ * that does have a row keeps that row, and a dated or suffixed id of a priced
+ * model (`gpt-4o-2024-11-20`) keeps the o1 fallback: listing `gpt-4o` as free
+ * does not zero a priced model. The caller passes no list for a call that
+ * carries a payment credential. Token limits apply either way.
  */
 export function priceFor(model: string, freeModels?: readonly string[] | null): { price: ModelPrice; known: boolean } {
   const price = PRICES[model];
   if (price) return { price, known: true };
-  if (freeModels && freeModels.includes(model)) return { price: FREE, known: false };
+  if (freeModels && freeModels.includes(model) && !looksLikePricedModel(model)) return { price: FREE, known: false };
   // Fail closed: an unlisted model could be a pricey reasoning model, so we
   // assume the worst instead of silently undercounting spend.
   return { price: mostExpensive(), known: false };
