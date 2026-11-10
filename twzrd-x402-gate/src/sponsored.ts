@@ -20,7 +20,13 @@
  *
  * Dependency-free: `settle` is yours to supply; use `dryRun` for a no-spend mock.
  * This is a PROTOTYPE — it never funds or signs anything itself.
+ *
+ * A live settle is a payment, so `.kill` / `.pause` are read before `settle`
+ * (and before `onSettle`) is called; while halted the call rejects. A dry run
+ * spends nothing and is not refused.
  */
+
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 
 /** The sponsor backend that actually settles the x402 challenge. */
 export type SponsorSettle = (url: string, init?: RequestInit) => Promise<Response>;
@@ -38,6 +44,10 @@ export interface SponsoredX402Options {
   onSettle?: (url: string) => void;
   /** Body returned in dryRun (default `{ sponsored_dry_run: true }`). */
   dryRunBody?: unknown;
+  /** Where `.kill` / `.pause` are read from. Defaults follow TWZRD_STATE_DIR and KILLSWITCH_*_FILE. */
+  stateDir?: string;
+  killFilePath?: string;
+  pauseFilePath?: string;
 }
 
 function urlOf(input: Parameters<typeof fetch>[0]): string {
@@ -60,6 +70,13 @@ export function createSponsoredX402Fetch(opts: SponsoredX402Options = {}): typeo
   const { settle, dryRun, onSettle, dryRunBody } = opts;
   return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = urlOf(input);
+    const live = !dryRun && typeof settle === "function";
+    if (live) {
+      const halted = twzrdSentinelRefusal(opts);
+      if (halted !== undefined) {
+        throw new Error(`[twzrd-sponsored] payment blocked: ${halted} url=${url}`);
+      }
+    }
     onSettle?.(url);
     if (dryRun || typeof settle !== "function") {
       const body = dryRunBody ?? { sponsored_dry_run: true, url };

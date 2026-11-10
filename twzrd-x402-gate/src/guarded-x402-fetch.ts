@@ -1,3 +1,4 @@
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { isTwzrdAutoGateDisabled } from "./auto-gate.js";
 import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
@@ -335,9 +336,21 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   let pendingMicro = 0n;
   const twzrdHook = createTwzrdPayKitBeforePaymentHook(options.twzrd);
 
+  // `.kill` / `.pause` are read here, not only inside the TWZRD evaluator:
+  // switching the evaluator off (twzrd.disabled, TWZRD_AUTO_GATE=0,
+  // TWZRD_GATE_ENABLED=false) must not switch the sentinels off with it.
+  const sentinelAbort = (): BeforePaymentCreationResult => {
+    const halted = twzrdSentinelRefusal(options.twzrd);
+    return halted === undefined ? undefined : abort(halted);
+  };
+
   const innerHook = async (
     context: BeforePaymentCreationContext,
   ): Promise<BeforePaymentCreationResult> => {
+    // On entry: a halted payment reserves no budget.
+    const haltedOnEntry = sentinelAbort();
+    if (haltedOnEntry) return haltedOnEntry;
+
     const selected = context.selectedRequirements ?? context.requirements ?? {};
     const fields = resolveRequirementFields(selected);
     if (fields.conflict) return abort(fields.conflict);
@@ -390,6 +403,11 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
         const result = await twzrdHook(context);
         if (result?.abort) return result;
       }
+
+      // Last look, with the evaluator on or off. Nothing is awaited between
+      // this read and the go-ahead the scheme signs on.
+      const haltedAtGoAhead = sentinelAbort();
+      if (haltedAtGoAhead) return haltedAtGoAhead;
 
       if (hourlyCap !== undefined && amountMicro !== undefined) {
         entries.push({ at: recordedAt, micro: amountMicro });

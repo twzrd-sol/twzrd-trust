@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
 import {
   isFatalGateRefusal,
   readSentinelState,
+  sentinelPathSetting,
   writePauseSentinel,
 } from "./binding-plane.js";
 import { toMicroUsd } from "./intent.js";
@@ -329,9 +330,10 @@ export async function spendControlSafeFetch(
   url: string,
   opts: SpendControlOptions = {},
 ): Promise<SpendControlResult> {
-  const stateDir = opts.stateDir ?? process.env.TWZRD_STATE_DIR;
-  const killFilePath = opts.killFilePath ?? process.env.KILLSWITCH_KILL_FILE;
-  const pauseFilePath = opts.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE;
+  // A set-but-empty setting is unset: it must not win over the fallback path.
+  const stateDir = sentinelPathSetting(opts.stateDir, process.env.TWZRD_STATE_DIR);
+  const killFilePath = sentinelPathSetting(opts.killFilePath, process.env.KILLSWITCH_KILL_FILE);
+  const pauseFilePath = sentinelPathSetting(opts.pauseFilePath, process.env.KILLSWITCH_PAUSE_FILE);
   const rawTripPause = opts.tripPauseOnBlockMs ?? process.env.TWZRD_TRIP_PAUSE_ON_BLOCK_MS;
   const tripPauseNum =
     typeof rawTripPause === "number"

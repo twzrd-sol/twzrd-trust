@@ -58,7 +58,8 @@ merchant-card check runs, unless that call passes `refuseWashUnknown: false` or
 `TWZRD_REFUSE_WASH_UNKNOWN` is `0` or `false`; `createBuyerFetch` pins it on and
 does not read that env. `TWZRD_AUTO_GATE=0` and `TWZRD_GATE_ENABLED=0` are a
 different switch: only `installTwzrdAutoGate` reads them, and
-`createBuyerFetch` does not.
+`createBuyerFetch` does not. Neither turns off the `.kill` / `.pause`
+sentinels: an install with evaluation off still refuses while one is in force.
 
 | Entry point | Preflight outage | `TWZRD_FAIL_OPEN` | Wash flagged | Unscored network |
 |---|---|---|---|---|
@@ -277,6 +278,8 @@ async function quickOnWarn(card, payTo, payingFetch) {
 ## Demand Desk replay guard (opt-in, 0.16.1)
 
 `createDemandDeskWallet` refuses a second vault spend on the same intent hash only when you pass `replayGuard`. If you leave it out, nothing changes. The guard reads the buyer-side outcome ledger before signing. If the intent is in `signing`, `unknown`, `completed` or `paid_incomplete`, it throws `DemandDeskReplayError` (`code: "vault_spend_replay"`). An `approved` record is moved to `signing` right before the signer call.
+
+From 0.20.0 the wallet also reads `.kill` and `.pause` itself, with or without `replayGuard`: in every `verify` (each item of a batch, and the signed transaction before it is sent) and again in the same synchronous step as each signer call. While `.kill` is present or `.pause` is in force it throws `DemandDeskHaltedError` (`code`: `twzrd_kill_switch`, `twzrd_payment_paused` or `twzrd_pause_corrupt`) and the signer is not called. The ledger record stays `approved`, so the same authorized spend signs once the halt is lifted. The files are found through the `sentinel: { stateDir, killFilePath, pauseFilePath }` option, else `TWZRD_STATE_DIR` / `KILLSWITCH_KILL_FILE` / `KILLSWITCH_PAUSE_FILE`, else `./data`. No setting turns the read off. Building the wallet reads nothing and never throws on a halt: a wallet built during a halt signs after the halt is lifted, with no restart.
 
 ```ts
 import { createDemandDeskWallet, createMemoryOutcomeLedger, DemandDeskReplayError } from "twzrd-x402-gate";
@@ -853,6 +856,12 @@ AutoGate seat in both directions. The **fetch / payWrap** seat is the exception:
 so a fetch built while the switch was off stays ungated after you clear it — rebuild the fetch. `options.disabled: true` is a
 permanent install-time opt-out everywhere and no env change revives it.
 
+These switches turn off seller evaluation. They do not turn off the `.kill` / `.pause` sentinels (0.20.0). With the env switch set,
+with `disabled: true`, or after `uninstallTwzrdAutoGate`, each seat still reads both files at the moment it would let the payment
+through: the x402-client, x402-solana and pay-kit hooks return `{ abort: true, reason: "[twzrd] twzrd_kill_switch" }` (or the pause
+code), the MPP hook throws `PAYMENT_CONTROL_BLOCK` before a credential is created, and the fetch handed to `payWrap` throws on a 402.
+A `disabled: true` install on an x402 client registers one hook that does only this.
+
 
 `installTwzrdAutoGate` is the one-liner form of "guard the raw fetch, then hand it to your
 x402 client." It takes a `payWrap` function — whatever composes your paying client on top of
@@ -878,8 +887,9 @@ whatever `payWrap` your client's API expects (agentcash, ClawRouter, PayAI, a cu
 
 This `installTwzrdAutoGate(payWrap)` seat is default **ON**. Disable that seat with
 `TWZRD_AUTO_GATE=0` or `TWZRD_GATE_ENABLED=false`, or with `{ disabled: true }`
-(install option, for example in tests) — the raw fetch is handed straight to
-`payWrap`, unguarded. `createTwzrdBeforePaymentHook` does not read those
+(install option, for example in tests) — `payWrap` then gets a fetch with no
+seller evaluation. That fetch still throws `[twzrd-guard] payment blocked: <code> url=…`
+on a 402 while `.kill` is present or `.pause` is in force. `createTwzrdBeforePaymentHook` does not read those
 variables. Setting them does not stop that factory from aborting a bad payment.
 
 What happens on every HTTP 402 the raw fetch returns:
@@ -934,7 +944,8 @@ shared by concurrent calls through it. Spend is reserved while TWZRD evaluates
 the challenge and recorded before the pre-sign hook returns, so a later signer
 failure still consumes the budget. It resets when the process restarts. The
 existing `TWZRD_AUTO_GATE=0` / `TWZRD_GATE_ENABLED=false` switches disable the
-remote TWZRD evaluation only; local caps and the recipient allowlist remain on.
+remote TWZRD evaluation only; local caps, the recipient allowlist and the
+`.kill` / `.pause` sentinels remain on (a halted payment reserves no budget).
 The helper expects a configured x402 client because a bare `signer.pay()` method
 does not define a standard x402 challenge-to-payment contract. A separate paid
 Path A fetch cannot be passed through `twzrd.x402Fetch`: it has a different
@@ -1154,7 +1165,9 @@ if (q.available && (q.tier === "Gold" || q.tier === "Platinum")) {
 
 `quickCheck` is **fail-soft** — it never throws; any gap (no `x402Fetch`, unreachable, settle
 failure) returns `available: false`, so a quick-tier hiccup can't break your flow. The hard
-allow/warn/block decision stays the free preflight's job.
+allow/warn/block decision stays the free preflight's job. The call is a payment of its own, so
+while `.kill` is present or `.pause` is in force it is not made: `available: false`, with the
+halt code as `reason`.
 
 ### Autonomous risk-escalation — `escalateOnWarn` (pay-to-confirm on warn)
 
@@ -1204,6 +1217,8 @@ resource server's `feePayer` covers SOL gas, the model `twzrd-mcp-server` uses) 
 path). The full-sponsor endpoint + treasury is **founder-gated** (who funds it + per-agent
 budget caps); this ships the client seam + a dry-run so the wiring is ready.
 No-spend demo: [`examples/sponsored-payer.ts`](./examples/sponsored-payer.ts) (`npm run sponsored-demo`).
+A live settle is refused while `.kill` is present or `.pause` is in force: the call rejects with
+`[twzrd-sponsored] payment blocked: <code> url=…` before `onSettle` or `settle` runs. A dry run is not refused.
 
 ## `evaluate_x402_resource` — standalone preflight
 
@@ -1388,6 +1403,28 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 
 `.kill` and `.pause` are read when an evaluation starts and again at its go-ahead: before each paid hop the gate makes itself, and as the approval is returned, `failOpen` included. A file that lands while intel is in flight still stops the payment. The gate cannot see past its own return: a host that awaits other work between the go-ahead and its signature can call `readSentinelState` once more right before it signs.
 
+From 0.20.0 the same two reads apply to every entry point in this package that calls a signer, a payer or a credential callback, hands a 402 to a paying wrapper, or does I/O and then returns a go-ahead. Nothing is awaited between the last read and the go-ahead. Turning seller evaluation off (`disabled: true`, `TWZRD_AUTO_GATE=0`, `TWZRD_GATE_ENABLED=false`, `uninstallTwzrdAutoGate`, `allowUnevaluated`, `refuseWashFlagged: false`, `intelligence: false`, `failOpen`) never turns the sentinels off. `<code>` below is `twzrd_kill_switch`, `twzrd_pause_corrupt` or `twzrd_payment_paused`.
+
+| Entry point | While `.kill` is present or `.pause` is in force |
+|---|---|
+| `installTwzrdAutoGate` with evaluation off (x402 client, `"x402-solana"`, `"pay-kit"`) | The hook returns `{ abort: true, reason: "[twzrd] <code>" }`. |
+| `installTwzrdAutoGate("mpp")` with evaluation off, and the MPP `allowUnevaluated` opt-out | Throws `PAYMENT_CONTROL_BLOCK` before `createCredential`. The opt-out reads again after its decision-log write. |
+| `installTwzrdAutoGate(payWrap)` with evaluation off | The fetch given to `payWrap` throws `[twzrd-guard] payment blocked: <code> url=…` on a 402. |
+| `withTwzrdGuard`, `wrapFetchWithTwzrdGate` | Also on a 402 they cannot parse, which is otherwise returned to the caller as received: throws `payment blocked: <code> url=…`. |
+| `createTwzrdPayingFetch`, `createTwzrdPolicyFetch` | Throws `TwzrdWashAbortError` (`[twzrd] <code>`) at every point a 402 would reach the payer, an unparseable one included. The outbid fallback route is not paid either. |
+| `evaluateWashOnlyBeforePayment`, `createTwzrdWashBeforePaymentHook`, `createTwzrdPayingClient` | `{ abort: true, reason: "[twzrd] <code> payTo=…" }`, also with `refuseWashFlagged: false`, with no `payTo`, and on the `failOpen` outage path. |
+| `createGuardedX402Fetch` | The hook aborts `[twzrd-guarded-fetch] <code>` on entry (no budget reserved) and again right before the amount is recorded. |
+| `evaluateIntent` | A `block` decision whose `reasonCodes` include `<code>`; no spend is recorded. |
+| `quickCheck` | `available: false`, `reason: <code>`. The paid call is not made. |
+| `evaluateClearanceSku` | `cleared: false`, `reason: <code>`. Nothing is bought; a record the caller already holds is still verified. |
+| `createSponsoredX402Fetch` | A live settle rejects `[twzrd-sponsored] payment blocked: <code> url=…`. A dry run is not refused. |
+| `createDemandDeskWallet` | `verify` and every sign or send path throw `DemandDeskHaltedError`. |
+| `./cloudflare-base` | On a host with a filesystem only; see that section. |
+
+The pause expiry is always read against the wall clock. A caller-supplied `now` (the MPP `now` option, `evaluateIntent`'s `now`) does not decide whether a `.pause` written by another process is still in force. A blank `TWZRD_STATE_DIR`, `KILLSWITCH_KILL_FILE` or `KILLSWITCH_PAUSE_FILE` (or a blank option) counts as unset, so it cannot point the read at an empty path.
+
+Not entry points, and unchanged: pure helpers over data the caller already has, seller-side code, and the ledgers, logs and advisory wrappers that never reach a signer. A payment made by code that does not pass through one of the entry points above is outside what this package can stop.
+
 Approval reasons, for `onDecision` consumers: `twzrd_allow`, `twzrd_warn_allowed`,
 `twzrd_unevaluated_within_cap_<price>_le_<cap>`, `twzrd_wash_capped_<price>_le_<cap>`,
 `twzrd_fail_open` (an outage allowed because `failOpen` is set).
@@ -1430,6 +1467,23 @@ intel; `failOpen` never signs these), then `twzrd_decision_block`, `twzrd_wash_f
 `twzrd_over_recommended_cap_*`. The price comes from the entry's own `amount`;
 the `priceUsdc` option is ignored for the decision. Before 0.11.2 this seat
 signed on any non-block verdict.
+
+From 0.20.0 both functions read `.kill` and `.pause` when the host has a
+filesystem (`process.versions.node` is set and `node:fs` loads): on entry, on
+the `failOpen` path, and right before `signOrSend` or the approval.
+`withTwzrdBasePreflight` throws `TwzrdBasePaymentBlockedError` with `reasons`
+`["twzrd_kill_switch"]`, `["twzrd_pause_corrupt"]` or
+`["twzrd_payment_paused", "<reason>"]`; `createTwzrdCloudflareBaseApproval`
+returns `false`. The files are found through `stateDir`, `killFilePath` and
+`pauseFilePath`, else `TWZRD_STATE_DIR`, `KILLSWITCH_KILL_FILE` and
+`KILLSWITCH_PAUSE_FILE`, else `./data`. The module still has no import
+statement; `node:fs` is taken from the host at run time.
+
+Inside a Cloudflare Worker (`navigator.userAgent` is `Cloudflare-Workers`), or
+on any runtime with no `node:fs`, no sentinel is read: a Worker has no disk in
+common with `agent-killswitch`, so a `.kill` file cannot stop a payment signed
+there. Halt a Worker payer through a binding of its own (KV, a Durable Object
+or a secret flag) checked before these calls.
 
 ### `createBuyerFetch`
 
@@ -1499,7 +1553,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt` | Track 5 `.kill` or `.pause` sentinel is active (or `.pause` is corrupt) in `stateDir` (default `./data`). The MPP entry points refuse on the same sentinel before a credential is created. Read on entry and again right before `pay` is called (before the WAL intent is written), or before an allow or warn is returned when no `pay` is configured. |
 | `wal_unresolved_intent`, `wal_intent_write_failed`, `wal_unconfirmed_payment` | Track 6 SVM write-ahead log (`svmWal` / `svmWalFile` / `TWZRD_SVM_WAL_FILE`) has an earlier `payment_intent` with no `payment_receipt` (loop frozen until `recoverUnresolvedIntents` polls RPC), the pre-sign `fsync` of `payment_intent` failed (`signerInvocations = 0`), or the payer ran and its return does not prove settlement (`signerInvocations = 1`). Proof is a well-formed `txSignature` with a positive integer `slot` and `confirmationStatus` `confirmed` or `finalized`, or with `facilitatorSettlement: { verified: true, facilitator }`. Without it no receipt is written and the intent stays unresolved. |
 
-With a WAL configured, a payment is counted from its WAL row alone (held while unresolved, spent once confirmed) and is not also written to the spend ledger. One writer owns a WAL file at a time: a second `createFileSvmWal` on the same path, in this process or another, throws `wal_single_writer_lock`. That includes a second copy of this package loaded into the same process. A lock left by a process that is gone (a dead pid, a pid whose start time no longer matches, or an earlier boot) is taken over on open. The lock tells processes apart inside one pid namespace; two containers that mount the same WAL file are not reliably told apart, so give each payer its own file. To run `recoverUnresolvedIntents` in the process that pays, use the instance you passed as `svmWal`, or `sharedFileSvmWal(path)` for the one `svmWalFile` opens; call `close()` before handing the file to another owner.
+With a WAL configured, a payment is counted from its WAL row alone (held while unresolved, spent once confirmed) and is not also written to the spend ledger. One writer owns a WAL file at a time: a second `createFileSvmWal` on the same path, in this process or another, throws `wal_single_writer_lock`. That includes a second copy of this package loaded into the same process. A lock left by a process that is gone (a dead pid, a pid whose start time no longer matches, or an earlier boot) is taken over on open. A lock with no start time on record cannot be matched that way: on Linux it is taken over when it is more than 5 seconds older than the process that now holds its pid (the pid was reused), and held otherwise; off Linux it is held until the file is removed. The lock tells processes apart inside one pid namespace; two containers that mount the same WAL file are not reliably told apart, so give each payer its own file. To run `recoverUnresolvedIntents` in the process that pays, use the instance you passed as `svmWal`, or `sharedFileSvmWal(path)` for the one `svmWalFile` opens; call `close()` before handing the file to another owner.
 
 ### Held vault-spend copy (`decideHeldVaultSpend`)
 
@@ -1530,7 +1584,7 @@ Checked on a transaction the gate already holds, before any socket. A refusal ap
 | `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` when `/quick` did not already settle |
 | `x402Fetch` | — | — | x402-capable fetch for `autoReceipt` |
 | `onReceipt` | — | — | Callback after receipt is captured |
-| `disabled` (`installTwzrdAutoGate` only) | `TWZRD_AUTO_GATE=0`/`false` | `false` | Bypass the guard entirely — `payWrap` gets the raw, unguarded fetch |
+| `disabled` (`installTwzrdAutoGate` only) | `TWZRD_AUTO_GATE=0`/`false` | `false` | Skip seller evaluation. `.kill` and `.pause` still refuse: `payWrap` gets a fetch that throws on a 402 while either is in force |
 | `attribution` | `TWZRD_ATTRIBUTION_INTEGRATION` + `TWZRD_ATTRIBUTION_RUN_ID` | — | Opt-in run attribution (see below) |
 | `stateDir` | `TWZRD_STATE_DIR` | `./data` (read only) | Track 5 sentinel directory (`<stateDir>/.kill` and `<stateDir>/.pause`) shared with `agent-killswitch`. The default is only read; the gate writes `.pause` only when `stateDir` or `pauseFilePath` is set |
 | `tripPauseOnBlockMs` | `TWZRD_TRIP_PAUSE_ON_BLOCK_MS` | off | When > 0 and `stateDir` (or `pauseFilePath`) is set, a fatal refusal (decision block, wash flag, policy or mandate ceiling) writes `<stateDir>/.pause` with `{ until_unix_ms, reason, decision_id }`. A transient refusal (intel outage) does not |

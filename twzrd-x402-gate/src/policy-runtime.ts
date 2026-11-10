@@ -21,6 +21,7 @@ import {
   type PaymentDecision,
   type PaymentDecisionVerdict,
 } from "./decision-token.js";
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 import { fromMicroUsd, intentHash, toMicroUsd, type PaymentIntent } from "./intent.js";
 
 export const POLICY_VERSION = "twzrd-pc-v1";
@@ -144,6 +145,15 @@ export type EvaluateIntentOptions = {
    * validity). Malformed leaves throw at issuance (fail closed).
    */
   citedOutcomes?: string[];
+  /**
+   * Where the `.kill` / `.pause` sentinels live. Defaults: TWZRD_STATE_DIR
+   * (else `./data`), KILLSWITCH_KILL_FILE, KILLSWITCH_PAUSE_FILE. A blank
+   * value counts as unset. While either is in force the decision is a signed
+   * block (`twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt`).
+   */
+  stateDir?: string;
+  killFilePath?: string;
+  pauseFilePath?: string;
 };
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
@@ -241,6 +251,18 @@ export async function evaluateIntent(
     }
   };
 
+  /* 0. Operator halt. No allow or warn token is issued while `.kill` is
+     present or `.pause` is in force. The pause expiry is read against the
+     wall clock, not `options.now`: a caller-supplied clock must not be able
+     to walk a pause out of force. */
+  const haltCheck = () => {
+    const halted = twzrdSentinelRefusal(options);
+    if (halted === undefined) return;
+    const code = halted.startsWith("twzrd_payment_paused") ? "twzrd_payment_paused" : halted;
+    if (!reasons.includes(code)) block(code);
+  };
+  haltCheck();
+
   /* 1. Mandate validation (local, deterministic) */
   if (mandate) {
     if (mandate.expiresAt && now >= Date.parse(mandate.expiresAt)) {
@@ -329,7 +351,10 @@ export async function evaluateIntent(
   /* 3b. Re-check the ledger caps in the same synchronous segment as the record
      in step 4. The early checks ran before `await intelligence`, so a
      concurrent evaluation can record in between; without this, two intents
-     read one headroom and both clear the ceiling. No await from here to 4. */
+     read one headroom and both clear the ceiling. No await from here to 4.
+     The halt is re-read here for the same reason: it may have landed while
+     intelligence was in flight, and a halted intent records no spend. */
+  haltCheck();
   if (!blocked && options.ledger) {
     mandateCeilingCheck();
     dailyCeilingCheck();

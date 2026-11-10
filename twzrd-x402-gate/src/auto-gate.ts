@@ -26,13 +26,19 @@
  *     Flipping the switch takes effect on an already-installed AutoGate seat.
  *     It is a running switch for that installer, not only a deploy-time one.
  *   - `options.disabled: true` is an install-time opt-out and is permanent for
- *     that install: nothing is constructed and no later env change revives it.
+ *     that install: no evaluator is constructed and no later env change revives it.
  *   - EXCEPTION, adapter 1: the fetch / payWrap adapter still resolves the
  *     switch once, at install, because it composes fetch wrappers rather than
  *     dispatching per call. This is permanent in BOTH directions: setting
  *     TWZRD_AUTO_GATE=0 afterwards does not un-gate an already-composed fetch,
  *     and — the direction that matters — a fetch composed WHILE the switch was
  *     off stays ungated after it is cleared. Rebuild it either way.
+ *
+ * What none of these switches turn off: the `.kill` / `.pause` sentinels. Every
+ * off path below (install-time opt-out, env switch, soft uninstall) skips seller
+ * evaluation and still reads the files at the moment it would have let the
+ * payment through. On the x402 client seat that means a disabled install
+ * registers one hook that does only that.
  */
 
 import { wrapFetchEchoTwzrdAttempt, wrapX402ClientEchoAttempt } from "./attempt-echo.js";
@@ -50,11 +56,13 @@ import {
 } from "./x402-client-hook.js";
 import {
   createTwzrdMppOnChallenge,
+  refuseOnMppSentinel,
   type MppOnChallengeHelpers,
   type MppOnChallengeOptions,
   type MppChallenge,
 } from "./mpp-hook.js";
 import { createTwzrdIntelligenceProvider, type TwzrdIntelligenceOptions } from "./intelligence.js";
+import { twzrdSentinelRefusal, type SentinelPathOptions } from "./binding-plane.js";
 import type { IntelligenceProvider } from "./policy-runtime.js";
 
 /**
@@ -116,6 +124,16 @@ export function isTwzrdAutoGateDisabled(options?: { disabled?: boolean }): boole
   const gate = process.env.TWZRD_GATE_ENABLED;
   if (gate === "0" || gate === "false") return true;
   return false;
+}
+
+/**
+ * The abort a `.kill` or an in-force `.pause` calls for on a path whose seller
+ * evaluation is switched off, or undefined to proceed. Read at the go-ahead:
+ * nothing is awaited between this read and the caller's signer.
+ */
+function haltAbort(paths?: SentinelPathOptions): BeforePaymentCreationResult {
+  const halted = twzrdSentinelRefusal(paths);
+  return halted === undefined ? undefined : { abort: true, reason: `[twzrd] ${halted}` };
 }
 
 function isPayWrap(x: unknown): x is PayWrap {
@@ -220,18 +238,22 @@ export function installTwzrdAutoGate(
   // ── MPP ──────────────────────────────────────────────────────────────
   if (target === "mpp") {
     const mppOpts = options as InstallAutoGateMppOptions;
+    const { intelligence, intelligenceOptions, ...rest } = mppOpts ?? ({} as InstallAutoGateMppOptions);
+    // Evaluation off is not sentinels off: throws PAYMENT_CONTROL_BLOCK while
+    // `.kill` is present or `.pause` is in force, then creates the credential.
+    const ungated = async (
+      challenge: MppChallenge,
+      helpers: MppOnChallengeHelpers,
+    ): Promise<string | undefined> => {
+      await refuseOnMppSentinel(challenge, rest as MppOnChallengeOptions);
+      return helpers.createCredential();
+    };
     // `options.disabled` is an install-time decision and stays permanent.
-    if (mppOpts?.disabled === true) {
-      return async (
-        _challenge: MppChallenge,
-        helpers: MppOnChallengeHelpers,
-      ): Promise<string | undefined> => helpers.createCredential();
-    }
+    if (mppOpts?.disabled === true) return ungated;
     // AUDIT FIX: the env kill switch used to be read ONCE here, so a hook built
     // before TWZRD_AUTO_GATE=0 kept gating forever while the x402-client seat
     // honoured the same variable per call. This installer re-reads it per call.
     // The inner factory does not read TWZRD_AUTO_GATE or TWZRD_GATE_ENABLED.
-    const { intelligence, intelligenceOptions, ...rest } = mppOpts ?? ({} as InstallAutoGateMppOptions);
     const gated = createTwzrdMppOnChallenge({
       ...(rest as MppOnChallengeOptions),
       intelligence:
@@ -243,14 +265,14 @@ export function installTwzrdAutoGate(
       challenge: MppChallenge,
       helpers: MppOnChallengeHelpers,
     ): Promise<string | undefined> =>
-      isTwzrdAutoGateDisabled(mppOpts) ? helpers.createCredential() : gated(challenge, helpers);
+      isTwzrdAutoGateDisabled(mppOpts) ? ungated(challenge, helpers) : gated(challenge, helpers);
   }
 
   // ── PayAI x402-solana beforePayment ────────────────────────────────
   if (target === "x402-solana") {
     const solOpts = options as InstallAutoGateX402Options | undefined;
     if (solOpts?.disabled === true) {
-      return async () => undefined;
+      return async () => haltAbort(solOpts);
     }
     // AUDIT FIX: same as the MPP seat — installTwzrdAutoGate re-reads the env
     // per call, then calls createTwzrdBeforePaymentHook. That factory does not
@@ -260,20 +282,20 @@ export function installTwzrdAutoGate(
       requirements: X402SelectedRequirements & Record<string, unknown>,
       context?: X402SolanaBeforePaymentContext,
     ): Promise<BeforePaymentCreationResult> =>
-      isTwzrdAutoGateDisabled(solOpts) ? undefined : gated(requirements, context);
+      isTwzrdAutoGateDisabled(solOpts) ? haltAbort(solOpts) : gated(requirements, context);
   }
 
   // ── PayKit onBeforeX402PaymentCreation (official @x402/core context) ─
   if (target === "pay-kit") {
     const payKitOpts = options as InstallAutoGateX402Options | undefined;
     if (payKitOpts?.disabled === true) {
-      return async () => undefined;
+      return async () => haltAbort(payKitOpts);
     }
     const gated = createTwzrdPayKitBeforePaymentHook(payKitOpts);
     return async (
       context: BeforePaymentCreationContext,
     ): Promise<BeforePaymentCreationResult> =>
-      isTwzrdAutoGateDisabled(payKitOpts) ? undefined : gated(context);
+      isTwzrdAutoGateDisabled(payKitOpts) ? haltAbort(payKitOpts) : gated(context);
   }
 
   // ── x402 client ──────────────────────────────────────────────────────
@@ -290,6 +312,8 @@ export function installTwzrdAutoGate(
     // Echo is not a gate — join-key pass-through stays on when policy is off.
     wrapX402ClientEchoAttempt(target);
     if (x402Opts?.disabled === true) {
+      // No evaluator, no install state. One hook that only reads the sentinels.
+      target.onBeforePaymentCreation(async () => haltAbort(x402Opts));
       return target;
     }
 
@@ -313,7 +337,7 @@ export function installTwzrdAutoGate(
     const patched = ((hook) =>
       originalRegister(async (context) => {
         if (state.disabled || isTwzrdAutoGateDisabled()) {
-          return undefined; // proceed unguarded
+          return haltAbort(x402Opts); // unevaluated, but never past .kill / .pause
         }
         return hook(context);
       })) as X402ClientLike["onBeforePaymentCreation"];
@@ -348,7 +372,18 @@ export function installTwzrdAutoGate(
     const raw = fetchOpts?.rawFetch ?? globalThis.fetch;
     const echoing = wrapFetchEchoTwzrdAttempt(raw);
     if (isTwzrdAutoGateDisabled(fetchOpts)) {
-      return target(echoing);
+      // Unevaluated, but a 402 is not handed to the payer past .kill / .pause.
+      const sentinelOnly: typeof fetch = async (input, init) => {
+        const resp = await echoing(input, init);
+        if (resp.status !== 402) return resp;
+        const halted = twzrdSentinelRefusal(fetchOpts);
+        if (halted !== undefined) {
+          const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          throw new Error(`[twzrd-guard] payment blocked: ${halted} url=${url}`);
+        }
+        return resp;
+      };
+      return target(sentinelOnly);
     }
     // The payWrap they already supply is a paying fetch. Use it as Path A
     // x402Fetch so the canonical install fires warn → $0.001 /quick without a

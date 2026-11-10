@@ -11,6 +11,10 @@ import { isTrueFlag } from "./config.js";
  * No Path A, no requireReceipt, no escalateOnWarn, no payment-control tokens,
  * no readiness preflight. Framework authors can read this file in ~60s.
  *
+ * The operator halt is not part of that list: `.kill` and an in-force `.pause`
+ * are read on entry and again at every go-ahead below, including the three
+ * that skip the card (no payTo, refuseWashFlagged off, fail-open outage).
+ *
  * Full 0.8.x engine: createTwzrdBeforePaymentHook({ engine: "full" }) or
  * createTwzrdFullBeforePaymentHook().
  *
@@ -23,6 +27,7 @@ import {
   type MerchantCardLookup,
   type TwzrdMerchantCard,
 } from "./merchant-card.js";
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 import { priceUsdcFromAmountMicro, resolveRequirementFields } from "./payto.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -143,6 +148,15 @@ export type WashDefaultOptions = {
     washFlagged: boolean | null;
     failOpen?: boolean;
   }) => void;
+  /**
+   * Where the `.kill` / `.pause` sentinels live. Defaults: TWZRD_STATE_DIR
+   * (else `./data`), KILLSWITCH_KILL_FILE, KILLSWITCH_PAUSE_FILE. A blank
+   * value counts as unset. Neither failOpen nor refuseWashFlagged: false
+   * skips this read.
+   */
+  stateDir?: string;
+  killFilePath?: string;
+  pauseFilePath?: string;
 };
 
 function flattenDeclaredResource(
@@ -303,6 +317,20 @@ export async function evaluateWashOnlyBeforePayment(
     }
   };
 
+  // `.kill` / an in-force `.pause`. Called on entry and immediately before
+  // each `return undefined` below; nothing is awaited between that read and
+  // the go-ahead the caller signs on.
+  const halted = (): WashBeforePaymentResult => {
+    const code = twzrdSentinelRefusal(options);
+    if (code === undefined) return undefined;
+    emit({ approved: false, reason: code, washFlagged: null });
+    const hasPayTo = typeof payTo === "string" && payTo.trim() !== "";
+    return { abort: true, reason: `[twzrd] ${code}${hasPayTo ? ` payTo=${payTo}` : ""}` };
+  };
+
+  const haltedOnEntry = halted();
+  if (haltedOnEntry) return haltedOnEntry;
+
   // Before the no-payTo skip below, which fails OPEN: a conflicted entry is
   // adversarial by construction, not merely unidentified.
   if (fields.conflict) {
@@ -312,6 +340,8 @@ export async function evaluateWashOnlyBeforePayment(
   }
 
   if (!payTo || !String(payTo).trim()) {
+    const stop = halted();
+    if (stop) return stop;
     emit({
       approved: true,
       reason: "twzrd_wash_skip_no_payTo",
@@ -322,6 +352,8 @@ export async function evaluateWashOnlyBeforePayment(
   }
 
   if (!resolveRefuseWash(options)) {
+    const stop = halted();
+    if (stop) return stop;
     emit({
       approved: true,
       reason: "twzrd_wash_disabled",
@@ -348,6 +380,9 @@ export async function evaluateWashOnlyBeforePayment(
     const error = timedOut ? "timeout" : lookup.error;
     const reason = `twzrd_card_unreachable_fail_closed (${error})`;
     if (resolveFailOpen(options)) {
+      // Fail-open covers an unreachable card. It does not cover the halt.
+      const stop = halted();
+      if (stop) return stop;
       emit({
         approved: true,
         reason: timedOut ? "twzrd_wash_fail_open_timeout" : "twzrd_wash_fail_open",
@@ -406,6 +441,10 @@ export async function evaluateWashOnlyBeforePayment(
     emit({ approved: false, reason, washFlagged: wash.washFlagged });
     return { abort: true, reason };
   }
+
+  // The card lookup was awaited: the halt may have landed since entry.
+  const stop = halted();
+  if (stop) return stop;
 
   emit({
     approved: true,
@@ -476,6 +515,9 @@ export function createTwzrdPayingClient<W = unknown>(
     washMaxUsdc,
     failOpen,
     onDecision,
+    stateDir,
+    killFilePath,
+    pauseFilePath,
     ...passthrough
   } = input;
 
@@ -487,6 +529,9 @@ export function createTwzrdPayingClient<W = unknown>(
     washMaxUsdc,
     failOpen,
     onDecision,
+    stateDir,
+    killFilePath,
+    pauseFilePath,
   };
 
   return {

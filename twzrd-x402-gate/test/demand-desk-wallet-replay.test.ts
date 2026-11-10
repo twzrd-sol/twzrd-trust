@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import test from "node:test";
 import { base58 } from "@scure/base";
@@ -215,4 +218,93 @@ test("replay: without replayGuard the facade stays stateless", async () => {
   await wallet.signTransaction(TX, ctx);
   await wallet.signTransaction(TX, ctx);
   assert.equal(calls.length, 2);
+});
+
+// ---- .kill / .pause: the facade is a signer of its own ----
+async function withStateDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "desk-wallet-"));
+  const names = ["TWZRD_STATE_DIR", "KILLSWITCH_KILL_FILE", "KILLSWITCH_PAUSE_FILE"];
+  const prev = names.map((n) => process.env[n]);
+  for (const n of names) delete process.env[n];
+  process.env.TWZRD_STATE_DIR = dir;
+  try {
+    return await fn(dir);
+  } finally {
+    names.forEach((n, i) => { if (prev[i] === undefined) delete process.env[n]; else process.env[n] = prev[i]; });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+const dropKill = (dir: string) => fs.writeFileSync(path.join(dir, ".kill"), "halt\n");
+const dropPause = (dir: string) =>
+  fs.writeFileSync(path.join(dir, ".pause"), JSON.stringify({ schema: "twzrd.pause_sentinel.v1", until_unix_ms: Date.now() + 60_000, reason: "payment_gate_halt" }));
+
+test("halt: an authorized spend is not signed while .kill is on disk, and the ledger stays approved", async () => {
+  await withStateDir(async (dir) => {
+    const ledger = createMemoryOutcomeLedger();
+    ledger.begin({ intentHash: HASH, decisionId: "d1", approval });
+    const { wallet, ctx, signCalls } = rig(ledger);
+    dropKill(dir);
+    await assert.rejects(wallet.signTransaction(TX, ctx), /twzrd_kill_switch/);
+    assert.equal(signCalls.length, 0, "signer must not be called");
+    assert.equal(ledger.get(HASH)!.state, "approved", "a refused spend is not moved to signing");
+
+    // Not a replay: once the file is gone the same authorized spend signs.
+    fs.rmSync(path.join(dir, ".kill"));
+    await wallet.signTransaction(TX, ctx);
+    assert.deepEqual(signCalls, ["tx1"]);
+  });
+});
+
+test("halt: an active .pause refuses the spend; batch and sign-and-send stop where the halt lands", async () => {
+  await withStateDir(async (dir) => {
+    const { wallet, ctx, signCalls } = rig(createMemoryOutcomeLedger());
+    dropPause(dir);
+    await assert.rejects(wallet.signTransaction(TX, ctx), /twzrd_payment_paused/);
+    await assert.rejects(wallet.signAllTransactions([{ transaction: TX, context: ctx }]), /twzrd_payment_paused/);
+    await assert.rejects(wallet.signAndSendTransaction(TX, ctx), /twzrd_payment_paused/);
+    assert.equal(signCalls.length, 0);
+  });
+
+  // Lands while the first item of a batch is being signed: the second is not signed.
+  await withStateDir(async (dir) => {
+    const signed: string[] = [];
+    const wallet = createDemandDeskWallet<Tx>({
+      messageBytes: (tx) => tx.bytes, expectation: () => expectation(), isActive: () => true,
+      signTransaction: async (tx) => { signed.push(tx.id); dropKill(dir); return tx; },
+      sendTransaction: async () => "sig",
+    });
+    const ctx = { authorization: issue(), messageHash: demandDeskMessageHash(TX.bytes) };
+    await assert.rejects(wallet.signAllTransactions([{ transaction: TX, context: ctx }, { transaction: TX, context: ctx }]), /twzrd_kill_switch/);
+    assert.equal(signed.length, 1, "the batch kept signing past .kill");
+  });
+
+  // Lands while signing: the signed transaction is not sent.
+  await withStateDir(async (dir) => {
+    let sent = 0;
+    const wallet = createDemandDeskWallet<Tx>({
+      messageBytes: (tx) => tx.bytes, expectation: () => expectation(), isActive: () => true,
+      signTransaction: async (tx) => { dropKill(dir); return tx; },
+      sendTransaction: async () => { sent += 1; return "sig"; },
+    });
+    const ctx = { authorization: issue(), messageHash: demandDeskMessageHash(TX.bytes) };
+    await assert.rejects(wallet.signAndSendTransaction(TX, ctx), /twzrd_kill_switch/);
+    assert.equal(sent, 0, "the transaction was sent past .kill");
+  });
+});
+
+test("halt: a configured sentinel directory is read without the environment", async () => {
+  await withStateDir(async (dir) => {
+    delete process.env.TWZRD_STATE_DIR;
+    const signCalls: string[] = [];
+    const wallet = createDemandDeskWallet<Tx>({
+      messageBytes: (tx) => tx.bytes, expectation: () => expectation(), isActive: () => true,
+      signTransaction: async (tx) => { signCalls.push(tx.id); return tx; },
+      sendTransaction: async () => "sig",
+      sentinel: { stateDir: dir },
+    });
+    const ctx = { authorization: issue(), messageHash: demandDeskMessageHash(TX.bytes) };
+    dropKill(dir);
+    await assert.rejects(wallet.signTransaction(TX, ctx), /twzrd_kill_switch/);
+    assert.equal(signCalls.length, 0);
+  });
 });

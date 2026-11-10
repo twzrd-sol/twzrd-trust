@@ -220,6 +220,48 @@ function procStartOf(pid: number | "self"): string | undefined {
 const OWN_PROC_START = procStartOf("self");
 
 /**
+ * Linux: how long ago `pid` started, in ms, from two boot-relative clocks
+ * (`/proc/uptime` and the start tick). Both count time spent suspended, so a
+ * suspend does not skew it. Start ticks are USER_HZ, which is 100 on every
+ * Linux ABI. Undefined where `/proc` is absent or the answer is not sane.
+ */
+function procAgeMsOf(pid: number | "self"): number | undefined {
+  const start = procStartOf(pid);
+  if (start === undefined) return undefined;
+  try {
+    const uptimeSec = Number(fs.readFileSync("/proc/uptime", "utf8").split(" ")[0]);
+    const ageMs = (uptimeSec - Number(start) / 100) * 1000;
+    return Number.isFinite(ageMs) && ageMs >= 0 ? ageMs : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * How much later than the lock a process must have started before the lock is
+ * judged not to be its own. Covers the coarse clocks involved and small
+ * wall-clock adjustments; a pid reused inside this window stays held.
+ */
+const LOCK_PREDATES_PROCESS_MARGIN_MS = 5_000;
+
+/**
+ * For a lock that records no start time: true when the process now holding
+ * `pid` provably started after the lock was written, so it cannot be the
+ * writer. `at_unix_ms` is the writer's wall clock, the only time such a lock
+ * carries, so this compares wall-clock lock age with boot-clock process age.
+ * Anything unknown (no timestamp, no `/proc`, a timestamp in the future) is
+ * false: not provably someone else's, so held.
+ */
+function lockPredatesProcess(lock: { atUnixMs?: number }, pid: number | "self"): boolean {
+  if (lock.atUnixMs === undefined) return false;
+  const processAgeMs = procAgeMsOf(pid);
+  if (processAgeMs === undefined) return false;
+  const lockAgeMs = Date.now() - lock.atUnixMs;
+  if (!(lockAgeMs >= 0)) return false;
+  return lockAgeMs > processAgeMs + LOCK_PREDATES_PROCESS_MARGIN_MS;
+}
+
+/**
  * Linux: the id of the running boot. Start times count from boot, so they are
  * only comparable within one; a lock written under another boot has no live owner.
  */
@@ -236,7 +278,7 @@ const OWN_BOOT_ID = readBootId();
 type WriterLock =
   | { state: "absent" }
   | { state: "unreadable" }
-  | { state: "owned"; pid: number; instanceId: string; procStart?: string; bootId?: string };
+  | { state: "owned"; pid: number; instanceId: string; procStart?: string; bootId?: string; atUnixMs?: number };
 
 /**
  * Read `<wal>.lock`. Anything other than a missing file or a well-formed owner
@@ -265,10 +307,12 @@ function readWriterLock(lockPath: string): WriterLock {
     ) {
       const procStart = parsed?.proc_start;
       const bootId = parsed?.boot_id;
+      const atUnixMs = parsed?.at_unix_ms;
       return {
         state: "owned",
         pid,
         instanceId,
+        ...(typeof atUnixMs === "number" && Number.isFinite(atUnixMs) && atUnixMs > 0 ? { atUnixMs } : {}),
         ...(typeof procStart === "string" && /^\d+$/.test(procStart) ? { procStart } : {}),
         ...(typeof bootId === "string" && /^[0-9a-f-]{36}$/.test(bootId) ? { bootId } : {}),
       };
@@ -301,6 +345,13 @@ const openWriters = processOpenWriters();
  * A pid alone does not name a process: a restarted container is pid 1 again,
  * and a dead owner's pid can be handed to something else. Where the lock and
  * the platform both carry a boot id and a process start time, those decide.
+ *
+ * A lock with no start time on record (written before start times were
+ * recorded, or on a platform without `/proc`) would otherwise be pinned for as
+ * long as anything at all holds its pid. On Linux such a lock is also stale
+ * when the process now holding the pid started after the lock was written
+ * (`lockPredatesProcess`). Off Linux there is no start time to read: a live
+ * pid holds the lock until the file is removed.
  */
 function isWriterLockStale(lock: Extract<WriterLock, { state: "owned" }>): boolean {
   // Written under an earlier boot: whatever held it did not survive the reboot.
@@ -311,15 +362,21 @@ function isWriterLockStale(lock: Extract<WriterLock, { state: "owned" }>): boole
     // No writer registered in this realm holds the path (the caller checked).
     // Same start time: this live process holds it from another thread or realm.
     // Different start time: an earlier process that had this pid.
-    // Unknown: not provably gone, so held.
-    if (lock.procStart === undefined || OWN_PROC_START === undefined) return false;
-    return lock.procStart !== OWN_PROC_START;
+    if (lock.procStart !== undefined && OWN_PROC_START !== undefined) {
+      return lock.procStart !== OWN_PROC_START;
+    }
+    // No start time to compare: an earlier process only if the lock predates
+    // this one. Otherwise not provably gone, so held.
+    return lock.procStart === undefined && lockPredatesProcess(lock, "self");
   }
   if (lock.procStart !== undefined) {
     const current = procStartOf(lock.pid);
     if (current !== undefined) return current !== lock.procStart;
   }
-  return !isPidAlive(lock.pid);
+  if (!isPidAlive(lock.pid)) return true;
+  // Alive, and no start time on record: the pid may have been handed to
+  // another process since. Stale only if that process started after the lock.
+  return lock.procStart === undefined && lockPredatesProcess(lock, lock.pid);
 }
 
 const SOLANA_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
