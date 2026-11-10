@@ -3,8 +3,8 @@
 Every Markdown document in this repository, what it is for, and whether it is
 **canonical** (describes the product as it is), **historical** (a dated record,
 kept as written) or **internal** (maintainer notes, not integrator guidance).
-The version table was re-read on **2026-11-09** (registry `latest` and this tree; see the registry-cell drift note under Package mirrors). The earlier document pass was **2026-10-26**; live-surface facts were checked **2026-10-24**. The
-[README](../README.md#versions-verified-2026-11-09) carries the version table; [REPO-MAP.md](./REPO-MAP.md) maps the folders, not just the documents.
+The version table was re-read on **2026-11-10** (registry `latest` and this tree; see the registry-cell drift note under Package mirrors). The earlier document pass was **2026-10-26**; live-surface facts were checked **2026-10-24**. The
+[README](../README.md#versions) carries the version table; [REPO-MAP.md](./REPO-MAP.md) maps the folders, not just the documents.
 
 A canonical document that disagrees with the code is a bug: open an issue. A
 historical document is not updated when the product moves; its banner says
