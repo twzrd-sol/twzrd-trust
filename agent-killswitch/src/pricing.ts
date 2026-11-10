@@ -1,5 +1,6 @@
-// Static USD per 1M token estimates. OpenAI rows checked 2026-11-07; every
-// other row checked 2026-11-10 against the sources named above its group.
+// Static USD per 1M token budget estimates, not the price a given call pays.
+// OpenAI rows checked 2026-11-07; every other row checked 2026-11-10 against
+// the sources named above its group.
 // Each row is the highest price the upstream can bill for that exact id,
 // including any premium the request body can select (the agent being limited
 // writes the body), the top prompt-length tier and announced increases:

@@ -316,8 +316,9 @@ Checked 2026-11-10 (OpenAI rows 2026-11-07). Each row is the highest price the
 upstream can bill for that exact id, including any premium the request body can
 select, because the agent being limited writes the body and the proxy forwards
 it. Rows use the top prompt-length tier and already include announced price
-increases. Under-pricing is the unsafe direction, so a row usually overstates a
-call. If your agents cannot reach a premium (you pin one route, or the upstream
+increases. A row is a conservative budget estimate for the limits, not the price
+a given call pays: under-pricing is the unsafe direction, so a row usually
+overstates a call. If your agents cannot reach a premium (you pin one route, or the upstream
 ignores the field), set an override (above) at the price you actually pay. The
 full list, grouped by source, is in `src/pricing.ts`.
 
