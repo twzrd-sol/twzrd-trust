@@ -28,7 +28,7 @@
 ## What's new (newest first)
 
 - 2026-10-30: MPP `Payment` challenge beside x402 on `/v1/intel/trust/`, `/v1/intel/verify-endpoint`; `/v1/intel/quick/`, `/v1/intel/merchant/` since 2026-10-26.
-- 2026-10-25: `twzrd-x402-gate@0.16.2` refuses missing evidence by default.
+- 2026-10-25: `twzrd-x402-gate@0.20.0` refuses missing evidence by default.
 
 ## Core product: buyer gate (install before any x402 client signs)
 
