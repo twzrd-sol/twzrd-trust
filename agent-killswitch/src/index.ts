@@ -266,6 +266,26 @@ if (invokedAsMain()) {
   // host-side -p 127.0.0.1:... binding keeps it local-only from outside.
   const host = process.env.KILLSWITCH_HOST ?? "127.0.0.1";
   const server = createServer();
+  // A taken port is the most common first-run failure: say what to change
+  // instead of dumping a Node stack trace.
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      // eslint-disable-next-line no-console
+      const other = port < 65535 ? port + 1 : port - 1;
+      console.error(
+        `agent-killswitch: port ${port} on ${host} is already in use ` +
+          `(another agent-killswitch may be running). ` +
+          `Set KILLSWITCH_PORT to a free port, for example KILLSWITCH_PORT=${other}.`,
+      );
+      process.exit(1);
+    }
+    if (err.code === "EACCES") {
+      // eslint-disable-next-line no-console
+      console.error(`agent-killswitch: no permission to listen on ${host}:${port}.`);
+      process.exit(1);
+    }
+    throw err;
+  });
   server.listen(port, host, () => {
     // eslint-disable-next-line no-console
     console.log(`agent-killswitch listening on ${host}:${port}`);
