@@ -104,6 +104,19 @@ jobs:
             *) echo "::error::Cannot tell whether $PACKAGE@$EXPECTED_VERSION exists (npm said: ${out:0:200})."; exit 1 ;;
           esac
 
+      - name: Build the sibling gate for the cross-reader tests
+        # test/binding-plane.test.mjs proves the gate and this proxy read the
+        # same .pause file, so it imports ../twzrd-x402-gate/dist. Root CI
+        # builds the gate before these tests. This job did not, and the two
+        # cross-reader tests failed with ERR_MODULE_NOT_FOUND (run 42741463419).
+        # --ignore-scripts: the gate build is tsc only, so no dependency
+        # install script has to run in a job that can publish. Nothing built
+        # here is in this package's tarball.
+        working-directory: .
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
       - name: Install dependencies (agent-killswitch/package-lock.json)
         run: npm ci
 
