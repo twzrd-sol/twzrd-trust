@@ -14,6 +14,12 @@
 //      executes the gate's dependencies; the proxy has one runtime
 //      dependency of its own. The suite runs in a separate job the release
 //      job needs.
+//
+// This is a tripwire for the shapes this repo uses (npm scripts and
+// `node --test` in `run:` blocks), not a proof. It does not look inside
+// composite actions or other reusable workflows and knows no other package
+// manager. The release job's `uses:` allowlist and trigger checks below are
+// what catch those.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -52,12 +58,25 @@ function normDir(dir) {
 
 /** Shell commands of a `run:` block, one per entry, comments dropped. */
 function commandsOf(script) {
-  return String(script)
-    .replace(/\\\n/g, ' ')
-    .split('\n')
-    .filter(line => !/^\s*#/.test(line))
-    .flatMap(line => line.split(/&&|\|\||;/))
-    .map(command => command.trim().replace(/^(?:(?:if|then|else|elif|do|time|exec|!)\s+|\w+=\S*\s+)+/, ''))
+  const lines = [];
+  let heredocEnd = null;
+  for (const line of String(script).replace(/\\\n/g, ' ').split('\n')) {
+    if (heredocEnd !== null) {
+      // A heredoc body is data, not commands.
+      if (line.trim() === heredocEnd) heredocEnd = null;
+      continue;
+    }
+    if (/^\s*#/.test(line)) continue;
+    const heredoc = /<<-?\s*(['"]?)(\w+)\1/.exec(line);
+    if (heredoc) heredocEnd = heredoc[2];
+    lines.push(line);
+  }
+  return lines
+    .flatMap(line => line.split(/&&|\|\|?|;/))
+    .map(command => command
+      .replace(/\s\d*(?:>>?|<)&?\s*\S+/g, ' ')
+      .trim()
+      .replace(/^(?:(?:if|then|else|elif|do|time|exec|!)\s+|\w+=\S*\s+)+/, ''))
     .filter(Boolean);
 }
 
@@ -70,11 +89,13 @@ function classify(command, cwd) {
   });
   const npmRun = name => new RegExp(`^npm\\s+(?:run|run-script)\\s+${name}(?=\\s|$)`).test(rest);
   const bareNpmTest = /^npm\s+(?:test|t)(?=\s|$)/.test(rest);
-  const noArgs = /^npm\s+(?:run\s+|run-script\s+)?\S+\s*$/.test(rest);
 
   // Root `npm test` and `npm run ci` build the gate, then run every suite
-  // (asserted against package.json below).
-  const rootAggregate = dir === '.' && noArgs && (bareNpmTest || npmRun('ci') || npmRun('test'));
+  // (asserted against package.json below). Arguments after `--` go to the
+  // scripts; a workspace selector means the root script does not run.
+  const beforeDashDash = rest.split(/\s--(?=\s|$)/)[0].trim();
+  const rootAggregate = dir === '.'
+    && /^npm\s+(?:test|t|(?:run|run-script)\s+(?:ci|test))$/.test(beforeDashDash);
   const buildsGate = rootAggregate
     || (dir === '.' && /^npm\s+(?:run|run-script)\s+build(?:\s+(?:--workspace|-w)(?:=|\s+)twzrd-x402-gate)?\s*$/.test(rest))
     || (dir === GATE && /^npm\s+(?:run|run-script)\s+build\s*$/.test(rest));
@@ -127,6 +148,9 @@ function jobsOf(doc) {
       uses: typeof job.uses === 'string' ? job.uses : null,
       needs: [].concat(job.needs ?? []),
       permissions: job.permissions ?? doc.permissions ?? null,
+      condition: job.if ?? null,
+      secrets: job.secrets ?? null,
+      actions: (job.steps ?? []).filter(step => typeof step.uses === 'string').map(step => step.uses),
       suiteRuns,
       rootInstalls,
       gateBuilds,
@@ -213,6 +237,27 @@ const READER_CASES = [
     steps:
       - run: npm run ci
   `), [true]],
+  ['root `npm test` with arguments after `--`', job(`
+    steps:
+      - run: npm test -- --test-reporter=spec
+  `), [true]],
+  ['the suite behind a pipe and a redirection', job(`
+    defaults: { run: { working-directory: agent-killswitch } }
+    steps:
+      - run: npm run ci 2>&1 | tee out.log
+  `), [false]],
+  ['a heredoc body is not a command', job(`
+    steps:
+      - run: |
+          cat > notes.txt <<'EOF'
+          npm run test:agent-killswitch
+          EOF
+          echo done
+  `), []],
+  ['workspace scripts are not the root script', job(`
+    steps:
+      - run: npm run test --workspaces
+  `), []],
   ['`npm ci` is an install, not the suite', job(`
     defaults: { run: { working-directory: agent-killswitch } }
     steps:
@@ -244,6 +289,17 @@ test('reader: release credentials and root installs', () => {
   `)));
   assert.equal(holdsReleaseCredential(parsed.permissions), true);
   assert.deepEqual(parsed.rootInstalls, ['step 2: npm ci --ignore-scripts']);
+  assert.equal(parsed.condition, null);
+  const [conditional] = jobsOf(yaml.load(job(`
+    if: always()
+    secrets: inherit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/local
+  `)));
+  assert.equal(conditional.condition, 'always()');
+  assert.equal(conditional.secrets, 'inherit');
+  assert.deepEqual(conditional.actions, ['actions/checkout@v4', './.github/actions/local']);
   assert.equal(holdsReleaseCredential({ contents: 'read' }), false);
   assert.equal(holdsReleaseCredential({ contents: 'read', packages: 'write' }), true);
   assert.equal(holdsReleaseCredential(null), false);
@@ -306,6 +362,8 @@ test('no job that holds a release credential runs the agent-killswitch suite', (
 test('the conformance workflow is callable, runs the suite and holds no credential', () => {
   const doc = loadWorkflow(CONFORMANCE);
   assert.ok(doc.on && typeof doc.on === 'object' && 'workflow_call' in doc.on, 'on.workflow_call is missing');
+  // pull_request runs PR code with a read-only token; pull_request_target would not.
+  assert.deepEqual(Object.keys(doc.on).sort(), ['pull_request', 'workflow_call']);
   assert.deepEqual(doc.permissions, { contents: 'read' });
   const parsedJobs = jobsOf(doc);
   for (const parsed of parsedJobs) {
@@ -316,10 +374,19 @@ test('the conformance workflow is callable, runs the suite and holds no credenti
 
 for (const name of RELEASE_WORKFLOWS) {
   test(`${name}: the release job needs conformance and stays off the gate`, () => {
-    const parsedJobs = jobsOf(loadWorkflow(name));
+    const doc = loadWorkflow(name);
+    assert.deepEqual(Object.keys(doc.on), ['workflow_dispatch'], 'a release workflow is started by a person only');
+    const parsedJobs = jobsOf(doc);
     const conformance = parsedJobs.filter(parsed => parsed.uses === CONFORMANCE_REF);
     assert.equal(conformance.length, 1, `expected one job that uses ${CONFORMANCE_REF}`);
     assert.deepEqual(conformance[0].permissions, { contents: 'read' });
+    assert.equal(conformance[0].secrets, null, 'the conformance job is handed no secrets');
+    assert.equal(conformance[0].condition, null, 'the conformance job must always run');
+    assert.deepEqual(
+      parsedJobs.filter(parsed => parsed.uses !== null).map(parsed => parsed.uses),
+      [CONFORMANCE_REF],
+      'no other reusable workflow: this file cannot see inside one',
+    );
 
     const release = parsedJobs.filter(parsed => holdsReleaseCredential(parsed.permissions));
     assert.equal(release.length, 1, 'expected exactly one job holding a release credential');
@@ -328,6 +395,16 @@ for (const name of RELEASE_WORKFLOWS) {
     assert.ok(
       releaseJob.needs.includes(conformance[0].name),
       `job ${releaseJob.name} must need ${conformance[0].name}`,
+    );
+    assert.equal(
+      releaseJob.condition,
+      null,
+      'a job-level `if:` (always(), !cancelled()) would let the release job run after conformance failed',
+    );
+    assert.deepEqual(
+      releaseJob.actions.filter(action => !/^actions\/(?:checkout|setup-node)@/.test(action)),
+      [],
+      'the release job uses only checkout and setup-node: this file cannot see inside another action',
     );
     assert.deepEqual(releaseJob.suiteRuns, [], 'the release job must not run the suite');
     assert.deepEqual(releaseJob.rootInstalls, [], 'the release job must not install the repo-root tree');
