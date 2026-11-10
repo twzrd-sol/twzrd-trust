@@ -271,9 +271,11 @@ if (invokedAsMain()) {
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
       // eslint-disable-next-line no-console
+      const other = port < 65535 ? port + 1 : port - 1;
       console.error(
-        `agent-killswitch: port ${port} on ${host} is already in use. ` +
-          `Set KILLSWITCH_PORT to a free port, for example KILLSWITCH_PORT=${port + 1}.`,
+        `agent-killswitch: port ${port} on ${host} is already in use ` +
+          `(another agent-killswitch may be running). ` +
+          `Set KILLSWITCH_PORT to a free port, for example KILLSWITCH_PORT=${other}.`,
       );
       process.exit(1);
     }

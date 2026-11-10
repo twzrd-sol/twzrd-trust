@@ -134,11 +134,18 @@ test("a port already in use exits 1 with one actionable line, not a stack trace"
       });
     });
     assert.equal(code, 1);
-    assert.equal(
-      stderr,
-      `agent-killswitch: port ${port} on 127.0.0.1 is already in use. ` +
-        `Set KILLSWITCH_PORT to a free port, for example KILLSWITCH_PORT=${port + 1}.\n`,
+    // Match the line, not the whole stream: a Node warning on stderr must
+    // not fail this, but a stack trace must.
+    const other = port < 65535 ? port + 1 : port - 1;
+    assert.ok(
+      stderr.split("\n").includes(
+        `agent-killswitch: port ${port} on 127.0.0.1 is already in use ` +
+          `(another agent-killswitch may be running). ` +
+          `Set KILLSWITCH_PORT to a free port, for example KILLSWITCH_PORT=${other}.`,
+      ),
+      `missing the port-in-use line; stderr: ${stderr}`,
     );
+    assert.doesNotMatch(stderr, /EADDRINUSE|node:events|^\s+at /m);
   } finally {
     child.kill("SIGKILL");
     blocker.close();
