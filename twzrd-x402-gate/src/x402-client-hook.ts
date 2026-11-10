@@ -14,7 +14,7 @@ import { wrapX402ClientEchoAttempt } from "./attempt-echo.js";
 import { resolveBuyerPathADefaults } from "./buyer-defaults.js";
 import { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
 import { priceUsdcFromAmountMicro, requirementAsset, resolveRequirementFields } from "./payto.js";
-import { twzrdApprovePayment } from "./policy.js";
+import { twzrdApprovePayment, twzrdSentinelRefusal } from "./policy.js";
 import { quickCheck } from "./quick.js";
 import { CLIENT_VERSION } from "./version.js";
 import type { TwzrdApprovalResult, TwzrdGateConfig } from "./types.js";
@@ -431,10 +431,39 @@ export async function evaluateBeforePaymentCreation(
     return { abort: true, reason };
   }
 
+  // Last look. The approval read the sentinels when it was made; everything
+  // below awaits the network, and a `.kill` or `.pause` can land meanwhile.
+  // Asked before each paid hop (the gate buys nothing once payments are
+  // halted) and once more before the go-ahead.
+  const haltedBySentinel = (): BeforePaymentCreationResult | undefined => {
+    const halted = twzrdSentinelRefusal(cfg);
+    if (halted === undefined) return undefined;
+    const reason = `[twzrd] ${halted} payTo=${payTo ?? "unknown"} network=${network ?? "unknown"}`;
+    try {
+      options?.onDecision?.({
+        approved: false,
+        reason,
+        verdict: "block",
+        payTo,
+        network: approval.network ?? network,
+        amountMicro,
+        reputationScored: approval.reputationScored,
+        policyAction: "block",
+        intent,
+        decision,
+      });
+    } catch {
+      /* telemetry */
+    }
+    return { abort: true, reason };
+  };
+
   // Clearance SKU: paid, challenge-bound payment_decision.v1. After free
   // refuse (never tax a block), before Path A gift shop and before sign.
   const clearancePolicy = resolveRequirePaymentDecisionPolicy(options?.requirePaymentDecision);
   if (clearancePolicy) {
+    const haltedBeforeClearance = haltedBySentinel();
+    if (haltedBeforeClearance) return haltedBeforeClearance;
     const clearance = await evaluateClearanceSku({
       policy: clearancePolicy,
       challenge: selectedRequirements,
@@ -500,6 +529,8 @@ export async function evaluateBeforePaymentCreation(
     approval.unevaluated !== true &&
     (priceUsdc ?? 0) >= (esc.minSpendUsdc ?? 0);
   if (wantQuick && payTo && esc) {
+    const haltedBeforeQuick = haltedBySentinel();
+    if (haltedBeforeQuick) return haltedBeforeQuick;
     const floor = esc.blockBelowScore ?? cfg.preflightMinScore;
     const quick = await quickCheck(payTo, {
       intelBase: cfg.intelBase,
@@ -551,6 +582,8 @@ export async function evaluateBeforePaymentCreation(
         return { abort: true, reason };
       }
     } else if (payTo && approval.reputationScored !== false) {
+      const haltedBeforeReceipt = haltedBySentinel();
+      if (haltedBeforeReceipt) return haltedBeforeReceipt;
       try {
         // Seat identity (fork-1 caller_id metric — same pair twzrdPreflight always
         // stamps). This paid receipt fetch previously sent no identity headers at
@@ -643,6 +676,10 @@ export async function evaluateBeforePaymentCreation(
       receiptSkipped = "unscored_network";
     }
   }
+
+  // Nothing is awaited between this read and the return that lets the client sign.
+  const haltedBeforeSign = haltedBySentinel();
+  if (haltedBeforeSign) return haltedBeforeSign;
 
   const resourceBind = stampResourceBind(selectedRequirements, paymentRequired);
   try {

@@ -1,5 +1,5 @@
-import { resolveConfig } from "./config.js";
-import { twzrdApprovePayment } from "./policy.js";
+import { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
+import { twzrdApprovePayment, twzrdSentinelRefusal } from "./policy.js";
 import { payToFromRequirements, priceUsdcFromAmountMicro, requirementAsset } from "./payto.js";
 import { quickCheck, type TwzrdTier } from "./quick.js";
 import { CLIENT_VERSION } from "./version.js";
@@ -163,7 +163,23 @@ export async function evaluate_x402_resource(
     fetch: opts.fetch,
     attribution: opts.attribution,
   });
+  const result = await evaluateResource(resourceUrl, paymentRequirements, opts, config);
+  // Last look. The approval inside read the sentinels when it was made; the
+  // paid hops after it await the network, and a `.kill` or `.pause` can land
+  // meanwhile. The caller pays on `approved`, so it is re-checked as it is
+  // returned, with nothing awaited in between.
+  if (!result.approved) return result;
+  const halted = twzrdSentinelRefusal(config);
+  if (halted === undefined) return result;
+  return { ...result, decision: "block", approved: false, reason: halted, policyAction: "block" };
+}
 
+async function evaluateResource(
+  resourceUrl: string,
+  paymentRequirements: X402PaymentRequirements,
+  opts: EvaluateX402Options,
+  config: ResolvedTwzrdGateConfig,
+): Promise<EvaluateX402Result> {
   const { payTo, amountMicro, resource, conflict } = payToFromRequirements(paymentRequirements);
   const priceUsdc = priceUsdcFromAmountMicro(amountMicro, paymentRequirements);
   if (conflict) {
@@ -254,7 +270,15 @@ export async function evaluate_x402_resource(
     // and could not change the decision. Its bound is the card's cap.
     approval.unevaluated !== true &&
     (priceUsdc ?? 0) >= (esc.minSpendUsdc ?? 0);
+  // Asked before each paid hop: the gate buys nothing once payments are halted.
+  const haltedBySentinel = (): EvaluateX402Result | undefined => {
+    const halted = twzrdSentinelRefusal(config);
+    if (halted === undefined) return undefined;
+    return { ...base, decision: "block", approved: false, reason: halted, policyAction: "block" };
+  };
   if (wantQuick && payTo && esc) {
+    const haltedBeforeQuick = haltedBySentinel();
+    if (haltedBeforeQuick) return haltedBeforeQuick;
     const floor = esc.blockBelowScore ?? config.preflightMinScore;
     const quick = await quickCheck(payTo, {
       intelBase: config.intelBase,
@@ -291,6 +315,8 @@ export async function evaluate_x402_resource(
   let receiptMiss: string | undefined;
 
   if (attemptReceipt && typeof opts.x402Fetch === "function" && payTo) {
+    const haltedBeforeReceipt = haltedBySentinel();
+    if (haltedBeforeReceipt) return haltedBeforeReceipt;
     try {
       // Seat identity (fork-1 caller_id metric — same pair twzrdPreflight always
       // stamps). This paid receipt fetch previously sent no identity headers at

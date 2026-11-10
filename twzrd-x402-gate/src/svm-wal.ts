@@ -200,10 +200,43 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Linux: the start time of `pid` in clock ticks since boot (field 22 of
+ * `/proc/<pid>/stat`), which with the pid names one process. Undefined where
+ * `/proc` is absent or the pid is not visible from here.
+ */
+function procStartOf(pid: number | "self"): string | undefined {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    // comm (field 2) may hold spaces and parentheses; the rest follows the last ")".
+    const start = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+    return start !== undefined && /^\d+$/.test(start) ? start : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** This process's start identity. Threads share it; a restarted process does not. */
+const OWN_PROC_START = procStartOf("self");
+
+/**
+ * Linux: the id of the running boot. Start times count from boot, so they are
+ * only comparable within one; a lock written under another boot has no live owner.
+ */
+function readBootId(): string | undefined {
+  try {
+    const id = fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+    return /^[0-9a-f-]{36}$/.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+const OWN_BOOT_ID = readBootId();
+
 type WriterLock =
   | { state: "absent" }
   | { state: "unreadable" }
-  | { state: "owned"; pid: number; instanceId: string };
+  | { state: "owned"; pid: number; instanceId: string; procStart?: string; bootId?: string };
 
 /**
  * Read `<wal>.lock`. Anything other than a missing file or a well-formed owner
@@ -230,7 +263,15 @@ function readWriterLock(lockPath: string): WriterLock {
       typeof instanceId === "string" &&
       instanceId.length > 0
     ) {
-      return { state: "owned", pid, instanceId };
+      const procStart = parsed?.proc_start;
+      const bootId = parsed?.boot_id;
+      return {
+        state: "owned",
+        pid,
+        instanceId,
+        ...(typeof procStart === "string" && /^\d+$/.test(procStart) ? { procStart } : {}),
+        ...(typeof bootId === "string" && /^[0-9a-f-]{36}$/.test(bootId) ? { bootId } : {}),
+      };
     }
   } catch {
     /* fall through: not an owner record */
@@ -238,8 +279,48 @@ function readWriterLock(lockPath: string): WriterLock {
   return { state: "unreadable" };
 }
 
-/** WAL files open for writing in this process: resolved path -> owning instance. */
-const openWriters = new Map<string, string>();
+/**
+ * WAL files open for writing in this process: resolved path -> owning instance.
+ * Kept on `globalThis` under a registered symbol, not in module scope, so two
+ * copies of this module loaded into one process (a duplicate install, a second
+ * bundle) share one registry and the second cannot open what the first holds.
+ */
+const OPEN_WRITERS_KEY = Symbol.for("twzrd-x402-gate.svm_wal.open_writers.v1");
+function processOpenWriters(): Map<string, string> {
+  const scope = globalThis as unknown as Record<symbol, unknown>;
+  const existing = scope[OPEN_WRITERS_KEY];
+  if (existing instanceof Map) return existing as Map<string, string>;
+  const created = new Map<string, string>();
+  scope[OPEN_WRITERS_KEY] = created;
+  return created;
+}
+const openWriters = processOpenWriters();
+
+/**
+ * Whether the process that wrote `lock` is gone, so the lock may be taken over.
+ * A pid alone does not name a process: a restarted container is pid 1 again,
+ * and a dead owner's pid can be handed to something else. Where the lock and
+ * the platform both carry a boot id and a process start time, those decide.
+ */
+function isWriterLockStale(lock: Extract<WriterLock, { state: "owned" }>): boolean {
+  // Written under an earlier boot: whatever held it did not survive the reboot.
+  if (lock.bootId !== undefined && OWN_BOOT_ID !== undefined && lock.bootId !== OWN_BOOT_ID) {
+    return true;
+  }
+  if (lock.pid === process.pid) {
+    // No writer registered in this realm holds the path (the caller checked).
+    // Same start time: this live process holds it from another thread or realm.
+    // Different start time: an earlier process that had this pid.
+    // Unknown: not provably gone, so held.
+    if (lock.procStart === undefined || OWN_PROC_START === undefined) return false;
+    return lock.procStart !== OWN_PROC_START;
+  }
+  if (lock.procStart !== undefined) {
+    const current = procStartOf(lock.pid);
+    if (current !== undefined) return current !== lock.procStart;
+  }
+  return !isPidAlive(lock.pid);
+}
 
 const SOLANA_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const EVM_TX_HASH = /^0x[0-9a-fA-F]{64}$/;
@@ -360,7 +441,13 @@ export function createFileSvmWal(filePath: string, options: CreateSvmWalOptions 
         try {
           fs.writeFileSync(
             fd,
-            JSON.stringify({ pid: process.pid, instance_id: instanceId, at_unix_ms: Date.now() }) + "\n",
+            JSON.stringify({
+              pid: process.pid,
+              instance_id: instanceId,
+              at_unix_ms: Date.now(),
+              ...(OWN_PROC_START !== undefined ? { proc_start: OWN_PROC_START } : {}),
+              ...(OWN_BOOT_ID !== undefined ? { boot_id: OWN_BOOT_ID } : {}),
+            }) + "\n",
             "utf8",
           );
         } finally {
@@ -378,10 +465,13 @@ export function createFileSvmWal(filePath: string, options: CreateSvmWalOptions 
           `has an unreadable lock file (${lockPath}); remove it only when no process is using this WAL`,
         );
       }
-      // This process holds no open writer for the path (checked above), so a
-      // lock carrying our own pid was left by an earlier process that had it.
-      const stale = lock.pid === process.pid || !isPidAlive(lock.pid);
-      if (!stale) throw lockError(`is locked by pid ${lock.pid}`);
+      if (!isWriterLockStale(lock)) {
+        throw lockError(
+          lock.pid === process.pid
+            ? `is locked by this process (pid ${lock.pid}) through another writer; if no writer is using this WAL, remove ${lockPath}`
+            : `is locked by pid ${lock.pid}`,
+        );
+      }
       try {
         fs.unlinkSync(lockPath);
       } catch (err) {

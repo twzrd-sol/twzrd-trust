@@ -343,12 +343,14 @@ export async function spendControlSafeFetch(
   const tripPauseOnBlockMs =
     Number.isFinite(tripPauseNum) && tripPauseNum > 0 ? Math.floor(tripPauseNum) : 0;
 
-  const sentinel = readSentinelState({
-    stateDir: stateDir ?? "./data",
-    killFilePath,
-    pauseFilePath,
-  });
-  if (sentinel.active) {
+  /** The refusal a `.kill` or an in-force `.pause` calls for right now, if any. */
+  const sentinelRefusal = (): SpendControlResult | undefined => {
+    const sentinel = readSentinelState({
+      stateDir: stateDir ?? "./data",
+      killFilePath,
+      pauseFilePath,
+    });
+    if (!sentinel.active) return undefined;
     const reason =
       sentinel.mode === "kill"
         ? "twzrd_kill_switch"
@@ -356,7 +358,9 @@ export async function spendControlSafeFetch(
           ? "twzrd_pause_corrupt"
           : "twzrd_payment_paused";
     return { verdict: "block", reason, signerInvocations: 0 };
-  }
+  };
+  const haltedOnEntry = sentinelRefusal();
+  if (haltedOnEntry) return haltedOnEntry;
 
   const file = opts.ledgerFile ?? process.env.TWZRD_SPEND_LEDGER_FILE;
   const walFile = opts.svmWalFile ?? process.env.TWZRD_SVM_WAL_FILE;
@@ -589,6 +593,17 @@ export async function spendControlSafeFetch(
     let signerInvocations = 0;
     let settledTxSig: string | undefined;
     /**
+     * Last look. The entry check ran before the 402 fetch, the preflight, and
+     * the compose were awaited; a `.kill` or `.pause` can land during any of
+     * them. Read again at the moment of the go-ahead: nothing is awaited
+     * between this read and the payer call, and it runs before the WAL intent
+     * is written, so a refused payment leaves no row and holds no budget.
+     */
+    const lastLook = (receipt: SpendControlResult["receipt"]): SpendControlResult | undefined => {
+      const halted = sentinelRefusal();
+      return halted ? { ...halted, ...(receipt ? { receipt } : {}) } : undefined;
+    };
+    /**
      * Run the payer. With a WAL: write and fsync the intent first, hand the
      * in-process reservation over to that row, then record `confirmed` only on
      * evidence. Returns a refusal, or undefined when the payment went through.
@@ -597,6 +612,8 @@ export async function spendControlSafeFetch(
       receipt: SpendControlResult["receipt"],
       transactionBase64?: string,
     ): Promise<SpendControlResult | undefined> => {
+      const halted = lastLook(receipt);
+      if (halted) return halted;
       let walIntentId: string | undefined;
       if (wal) {
         try {
@@ -702,10 +719,9 @@ export async function spendControlSafeFetch(
           decisionId,
         );
       }
-      if (opts.pay) {
-        const refusal = await runPayer(receipt, txb64);
-        if (refusal) return refusal;
-      }
+      // Without a payer the caller signs on this verdict: same last look.
+      const refusal = opts.pay ? await runPayer(receipt, txb64) : lastLook(receipt);
+      if (refusal) return refusal;
       return {
         verdict,
         response,
@@ -714,10 +730,9 @@ export async function spendControlSafeFetch(
         ...(settledTxSig ? { txSignature: settledTxSig } : {}),
       };
     }
-    if (opts.pay) {
-      const refusal = await runPayer(undefined);
-      if (refusal) return refusal;
-    }
+    // Without a payer the caller signs on this verdict: same last look.
+    const refusal = opts.pay ? await runPayer(undefined) : lastLook(undefined);
+    if (refusal) return refusal;
     let receipt: SpendControlResult["receipt"];
     return {
       verdict,
