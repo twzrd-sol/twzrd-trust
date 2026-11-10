@@ -25,3 +25,7 @@ logging:
 
 server:
   port: 4020
+
+# Optional exact model IDs, USD per million input/output tokens.
+# KILLSWITCH_MODEL_RATES entries override these on startup.
+model_rates: {}

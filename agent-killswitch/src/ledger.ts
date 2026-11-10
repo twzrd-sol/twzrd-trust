@@ -5,6 +5,9 @@ import type { SpendWindow } from "./gate.js";
 export interface LedgerLine {
   timestamp: string;
   model: string;
+  requested_model?: string;
+  served_model?: string | null;
+  model_mismatch?: boolean;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;

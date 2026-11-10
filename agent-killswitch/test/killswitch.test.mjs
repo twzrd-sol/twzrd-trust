@@ -7,7 +7,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createServer } from "../dist/index.js";
-import { costUsd, pessimisticRequestCostUsd } from "../dist/pricing.js";
+import { costUsd, pessimisticRequestCostUsd, parseModelRates } from "../dist/pricing.js";
 import { clientResponseHeaders, upstreamRequestHeaders } from "../dist/proxy.js";
 
 const ORIGINAL_CWD = process.cwd();
@@ -63,7 +63,7 @@ function startUpstream() {
         }
         if (state.mode === "stream") {
           res.writeHead(200, { "content-type": "text/event-stream", ...extra });
-          res.write('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n');
+          res.write('data: ' + JSON.stringify({ model: state.servedModel ?? 'gpt-4o-mini', choices: [{delta: {content: 'hi'}}] }) + '\n\n');
           res.write(
             'data: {"choices":[],"usage":{"prompt_tokens":2000,"completion_tokens":1000,"total_tokens":3000}}\n\n',
           );
@@ -77,7 +77,7 @@ function startUpstream() {
         }
         if (state.mode === "stream-nousage") {
           res.writeHead(200, { "content-type": "text/event-stream", ...extra });
-          res.write('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n');
+          res.write('data: ' + JSON.stringify({ model: state.servedModel ?? 'gpt-4o-mini', choices: [{delta: {content: 'hi'}}] }) + '\n\n');
           res.end("data: [DONE]\n\n");
           return;
         }
@@ -87,7 +87,7 @@ function startUpstream() {
         res.end(
           JSON.stringify({
             id: "chatcmpl-stub",
-            model: state.mode === "free" ? "nvidia/nemotron-3.5-bolt" : "gpt-4o-mini",
+            model: state.servedModel ?? (state.mode === "free" ? "nvidia/nemotron-3.5-bolt" : "gpt-4o-mini"),
             choices: [{ message: { role: "assistant", content: "hi" } }],
             usage: { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
           }),
@@ -784,4 +784,121 @@ test("usage replaces the hold with the real cost; a 402 challenge releases it wi
   assert.equal(h.in_flight, 0);
   const real = (1000 * 0.15 + 500 * 0.6) / 1_000_000;
   assert.ok(Math.abs(h.hour_usd - real) < 1e-12, `hour_usd ${h.hour_usd}`);
+});
+
+for (const stream of [false, true]) {
+  test(`served model telemetry and privacy (stream=${stream})`, async () => {
+    upstream.state.mode = stream ? "stream" : "ok";
+    upstream.state.servedModel = "substituted-model";
+    const port = await startKillswitch();
+    const r = await chat(port, {model: "gpt-4o-mini", stream, max_tokens: 100, messages: [{role:"user",content:"PRIVATE_PROMPT"}]});
+    assert.equal(r.status, 200);
+    const row = readLedger(dir)[0];
+    assert.equal(row.requested_model, "gpt-4o-mini");
+    assert.equal(row.served_model, "substituted-model");
+    assert.equal(row.model_mismatch, true);
+    assert.equal(row.model, row.requested_model);
+    assert.ok(!JSON.stringify(row).includes("PRIVATE_PROMPT"));
+    assert.ok(!("choices" in row));
+  });
+}
+test("same or absent served model is not a mismatch", async () => {
+  const port = await startKillswitch();
+  await chat(port, {model:"gpt-4o-mini",max_tokens:100,messages:[]});
+  upstream.state.mode = "nousage";
+  await chat(port, {model:"gpt-4o-mini",max_tokens:100,messages:[]});
+  const [a,b] = readLedger(dir);
+  assert.equal(a.model_mismatch,false);
+  assert.equal(b.served_model,null);
+  assert.equal(b.model_mismatch,false);
+});
+test("custom rates drive admission and settled accounting", async () => {
+  process.env.KILLSWITCH_MODEL_RATES = JSON.stringify({"custom-model":{in:0.55,out:2.19}});
+  process.env.KILLSWITCH_MAX_COST_REQUEST = "0.01";
+  const port = await startKillswitch();
+  assert.equal((await chat(port,{model:"custom-model",max_tokens:1000,messages:[]})).status,200);
+  assert.equal(readLedger(dir)[0].cost_usd,(1000*0.55+500*2.19)/1e6);
+  assert.equal((await chat(port,{model:"unknown-model",max_tokens:1000,messages:[]})).status,429);
+});
+test("malformed model rates fail startup", () => {
+  for (const value of ['null','[]','{"x":{"in":-1,"out":2}}','{"x":{"in":"1","out":2}}','{"x":{"in":1}}','{"x":{"in":1,"out":2,"typo":3}}','{']) {
+    process.env.KILLSWITCH_MODEL_RATES = value;
+    assert.throws(() => createServer(), /rates/i);
+  }
+});
+test("verified provider models avoid unknown fallback", () => {
+  assert.equal(costUsd("deepseek/deepseek-r1-0528",1e6,1e6),2.65);
+  assert.equal(costUsd("google/gemini-2.5-flash",1e6,1e6),2.8);
+  assert.equal(costUsd("anthropic/claude-sonnet-4.5",1e6,1e6),18);
+  assert.equal(costUsd("toString",1e6,1e6),75);
+});
+
+test("config model rates merge with env per exact id, env wins", async () => {
+  fs.writeFileSync("config.yaml", JSON.stringify({model_rates:{"custom":{in:1,out:2},"gpt-4o-mini":{in:4,out:5}}}));
+  process.env.KILLSWITCH_MODEL_RATES = JSON.stringify({custom:{in:0,out:0}});
+  const port = await startKillswitch();
+  await chat(port,{model:"custom",max_tokens:100,messages:[]});
+  await chat(port,{model:"gpt-4o-mini",max_tokens:100,messages:[]});
+  const rows = readLedger(dir);
+  assert.equal(rows[0].cost_usd,0);
+  assert.equal(rows[1].cost_usd,0.0065);
+});
+test("rate overrides survive budget replay", async () => {
+  process.env.KILLSWITCH_MODEL_RATES = JSON.stringify({custom:{in:10,out:20}});
+  process.env.KILLSWITCH_MAX_USD_HOUR = "0.025";
+  const port = await startKillswitch();
+  assert.equal((await chat(port,{model:"custom",max_tokens:100,messages:[]})).status,200);
+  assert.equal(readLedger(dir)[0].cost_usd,0.02);
+  const port2 = await startKillswitch();
+  assert.equal((await chat(port2,{model:"custom",max_tokens:1000,messages:[]})).status,429);
+});
+test("request cannot supply operator model rates", async () => {
+  const port = await startKillswitch();
+  assert.equal((await chat(port,{model:"unknown",max_tokens:10000,model_rates:{unknown:{in:0,out:0}},messages:[]})).status,429);
+  assert.equal(upstream.state.hits,0);
+});
+test("invalid served model is unknown, headers are not evidence", async () => {
+  upstream.state.servedModel = {content:"DO_NOT_LOG"};
+  upstream.state.extraHeaders = {"x-served-model":"claimed-by-header"};
+  const port = await startKillswitch();
+  await chat(port,{model:"gpt-4o-mini",max_tokens:100,messages:[]});
+  const row = readLedger(dir)[0];
+  assert.equal(row.served_model,null);
+  assert.equal(row.model_mismatch,false);
+  assert.ok(!JSON.stringify(row).includes("DO_NOT_LOG"));
+});
+
+test("explicit zero override removes a no-max-token hold, paid free-list call retains rates", async () => {
+  process.env.KILLSWITCH_MODEL_RATES = JSON.stringify({custom:{in:0,out:0}});
+  const port = await startKillswitch();
+  assert.equal((await chat(port,{model:"custom",messages:[]})).status,200);
+  assert.equal(readLedger(dir)[0].cost_usd,0);
+  process.env.KILLSWITCH_FREE_MODELS = "paid-custom";
+  process.env.KILLSWITCH_MODEL_RATES = JSON.stringify({"paid-custom":{in:15,out:60}});
+  const paidPort = await startKillswitch();
+  assert.equal((await chat(paidPort,{model:"paid-custom",max_tokens:10000,messages:[]},{"X-Payment":"synthetic"})).status,429);
+});
+test("served model is captured on a stream without usage", async () => {
+  upstream.state.mode = "stream-nousage";
+  upstream.state.servedModel = "different";
+  const port = await startKillswitch();
+  await chat(port,{model:"gpt-4o-mini",stream:true,max_tokens:100,messages:[]});
+  const row = readLedger(dir)[0];
+  assert.equal(row.served_model,"different");
+  assert.equal(row.model_mismatch,true);
+  assert.equal(row.metered,"held_estimate");
+});
+test("binding policy accepts env rates without extending the shared schema", async () => {
+  fs.writeFileSync("config.yaml",JSON.stringify({schema:"twzrd.binding_policy.v1",compute:{}}));
+  process.env.KILLSWITCH_MODEL_RATES = JSON.stringify({custom:{in:1,out:2}});
+  const port = await startKillswitch();
+  await chat(port,{model:"custom",max_tokens:100,messages:[]});
+  assert.equal(readLedger(dir)[0].cost_usd,0.002);
+});
+
+test("an expensive override never changes the fixed fallback for unrelated models", () => {
+  const rates = parseModelRates({expensive:{in:100,out:200}});
+  assert.equal(costUsd("expensive",1e6,1e6,[],rates),300);
+  assert.equal(costUsd("unknown",1e6,1e6,[],rates),75);
+  assert.equal(costUsd("constructor",1e6,1e6,[],rates),75);
 });
