@@ -42,9 +42,9 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 | Know which document is current | [docs/README.md](./docs/README.md): every document in this repository, labeled canonical, historical or internal, with the versions verified on the date shown. |
 | Build or publish from this checkout | [AGENTS.md](./AGENTS.md): what is source and what is a published-artifact mirror, the one supported install, and the fork relationship with the upstream monorepo. |
 
-## Versions, verified 2026-11-09
+## Versions
 
-Registry `latest` as read on that date. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
+Registry `latest` as read on 2026-11-09; killswitch npm and container pins rechecked on 2026-11-10. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
 
 | Package | Registry | This tree | Role |
 |---|---|---|---|
@@ -57,7 +57,7 @@ Registry `latest` as read on that date. The tree column is what this checkout mi
 | `twzrd-preflight` | npm 0.5.0 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
 | `twzrd-log-verifier` | npm 0.5.0 | 0.5.0 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
-| `@twzrd1111/agent-killswitch` | npm **0.1.7**; `ghcr.io/twzrd-sol/agent-killswitch:0.1.7` | 0.1.8 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
+| `@twzrd1111/agent-killswitch` | npm **0.1.8**; `ghcr.io/twzrd-sol/agent-killswitch:0.1.8` | 0.1.8 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
 
 ---
 
