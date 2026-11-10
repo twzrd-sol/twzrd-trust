@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,6 +99,49 @@ test("the bin target starts the proxy when run as a CLI", async () => {
     assert.match(out, /listening on 127\.0\.0\.1:/);
   } finally {
     child.kill("SIGTERM");
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("a port already in use exits 1 with one actionable line, not a stack trace", async () => {
+  const blocker = net.createServer();
+  await new Promise((resolve, reject) => {
+    blocker.once("error", reject);
+    blocker.listen(0, "127.0.0.1", resolve);
+  });
+  const port = blocker.address().port;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "killswitch-port-in-use-"));
+  const child = spawn(process.execPath, [path.join(pkgRoot, "dist", "index.js")], {
+    cwd: tmp,
+    env: {
+      ...process.env,
+      OPENAI_API_KEY: "sk-test-dummy",
+      KILLSWITCH_PORT: String(port),
+      KILLSWITCH_HOST: "127.0.0.1",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    let stderr = "";
+    child.stderr.on("data", (d) => {
+      stderr += d;
+    });
+    const code = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`did not exit; stderr: ${stderr}`)), 10000);
+      child.on("close", (c) => {
+        clearTimeout(timer);
+        resolve(c);
+      });
+    });
+    assert.equal(code, 1);
+    assert.equal(
+      stderr,
+      `agent-killswitch: port ${port} on 127.0.0.1 is already in use. ` +
+        `Set KILLSWITCH_PORT to a free port, for example KILLSWITCH_PORT=${port + 1}.\n`,
+    );
+  } finally {
+    child.kill("SIGKILL");
+    blocker.close();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });

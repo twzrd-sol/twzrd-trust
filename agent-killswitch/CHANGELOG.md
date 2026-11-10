@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A port that is already in use no longer ends in a Node stack trace. The CLI prints one line naming the port and host and how to pick another (`KILLSWITCH_PORT`), then exits 1. A port the user may not bind (`EACCES`) gets the same treatment.
+
 ## 0.1.8 (2026-11-10)
 
 Track 5 Binding Plane: shared `twzrd.binding_policy.v1` config envelope and `.pause` payment-gate backpressure sentinel.
