@@ -226,9 +226,9 @@ reaches the client, a paid retry whose `X-Payment` / `Payment-Signature` /
 ## Pricing notes
 
 Costs use a static per-model table (`src/pricing.ts`, checked against
-OpenAI's published prices). There are no live pricing fetches by design.
-An **unknown model is billed at the most expensive known rate** (currently
-o1 at **$15 input / $60 output per million tokens**) rather than rejected —
+provider catalogs; sources below). There are no live pricing fetches by design.
+An **unknown model is estimated at a fixed fallback** of
+**$15 input / $60 output per million tokens** rather than rejected —
 failing closed on cost beats failing open. A model id that is not in the
 table is priced as o1 unless you put it on `KILLSWITCH_FREE_MODELS`, which
 prices it at $0 (above); `nvidia/nemotron-3.5-bolt` is listed at $0. The
@@ -262,3 +262,68 @@ This is a local binary with no SaaS backend. Annual support (priority fixes,
 custom limits/policies, audit-export help) is available. Open an issue at
 <https://github.com/twzrd-sol/twzrd-trust/issues> with `agent-killswitch` in
 the title, your use case and team size. Bugs go to the same tracker.
+
+
+### Served-model telemetry
+
+New ledger rows keep `model` as the requested ID for compatibility and add
+`requested_model`, `served_model` (string or null), and `model_mismatch`.
+The proxy reads the JSON response's `model`, or the last valid `model` from
+SSE data events, independently of whether usage is present. Missing, invalid,
+blank or over-512-character IDs are recorded as null. A mismatch is exact string
+inequality; aliases and dated IDs can therefore flag. False with a null served
+model means unknown, not a verified match. Vetoes have no served model.
+
+These are upstream-reported IDs, not execution attestations. Detection is telemetry;
+it does not reject responses or change billing to a possibly untrusted returned ID.
+Cost accounting continues to use the requested model. If a stream aborts before
+forwarding completes, existing hold settlement applies and the served ID may be unknown.
+No prompts, completion text, or response bodies are added to the ledger.
+
+### Operator model-rate overrides
+
+Rates are USD per **one million tokens**, with separate `in` and `out` values:
+
+```sh
+export KILLSWITCH_MODEL_RATES='{"deepseek-reasoner":{"in":0.55,"out":2.19}}'
+```
+
+This is a configuration example, not a current DeepSeek price claim. In the legacy
+`config.yaml`, the equivalent is:
+
+```yaml
+model_rates:
+  deepseek-reasoner: {in: 0.55, out: 2.19}
+```
+
+Exact ID precedence: environment entry > config entry > built-in table > existing
+unpaid free-model allowlist rule > fixed $15/$60 unknown fallback. Each override
+requires both finite nonnegative numeric fields; malformed JSON, missing fields,
+negative values and unknown fields fail startup. Zero rates are an explicit
+operator assertion. Request bodies cannot override these rates. Restart to reload.
+The shared binding-policy schema is unchanged; use the environment override with it.
+
+The same rate lookup drives admission, in-flight holds and usage-based settlement.
+Existing ledger amounts are retained on restart. Adding a high-priced override does
+not raise the fallback for unrelated unknown IDs. Cached tokens, audio, tools,
+provider-specific fees and route changes can make actual provider charges differ.
+
+New built-in text rates checked on 2026-11-10 against
+[OpenRouter's live model catalog](https://openrouter.ai/api/v1/models):
+
+| Exact model ID | Input USD/M | Output USD/M |
+|---|---:|---:|
+| deepseek/deepseek-r1-0528 | 0.50 | 2.15 |
+| deepseek/deepseek-chat | 0.32 | 0.89 |
+| deepseek/deepseek-chat-v3-0324 | 0.29 | 1.14 |
+| anthropic/claude-sonnet-4.5 | 3.00 | 15.00 |
+| anthropic/claude-sonnet-4.6 | 3.00 | 15.00 |
+| google/gemini-2.5-flash | 0.30 | 2.50 |
+
+`gemini-2.5-flash` also uses $0.30/$2.50 text rates from
+[Google's pricing page](https://ai.google.dev/gemini-api/docs/pricing).
+The exact legacy IDs `deepseek/deepseek-r1`, `anthropic/claude-3.5-sonnet` and
+`google/gemini-2.0-flash-001` were absent from the live catalog on that date;
+configure verified rates explicitly if your upstream still serves them. Static
+rates are estimates, not universal market prices; no live catalog fetch runs in
+the request path.

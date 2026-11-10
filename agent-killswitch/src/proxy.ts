@@ -8,6 +8,7 @@ export interface UpstreamUsage {
 
 export interface ForwardResult {
   status: number;
+  servedModel?: string | null;
   usage: UpstreamUsage | null;
   /** "answered": upstream sent a response. "timeout" / "unreachable": the proxy wrote 504 / 502. */
   outcome: "answered" | "timeout" | "unreachable";
@@ -186,6 +187,10 @@ function upstreamFailure(clientRes: ServerResponse, timedOut: boolean): ForwardR
   return { status, usage: null, outcome: timedOut ? "timeout" : "unreachable" };
 }
 
+function modelId(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 && v.length <= 512 ? v : null;
+}
+
 function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
 }
@@ -258,12 +263,14 @@ export async function forwardChatCompletion(
     clientRes.end(text);
     if (!upstreamRes.ok) return { status: upstreamRes.status, usage: null, outcome: "answered" };
     try {
-      const parsed = JSON.parse(text) as { usage?: Partial<UpstreamUsage> };
+      const parsed = JSON.parse(text) as { model?: unknown; usage?: Partial<UpstreamUsage> };
+      const servedModel = modelId(parsed.model);
       const u = parsed.usage;
-      if (!u) return { status: upstreamRes.status, usage: null, outcome: "answered" };
+      if (!u) return { status: upstreamRes.status, servedModel, usage: null, outcome: "answered" };
       return {
         status: upstreamRes.status,
         outcome: "answered",
+        servedModel,
         usage: {
           prompt_tokens: num(u.prompt_tokens),
           completion_tokens: num(u.completion_tokens),
@@ -291,6 +298,7 @@ export async function forwardChatCompletion(
     return { status: upstreamRes.status, usage: null, outcome: "answered" };
   }
 
+  let servedModel: string | null = null;
   let usage: UpstreamUsage | null = null;
   let lineBuf = "";
   const reader = upstreamRes.body.getReader();
@@ -308,7 +316,8 @@ export async function forwardChatCompletion(
       const payload = line.slice(5).trim();
       if (payload === "[DONE]") continue;
       try {
-        const evt = JSON.parse(payload) as { usage?: Partial<UpstreamUsage> };
+        const evt = JSON.parse(payload) as { model?: unknown; usage?: Partial<UpstreamUsage> };
+        servedModel = modelId(evt.model) ?? servedModel;
         if (evt.usage && (evt.usage.prompt_tokens !== undefined || evt.usage.total_tokens !== undefined)) {
           usage = {
             prompt_tokens: num(evt.usage.prompt_tokens),
@@ -322,5 +331,5 @@ export async function forwardChatCompletion(
     }
   }
   clientRes.end();
-  return { status: upstreamRes.status, usage, outcome: "answered" };
+  return { status: upstreamRes.status, servedModel, usage, outcome: "answered" };
 }

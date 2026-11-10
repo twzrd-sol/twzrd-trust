@@ -1,3 +1,4 @@
+import { parseModelRates, type ModelRates } from "./pricing.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import yaml from "js-yaml";
@@ -13,6 +14,7 @@ export interface KillswitchConfig {
    * list is vetoed before the request leaves the machine.
    */
   freeModels: string[];
+  modelRates: ModelRates;
   /** Milliseconds to wait for upstream response headers (and the whole body when not streaming). 0 disables. */
   upstreamTimeoutMs: number;
   maxTokensPerMinute: number;
@@ -27,6 +29,7 @@ export interface KillswitchConfig {
 }
 
 interface RawConfig {
+  model_rates?: unknown;
   schema?: string;
   state_dir?: unknown;
   compute?: Record<string, unknown>;
@@ -156,6 +159,14 @@ function freeModelList(): string[] {
     .filter((s) => s.length > 0);
 }
 
+function configuredRates(base?: ModelRates): ModelRates {
+  const env = process.env.KILLSWITCH_MODEL_RATES;
+  if (env === undefined) return base ?? parseModelRates({});
+  let raw: unknown;
+  try { raw = JSON.parse(env); } catch { throw new Error("Invalid KILLSWITCH_MODEL_RATES JSON rates"); }
+  return Object.freeze({ ...base, ...parseModelRates(raw) });
+}
+
 /** Load YAML config, then apply env overrides. Throws on missing API key unless a free-model allowlist is set. */
 export function loadConfig(configPath: string): KillswitchConfig {
   let raw: RawConfig = {};
@@ -196,6 +207,7 @@ export function loadConfig(configPath: string): KillswitchConfig {
       ).replace(/\/+$/, ""),
       apiKey,
       freeModels,
+      modelRates: configuredRates(),
       upstreamTimeoutMs: Math.floor(
         num(process.env.KILLSWITCH_UPSTREAM_TIMEOUT_MS, binding.timeoutMs ?? 60000),
       ),
@@ -246,6 +258,7 @@ export function loadConfig(configPath: string): KillswitchConfig {
     ).replace(/\/+$/, ""),
     apiKey,
     freeModels,
+    modelRates: configuredRates(raw.model_rates === undefined ? undefined : parseModelRates(raw.model_rates)),
     upstreamTimeoutMs: Math.floor(
       num(process.env.KILLSWITCH_UPSTREAM_TIMEOUT_MS, raw.upstream?.timeout_ms ?? 60000),
     ),

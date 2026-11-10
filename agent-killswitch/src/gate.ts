@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { pessimisticRequestCostUsd, priceFor } from "./pricing.js";
+import { pessimisticRequestCostUsd, priceFor, type ModelRates } from "./pricing.js";
 
 export type VetoCode =
   | "budget_exceeded"
@@ -193,6 +193,7 @@ export function writePauseSwitch(
 }
 
 export interface GateInput {
+  modelRates?: ModelRates;
   killed: boolean;
   paused?: boolean;
   pauseReason?: string | null;
@@ -233,13 +234,14 @@ export function requestEstimate(
   maxTokens: number | null,
   maxCostPerRequestUsd: number,
   freeModels?: readonly string[] | null,
+  rates?: ModelRates,
 ): RequestEstimate {
   if (maxTokens === null) {
-    const { price } = priceFor(model, freeModels);
+    const { price } = priceFor(model, freeModels, rates);
     const free = price.inputPerMTok === 0 && price.outputPerMTok === 0;
     return { tokens: 0, usd: free ? 0 : maxCostPerRequestUsd };
   }
-  return { tokens: maxTokens, usd: pessimisticRequestCostUsd(model, maxTokens, freeModels) };
+  return { tokens: maxTokens, usd: pessimisticRequestCostUsd(model, maxTokens, freeModels, rates) };
 }
 
 /** Pure pre-call budget evaluator. No I/O, no tokenizer. The window must include in-flight holds. */
@@ -280,7 +282,7 @@ export function evaluateGate(input: GateInput): GateDecision {
   }
 
   // The same estimate the caller holds while the request is in flight.
-  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels);
+  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels, input.modelRates);
 
   // Token velocity gate: tokens in the last 60 s (recorded and in flight)
   // plus this request's max_tokens as a stand-in for its eventual size.

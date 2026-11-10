@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import { checkKillSwitch, checkPauseSwitch, evaluateGate, requestEstimate, vetoBody, writePauseSwitch } from "./gate.js";
 import { Ledger } from "./ledger.js";
-import { costUsd } from "./pricing.js";
+import { costUsd, type ModelRates } from "./pricing.js";
 import { carriesPaymentCredential, forwardChatCompletion, type ForwardResult } from "./proxy.js";
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
@@ -153,6 +153,7 @@ async function handle(
     maxCostPerRequestUsd: cfg.maxCostPerRequestUsd,
     allowedModels: cfg.freeModels,
     zeroPriceModels,
+    modelRates: cfg.modelRates,
   });
 
   if (!decision.allowed) {
@@ -171,6 +172,9 @@ async function handle(
     ledger.append({
       timestamp: now,
       model,
+      requested_model: model,
+      served_model: null,
+      model_mismatch: false,
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
@@ -185,7 +189,7 @@ async function handle(
 
   // Allowed: hold the same estimate the check used, in this turn (no await
   // between the check and the hold), so a concurrent request sees it.
-  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd, zeroPriceModels);
+  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd, zeroPriceModels, cfg.modelRates);
   const holdId = ledger.hold(est.tokens, est.usd, Date.parse(now));
 
   let result: ForwardResult | null = null;
@@ -200,7 +204,7 @@ async function handle(
       req.headers,
     );
   } finally {
-    settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: zeroPriceModels });
+    settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: zeroPriceModels, rates: cfg.modelRates });
   }
 }
 
@@ -217,17 +221,19 @@ function settleHold(
   ledger: Ledger,
   holdId: number,
   result: ForwardResult | null,
-  ctx: { now: string; model: string; requestId: string; est: { tokens: number; usd: number }; freeModels: readonly string[] },
+  ctx: { now: string; model: string; requestId: string; est: { tokens: number; usd: number }; freeModels: readonly string[]; rates: ModelRates },
 ): void {
+  const telemetry = { requested_model: ctx.model, served_model: result?.servedModel ?? null, model_mismatch: result?.servedModel != null && result.servedModel !== ctx.model };
   if (result?.usage) {
     const u = result.usage;
     ledger.settle(holdId, {
       timestamp: ctx.now,
       model: ctx.model,
+      ...telemetry,
       prompt_tokens: u.prompt_tokens,
       completion_tokens: u.completion_tokens,
       total_tokens: u.total_tokens,
-      cost_usd: costUsd(ctx.model, u.prompt_tokens, u.completion_tokens, ctx.freeModels),
+      cost_usd: costUsd(ctx.model, u.prompt_tokens, u.completion_tokens, ctx.freeModels, ctx.rates),
       allowed: true,
       veto_reason: null,
       request_id: ctx.requestId,
@@ -243,6 +249,7 @@ function settleHold(
   ledger.settle(holdId, {
     timestamp: ctx.now,
     model: ctx.model,
+    ...telemetry,
     prompt_tokens: 0,
     completion_tokens: 0,
     total_tokens: ctx.est.tokens,
