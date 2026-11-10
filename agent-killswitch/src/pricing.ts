@@ -29,21 +29,37 @@ function mostExpensive(): ModelPrice {
   return top;
 }
 
-export function priceFor(model: string): { price: ModelPrice; known: boolean } {
+const FREE: ModelPrice = { inputPerMTok: 0, outputPerMTok: 0 };
+
+/**
+ * `freeModels` is the operator's free allowlist (KILLSWITCH_FREE_MODELS /
+ * compute.free_models). A model on it that has no row in the table is the
+ * operator's statement that it costs nothing (a local Ollama model, a free
+ * catalog entry), so it is priced at $0 and not at the o1 fallback. A model
+ * that does have a row keeps that row: listing `gpt-4o` as free does not
+ * zero a priced model. Token limits apply either way.
+ */
+export function priceFor(model: string, freeModels?: readonly string[] | null): { price: ModelPrice; known: boolean } {
   const price = PRICES[model];
   if (price) return { price, known: true };
+  if (freeModels && freeModels.includes(model)) return { price: FREE, known: false };
   // Fail closed: an unlisted model could be a pricey reasoning model, so we
   // assume the worst instead of silently undercounting spend.
   return { price: mostExpensive(), known: false };
 }
 
-export function costUsd(model: string, promptTokens: number, completionTokens: number): number {
-  const { price } = priceFor(model);
+export function costUsd(
+  model: string,
+  promptTokens: number,
+  completionTokens: number,
+  freeModels?: readonly string[] | null,
+): number {
+  const { price } = priceFor(model, freeModels);
   return (promptTokens * price.inputPerMTok + completionTokens * price.outputPerMTok) / 1_000_000;
 }
 
 /** Pessimistic pre-call estimate: the request's max_tokens all billed at the output rate. */
-export function pessimisticRequestCostUsd(model: string, maxTokens: number): number {
-  const { price } = priceFor(model);
+export function pessimisticRequestCostUsd(model: string, maxTokens: number, freeModels?: readonly string[] | null): number {
+  const { price } = priceFor(model, freeModels);
   return (maxTokens * price.outputPerMTok) / 1_000_000;
 }

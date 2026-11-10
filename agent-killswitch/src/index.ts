@@ -178,7 +178,7 @@ async function handle(
 
   // Allowed: hold the same estimate the check used, in this turn (no await
   // between the check and the hold), so a concurrent request sees it.
-  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd);
+  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd, cfg.freeModels);
   const holdId = ledger.hold(est.tokens, est.usd, Date.parse(now));
 
   let result: ForwardResult | null = null;
@@ -193,7 +193,7 @@ async function handle(
       req.headers,
     );
   } finally {
-    settleHold(ledger, holdId, result, { now, model, requestId, est });
+    settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: cfg.freeModels });
   }
 }
 
@@ -210,7 +210,7 @@ function settleHold(
   ledger: Ledger,
   holdId: number,
   result: ForwardResult | null,
-  ctx: { now: string; model: string; requestId: string; est: { tokens: number; usd: number } },
+  ctx: { now: string; model: string; requestId: string; est: { tokens: number; usd: number }; freeModels: readonly string[] },
 ): void {
   if (result?.usage) {
     const u = result.usage;
@@ -220,7 +220,7 @@ function settleHold(
       prompt_tokens: u.prompt_tokens,
       completion_tokens: u.completion_tokens,
       total_tokens: u.total_tokens,
-      cost_usd: costUsd(ctx.model, u.prompt_tokens, u.completion_tokens),
+      cost_usd: costUsd(ctx.model, u.prompt_tokens, u.completion_tokens, ctx.freeModels),
       allowed: true,
       veto_reason: null,
       request_id: ctx.requestId,

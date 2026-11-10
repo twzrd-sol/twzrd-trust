@@ -3,6 +3,9 @@
 ## Unreleased
 
 - A port that is already in use no longer ends in a Node stack trace. The CLI prints one line naming the port and host, that another agent-killswitch may be running, and how to pick another port (`KILLSWITCH_PORT`), then exits 1. A port the user may not bind (`EACCES`) gets the same treatment.
+- A model on the free allowlist (`KILLSWITCH_FREE_MODELS` / `compute.free_models`) that has no row in the price table is now priced at $0, where it used to be billed at the o1 fallback rate. A local model behind Ollama no longer runs into the hourly dollar limit on spend that never happened. A listed model that has a price row keeps it, and a model off the list is still priced as o1.
+- A call to a $0 model without `max_tokens` holds $0, where it used to hold the per-request cap. This also applies to `nvidia/nemotron-3.5-bolt`.
+- Unchanged: the per-minute token limit, the kill file and the pause sentinel apply to free models as before.
 
 ## 0.1.8 (2026-11-10)
 

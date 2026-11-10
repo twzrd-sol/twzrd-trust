@@ -455,6 +455,46 @@ test("the pinned free model costs zero and an unknown model stays at the o1 rate
   assert.equal(pessimisticRequestCostUsd("not-a-real-model", 1), 60 / 1_000_000);
 });
 
+test("a model on the free allowlist with no price row costs zero; a priced model keeps its price", () => {
+  const free = ["local-model", "gpt-4o"];
+  assert.equal(costUsd("local-model", 1_000_000, 1_000_000, free), 0);
+  assert.equal(pessimisticRequestCostUsd("local-model", 4096, free), 0);
+  // Listing a priced model as free does not zero it.
+  assert.equal(costUsd("gpt-4o", 1_000_000, 1_000_000, free), 12.5);
+  assert.equal(pessimisticRequestCostUsd("gpt-4o", 1_000_000, free), 10);
+  // Not on the list: still the o1 fallback, with or without a list.
+  assert.equal(costUsd("other-model", 1_000_000, 1_000_000, free), 75);
+  assert.equal(costUsd("local-model", 1_000_000, 1_000_000), 75);
+  assert.equal(costUsd("local-model", 1_000_000, 1_000_000, []), 75);
+});
+
+test("an allowlisted local model meters $0 with default limits, and the token limit still vetoes", async () => {
+  delete process.env.OPENAI_API_KEY;
+  process.env.KILLSWITCH_FREE_MODELS = "local-model";
+  process.env.KILLSWITCH_MAX_TOKENS_MINUTE = "2000";
+  const port = await startKillswitch();
+
+  // No max_tokens: before this change the call held the $0.50 per-request cap
+  // and its 1500 tokens were then billed at the o1 fallback rate.
+  const ok = await chat(port, { model: "local-model", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(ok.status, 200);
+  assert.equal(upstream.state.auths[0], "");
+  let lines = readLedger(dir);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].cost_usd, 0);
+  assert.equal(lines[0].total_tokens, 1500);
+  assert.equal(lines[0].metered, "usage");
+  const h = await health(port);
+  assert.equal(h.hour_usd, 0);
+  assert.equal(h.day_usd, 0);
+
+  // 1500 tokens are in the minute window; 1000 more would cross 2000.
+  const capped = await chat(port, { model: "local-model", max_tokens: 1000, messages: [{ role: "user", content: "hi" }] });
+  assert.equal(capped.status, 429);
+  assert.equal(capped.json.error.code, "budget_exceeded");
+  assert.equal(upstream.state.hits, 1);
+});
+
 test("default mode still sends the configured bearer", async () => {
   const port = await startKillswitch();
   const r = await chat(port, { model: "gpt-4o-mini", max_tokens: 16, messages: [{ role: "user", content: "hi" }] });
