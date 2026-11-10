@@ -4,9 +4,12 @@ name: agent-killswitch image to GHCR
 # outside branch or PR does can push an image. A person starts each run and
 # names the version and commit it must match.
 #
-# Auth is this run's GITHUB_TOKEN with packages: write. No personal token is
-# stored or widened. This repository is public, but do not assume the GHCR
-# package's visibility: check it in the package settings after the first push.
+# Auth is the image job's GITHUB_TOKEN with packages: write. No personal token
+# is stored or widened. The test suite runs first, in the conformance job,
+# which has contents: read only: two of its tests execute the sibling gate and
+# the gate's dependencies, and those must not run in the job that can push.
+# This repository is public, but do not assume the GHCR package's visibility:
+# check it in the package settings after the first push.
 # Runs only from main; the version and commit checks below bind what is built.
 
 on:
@@ -21,16 +24,24 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: agent-killswitch-image
   cancel-in-progress: false
 
 jobs:
+  conformance:
+    uses: ./.github/workflows/agent-killswitch-conformance.yml
+    permissions:
+      contents: read
+
   image:
+    needs: conformance
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         working-directory: agent-killswitch
@@ -69,16 +80,12 @@ jobs:
           fi
           echo "version $actual_version at $actual_commit"
 
+      # Node here only serves `npm view` below. Nothing is installed or tested
+      # on this runner: the tests ran in the conformance job, and the Docker
+      # build does its own `npm ci` and tsc build inside the image.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: agent-killswitch/package-lock.json
-
-      - name: Install, typecheck and test
-        run: |
-          npm ci
-          npm run ci
 
       - name: Log in to GHCR
         env:

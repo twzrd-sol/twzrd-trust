@@ -1,0 +1,55 @@
+name: agent-killswitch conformance
+
+# The whole agent-killswitch suite, in a job that holds no release credential.
+#
+# agent-killswitch/test/binding-plane.test.mjs proves that the gate and the
+# proxy read the same .pause file, so two of its tests import
+# ../twzrd-x402-gate/dist. Running them means installing the repo-root tree,
+# building the gate, and executing the gate's dependencies. The proxy itself
+# has one runtime dependency. The two release workflows therefore call this
+# workflow and never run the suite in the job that holds id-token: write
+# (npm) or packages: write (GHCR).
+#
+# Triggers:
+#   workflow_call  publish-agent-killswitch.yml and agent-killswitch-image.yml
+#                  run this first; their release job `needs` it.
+#   pull_request   only when one of these three files changes, so an edit to
+#                  the release path gets a hosted run before it merges. The
+#                  release workflows themselves are workflow_dispatch only.
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - .github/workflows/agent-killswitch-conformance.yml
+      - .github/workflows/publish-agent-killswitch.yml
+      - .github/workflows/agent-killswitch-image.yml
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build the sibling gate (repo-root install, install scripts off)
+        # Root CI builds the gate before the agent-killswitch tests. The 0.1.8
+        # publish run (42741463419) did not, and the two cross-reader tests
+        # failed with ERR_MODULE_NOT_FOUND. The gate build is tsc only.
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
+      - name: Install, typecheck and test agent-killswitch
+        working-directory: agent-killswitch
+        run: |
+          npm ci
+          npm run ci
