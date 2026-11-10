@@ -59,7 +59,7 @@ where the current state lives.
 
 ## Package mirrors
 
-These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-09: gate 0.20.0, killswitch 0.1.7 (tree 0.1.8), mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
+These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-10: gate 0.20.0, killswitch 0.1.8, mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
 
 | Document | Status | Mirrors |
 |---|---|---|
