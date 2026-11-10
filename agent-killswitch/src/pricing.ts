@@ -1,8 +1,9 @@
 // Static USD per 1M token estimates. OpenAI rows checked 2026-11-07; every
 // other row checked 2026-11-10 against the sources named above its group.
-// Each row is the highest text price the upstream can bill for that exact id
-// without a caller opt-in (top prompt-length tier, announced increases
-// applied): under-pricing is the unsafe direction. Unknown ids keep the fixed $15 input / $60 output
+// Each row is the highest price the upstream can bill for that exact id,
+// including any premium the request body can select (the agent being limited
+// writes the body), the top prompt-length tier and announced increases:
+// under-pricing is the unsafe direction. Unknown ids keep the fixed $15 input / $60 output
 // fallback; a known row may sit above it. See README "Pricing notes".
 
 export interface ModelPrice {
@@ -12,9 +13,10 @@ export interface ModelPrice {
 
 const PRICES: Record<string, ModelPrice> = {
   // OpenRouter ids. Each row is the highest price among the endpoints
-  // /api/v1/models/<id>/endpoints listed on 2026-11-10, including prompt-length
-  // tiers, regional and fast/priority endpoints: OpenRouter picks the provider per
-  // request, so any of them can bill the call.
+  // /api/v1/models/<id>/endpoints listed on 2026-11-10: prompt-length tiers,
+  // regional, fast and priority endpoints, audio input where it bills above
+  // text, and the undiscounted price where an endpoint lists a discount.
+  // OpenRouter picks the provider per request, so any of them can bill the call.
   "anthropic/claude-fable-5": { inputPerMTok: 11, outputPerMTok: 55 },
   "anthropic/claude-fable-5.1": { inputPerMTok: 10, outputPerMTok: 50 },
   "anthropic/claude-fable-5.2": { inputPerMTok: 16, outputPerMTok: 80 },
@@ -31,7 +33,7 @@ const PRICES: Record<string, ModelPrice> = {
   "anthropic/claude-sonnet-4.6": { inputPerMTok: 3.3, outputPerMTok: 16.5 },
   "anthropic/claude-sonnet-5": { inputPerMTok: 2.2, outputPerMTok: 11 },
   "anthropic/claude-sonnet-5.5": { inputPerMTok: 2.2, outputPerMTok: 11 },
-  "deepseek/deepseek-chat": { inputPerMTok: 0.32, outputPerMTok: 1.0287 },
+  "deepseek/deepseek-chat": { inputPerMTok: 0.32, outputPerMTok: 1.143 },
   "deepseek/deepseek-chat-v3-0324": { inputPerMTok: 0.29, outputPerMTok: 1.14 },
   "deepseek/deepseek-chat-v3.1": { inputPerMTok: 0.5, outputPerMTok: 1.5 },
   "deepseek/deepseek-r1-0528": { inputPerMTok: 0.571, outputPerMTok: 2.286 },
@@ -39,38 +41,44 @@ const PRICES: Record<string, ModelPrice> = {
   "deepseek/deepseek-v4-flash": { inputPerMTok: 0.21, outputPerMTok: 0.56 },
   "deepseek/deepseek-v4-pro": { inputPerMTok: 1.91, outputPerMTok: 3.83 },
   "deepseek/deepseek-v4.1-flash": { inputPerMTok: 0.45, outputPerMTok: 1.8 },
-  "google/gemini-2.5-flash": { inputPerMTok: 0.54, outputPerMTok: 4.5 },
-  "google/gemini-2.5-flash-lite": { inputPerMTok: 0.18, outputPerMTok: 0.72 },
+  "google/gemini-2.5-flash": { inputPerMTok: 1.8, outputPerMTok: 4.5 },
+  "google/gemini-2.5-flash-lite": { inputPerMTok: 0.54, outputPerMTok: 0.72 },
   "google/gemini-2.5-pro": { inputPerMTok: 4.5, outputPerMTok: 27 },
-  "google/gemini-3-flash-preview": { inputPerMTok: 0.9, outputPerMTok: 5.4 },
-  "google/gemini-3.1-flash-lite": { inputPerMTok: 0.45, outputPerMTok: 2.7 },
+  "google/gemini-3-flash-preview": { inputPerMTok: 1.8, outputPerMTok: 5.4 },
+  "google/gemini-3.1-flash-lite": { inputPerMTok: 0.9, outputPerMTok: 2.7 },
   "google/gemini-3.1-pro-preview": { inputPerMTok: 7.2, outputPerMTok: 32.4 },
-  "google/gemini-3.5-flash": { inputPerMTok: 2.7, outputPerMTok: 16.2 },
+  "google/gemini-3.5-flash": { inputPerMTok: 5.4, outputPerMTok: 16.2 },
   "google/gemini-3.5-flash-lite": { inputPerMTok: 0.54, outputPerMTok: 4.5 },
   "google/gemini-3.6-flash": { inputPerMTok: 2.7, outputPerMTok: 13.5 },  // x2 from 2027-01-01 applied
-  "google/gemini-3.7-flash": { inputPerMTok: 1.35, outputPerMTok: 6.75 },
+  "google/gemini-3.7-flash": { inputPerMTok: 2.7, outputPerMTok: 13.5 },
   "google/gemini-3.8-flash": { inputPerMTok: 2.7, outputPerMTok: 13.5 },  // x2 from 2027-01-01 applied
   "google/gemini-4-argon": { inputPerMTok: 7.2, outputPerMTok: 36 },  // x2 from 2026-12-01 applied
   "google/gemini-4-carbon": { inputPerMTok: 7.2, outputPerMTok: 36 },  // x2 from 2026-12-01 applied
   // Anthropic OpenAI SDK compatibility layer (base URL https://api.anthropic.com/v1/),
   // ids from its supported-model list, prices from platform.claude.com pricing.
-  // Haiku 5.5 uses its over-100k-prompt tier and Sonnet 4.5 its over-200k tier
-  // (as Anthropic's own AWS platform bills it). Fast mode and inference_geo are
-  // not among the layer's documented request fields, so they are not modeled.
-  "claude-fable-5-2": { inputPerMTok: 8, outputPerMTok: 40 },
-  "claude-fable-5-1": { inputPerMTok: 10, outputPerMTok: 50 },
-  "claude-fable-5": { inputPerMTok: 10, outputPerMTok: 50 },
-  "claude-opus-5-5": { inputPerMTok: 4, outputPerMTok: 20 },
-  "claude-opus-5": { inputPerMTok: 5, outputPerMTok: 25 },
-  "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
-  "claude-opus-4-7": { inputPerMTok: 5, outputPerMTok: 25 },
-  "claude-opus-4-6": { inputPerMTok: 5, outputPerMTok: 25 },
+  // The layer documents neither fast mode nor inference_geo, and it forwards some
+  // extra body fields (thinking), so both are priced in: fast mode where Anthropic
+  // offers it, times 1.1x US-only inference on Claude 4.6 and later. Haiku 5.5
+  // uses its over-100k-prompt tier. Sonnet 4.5 uses the over-200k tier ($6/$22.50)
+  // that OpenRouter lists for Anthropic's own AWS endpoint; Anthropic's page lists
+  // $3/$15. claude-mythos-preview has no published price and stays on the fallback.
+  "claude-fable-5-2": { inputPerMTok: 17.6, outputPerMTok: 88 },
+  "claude-mythos-5-2": { inputPerMTok: 17.6, outputPerMTok: 88 },
+  "claude-fable-5-1": { inputPerMTok: 11, outputPerMTok: 55 },
+  "claude-mythos-5-1": { inputPerMTok: 11, outputPerMTok: 55 },
+  "claude-fable-5": { inputPerMTok: 11, outputPerMTok: 55 },
+  "claude-mythos-5": { inputPerMTok: 11, outputPerMTok: 55 },
+  "claude-opus-5-5": { inputPerMTok: 8.8, outputPerMTok: 44 },
+  "claude-opus-5": { inputPerMTok: 11, outputPerMTok: 55 },
+  "claude-opus-4-8": { inputPerMTok: 11, outputPerMTok: 55 },
+  "claude-opus-4-7": { inputPerMTok: 5.5, outputPerMTok: 27.5 },
+  "claude-opus-4-6": { inputPerMTok: 5.5, outputPerMTok: 27.5 },
   "claude-opus-4-5-20251101": { inputPerMTok: 5, outputPerMTok: 25 },
-  "claude-sonnet-5-5": { inputPerMTok: 2, outputPerMTok: 10 },
-  "claude-sonnet-5": { inputPerMTok: 2, outputPerMTok: 10 },
-  "claude-sonnet-4-6": { inputPerMTok: 3, outputPerMTok: 15 },
+  "claude-sonnet-5-5": { inputPerMTok: 2.2, outputPerMTok: 11 },
+  "claude-sonnet-5": { inputPerMTok: 2.2, outputPerMTok: 11 },
+  "claude-sonnet-4-6": { inputPerMTok: 3.3, outputPerMTok: 16.5 },
   "claude-sonnet-4-5-20250929": { inputPerMTok: 6, outputPerMTok: 22.5 },
-  "claude-haiku-5-5": { inputPerMTok: 0.5, outputPerMTok: 2.5 },
+  "claude-haiku-5-5": { inputPerMTok: 0.55, outputPerMTok: 2.75 },
   "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 },
   // DeepSeek API (https://api.deepseek.com), api-docs.deepseek.com pricing: peak
   // band, cache-miss input. deepseek-v4-flash and deepseek-v4-flash-vision-exp
@@ -79,20 +87,21 @@ const PRICES: Record<string, ModelPrice> = {
   "deepseek-v4-flash": { inputPerMTok: 0.3, outputPerMTok: 1.2 },
   "deepseek-v4-flash-vision-exp": { inputPerMTok: 0.3, outputPerMTok: 1.2 },
   "deepseek-v4-pro": { inputPerMTok: 1.32, outputPerMTok: 3.96 },
-  // Gemini API OpenAI compatibility, ai.google.dev pricing: paid standard tier,
-  // text input, top prompt-length tier. Priority (1.8x) is a caller opt-in on
-  // the direct API and is not modeled here; audio input is billed higher.
-  "gemini-2.5-flash": { inputPerMTok: 0.3, outputPerMTok: 2.5 },
-  "gemini-2.5-flash-lite": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
-  "gemini-2.5-pro": { inputPerMTok: 2.5, outputPerMTok: 15 },
-  "gemini-3-flash-preview": { inputPerMTok: 0.5, outputPerMTok: 3 },
-  "gemini-3.1-flash-lite": { inputPerMTok: 0.25, outputPerMTok: 1.5 },
-  "gemini-3.1-pro-preview": { inputPerMTok: 4, outputPerMTok: 18 },
-  "gemini-3.5-flash-lite": { inputPerMTok: 0.3, outputPerMTok: 2.5 },
-  "gemini-3.6-flash": { inputPerMTok: 1.5, outputPerMTok: 7.5 },  // price from 2027-01-01
-  "gemini-3.8-flash": { inputPerMTok: 1.5, outputPerMTok: 7.5 },  // price from 2027-01-01
-  "gemini-4-carbon": { inputPerMTok: 4, outputPerMTok: 20 },  // price from 2026-12-01
-  "gemini-4-argon": { inputPerMTok: 4, outputPerMTok: 20 },  // price from 2026-12-01
+  // Gemini API OpenAI compatibility, aistudio.google.com/docs/pricing. The layer
+  // honours service_tier="priority" and input_audio from the request body, so rows
+  // use the Priority tier (1.8x), audio input where it bills above text, and the
+  // top prompt-length tier.
+  "gemini-2.5-flash": { inputPerMTok: 1.8, outputPerMTok: 4.5 },
+  "gemini-2.5-flash-lite": { inputPerMTok: 0.54, outputPerMTok: 0.72 },
+  "gemini-2.5-pro": { inputPerMTok: 4.5, outputPerMTok: 27 },
+  "gemini-3-flash-preview": { inputPerMTok: 1.8, outputPerMTok: 5.4 },
+  "gemini-3.1-flash-lite": { inputPerMTok: 0.9, outputPerMTok: 2.7 },
+  "gemini-3.1-pro-preview": { inputPerMTok: 7.2, outputPerMTok: 32.4 },
+  "gemini-3.5-flash-lite": { inputPerMTok: 0.54, outputPerMTok: 4.5 },
+  "gemini-3.6-flash": { inputPerMTok: 2.7, outputPerMTok: 13.5 },  // Priority price from 2027-01-01
+  "gemini-3.8-flash": { inputPerMTok: 2.7, outputPerMTok: 13.5 },  // Priority price from 2027-01-01
+  "gemini-4-carbon": { inputPerMTok: 7.2, outputPerMTok: 36 },  // Priority price from 2026-12-01
+  "gemini-4-argon": { inputPerMTok: 7.2, outputPerMTok: 36 },  // Priority price from 2026-12-01
   // BlockRun catalog 2026-11-07: billing_mode free, input 0, output 0.
   // The fixed fallback is independent of this free catalog entry.
   "nvidia/nemotron-3.5-bolt": { inputPerMTok: 0, outputPerMTok: 0 },
@@ -133,12 +142,30 @@ function looksLikePricedModel(model: string, rates?: ModelRates): boolean {
 const FREE: ModelPrice = { inputPerMTok: 0, outputPerMTok: 0 };
 
 /**
+ * Price for an id with no row: the fixed fallback, raised per component to any
+ * priced id it extends (`<id>:nitro`, `<id>-20261201`). A variant of a row above
+ * the fallback (an OpenRouter fast endpoint, an expensive override) keeps the
+ * dearer row; an unrelated id gets the fallback unchanged.
+ */
+function fallbackFor(model: string, rates?: ModelRates): ModelPrice {
+  let inputPerMTok = FALLBACK.inputPerMTok;
+  let outputPerMTok = FALLBACK.outputPerMTok;
+  for (const [id, p] of Object.entries({ ...PRICES, ...rates })) {
+    if (model.startsWith(`${id}-`) || model.startsWith(`${id}:`)) {
+      inputPerMTok = Math.max(inputPerMTok, p.inputPerMTok);
+      outputPerMTok = Math.max(outputPerMTok, p.outputPerMTok);
+    }
+  }
+  return { inputPerMTok, outputPerMTok };
+}
+
+/**
  * `freeModels` is the operator's free allowlist (KILLSWITCH_FREE_MODELS /
  * compute.free_models). A model on it that has no row in the table is the
  * operator's statement that it costs nothing (a local Ollama model, a free
- * catalog entry), so it is priced at $0 and not at the o1 fallback. A model
+ * catalog entry), so it is priced at $0 and not at the fallback. A model
  * that does have a row keeps that row, and a dated or suffixed id of a priced
- * model (`gpt-4o-2024-11-20`) keeps the o1 fallback: listing `gpt-4o` as free
+ * model (`gpt-4o-2024-11-20`) keeps the fallback: listing `gpt-4o` as free
  * does not zero a priced model. The caller passes no list for a call that
  * carries a payment credential. Token limits apply either way.
  */
@@ -148,7 +175,7 @@ export function priceFor(model: string, freeModels?: readonly string[] | null, r
   if (freeModels && freeModels.includes(model) && !looksLikePricedModel(model, rates)) return { price: FREE, known: false };
   // Fail closed: an unlisted model could be a pricey reasoning model, so we
   // assume the worst instead of silently undercounting spend.
-  return { price: FALLBACK, known: false };
+  return { price: fallbackFor(model, rates), known: false };
 }
 
 export function costUsd(

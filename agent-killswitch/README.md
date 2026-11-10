@@ -185,7 +185,7 @@ behind Ollama or a free catalog entry is. The dollar limits then never
 trip for it; the per-minute token limit and the kill file still apply. A
 listed model that does have a price row (`gpt-4o`, for example) keeps that
 price, and a dated or suffixed id of a priced model (`gpt-4o-2024-11-20`)
-keeps the $15/$60 fallback.
+keeps the $15/$60 fallback, or that row's price where it is higher.
 
 The $0 price is for unpaid calls only. Keyless mode is also how an
 MPP/x402 buyer runs the proxy, so a call that carries a payment credential
@@ -230,7 +230,8 @@ provider catalogs; sources below). There are no live pricing fetches by design.
 An **unknown model is estimated at a fixed fallback** of
 **$15 input / $60 output per million tokens** rather than rejected —
 failing closed on cost beats failing open. A model id that is not in the
-table is priced at that fallback unless you put it on `KILLSWITCH_FREE_MODELS`, which
+table is priced at that fallback (or at a dearer row it extends; see "Built-in
+price rows") unless you put it on `KILLSWITCH_FREE_MODELS`, which
 prices it at $0 (above); `nvidia/nemotron-3.5-bolt` is listed at $0. The
 ledger shows exactly what was assumed.
 
@@ -297,7 +298,8 @@ model_rates:
 ```
 
 Exact ID precedence: environment entry > config entry > built-in table > existing
-unpaid free-model allowlist rule > fixed $15/$60 unknown fallback. Each override
+unpaid free-model allowlist rule > fixed $15/$60 unknown fallback, raised to
+any dearer row or override the id extends with `-` or `:`. Each override
 requires both finite nonnegative numeric fields; malformed JSON, missing fields,
 negative values and unknown fields fail startup. Zero rates are an explicit
 operator assertion. Request bodies cannot override these rates. Restart to reload.
@@ -305,49 +307,66 @@ The shared binding-policy schema is unchanged; use the environment override with
 
 The same rate lookup drives admission, in-flight holds and usage-based settlement.
 Existing ledger amounts are retained on restart. Adding a high-priced override does
-not raise the fallback for unrelated unknown IDs. Cached tokens, audio, tools,
+not raise the fallback for unrelated unknown IDs, only for IDs that extend it. Cached tokens, audio, tools,
 provider-specific fees and route changes can make actual provider charges differ.
 
 ### Built-in price rows
 
-Checked 2026-11-10 (OpenAI rows 2026-11-07). Each row is the highest text
-price the upstream can bill for that exact id without a caller opt-in: the top
-prompt-length tier, with announced price increases already applied.
-Under-pricing is the unsafe direction, so a row can overstate a typical call;
-if you pin a cheaper route, set an override (above) at that route's price. The
+Checked 2026-11-10 (OpenAI rows 2026-11-07). Each row is the highest price the
+upstream can bill for that exact id, including any premium the request body can
+select, because the agent being limited writes the body and the proxy forwards
+it. Rows use the top prompt-length tier and already include announced price
+increases. Under-pricing is the unsafe direction, so a row usually overstates a
+call. If your agents cannot reach a premium (you pin one route, or the upstream
+ignores the field), set an override (above) at the price you actually pay. The
 full list, grouped by source, is in `src/pricing.ts`.
 
 | Group | Ids | Source and rule |
 |---|---:|---|
-| OpenRouter (`anthropic/…`, `deepseek/…`, `google/…`) | 37 | `https://openrouter.ai/api/v1/models/<id>/endpoints` (public, no key): the dearest endpoint listed, including regional, fast and priority endpoints and prompt-length tiers, because OpenRouter picks the provider per request |
-| Anthropic, [OpenAI SDK compatibility](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) (`claude-sonnet-5-5`, …) | 15 | [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), the ids the compatibility layer lists |
+| OpenRouter (`anthropic/…`, `deepseek/…`, `google/…`) | 37 | `https://openrouter.ai/api/v1/models/<id>/endpoints` (public, no key): the dearest endpoint, because OpenRouter picks the provider per request. Includes regional, fast and priority endpoints, prompt-length tiers and audio input, at the undiscounted price where a discount is listed |
+| Anthropic, [OpenAI SDK compatibility](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) (`claude-sonnet-5-5`, …) | 18 | [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing): fast mode where offered, times the 1.1x `inference_geo` multiplier on Claude 4.6 and later |
 | DeepSeek API (`deepseek-flash`, `deepseek-v4-pro`) | 4 | [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/), peak band, cache-miss input |
-| Gemini API, OpenAI compatibility (`gemini-3.6-flash`, …) | 11 | [Gemini pricing](https://aistudio.google.com/docs/pricing), paid standard tier, text input |
+| Gemini API, OpenAI compatibility (`gemini-3.6-flash`, …) | 11 | [Gemini pricing](https://aistudio.google.com/docs/pricing): Priority tier, and audio input where it bills above text |
 | OpenAI and BlockRun | 7 | OpenAI published prices; BlockRun's free `nvidia/nemotron-3.5-bolt` |
 
 What the rule produces, for example:
 
-- `anthropic/claude-sonnet-4.6` is $3.30/$16.50 (regional Bedrock and Vertex
-  bill 1.1x), `google/gemini-2.5-flash` is $0.54/$4.50 (Google's priority
-  endpoint), and `anthropic/claude-fable-5.2` is $16/$80 (a fast-mode
-  endpoint). That last row is above the $15/$60 fallback and keeps its price.
-- `claude-haiku-5-5` uses its over-100k-prompt price ($0.50/$2.50) and
-  `claude-sonnet-4-5-20250929` its over-200k price ($6/$22.50). Fast mode and
-  `inference_geo` are not among the compatibility layer's documented request
-  fields and are not modeled.
-- `gemini-3.6-flash` and `gemini-3.8-flash` carry the price Google announced
-  for 2027-01-01 ($1.50/$7.50), and `gemini-4-carbon` / `gemini-4-argon` the
-  price for 2026-12-01 ($4/$20). Priority (1.8x) is a caller opt-in on the
-  direct Gemini API and audio input bills higher; neither is modeled.
-- `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are legacy names that
-  DeepSeek still accepts and bills at the Flash price. `deepseek-chat`,
-  `deepseek-reasoner` and the retired OpenRouter ids `deepseek/deepseek-r1`,
-  `anthropic/claude-3.5-sonnet` and `google/gemini-2.0-flash-001` are not
-  listed by their providers and stay on the fallback; configure a verified rate
-  if your upstream still serves them.
+- **Gemini API.** The compatibility layer honours `service_tier="priority"`
+  (1.8x) and `input_audio` from the request body, so `gemini-2.5-flash` is
+  $1.80/$4.50 (Priority, audio input) where the standard text price is
+  $0.30/$2.50.
+- **Anthropic layer.** It documents neither fast mode nor `inference_geo`, but it
+  does forward some extra body fields (`thinking`), so both are priced in:
+  `claude-sonnet-5-5` is $2.20/$11 (standard $2/$10, times 1.1), and
+  `claude-fable-5-2` is $17.60/$88 (fast mode $16/$80, times 1.1).
+- **Prompt-length tiers.** `claude-haiku-5-5` uses its over-100k-prompt price.
+  `claude-sonnet-4-5-20250929` uses $6/$22.50, the over-200k price that
+  OpenRouter lists for Anthropic's own AWS endpoint (Anthropic's page lists
+  $3/$15). `claude-mythos-preview` has no published price and stays on the
+  fallback.
+- **OpenRouter.** `anthropic/claude-sonnet-4.6` is $3.30/$16.50 because
+  regional Bedrock and Vertex bill 1.1x. `google/gemini-3.7-flash` is
+  $2.70/$13.50, its priority endpoint without the listed 50% discount.
+  `anthropic/claude-fable-5.2` is $16/$80 because a fast-mode endpoint is
+  listed.
+- **Announced increases.** `gemini-3.6-flash` and `gemini-3.8-flash` carry the
+  Priority price Google announced for 2027-01-01 ($2.70/$13.50), and
+  `gemini-4-carbon` / `gemini-4-argon` the one for 2026-12-01 ($7.20/$36).
+- **Rows above the fallback.** Four rows bill more than $60 output (up to $88)
+  and keep their price. So does an id that extends one of them with `-` or `:`
+  (`anthropic/claude-fable-5.2:nitro`, `claude-fable-5-2-20261201`), and the
+  same applies to an operator override. A variant of a row below the fallback
+  still gets $15/$60.
+- **Legacy and retired ids.** `deepseek-v4-flash` and
+  `deepseek-v4-flash-vision-exp` are legacy names that DeepSeek still accepts and
+  bills at the Flash price. `deepseek-chat`, `deepseek-reasoner` and the retired
+  OpenRouter ids `deepseek/deepseek-r1`, `anthropic/claude-3.5-sonnet` and
+  `google/gemini-2.0-flash-001` are not listed by their providers and stay on the
+  fallback. Configure a verified rate if your upstream still serves them.
 
-The fallback is not a ceiling. Some models bill more than $60 per million
-output tokens (two rows above do), so an unlisted id of such a model is
-under-counted until you add an override. Cached tokens, audio, tools and
-provider fees can also make the bill differ. Static rates are estimates, not
-live prices; no catalog fetch runs in the request path.
+The fallback is not a ceiling. An unlisted model that bills more than $60 per
+million output tokens is under-counted until you add an override. Settlement
+prices `prompt_tokens + completion_tokens` from the upstream's usage block, so
+per-image, per-search and per-request fees are not counted, and neither are
+reasoning tokens a provider leaves out of `completion_tokens`. Static rates are
+estimates, not live prices; no catalog fetch runs in the request path.

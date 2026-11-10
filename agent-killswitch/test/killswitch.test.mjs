@@ -829,7 +829,7 @@ test("malformed model rates fail startup", () => {
 test("verified provider models avoid unknown fallback", () => {
   // Highest routed endpoint price; exact values live in test/pricing-rows.test.mjs.
   assert.ok(Math.abs(costUsd("deepseek/deepseek-r1-0528",1e6,1e6) - 2.857) < 1e-9);
-  assert.ok(Math.abs(costUsd("google/gemini-2.5-flash",1e6,1e6) - 5.04) < 1e-9);
+  assert.ok(Math.abs(costUsd("google/gemini-2.5-flash",1e6,1e6) - 6.3) < 1e-9);
   assert.ok(Math.abs(costUsd("anthropic/claude-sonnet-4.5",1e6,1e6) - 31.35) < 1e-9);
   assert.equal(costUsd("toString",1e6,1e6),75);
 });
