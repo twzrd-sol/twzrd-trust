@@ -185,7 +185,7 @@ behind Ollama or a free catalog entry is. The dollar limits then never
 trip for it; the per-minute token limit and the kill file still apply. A
 listed model that does have a price row (`gpt-4o`, for example) keeps that
 price, and a dated or suffixed id of a priced model (`gpt-4o-2024-11-20`)
-keeps the o1 fallback.
+keeps the $15/$60 fallback.
 
 The $0 price is for unpaid calls only. Keyless mode is also how an
 MPP/x402 buyer runs the proxy, so a call that carries a payment credential
@@ -230,7 +230,7 @@ provider catalogs; sources below). There are no live pricing fetches by design.
 An **unknown model is estimated at a fixed fallback** of
 **$15 input / $60 output per million tokens** rather than rejected —
 failing closed on cost beats failing open. A model id that is not in the
-table is priced as o1 unless you put it on `KILLSWITCH_FREE_MODELS`, which
+table is priced at that fallback unless you put it on `KILLSWITCH_FREE_MODELS`, which
 prices it at $0 (above); `nvidia/nemotron-3.5-bolt` is listed at $0. The
 ledger shows exactly what was assumed.
 
@@ -308,22 +308,46 @@ Existing ledger amounts are retained on restart. Adding a high-priced override d
 not raise the fallback for unrelated unknown IDs. Cached tokens, audio, tools,
 provider-specific fees and route changes can make actual provider charges differ.
 
-New built-in text rates checked on 2026-11-10 against
-[OpenRouter's live model catalog](https://openrouter.ai/api/v1/models):
+### Built-in price rows
 
-| Exact model ID | Input USD/M | Output USD/M |
-|---|---:|---:|
-| deepseek/deepseek-r1-0528 | 0.50 | 2.15 |
-| deepseek/deepseek-chat | 0.32 | 0.89 |
-| deepseek/deepseek-chat-v3-0324 | 0.29 | 1.14 |
-| anthropic/claude-sonnet-4.5 | 3.00 | 15.00 |
-| anthropic/claude-sonnet-4.6 | 3.00 | 15.00 |
-| google/gemini-2.5-flash | 0.30 | 2.50 |
+Checked 2026-11-10 (OpenAI rows 2026-11-07). Each row is the highest text
+price the upstream can bill for that exact id without a caller opt-in: the top
+prompt-length tier, with announced price increases already applied.
+Under-pricing is the unsafe direction, so a row can overstate a typical call;
+if you pin a cheaper route, set an override (above) at that route's price. The
+full list, grouped by source, is in `src/pricing.ts`.
 
-`gemini-2.5-flash` also uses $0.30/$2.50 text rates from
-[Google's pricing page](https://ai.google.dev/gemini-api/docs/pricing).
-The exact legacy IDs `deepseek/deepseek-r1`, `anthropic/claude-3.5-sonnet` and
-`google/gemini-2.0-flash-001` were absent from the live catalog on that date;
-configure verified rates explicitly if your upstream still serves them. Static
-rates are estimates, not universal market prices; no live catalog fetch runs in
-the request path.
+| Group | Ids | Source and rule |
+|---|---:|---|
+| OpenRouter (`anthropic/…`, `deepseek/…`, `google/…`) | 37 | `https://openrouter.ai/api/v1/models/<id>/endpoints` (public, no key): the dearest endpoint listed, including regional, fast and priority endpoints and prompt-length tiers, because OpenRouter picks the provider per request |
+| Anthropic, [OpenAI SDK compatibility](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) (`claude-sonnet-5-5`, …) | 15 | [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), the ids the compatibility layer lists |
+| DeepSeek API (`deepseek-flash`, `deepseek-v4-pro`) | 4 | [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/), peak band, cache-miss input |
+| Gemini API, OpenAI compatibility (`gemini-3.6-flash`, …) | 11 | [Gemini pricing](https://aistudio.google.com/docs/pricing), paid standard tier, text input |
+| OpenAI and BlockRun | 7 | OpenAI published prices; BlockRun's free `nvidia/nemotron-3.5-bolt` |
+
+What the rule produces, for example:
+
+- `anthropic/claude-sonnet-4.6` is $3.30/$16.50 (regional Bedrock and Vertex
+  bill 1.1x), `google/gemini-2.5-flash` is $0.54/$4.50 (Google's priority
+  endpoint), and `anthropic/claude-fable-5.2` is $16/$80 (a fast-mode
+  endpoint). That last row is above the $15/$60 fallback and keeps its price.
+- `claude-haiku-5-5` uses its over-100k-prompt price ($0.50/$2.50) and
+  `claude-sonnet-4-5-20250929` its over-200k price ($6/$22.50). Fast mode and
+  `inference_geo` are not among the compatibility layer's documented request
+  fields and are not modeled.
+- `gemini-3.6-flash` and `gemini-3.8-flash` carry the price Google announced
+  for 2027-01-01 ($1.50/$7.50), and `gemini-4-carbon` / `gemini-4-argon` the
+  price for 2026-12-01 ($4/$20). Priority (1.8x) is a caller opt-in on the
+  direct Gemini API and audio input bills higher; neither is modeled.
+- `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are legacy names that
+  DeepSeek still accepts and bills at the Flash price. `deepseek-chat`,
+  `deepseek-reasoner` and the retired OpenRouter ids `deepseek/deepseek-r1`,
+  `anthropic/claude-3.5-sonnet` and `google/gemini-2.0-flash-001` are not
+  listed by their providers and stay on the fallback; configure a verified rate
+  if your upstream still serves them.
+
+The fallback is not a ceiling. Some models bill more than $60 per million
+output tokens (two rows above do), so an unlisted id of such a model is
+under-counted until you add an override. Cached tokens, audio, tools and
+provider fees can also make the bill differ. Static rates are estimates, not
+live prices; no catalog fetch runs in the request path.
