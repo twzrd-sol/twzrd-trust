@@ -5,7 +5,8 @@
 export { CLIENT_VERSION } from "./version.js";
 export {
   createDemandDeskWallet, demandDeskMessageHash, DEMAND_DESK_REPLAY_REASON, DEMAND_DESK_REPLAY_STATES, DemandDeskReplayError,
-  type DemandDeskWalletContext, type DemandDeskWalletAdapter, type DemandDeskReplayGuard,
+  DemandDeskHaltedError,
+  type DemandDeskWalletContext, type DemandDeskWalletAdapter, type DemandDeskReplayGuard, type DemandDeskHaltCode,
 } from "./demand-desk-wallet.js";
 export { createTwzrdGate, defaultGate, type TwzrdGate } from "./gate.js";
 export { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
@@ -591,12 +592,16 @@ export {
   checkPauseSwitchFile,
   isFatalGateRefusal,
   readSentinelState,
+  resolveSentinelPaths,
+  sentinelPathSetting,
+  twzrdSentinelRefusal,
   writePauseSentinel,
   type BindingComputePolicyV1,
   type BindingPaymentPolicyV1,
   type BindingPolicyV1,
   type PauseSentinelV1,
   type PauseSwitchState,
+  type SentinelPathOptions,
   type SentinelState,
 } from "./binding-plane.js";
 export {

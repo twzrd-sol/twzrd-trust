@@ -1,6 +1,7 @@
 import { wrapFetchEchoTwzrdAttempt } from "./attempt-echo.js";
 import type { ResolvedTwzrdGateConfig } from "./config.js";
 import { distinctOffers, firstRefusedOffer } from "./all-offers.js";
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 import { paymentRequiredFromResponse } from "./payto.js";
 import type { X402PaymentRequiredBody } from "./types.js";
 
@@ -29,7 +30,13 @@ export function wrapFetchWithTwzrdGate(
     // AUDIT FIX: header (v2) before body — the same precedence the payer uses.
     const body: X402PaymentRequiredBody | null = await paymentRequiredFromResponse(resp);
     if (body === null) {
-      // No header and no JSON body — nothing an x402 payer can pay from either.
+      // No header and no JSON body — nothing an x402 payer can pay from, and
+      // nothing here to score. A payer speaking another dialect may still pay
+      // from this response, so it is not handed back past `.kill` / `.pause`.
+      const halted = twzrdSentinelRefusal(config);
+      if (halted !== undefined) {
+        throw new Error(`[twzrd] payment blocked: ${halted} url=${requestUrl(input)}`);
+      }
       return resp;
     }
 

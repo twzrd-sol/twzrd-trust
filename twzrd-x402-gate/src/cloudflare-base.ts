@@ -4,6 +4,14 @@
  * This module is intentionally standalone: it imports no package code and uses
  * only Fetch/Web-standard APIs, so Workers can import `twzrd-x402-gate/cloudflare-base`
  * without bringing Node modules or Solana adapters into their bundle.
+ *
+ * `.kill` / `.pause`: the module also runs under Node (tests, a local agent, a
+ * server that signs Base payments), and there it is a signing seat like any
+ * other, so it reads the two sentinel files itself: on entry, and again in the
+ * same synchronous step as the go-ahead. The reader below restates the main
+ * entry's rules and reaches the filesystem without an import statement, so the
+ * Worker bundle is unchanged. In a Worker there is no host filesystem for a
+ * file to be dropped on, and nothing is read.
  */
 
 export const BASE_CHAIN_ID = 8453;
@@ -48,6 +56,15 @@ export type CloudflareBaseGateOptions = {
   failOpen?: boolean;
   /** Deadline for the preflight call, ms (default 2000). A miss is an outage decided by failOpen. */
   intelTimeoutMs?: number;
+  /**
+   * Where the `.kill` / `.pause` sentinels live when this module runs on a host
+   * with a filesystem. Defaults: TWZRD_STATE_DIR (else `./data`),
+   * KILLSWITCH_KILL_FILE, KILLSWITCH_PAUSE_FILE; a blank value counts as unset.
+   * `failOpen` does not skip this read. Not read in a Worker.
+   */
+  stateDir?: string;
+  killFilePath?: string;
+  pauseFilePath?: string;
 };
 
 const TRUE_FLAGS = new Set(["true", "1", "yes", "on"]);
@@ -67,6 +84,121 @@ export class TwzrdBasePaymentBlockedError extends Error {
     this.name = "TwzrdBasePaymentBlockedError";
     this.verdict = verdict;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* `.kill` / `.pause` on a host with a filesystem                       */
+/* ------------------------------------------------------------------ */
+
+type HostFs = {
+  statSync(path: string): unknown;
+  readFileSync(path: string, encoding: "utf8"): string;
+};
+type HostProcess = {
+  versions?: { node?: string };
+  env?: Record<string, string | undefined>;
+  getBuiltinModule?: (id: string) => unknown;
+};
+type HostGlobals = { process?: HostProcess; navigator?: { userAgent?: string } };
+
+/** Same literal as the main entry's PAUSE_SENTINEL_SCHEMA (kept local: this module imports no package code). */
+const PAUSE_SENTINEL_SCHEMA = "twzrd.pause_sentinel.v1";
+
+/** undefined: not looked up yet. null: this runtime has no host filesystem. */
+let hostFs: HostFs | null | undefined;
+
+/**
+ * The host's `fs`, or null where there is none. A Worker reports
+ * `navigator.userAgent === "Cloudflare-Workers"`; with `nodejs_compat` it also
+ * has a `process` and a virtual in-memory `fs` that no operator can drop a
+ * file on, so it is ruled out by name rather than probed.
+ */
+async function loadHostFs(): Promise<HostFs | null> {
+  if (hostFs !== undefined) return hostFs;
+  const host = globalThis as HostGlobals;
+  if (host.navigator?.userAgent === "Cloudflare-Workers" || typeof host.process?.versions?.node !== "string") {
+    return (hostFs = null);
+  }
+  try {
+    const builtin = host.process.getBuiltinModule?.("node:fs") as HostFs | undefined;
+    if (builtin && typeof builtin.statSync === "function") return (hostFs = builtin);
+  } catch {
+    /* older Node: fall through to the dynamic import */
+  }
+  try {
+    // Not a literal, so a Worker bundler has nothing to resolve.
+    const specifier = ["node", "fs"].join(":");
+    const loaded = (await import(/* webpackIgnore: true */ /* @vite-ignore */ specifier)) as HostFs;
+    return (hostFs = typeof loaded.statSync === "function" ? loaded : null);
+  } catch {
+    // No loadable `fs` means no filesystem a sentinel file could be on.
+    return (hostFs = null);
+  }
+}
+
+function pathSetting(...candidates: unknown[]): string | undefined {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim() !== "") return candidate.trim();
+  }
+  return undefined;
+}
+
+type BaseHalt = { code: "twzrd_kill_switch" | "twzrd_pause_corrupt" | "twzrd_payment_paused"; detail?: string };
+
+/** Same rules as the main entry's readSentinelState: any error but "no such file" is a halt. */
+function readHalt(fs: HostFs, options: CloudflareBaseGateOptions): BaseHalt | undefined {
+  const env = (globalThis as HostGlobals).process?.env ?? {};
+  const stateDir = pathSetting(options.stateDir, env.TWZRD_STATE_DIR) ?? "./data";
+  // No `node:path` here: `/` joins on every platform Node's fs runs on.
+  const inStateDir = (name: string) => `${stateDir}${/[\\/]$/.test(stateDir) ? "" : "/"}${name}`;
+  const killPath = pathSetting(options.killFilePath, env.KILLSWITCH_KILL_FILE) ?? inStateDir(".kill");
+  const pausePath = pathSetting(options.pauseFilePath, env.KILLSWITCH_PAUSE_FILE) ?? inStateDir(".pause");
+
+  try {
+    fs.statSync(killPath);
+    return { code: "twzrd_kill_switch" };
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code !== "ENOENT") return { code: "twzrd_kill_switch" };
+  }
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(pausePath, "utf8");
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code === "ENOENT") return undefined;
+    return { code: "twzrd_pause_corrupt" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { code: "twzrd_pause_corrupt" };
+  }
+  const pause = asRecord(parsed);
+  if (!pause) return { code: "twzrd_pause_corrupt" };
+  if ("schema" in pause && pause.schema !== PAUSE_SENTINEL_SCHEMA) return { code: "twzrd_pause_corrupt" };
+  const until = pause.until_unix_ms;
+  if (typeof until !== "number" || !Number.isFinite(until) || until <= 0) return { code: "twzrd_pause_corrupt" };
+  if (Date.now() >= until) return undefined;
+  const detail = typeof pause.reason === "string" && pause.reason.trim() !== "" ? pause.reason.trim() : "payment_gate_halt";
+  return { code: "twzrd_payment_paused", detail };
+}
+
+/**
+ * Awaited once on entry. The function it returns is synchronous, so the last
+ * read and the go-ahead that follows it share one step.
+ */
+async function sentinelReader(options: CloudflareBaseGateOptions): Promise<() => BaseHalt | undefined> {
+  const fs = await loadHostFs();
+  return fs === null ? () => undefined : () => readHalt(fs, options);
+}
+
+function haltedError(halt: BaseHalt): TwzrdBasePaymentBlockedError {
+  return new TwzrdBasePaymentBlockedError({
+    decision: "block",
+    riskScore: null,
+    reasons: halt.detail ? [halt.code, halt.detail] : [halt.code],
+  });
 }
 
 /**
@@ -151,6 +283,8 @@ export function createTwzrdCloudflareBaseApproval(
   options: CloudflareBaseGateOptions = {},
 ): (requirements: CloudflareBaseRequirements) => Promise<boolean> {
   return async (requirements) => {
+    const halt = await sentinelReader(options);
+    if (halt() !== undefined) return false;
     let entries: CloudflareBaseRequirements[];
     const offers: Array<{ payTo: string; priceUsdc: number }> = [];
     try {
@@ -165,9 +299,11 @@ export function createTwzrdCloudflareBaseApproval(
         const verdict = await twzrdBasePreflight(entries[i], options);
         if (baseRefusal(verdict, offers[i].priceUsdc, options) !== undefined) return false;
       }
-      return true;
+      // The preflight was awaited: read again as the approval is returned.
+      return halt() === undefined;
     } catch {
-      return isTrueFlag(options.failOpen);
+      // failOpen waves an intel outage through. It does not wave a halt through.
+      return isTrueFlag(options.failOpen) && halt() === undefined;
     }
   };
 }
@@ -183,6 +319,12 @@ export async function withTwzrdBasePreflight<T>(
   options: CloudflareBaseGateOptions,
   signOrSend: () => Promise<T>,
 ): Promise<T> {
+  const halt = await sentinelReader(options);
+  const refuseIfHalted = (): void => {
+    const halted = halt();
+    if (halted) throw haltedError(halted);
+  };
+  refuseIfHalted();
   // Offer shape first: a malformed amount or non-USDC asset is refused before
   // intel and is never an outage for failOpen to wave through (0.11.2).
   let entries: CloudflareBaseRequirements[];
@@ -202,7 +344,11 @@ export async function withTwzrdBasePreflight<T>(
     try {
       verdict = await twzrdBasePreflight(entries[i], options);
     } catch (error) {
-      if (isTrueFlag(options.failOpen)) return signOrSend();
+      if (isTrueFlag(options.failOpen)) {
+        // failOpen waves an intel outage through. It does not wave a halt through.
+        refuseIfHalted();
+        return signOrSend();
+      }
       throw error;
     }
     const refusal = baseRefusal(verdict, offers[i].priceUsdc, options);
@@ -210,6 +356,8 @@ export async function withTwzrdBasePreflight<T>(
       throw new TwzrdBasePaymentBlockedError({ ...verdict, reasons: [refusal, ...verdict.reasons] });
     }
   }
+  // Last look: nothing is awaited between this read and the signer.
+  refuseIfHalted();
   return signOrSend();
 }
 

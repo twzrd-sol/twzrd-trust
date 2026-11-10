@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { twzrdSentinelRefusal, type SentinelPathOptions } from "./binding-plane.js";
 import { verifyDemandDeskAuthorization, type DemandDeskAuthorizationExpectation } from "./demand-desk-authorization.js";
 import type { AttemptState, OutcomeLedger } from "./outcome-ledger.js";
 
@@ -23,6 +24,12 @@ export type DemandDeskWalletAdapter<T> = {
   isActive(): boolean;
   /** When set, a second vault spend on an intent the ledger already holds is refused before signing. */
   replayGuard?: DemandDeskReplayGuard<T>;
+  /**
+   * Where the `.kill` / `.pause` sentinels live. Defaults: TWZRD_STATE_DIR
+   * (else `./data`), KILLSWITCH_KILL_FILE, KILLSWITCH_PAUSE_FILE. There is no
+   * setting that turns the read off.
+   */
+  sentinel?: SentinelPathOptions;
 };
 
 /** Refusal reason code for a replayed vault spend. */
@@ -55,6 +62,28 @@ export class DemandDeskReplayError extends Error {
   }
 }
 
+/** The three halts a sentinel can call for. */
+export type DemandDeskHaltCode = "twzrd_kill_switch" | "twzrd_payment_paused" | "twzrd_pause_corrupt";
+
+/**
+ * Thrown instead of signing or sending while `.kill` is present or `.pause` is
+ * in force. Not a replay: the ledger record is left as it was, so the same
+ * authorized spend signs once the halt is lifted.
+ */
+export class DemandDeskHaltedError extends Error {
+  override name = "DemandDeskHaltedError";
+  readonly code: DemandDeskHaltCode;
+  /** `reason` is the gate's refusal string, e.g. `twzrd_payment_paused (payment_gate_halt)`. */
+  constructor(reason: string) {
+    super(reason);
+    this.code = reason.startsWith("twzrd_payment_paused")
+      ? "twzrd_payment_paused"
+      : reason === "twzrd_pause_corrupt"
+        ? "twzrd_pause_corrupt"
+        : "twzrd_kill_switch";
+  }
+}
+
 export function demandDeskMessageHash(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -66,9 +95,21 @@ export function demandDeskMessageHash(bytes: Uint8Array): string {
  * Without `replayGuard` the facade is stateless and one-use enforcement belongs
  * to the Desk. With it, the outcome ledger is consulted (and `approved` moved
  * to `signing`) in the same synchronous step as the signer call.
+ *
+ * The facade is a signer in its own right, so it reads `.kill` / `.pause`
+ * itself rather than relying on a gate upstream having done so: in `verify`
+ * (every item of a batch, and the signed transaction before it is sent) and
+ * again in the same synchronous step as each signer call. Constructing the
+ * facade reads nothing and never throws on a halt; a facade built during a
+ * halt signs once the halt is lifted, with no restart.
  */
 export function createDemandDeskWallet<T>(adapter: DemandDeskWalletAdapter<T>) {
+  function refuseIfHalted(): void {
+    const halted = twzrdSentinelRefusal(adapter.sentinel);
+    if (halted !== undefined) throw new DemandDeskHaltedError(halted);
+  }
   function verify(tx: T, context: DemandDeskWalletContext): void {
+    refuseIfHalted();
     if (!adapter.isActive()) throw new Error("mandate_inactive");
     if (!context || demandDeskMessageHash(adapter.messageBytes(tx)) !== context.messageHash) {
       throw new Error("transaction_message_mismatch");
@@ -95,6 +136,8 @@ export function createDemandDeskWallet<T>(adapter: DemandDeskWalletAdapter<T>) {
     if (record?.state === "approved") ledger.markSigning(hash);
   }
   function signChecked(tx: T, hash: string | null): Promise<T> {
+    // Before markSigning: a spend refused by the halt stays `approved`.
+    refuseIfHalted();
     markSigning(hash);
     return adapter.signTransaction(tx);
   }

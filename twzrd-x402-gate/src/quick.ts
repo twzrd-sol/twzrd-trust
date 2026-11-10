@@ -18,6 +18,7 @@
  * raw reason, so a quick-tier hiccup can't break the caller's flow. (The hard
  * allow/warn/block decision is the free preflight's job; see gate.ts.)
  */
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 import type { TwzrdGateConfig } from "./types.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -42,7 +43,12 @@ export interface QuickCheckResult {
   reason: string;
 }
 
-export type QuickCheckOptions = Pick<TwzrdGateConfig, "intelBase" | "fetch" | "attribution"> & {
+export type QuickCheckOptions = Pick<
+  TwzrdGateConfig,
+  // stateDir / killFilePath / pauseFilePath: where `.kill` and `.pause` are read
+  // from. Defaults follow TWZRD_STATE_DIR and KILLSWITCH_*_FILE.
+  "intelBase" | "fetch" | "attribution" | "stateDir" | "killFilePath" | "pauseFilePath"
+> & {
   /** x402-capable fetch that settles the $0.001 quick charge. Without it: available=false. */
   x402Fetch?: typeof fetch;
   /** ms before the quick call gives up. Default 5000. */
@@ -56,7 +62,9 @@ function unavailable(sellerWallet: string, reason: string): QuickCheckResult {
 
 /**
  * $0.001 paid tier+score check for a seller wallet. Never throws (fail-soft).
- * Requires an x402-capable `x402Fetch` to settle the charge.
+ * Requires an x402-capable `x402Fetch` to settle the charge. Buys nothing while
+ * `.kill` is present or `.pause` is in force: `available: false`, with the halt
+ * code as the reason.
  */
 export async function quickCheck(
   sellerWallet: string,
@@ -69,6 +77,10 @@ export async function quickCheck(
   }
   const base = (opts.intelBase ?? DEFAULT_BASE).replace(/\/+$/, "");
   const timeoutMs = opts.timeoutMs ?? 5000;
+  // This call is a payment of its own. Read here, with nothing awaited before
+  // the paying fetch is invoked.
+  const halted = twzrdSentinelRefusal(opts);
+  if (halted !== undefined) return unavailable(sellerWallet, halted);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {

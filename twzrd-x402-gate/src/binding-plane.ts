@@ -464,16 +464,56 @@ export function checkPauseSwitchFile(filePath: string, now = Date.now()): PauseS
   };
 }
 
+/** Where a caller says the sentinels live. Every field is optional. */
+export type SentinelPathOptions = {
+  stateDir?: string;
+  killFilePath?: string;
+  pauseFilePath?: string;
+};
+
+/**
+ * The first candidate that is a non-blank string, trimmed. A path setting that
+ * is set but empty (`KILLSWITCH_KILL_FILE=` in an env file, `killFilePath: ""`)
+ * is unset, the same reading `agent-killswitch` gives it. Before 0.20.0 a blank
+ * value won over the fallback and the file was never looked for.
+ */
+export function sentinelPathSetting(...candidates: unknown[]): string | undefined {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim() !== "") return candidate.trim();
+  }
+  return undefined;
+}
+
+/**
+ * The `.kill` and `.pause` paths this process reads: an explicit option, then
+ * the environment (TWZRD_STATE_DIR, KILLSWITCH_KILL_FILE, KILLSWITCH_PAUSE_FILE),
+ * then `./data`. Always resolves to a path: there is no setting that means
+ * "do not look".
+ */
+export function resolveSentinelPaths(overrides?: SentinelPathOptions | null): Required<SentinelPathOptions> {
+  const stateDir = sentinelPathSetting(overrides?.stateDir, process.env.TWZRD_STATE_DIR) ?? "./data";
+  return {
+    stateDir,
+    killFilePath:
+      sentinelPathSetting(overrides?.killFilePath, process.env.KILLSWITCH_KILL_FILE) ??
+      path.join(stateDir, ".kill"),
+    pauseFilePath:
+      sentinelPathSetting(overrides?.pauseFilePath, process.env.KILLSWITCH_PAUSE_FILE) ??
+      path.join(stateDir, ".pause"),
+  };
+}
+
 export function readSentinelState(opts: {
   stateDir?: string;
   killFilePath?: string;
   pauseFilePath?: string;
   now?: number;
 }): SentinelState {
+  const stateDir = sentinelPathSetting(opts.stateDir);
   const killPath =
-    opts.killFilePath ?? (opts.stateDir ? path.join(opts.stateDir, ".kill") : undefined);
+    sentinelPathSetting(opts.killFilePath) ?? (stateDir ? path.join(stateDir, ".kill") : undefined);
   const pausePath =
-    opts.pauseFilePath ?? (opts.stateDir ? path.join(opts.stateDir, ".pause") : undefined);
+    sentinelPathSetting(opts.pauseFilePath) ?? (stateDir ? path.join(stateDir, ".pause") : undefined);
 
   if (killPath && checkKillSwitchFile(killPath)) {
     return {
@@ -502,6 +542,31 @@ export function readSentinelState(opts: {
   }
 
   return { active: false };
+}
+
+/**
+ * The refusal a `.kill` or an in-force `.pause` calls for right now, or
+ * undefined when neither is present. Reads the files on every call.
+ *
+ * The rule for this package: every path that calls a signer, a payer, or a
+ * credential callback, hands a 402 to a paying wrapper, or does I/O and then
+ * returns a go-ahead asks on entry and again at the go-ahead, with nothing
+ * awaited between the last read and the go-ahead. A sentinel can land while a
+ * path is awaiting intel, a paid hop, or a disk write, and one read at entry
+ * would miss it. Switching seller evaluation off does not switch this off.
+ *
+ * `now` is for tests; the `.pause` TTL is a wall-clock time written by another
+ * process, so callers do not pass their own decision clock here.
+ */
+export function twzrdSentinelRefusal(
+  paths?: SentinelPathOptions | null,
+  now?: number,
+): string | undefined {
+  const sentinel = readSentinelState({ ...resolveSentinelPaths(paths), now });
+  if (!sentinel.active) return undefined;
+  if (sentinel.mode === "kill") return "twzrd_kill_switch";
+  if (sentinel.mode === "corrupt_pause") return "twzrd_pause_corrupt";
+  return `twzrd_payment_paused (${sentinel.reason})`;
 }
 
 /**

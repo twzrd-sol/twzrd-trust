@@ -19,6 +19,7 @@ import {
   type VerifyPaymentDecisionOptions,
 } from "./payment-decision.js";
 import type { ResourceBindReq } from "./resource-bind.js";
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 
 /** Invoice price. The live issuer is not this package. */
 export const CLEARANCE_SKU_USDC = 0.001;
@@ -112,12 +113,21 @@ function acceptDecision(decision: string | null): boolean {
 /**
  * Verify (and optionally buy) the clearance SKU for one selected 402 entry.
  * Never throws. A hard miss is `cleared: false` — the hook aborts.
+ *
+ * Buying the record is a payment of its own, so `.kill` / `.pause` are read
+ * immediately before the issuer is paid: while halted nothing is bought and
+ * the result is `cleared: false` with the halt code as the reason. A record
+ * the caller already holds is still verified; verifying spends nothing.
  */
 export async function evaluateClearanceSku(opts: {
   policy: RequirePaymentDecisionPolicy;
   challenge: ResourceBindReq;
   x402Fetch?: typeof fetch;
   now?: number;
+  /** Where `.kill` / `.pause` are read from. Defaults follow TWZRD_STATE_DIR and KILLSWITCH_*_FILE. */
+  stateDir?: string;
+  killFilePath?: string;
+  pauseFilePath?: string;
 }): Promise<ClearanceSkuResult> {
   const verifyOpts: VerifyPaymentDecisionOptions = {
     publicKeyPem: opts.policy.publicKeyPem,
@@ -132,6 +142,8 @@ export async function evaluateClearanceSku(opts: {
   if (record === undefined) {
     const issuer = opts.policy.issuerUrl;
     if (issuer && typeof opts.x402Fetch === "function") {
+      const halted = twzrdSentinelRefusal(opts);
+      if (halted !== undefined) return denied(halted);
       const bought = await fetchIssuedRecord(issuer, opts.challenge, opts.x402Fetch);
       record = bought.record;
       paid = bought.paid === true;

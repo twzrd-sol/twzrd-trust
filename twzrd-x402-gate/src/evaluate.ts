@@ -162,6 +162,11 @@ export async function evaluate_x402_resource(
     unsupportedNetworkMode: opts.unsupportedNetworkMode,
     fetch: opts.fetch,
     attribution: opts.attribution,
+    // Without these a configured sentinel location was dropped here and the
+    // halt was read from the environment default instead.
+    stateDir: opts.stateDir,
+    killFilePath: opts.killFilePath,
+    pauseFilePath: opts.pauseFilePath,
   });
   const result = await evaluateResource(resourceUrl, paymentRequirements, opts, config);
   // Last look. The approval inside read the sentinels when it was made; the
@@ -284,6 +289,9 @@ async function evaluateResource(
       intelBase: config.intelBase,
       fetch: config.fetch,
       x402Fetch: opts.x402Fetch,
+      stateDir: config.stateDir,
+      killFilePath: config.killFilePath,
+      pauseFilePath: config.pauseFilePath,
     });
     if (quick.available && quick.score !== null) {
       const escApproved = quick.score >= floor;

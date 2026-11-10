@@ -1,6 +1,7 @@
 import type { DecisionSigner, PaymentDecision } from "./decision-token.js";
 import { distinctOffers, MAX_DISTINCT_OFFERS, TOO_MANY_PAYMENT_OPTIONS } from "./all-offers.js";
 import { wrapX402ClientEchoAttempt } from "./attempt-echo.js";
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 import { TwzrdUnpricedAssetError, x402RequirementsToIntent } from "./intent-adapters.js";
 import { toMicroUsd } from "./intent.js";
 import { createTwzrdPayingFetch, TwzrdWashAbortError, type CreateTwzrdPayingFetchInput } from "./paying-fetch.js";
@@ -41,13 +42,21 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
   return createTwzrdPayingFetch({
     ...opts,
     wrapPay: (washed) => {
+      // `washed` read the sentinels before it returned the 402, but this
+      // wrapper awaits again (challenge parse, one signed decision per offer),
+      // so the 402 goes to the payer only through this last read.
+      const handOver = (resp: Response): Response => {
+        const halted = twzrdSentinelRefusal(opts);
+        if (halted !== undefined) throw new TwzrdWashAbortError(`[twzrd] ${halted}`);
+        return resp;
+      };
       const gated: typeof fetch = async (input, init) => {
         const resp = await washed(input, init);
         if (resp.status !== 402) return resp;
         let challenge: unknown;
         try { challenge = await paymentRequiredFromResponse(resp); }
-        catch { return resp; }
-        if (challenge == null) return resp;
+        catch { return handOver(resp); }
+        if (challenge == null) return handOver(resp);
         const accepts = (challenge as { accepts?: Array<Record<string, unknown>> }).accepts;
         const offers = distinctOffers(accepts);
         if (offers.length === 0 || offers.length > MAX_DISTINCT_OFFERS) {
@@ -63,6 +72,7 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
           const d = await evaluateIntent(it, {
             signer: opts.signer, policy: opts.policy, mandate: opts.mandate,
             ledger: opts.ledger, recordSpend: false,
+            stateDir: opts.stateDir, killFilePath: opts.killFilePath, pauseFilePath: opts.pauseFilePath,
           });
           if (d.decision === "block") {
             opts.onAudit?.(d);
@@ -72,7 +82,8 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
           // costliest one rather than the preferred one; the daily ceiling cannot be undercounted.
           if (!intent || toMicroUsd(it.amount) > toMicroUsd(intent.amount) || (toMicroUsd(it.amount) === toMicroUsd(intent.amount) && offer === preferred)) { intent = it; decision = d; }
         }
-        if (!intent || !decision) return resp;
+        if (!intent || !decision) return handOver(resp);
+        handOver(resp);
         pending = { payTo: intent.payTo, amount: intent.amount, decision };
         return resp;
       };

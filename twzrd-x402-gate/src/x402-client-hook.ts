@@ -381,6 +381,9 @@ export async function evaluateBeforePaymentCreation(
       ledger: pc.ledger,
       ttlMs: pc.ttlMs,
       now: options.now?.(),
+      stateDir: cfg.stateDir,
+      killFilePath: cfg.killFilePath,
+      pauseFilePath: cfg.pauseFilePath,
       // Ledger hygiene: never record spend for a payment the legacy gate
       // already denied — the hook aborts it regardless of this decision,
       // so recording would pollute cumulative/monthly caps.
@@ -469,6 +472,9 @@ export async function evaluateBeforePaymentCreation(
       challenge: selectedRequirements,
       x402Fetch: options.x402Fetch,
       now: options.now?.(),
+      stateDir: cfg.stateDir,
+      killFilePath: cfg.killFilePath,
+      pauseFilePath: cfg.pauseFilePath,
     });
     if (!clearance.cleared && clearancePolicy.hard) {
       const reason = `[twzrd] ${clearance.reason} payTo=${payTo ?? "unknown"}`;
@@ -536,6 +542,9 @@ export async function evaluateBeforePaymentCreation(
       intelBase: cfg.intelBase,
       fetch: cfg.fetch,
       x402Fetch: options.x402Fetch,
+      stateDir: cfg.stateDir,
+      killFilePath: cfg.killFilePath,
+      pauseFilePath: cfg.pauseFilePath,
     });
     if (quick.available && quick.score !== null && quick.score < floor) {
       const reason = `[twzrd] twzrd_escalated_warn_block (paid quick score ${quick.score} < ${floor})`;

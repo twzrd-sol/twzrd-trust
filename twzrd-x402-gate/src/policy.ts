@@ -18,7 +18,8 @@ import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import {
   isFatalGateRefusal,
-  readSentinelState,
+  sentinelPathSetting,
+  twzrdSentinelRefusal,
   writePauseSentinel,
 } from "./binding-plane.js";
 import { withDeadline } from "./deadline.js";
@@ -446,26 +447,9 @@ async function tightenWithMerchantCardWash(input: {
   };
 }
 
-/**
- * The refusal a `.kill` or an in-force `.pause` calls for right now, or
- * undefined when neither is present. Reads the files on every call. The gate
- * asks on entry and again at each point where it starts a payment of its own
- * or hands a go-ahead to a signer: a sentinel can land while it is awaiting
- * intel, a paid hop, or a disk write, and one read at entry would miss it.
- */
-export function twzrdSentinelRefusal(
-  cfg?: Pick<ResolvedTwzrdGateConfig, "stateDir" | "killFilePath" | "pauseFilePath">,
-): string | undefined {
-  const sentinel = readSentinelState({
-    stateDir: cfg?.stateDir ?? process.env.TWZRD_STATE_DIR ?? "./data",
-    killFilePath: cfg?.killFilePath ?? process.env.KILLSWITCH_KILL_FILE,
-    pauseFilePath: cfg?.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE,
-  });
-  if (!sentinel.active) return undefined;
-  if (sentinel.mode === "kill") return "twzrd_kill_switch";
-  if (sentinel.mode === "corrupt_pause") return "twzrd_pause_corrupt";
-  return `twzrd_payment_paused (${sentinel.reason})`;
-}
+// The sentinel read lives with the sentinel rules; re-exported here because
+// this is where callers have always imported it from.
+export { twzrdSentinelRefusal };
 
 export async function twzrdApprovePayment(
   context: TwzrdApproveContext,
@@ -496,10 +480,9 @@ export async function twzrdApprovePayment(
     // re-checked against the files at the moment it is returned, fail-open
     // included, and nothing is awaited between this read and the return.
     if (res.approved) return sentinelRefusal() ?? res;
-    const pauseDir = cfg.stateDir ?? process.env.TWZRD_STATE_DIR;
+    const pauseDir = sentinelPathSetting(cfg.stateDir, process.env.TWZRD_STATE_DIR);
     const pausePath =
-      cfg.pauseFilePath ??
-      process.env.KILLSWITCH_PAUSE_FILE ??
+      sentinelPathSetting(cfg.pauseFilePath, process.env.KILLSWITCH_PAUSE_FILE) ??
       (pauseDir ? path.join(pauseDir, ".pause") : undefined);
     // Opt-in (default off), and only for a fatal refusal: an outage, an
     // unevaluated seller, or a malformed input never pauses the planes.

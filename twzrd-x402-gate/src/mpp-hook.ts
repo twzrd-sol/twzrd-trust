@@ -76,6 +76,8 @@ import { join, resolve } from "node:path";
 import {
   isFatalGateRefusal,
   readSentinelState,
+  resolveSentinelPaths,
+  sentinelPathSetting,
   writePauseSentinel,
 } from "./binding-plane.js";
 import type { DecisionSigner, PaymentDecision } from "./decision-token.js";
@@ -1033,8 +1035,8 @@ async function evaluateMppChallenge(
   options: MppOnChallengeOptions,
   allowUnevaluated: boolean,
 ): Promise<MppChargeEvaluation | undefined> {
-  const stateDir = options.stateDir ?? process.env.TWZRD_STATE_DIR;
-  const pauseFilePath = options.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE;
+  const stateDir = sentinelPathSetting(options.stateDir, process.env.TWZRD_STATE_DIR);
+  const pauseFilePath = sentinelPathSetting(options.pauseFilePath, process.env.KILLSWITCH_PAUSE_FILE);
   // First thing, before the challenge is even parsed: no policy outcome, outage
   // setting, or opt-out below can reach a credential past `.kill` or `.pause`.
   await refuseOnMppSentinel(challenge, options);
@@ -1059,6 +1061,9 @@ async function evaluateMppChallenge(
         input: {},
       });
       emitDecision(options, { challenge });
+      // Last look on the opt-out too: the ledger write above was awaited, and
+      // returning undefined is the go-ahead for mppx to create the credential.
+      await refuseOnMppSentinel(challenge, options);
       return undefined;
     }
     await persistMppDecision(options, {
@@ -1082,6 +1087,9 @@ async function evaluateMppChallenge(
       reputationUnchecked: !options.intelligence,
       ttlMs: options.ttlMs,
       now: options.now?.(),
+      stateDir: options.stateDir,
+      killFilePath: options.killFilePath,
+      pauseFilePath: options.pauseFilePath,
     });
   } catch (error) {
     const refusal = asBlockError(error, "MALFORMED_CHALLENGE");
@@ -1154,18 +1162,15 @@ async function evaluateMppChallenge(
 /**
  * The binding-plane veto for MPP: throws PAYMENT_CONTROL_BLOCK while `.kill`
  * is present or `.pause` is active or unreadable. Same files and the same
- * fail-closed reading as `twzrdApprovePayment`.
+ * fail-closed reading as `twzrdApprovePayment`. The pause expiry is read
+ * against the wall clock like every other seat, not `options.now`: the file is
+ * written by another process, and a caller clock must not be able to expire it.
  */
-async function refuseOnMppSentinel(
+export async function refuseOnMppSentinel(
   challenge: MppChallenge,
   options: MppOnChallengeOptions,
 ): Promise<void> {
-  const sentinel = readSentinelState({
-    stateDir: options.stateDir ?? process.env.TWZRD_STATE_DIR ?? "./data",
-    killFilePath: options.killFilePath ?? process.env.KILLSWITCH_KILL_FILE,
-    pauseFilePath: options.pauseFilePath ?? process.env.KILLSWITCH_PAUSE_FILE,
-    now: options.now?.(),
-  });
+  const sentinel = readSentinelState(resolveSentinelPaths(options));
   if (!sentinel.active) return;
   const code =
     sentinel.mode === "kill"

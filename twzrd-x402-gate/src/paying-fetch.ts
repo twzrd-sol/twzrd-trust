@@ -1,5 +1,6 @@
 import { distinctOffers, MAX_DISTINCT_OFFERS, TOO_MANY_PAYMENT_OPTIONS } from "./all-offers.js";
 import { wrapFetchEchoTwzrdAttempt, wrapX402ClientEchoAttempt } from "./attempt-echo.js";
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 import { resolveConfig } from "./config.js";
 import { captureDeliveryObservation } from "./delivery-capture.js";
 import { paymentRequiredFromResponse, pickRequirements, payToFromRequirements } from "./payto.js";
@@ -21,7 +22,7 @@ function x402FetchPeer(entry: string): Promise<typeof import("@x402/fetch")> {
   });
 }
 
-/** Wash abort; never treated as a dead origin. */
+/** Wash abort, and the `.kill` / `.pause` halt; never treated as a dead origin. */
 export class TwzrdWashAbortError extends Error {
   override name = "TwzrdWashAbortError";
 }
@@ -94,14 +95,25 @@ export function createTwzrdPayingFetch(opts: CreateTwzrdPayingFetchInput): typeo
   const raw = wrapFetchRememberInvoice(wrapFetchEchoTwzrdAttempt(inner));
   const peek = opts.peekFetch ?? inner;
   let lastChallenge: unknown;
+  // Returning a 402 from `guarded` is the go-ahead: the payer wrapped around
+  // it signs next. So every such return passes through here, and nothing is
+  // awaited between this read and the return. Thrown as a wash abort so the
+  // caller below does not treat the halt as a dead origin and pay the
+  // fallback route instead.
+  const handOver = (resp: Response): Response => {
+    const halted = twzrdSentinelRefusal(opts);
+    if (halted !== undefined) throw new TwzrdWashAbortError(`[twzrd] ${halted}`);
+    return resp;
+  };
   const guarded: typeof fetch = async (input, init) => {
     const resp = await raw(input, init);
     if (resp.status !== 402) return resp;
+    handOver(resp); // on entry: no card lookups for a payment that cannot happen
     let challenge: unknown;
     try {
       challenge = await paymentRequiredFromResponse(resp);
-    } catch { return resp; }
-    if (challenge == null) return resp;
+    } catch { return handOver(resp); }
+    if (challenge == null) return handOver(resp);
     lastChallenge = challenge;
     const accepts = (challenge as { accepts?: Array<Record<string, unknown>> }).accepts;
     const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -118,7 +130,7 @@ export function createTwzrdPayingFetch(opts: CreateTwzrdPayingFetchInput): typeo
       );
       if (decision && decision.abort === true) throw new TwzrdWashAbortError(decision.reason);
     }
-    return resp;
+    return handOver(resp);
   };
   let pay = opts.wrapPay?.(guarded);
   return async (input, init) => {

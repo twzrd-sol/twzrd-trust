@@ -1,6 +1,7 @@
 import { wrapFetchEchoTwzrdAttempt } from "./attempt-echo.js";
 import { resolveBuyerPathADefaults } from "./buyer-defaults.js";
 import { distinctOffers, firstRefusedOffer, TOO_MANY_PAYMENT_OPTIONS, MAX_DISTINCT_OFFERS } from "./all-offers.js";
+import { twzrdSentinelRefusal } from "./binding-plane.js";
 import { resolveConfig } from "./config.js";
 import { evaluate_x402_resource, type EvaluateX402Options } from "./evaluate.js";
 import { paymentRequiredFromResponse, payToFromRequirements, pickRequirements } from "./payto.js";
@@ -66,6 +67,9 @@ export function withTwzrdGuard(
     unsupportedNetworkMode: opts?.unsupportedNetworkMode,
     fetch: opts?.fetch ?? innerFetch,
     attribution: opts?.attribution,
+    stateDir: opts?.stateDir,
+    killFilePath: opts?.killFilePath,
+    pauseFilePath: opts?.pauseFilePath,
   });
 
   const echoing = wrapFetchEchoTwzrdAttempt(innerFetch);
@@ -77,7 +81,13 @@ export function withTwzrdGuard(
     // AUDIT FIX: header (v2) before body — the same precedence the payer uses.
     const body: X402PaymentRequiredBody | null = await paymentRequiredFromResponse(resp);
     if (body === null) {
-      // No header and no JSON body — nothing an x402 payer can pay from either.
+      // No header and no JSON body — nothing an x402 payer can pay from, and
+      // nothing here to score. A payer speaking another dialect may still pay
+      // from this response, so it is not handed back past `.kill` / `.pause`.
+      const halted = twzrdSentinelRefusal(config);
+      if (halted !== undefined) {
+        throw new Error(`[twzrd-guard] payment blocked: ${halted} url=${requestUrl(input)}`);
+      }
       return resp;
     }
 
@@ -116,6 +126,9 @@ export function withTwzrdGuard(
       unsupportedNetworkMode: config.unsupportedNetworkMode,
       fetch: config.fetch,
       attribution: config.attribution,
+      stateDir: config.stateDir,
+      killFilePath: config.killFilePath,
+      pauseFilePath: config.pauseFilePath,
       autoReceipt: opts?.autoReceipt,
       x402Fetch: paid.x402Fetch,
       onReceipt: opts?.onReceipt,
