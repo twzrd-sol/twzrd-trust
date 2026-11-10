@@ -116,6 +116,7 @@ check until it finishes, so concurrent calls see each other's spend:
 - **Without `max_tokens`**: the dollar estimate is the per-request cap
   (`max_cost_per_request_usd`, $0.50 by default), and the hourly and daily
   checks run against it. There is no token estimate, so the token hold is 0.
+  A model priced at $0 holds no dollars.
 
 When the call ends, the hold becomes a ledger line:
 
@@ -178,6 +179,25 @@ with 403 `model_not_allowed` and never reaches upstream. The proxy also
 skips the upstream `Authorization` header and does not read the API key
 environment variable. Leave it unset for the normal keyed OpenAI proxy.
 
+A listed model that has no row in the price table is priced at **$0**: the
+list is your statement that it costs nothing, which is what a local model
+behind Ollama or a free catalog entry is. The dollar limits then never
+trip for it; the per-minute token limit and the kill file still apply. A
+listed model that does have a price row (`gpt-4o`, for example) keeps that
+price, and a dated or suffixed id of a priced model (`gpt-4o-2024-11-20`)
+keeps the o1 fallback.
+
+The $0 price is for unpaid calls only. Keyless mode is also how an
+MPP/x402 buyer runs the proxy, so a call that carries a payment credential
+(`X-Payment`, `Payment-Signature`, any `X-Payment-*`, or `Authorization:
+Payment ...`) is priced as if the model were not on the list, and the
+dollar limits apply to it. Do not list a model your upstream bills for in
+a way the proxy cannot see.
+
+A $0 call without `max_tokens` holds nothing before it is sent, so a burst
+of parallel calls to a local model all reach upstream; the per-minute token
+limit counts them once the responses land.
+
 Every decision — allowed or vetoed — appends one line to the JSONL ledger
 with timestamp, model, token counts, `cost_usd`, `allowed`, `veto_reason`,
 and `request_id`; allowed lines also carry `metered` (`usage` or
@@ -210,8 +230,9 @@ OpenAI's published prices). There are no live pricing fetches by design.
 An **unknown model is billed at the most expensive known rate** (currently
 o1 at **$15 input / $60 output per million tokens**) rather than rejected —
 failing closed on cost beats failing open. A model id that is not in the
-table, even a free one, is priced as o1; `nvidia/nemotron-3.5-bolt` is listed
-at $0. The ledger shows exactly what was assumed.
+table is priced as o1 unless you put it on `KILLSWITCH_FREE_MODELS`, which
+prices it at $0 (above); `nvidia/nemotron-3.5-bolt` is listed at $0. The
+ledger shows exactly what was assumed.
 
 The checks before a call do not count prompt tokens. The per-request cap
 prices `max_tokens` at the model's output rate (or uses the cap itself when

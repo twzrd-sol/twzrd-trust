@@ -455,6 +455,86 @@ test("the pinned free model costs zero and an unknown model stays at the o1 rate
   assert.equal(pessimisticRequestCostUsd("not-a-real-model", 1), 60 / 1_000_000);
 });
 
+test("a model on the free allowlist with no price row costs zero; a priced model keeps its price", () => {
+  const free = ["local-model", "gpt-4o"];
+  assert.equal(costUsd("local-model", 1_000_000, 1_000_000, free), 0);
+  assert.equal(pessimisticRequestCostUsd("local-model", 4096, free), 0);
+  // Listing a priced model as free does not zero it.
+  assert.equal(costUsd("gpt-4o", 1_000_000, 1_000_000, free), 12.5);
+  assert.equal(pessimisticRequestCostUsd("gpt-4o", 1_000_000, free), 10);
+  // Not on the list: still the o1 fallback, with or without a list.
+  assert.equal(costUsd("other-model", 1_000_000, 1_000_000, free), 75);
+  assert.equal(costUsd("local-model", 1_000_000, 1_000_000), 75);
+  assert.equal(costUsd("local-model", 1_000_000, 1_000_000, []), 75);
+  // A dated or suffixed id of a priced model is not free either.
+  assert.equal(costUsd("gpt-4o-2024-11-20", 1_000_000, 1_000_000, ["gpt-4o-2024-11-20"]), 75);
+  assert.equal(costUsd("o1:preview", 1_000_000, 1_000_000, ["o1:preview"]), 75);
+  // A name that only shares letters with a priced id is still free.
+  assert.equal(costUsd("o1x-local", 1_000_000, 1_000_000, ["o1x-local"]), 0);
+});
+
+test("a paid call in keyless mode keeps the fail-closed price and the dollar limit", async () => {
+  delete process.env.OPENAI_API_KEY;
+  process.env.KILLSWITCH_FREE_MODELS = "seller/paid-model";
+  process.env.KILLSWITCH_MAX_USD_HOUR = "0.05";
+  upstream.state.mode = "402-until-paid";
+  const port = await startKillswitch();
+  const body = { model: "seller/paid-model", max_tokens: 256, messages: [{ role: "user", content: "hi" }] };
+  const paidHeaders = { "x-payment": "pay-payload", authorization: "Payment cred-abc" };
+
+  // Unpaid: the seller answers 402, nothing is billed.
+  const challenge = await chat(port, body);
+  assert.equal(challenge.status, 402);
+  assert.equal((await health(port)).hour_usd, 0);
+
+  // Paid: 1000 prompt + 500 completion tokens at the o1 fallback = $0.045.
+  const paid = await chat(port, body, paidHeaders);
+  assert.equal(paid.status, 200);
+  const lines = readLedger(dir);
+  assert.equal(lines.at(-1).cost_usd, 0.045);
+  assert.equal((await health(port)).hour_usd, 0.045);
+
+  // The next paid call would cross $0.05/hour and never reaches the seller.
+  const hitsBefore = upstream.state.hits;
+  const capped = await chat(port, body, paidHeaders);
+  assert.equal(capped.status, 429);
+  assert.equal(capped.json.error.code, "budget_exceeded");
+  assert.equal(upstream.state.hits, hitsBefore);
+
+  // Each payment header on its own counts as a credential.
+  for (const h of [{ "payment-signature": "s" }, { "x-payment-signature": "s" }, { authorization: "Payment c" }]) {
+    const r = await chat(port, body, h);
+    assert.equal(r.status, 429, JSON.stringify(h));
+  }
+});
+
+test("an allowlisted local model meters $0 with default limits, and the token limit still vetoes", async () => {
+  delete process.env.OPENAI_API_KEY;
+  process.env.KILLSWITCH_FREE_MODELS = "local-model";
+  process.env.KILLSWITCH_MAX_TOKENS_MINUTE = "2000";
+  const port = await startKillswitch();
+
+  // No max_tokens: before this change the call held the $0.50 per-request cap
+  // and its 1500 tokens were then billed at the o1 fallback rate.
+  const ok = await chat(port, { model: "local-model", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(ok.status, 200);
+  assert.equal(upstream.state.auths[0], "");
+  let lines = readLedger(dir);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].cost_usd, 0);
+  assert.equal(lines[0].total_tokens, 1500);
+  assert.equal(lines[0].metered, "usage");
+  const h = await health(port);
+  assert.equal(h.hour_usd, 0);
+  assert.equal(h.day_usd, 0);
+
+  // 1500 tokens are in the minute window; 1000 more would cross 2000.
+  const capped = await chat(port, { model: "local-model", max_tokens: 1000, messages: [{ role: "user", content: "hi" }] });
+  assert.equal(capped.status, 429);
+  assert.equal(capped.json.error.code, "budget_exceeded");
+  assert.equal(upstream.state.hits, 1);
+});
+
 test("default mode still sends the configured bearer", async () => {
   const port = await startKillswitch();
   const r = await chat(port, { model: "gpt-4o-mini", max_tokens: 16, messages: [{ role: "user", content: "hi" }] });

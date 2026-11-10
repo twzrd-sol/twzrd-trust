@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { pessimisticRequestCostUsd } from "./pricing.js";
+import { pessimisticRequestCostUsd, priceFor } from "./pricing.js";
 
 export type VetoCode =
   | "budget_exceeded"
@@ -207,6 +207,12 @@ export interface GateInput {
   maxCostPerRequestUsd: number;
   /** When set, any other model is vetoed before budget math and before upstream. */
   allowedModels?: readonly string[] | null;
+  /**
+   * Models priced at $0 for this request when they have no price row (see
+   * priceFor). The caller passes the free allowlist for an unpaid call and
+   * nothing for a call that carries a payment credential.
+   */
+  zeroPriceModels?: readonly string[] | null;
 }
 
 export interface RequestEstimate {
@@ -219,11 +225,21 @@ export interface RequestEstimate {
 /**
  * Pre-call estimate, used both by evaluateGate and by the in-flight hold.
  * With max_tokens: all of them at the output rate. Without it there is no
- * token estimate, and the dollar estimate is the per-request cap.
+ * token estimate, and the dollar estimate is the per-request cap, except for
+ * a model priced at $0 (see priceFor), which holds no dollars.
  */
-export function requestEstimate(model: string, maxTokens: number | null, maxCostPerRequestUsd: number): RequestEstimate {
-  if (maxTokens === null) return { tokens: 0, usd: maxCostPerRequestUsd };
-  return { tokens: maxTokens, usd: pessimisticRequestCostUsd(model, maxTokens) };
+export function requestEstimate(
+  model: string,
+  maxTokens: number | null,
+  maxCostPerRequestUsd: number,
+  freeModels?: readonly string[] | null,
+): RequestEstimate {
+  if (maxTokens === null) {
+    const { price } = priceFor(model, freeModels);
+    const free = price.inputPerMTok === 0 && price.outputPerMTok === 0;
+    return { tokens: 0, usd: free ? 0 : maxCostPerRequestUsd };
+  }
+  return { tokens: maxTokens, usd: pessimisticRequestCostUsd(model, maxTokens, freeModels) };
 }
 
 /** Pure pre-call budget evaluator. No I/O, no tokenizer. The window must include in-flight holds. */
@@ -264,7 +280,7 @@ export function evaluateGate(input: GateInput): GateDecision {
   }
 
   // The same estimate the caller holds while the request is in flight.
-  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd);
+  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels);
 
   // Token velocity gate: tokens in the last 60 s (recorded and in flight)
   // plus this request's max_tokens as a stand-in for its eventual size.
