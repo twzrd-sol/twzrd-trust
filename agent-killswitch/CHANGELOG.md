@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.8 (2026-11-09)
+## 0.1.8 (2026-11-10)
 
 Track 5 Binding Plane: shared `twzrd.binding_policy.v1` config envelope and `.pause` payment-gate backpressure sentinel.
 
