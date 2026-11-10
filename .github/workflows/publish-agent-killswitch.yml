@@ -9,8 +9,12 @@ name: Publish agent-killswitch to npm
 # (twzrd-sol/twzrd-trust / .github/workflows/publish-agent-killswitch.yml)
 # is added as the package's trusted publisher on npmjs.com.
 #
-# Permissions: contents: read (nothing is tagged or pushed);
-# id-token: write (OIDC and npm provenance).
+# Two jobs. `conformance` runs the whole test suite with contents: read and
+# nothing else. Two of those tests import the sibling gate's build, so that job
+# installs the repo-root tree and executes the gate's dependencies. `publish`
+# needs it, holds id-token: write (OIDC and npm provenance), and runs only this
+# package's own install, tsc and npm: no repo-root install, no gate, no tests.
+# contents: read in both (nothing is tagged or pushed).
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +30,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  conformance:
+    uses: ./.github/workflows/agent-killswitch-conformance.yml
+    permissions:
+      contents: read
+
   publish:
+    needs: conformance
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -104,24 +114,18 @@ jobs:
             *) echo "::error::Cannot tell whether $PACKAGE@$EXPECTED_VERSION exists (npm said: ${out:0:200})."; exit 1 ;;
           esac
 
-      - name: Build the sibling gate for the cross-reader tests
-        # test/binding-plane.test.mjs proves the gate and this proxy read the
-        # same .pause file, so it imports ../twzrd-x402-gate/dist. Root CI
-        # builds the gate before these tests. This job did not, and the two
-        # cross-reader tests failed with ERR_MODULE_NOT_FOUND (run 42741463419).
-        # --ignore-scripts: the gate build is tsc only, so no dependency
-        # install script has to run in a job that can publish. Nothing built
-        # here is in this package's tarball.
-        working-directory: .
-        run: |
-          npm ci --ignore-scripts
-          npm run build
-
       - name: Install dependencies (agent-killswitch/package-lock.json)
         run: npm ci
 
-      - name: Typecheck and test
-        run: npm run ci
+      - name: Typecheck and build
+        # The tests ran in the conformance job, on this same commit. They are
+        # not repeated here: the cross-reader tests need the gate and its
+        # dependencies, which must not run in the job that can publish.
+        # `npm test` used to build dist as a side effect, so build it here.
+        run: |
+          npm run typecheck
+          npm run build
+          test -s dist/index.js
 
       - name: Show the tarball contents
         run: npm pack --dry-run

@@ -4,9 +4,12 @@ name: agent-killswitch image to GHCR
 # outside branch or PR does can push an image. A person starts each run and
 # names the version and commit it must match.
 #
-# Auth is this run's GITHUB_TOKEN with packages: write. No personal token is
-# stored or widened. This repository is public, but do not assume the GHCR
-# package's visibility: check it in the package settings after the first push.
+# Auth is the image job's GITHUB_TOKEN with packages: write. No personal token
+# is stored or widened. The test suite runs first, in the conformance job,
+# which has contents: read only: two of its tests execute the sibling gate and
+# the gate's dependencies, and those must not run in the job that can push.
+# This repository is public, but do not assume the GHCR package's visibility:
+# check it in the package settings after the first push.
 # Runs only from main; the version and commit checks below bind what is built.
 
 on:
@@ -21,16 +24,24 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: agent-killswitch-image
   cancel-in-progress: false
 
 jobs:
+  conformance:
+    uses: ./.github/workflows/agent-killswitch-conformance.yml
+    permissions:
+      contents: read
+
   image:
+    needs: conformance
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         working-directory: agent-killswitch
@@ -69,30 +80,12 @@ jobs:
           fi
           echo "version $actual_version at $actual_commit"
 
+      # Node here only serves `npm view` below. Nothing is installed or tested
+      # on this runner: the tests ran in the conformance job, and the Docker
+      # build does its own `npm ci` and tsc build inside the image.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: agent-killswitch/package-lock.json
-
-      - name: Build the sibling gate for the cross-reader tests
-        # test/binding-plane.test.mjs proves the gate and this proxy read the
-        # same .pause file, so it imports ../twzrd-x402-gate/dist. Root CI
-        # builds the gate before these tests; without this step the two
-        # cross-reader tests fail with ERR_MODULE_NOT_FOUND, as they did in
-        # publish-agent-killswitch.yml (run 42741463419). --ignore-scripts:
-        # the gate build is tsc only, so no dependency install script has to
-        # run in a job that can push an image. The Docker build context is
-        # agent-killswitch/, so nothing built here is in the image.
-        working-directory: .
-        run: |
-          npm ci --ignore-scripts
-          npm run build
-
-      - name: Install, typecheck and test
-        run: |
-          npm ci
-          npm run ci
 
       - name: Log in to GHCR
         env:

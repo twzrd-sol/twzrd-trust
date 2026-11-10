@@ -1,137 +1,336 @@
-// Every workflow job that runs the agent-killswitch tests must build
-// twzrd-x402-gate first.
+// Guards for the agent-killswitch release path.
 //
 // agent-killswitch/test/binding-plane.test.mjs proves that the gate and the
-// proxy read the same .pause file, so it imports ../twzrd-x402-gate/dist.
-// Root `npm run ci` builds the gate before those tests. The two release
-// workflows install and test agent-killswitch on its own, and the 0.1.8
-// publish run failed at "Typecheck and test" with ERR_MODULE_NOT_FOUND
-// because nothing had built the gate. This test keeps the three in step.
+// proxy read the same .pause file, so two of its tests import
+// ../twzrd-x402-gate/dist. Two rules follow, and both have to survive edits
+// to workflow files that only ever run on release day:
+//
+//   1. A job that runs the agent-killswitch suite builds the gate first.
+//      The 0.1.8 publish run failed with ERR_MODULE_NOT_FOUND because the
+//      release workflow ran the suite without the gate build root CI does.
+//   2. A job that holds a release credential (id-token: write for npm,
+//      packages: write for GHCR) does not run that suite, install the
+//      repo-root tree or build the gate. Running the cross-reader tests
+//      executes the gate's dependencies; the proxy has one runtime
+//      dependency of its own. The suite runs in a separate job the release
+//      job needs.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { test } from 'node:test';
 
 const root = new URL('../', import.meta.url);
 const workflowsDir = new URL('.github/workflows/', root);
-const killswitchTestDir = new URL('agent-killswitch/test/', root);
+const KILLSWITCH = 'agent-killswitch';
+const GATE = 'twzrd-x402-gate';
+const CONFORMANCE = 'agent-killswitch-conformance.yml';
+const CONFORMANCE_REF = `./.github/workflows/${CONFORMANCE}`;
+const RELEASE_WORKFLOWS = ['publish-agent-killswitch.yml', 'agent-killswitch-image.yml'];
 
 const read = url => readFileSync(url, 'utf8');
-const withoutComments = lines => lines.filter(line => !/^\s*#/.test(line)).join('\n');
 
-/** Killswitch test files that import the gate's build output. */
-function gateDistImporters() {
-  return readdirSync(killswitchTestDir)
-    .filter(name => /\.(mjs|cjs|js|ts)$/.test(name))
-    .filter(name => /twzrd-x402-gate\/dist\//.test(read(new URL(name, killswitchTestDir))));
-}
-
-/**
- * A line-based reading of a workflow file: jobs, each with its default
- * working directory and its steps. Enough for the workflows in this repo,
- * which all indent jobs by two spaces and steps by six.
- */
-function parseJobs(text) {
-  const lines = text.split('\n');
-  const jobsAt = lines.findIndex(line => /^jobs:\s*$/.test(line));
-  if (jobsAt === -1) return [];
-  const jobs = [];
-  let job = null;
-  let step = null;
-  let inSteps = false;
-  for (const line of lines.slice(jobsAt + 1)) {
-    const jobStart = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
-    if (jobStart) {
-      job = { name: jobStart[1], defaultDir: '.', steps: [] };
-      jobs.push(job);
-      step = null;
-      inSteps = false;
-      continue;
-    }
-    if (!job) continue;
-    if (/^ {4}steps:\s*$/.test(line)) {
-      inSteps = true;
-      continue;
-    }
-    if (!inSteps) {
-      const dir = /^\s+working-directory:\s*(\S+)\s*$/.exec(line);
-      if (dir) job.defaultDir = dir[1];
-      continue;
-    }
-    if (/^ {6}- /.test(line)) {
-      step = { lines: [], dir: null };
-      job.steps.push(step);
-    }
-    if (!step) continue;
-    step.lines.push(line);
-    const dir = /^ {8}working-directory:\s*(\S+)\s*$/.exec(line);
-    if (dir) step.dir = dir[1];
+// The repo root installs no YAML parser. js-yaml is agent-killswitch's own
+// dependency, and root `npm test` runs test:agent-killswitch (which installs
+// it) before this file.
+const yaml = (() => {
+  try {
+    return createRequire(new URL(`${KILLSWITCH}/package.json`, root))('js-yaml');
+  } catch {
+    throw new Error(
+      `js-yaml is not installed under ${KILLSWITCH}/node_modules. `
+        + `Run \`npm ci --prefix ${KILLSWITCH}\` first (root \`npm test\` does).`,
+    );
   }
-  for (const j of jobs) {
-    for (const s of j.steps) {
-      s.dir = s.dir ?? j.defaultDir;
-      s.commands = withoutComments(s.lines);
-    }
-  }
-  return jobs;
+})();
+
+const unquote = word => word.replace(/^(['"])(.*)\1$/, '$2');
+function normDir(dir) {
+  const n = path.posix.normalize(String(dir ?? '.')).replace(/\/+$/, '');
+  return n === '' ? '.' : n;
 }
 
-const atRoot = step => step.dir === '.' || step.dir === './';
-const inKillswitch = step => /^(\.\/)?agent-killswitch\/?$/.test(step.dir);
-
-/** The step runs the killswitch suite without building the gate itself. */
-function runsKillswitchTests(step) {
-  if (inKillswitch(step)) return /\bnpm (run ci|run test|test)\b/.test(step.commands);
-  return /\btest:agent-killswitch\b/.test(step.commands)
-    || /\bnpm (run ci|run test|test)\b[^\n]*--prefix[ =]agent-killswitch\b/.test(step.commands);
+/** Shell commands of a `run:` block, one per entry, comments dropped. */
+function commandsOf(script) {
+  return String(script)
+    .replace(/\\\n/g, ' ')
+    .split('\n')
+    .filter(line => !/^\s*#/.test(line))
+    .flatMap(line => line.split(/&&|\|\||;/))
+    .map(command => command.trim().replace(/^(?:(?:if|then|else|elif|do|time|exec|!)\s+|\w+=\S*\s+)+/, ''))
+    .filter(Boolean);
 }
 
-/** Root `npm run build` is the gate build (asserted below). */
-function buildsGate(step) {
-  return atRoot(step) && /\bnpm run build\b/.test(step.commands);
+/** What one command does, given the directory it runs in. */
+function classify(command, cwd) {
+  let dir = cwd;
+  const rest = command.replace(/\s--prefix(?:=|\s+)(\S+)/, (_, prefix) => {
+    dir = normDir(path.posix.join(cwd, unquote(prefix)));
+    return '';
+  });
+  const npmRun = name => new RegExp(`^npm\\s+(?:run|run-script)\\s+${name}(?=\\s|$)`).test(rest);
+  const bareNpmTest = /^npm\s+(?:test|t)(?=\s|$)/.test(rest);
+  const noArgs = /^npm\s+(?:run\s+|run-script\s+)?\S+\s*$/.test(rest);
+
+  // Root `npm test` and `npm run ci` build the gate, then run every suite
+  // (asserted against package.json below).
+  const rootAggregate = dir === '.' && noArgs && (bareNpmTest || npmRun('ci') || npmRun('test'));
+  const buildsGate = rootAggregate
+    || (dir === '.' && /^npm\s+(?:run|run-script)\s+build(?:\s+(?:--workspace|-w)(?:=|\s+)twzrd-x402-gate)?\s*$/.test(rest))
+    || (dir === GATE && /^npm\s+(?:run|run-script)\s+build\s*$/.test(rest));
+  const runsSuite = rootAggregate
+    || (dir === KILLSWITCH && (bareNpmTest || npmRun('ci') || npmRun('test') || /^node\s(?:.*\s)?--test(?=\s|$)/.test(rest)))
+    || (dir === '.' && (npmRun('test:agent-killswitch') || /^node\s(?:.*\s)?--test\s(?:.*\s)?(?:\.\/)?agent-killswitch\//.test(rest)));
+  const installsRoot = dir === '.'
+    && /^npm\s+(?:ci|install|i)(?=\s|$)/.test(rest)
+    && !/\s(?:-g|--global)(?=\s|$)/.test(rest);
+  return { buildsGate, runsSuite, installsRoot };
 }
 
-function findings() {
-  const out = [];
-  for (const name of readdirSync(workflowsDir).filter(n => /\.ya?ml$/.test(n)).sort()) {
-    for (const job of parseJobs(read(new URL(name, workflowsDir)))) {
-      job.steps.forEach((step, index) => {
-        if (!runsKillswitchTests(step)) return;
-        out.push({
-          workflow: name,
-          job: job.name,
-          gateBuiltFirst: job.steps.slice(0, index).some(buildsGate),
-        });
-      });
-    }
-  }
-  return out;
+/** Every job of a parsed workflow, with what its steps do, in order. */
+function jobsOf(doc) {
+  return Object.entries(doc?.jobs ?? {}).map(([name, job]) => {
+    const suiteRuns = [];
+    const rootInstalls = [];
+    const gateBuilds = [];
+    let gateBuilt = false;
+    (job.steps ?? []).forEach((step, index) => {
+      if (typeof step.run !== 'string') return;
+      let cwd = normDir(
+        step['working-directory']
+          ?? job.defaults?.run?.['working-directory']
+          ?? doc.defaults?.run?.['working-directory'],
+      );
+      const label = step.name ?? `step ${index}`;
+      let builtInThisStep = false;
+      for (const command of commandsOf(step.run)) {
+        const cd = /^cd\s+(\S+)\s*$/.exec(command);
+        if (cd) {
+          cwd = normDir(path.posix.join(cwd, unquote(cd[1])));
+          continue;
+        }
+        const does = classify(command, cwd);
+        if (does.installsRoot) rootInstalls.push(`${label}: ${command}`);
+        if (does.buildsGate) {
+          gateBuilds.push(`${label}: ${command}`);
+          builtInThisStep = true;
+          // A build step behind `if:` may not run; it only covers its own step.
+          if (!('if' in step)) gateBuilt = true;
+        }
+        if (does.runsSuite) {
+          suiteRuns.push({ step: label, command, gateBuilt: gateBuilt || builtInThisStep });
+        }
+      }
+    });
+    return {
+      name,
+      uses: typeof job.uses === 'string' ? job.uses : null,
+      needs: [].concat(job.needs ?? []),
+      permissions: job.permissions ?? doc.permissions ?? null,
+      suiteRuns,
+      rootInstalls,
+      gateBuilds,
+    };
+  });
 }
 
-test('root `npm run build` builds twzrd-x402-gate', () => {
+const holdsReleaseCredential = permissions => permissions === 'write-all'
+  || (permissions !== null && typeof permissions === 'object'
+    && (permissions['id-token'] === 'write' || permissions.packages === 'write'));
+
+const workflowNames = () => readdirSync(workflowsDir).filter(name => /\.ya?ml$/.test(name)).sort();
+const loadWorkflow = name => yaml.load(read(new URL(name, workflowsDir)));
+
+// --- the reader itself ------------------------------------------------------
+
+const job = body => `jobs:\n  j:\n    runs-on: ubuntu-latest\n${body}`;
+const READER_CASES = [
+  ['build step, then the suite in agent-killswitch', job(`
+    defaults: { run: { working-directory: agent-killswitch } }
+    steps:
+      - working-directory: .
+        run: npm run build
+      - run: npm run ci
+  `), [true]],
+  ['no build step', job(`
+    defaults: { run: { working-directory: agent-killswitch } }
+    steps:
+      - run: npm ci
+      - run: npm run ci
+  `), [false]],
+  ['a step only named after the build', job(`
+    steps:
+      - name: Skip npm run build
+        run: echo skipped
+      - run: npm run test:agent-killswitch
+  `), [false]],
+  ['a different script that starts with "build"', job(`
+    steps:
+      - run: npm run build:docs
+      - run: npm run test:agent-killswitch
+  `), [false]],
+  ['a build step behind `if:`', job(`
+    steps:
+      - if: false
+        run: npm run build
+      - run: npm run test:agent-killswitch
+  `), [false]],
+  ['a build in agent-killswitch is not the gate build', job(`
+    defaults: { run: { working-directory: agent-killswitch } }
+    steps:
+      - run: npm run build
+      - run: npm test
+  `), [false]],
+  ['build and suite in one step', job(`
+    steps:
+      - run: npm ci --ignore-scripts && npm run build && npm run test:agent-killswitch
+  `), [true]],
+  ['quoted working-directory', job(`
+    defaults: { run: { working-directory: agent-killswitch } }
+    steps:
+      - working-directory: '.'
+        run: npm run build
+      - run: npm run ci
+  `), [true]],
+  ['cd into the package', job(`
+    steps:
+      - run: cd agent-killswitch && npm run ci
+  `), [false]],
+  ['--prefix before the subcommand', job(`
+    steps:
+      - run: npm --prefix agent-killswitch test
+  `), [false]],
+  ['--prefix after the subcommand', job(`
+    steps:
+      - run: npm run build
+      - run: npm ci --prefix agent-killswitch && npm run ci --prefix agent-killswitch
+  `), [true]],
+  ['node --test on the package from the root', job(`
+    steps:
+      - run: node --test agent-killswitch/test/*.test.mjs
+  `), [false]],
+  ['root `npm run ci` builds first by itself', job(`
+    steps:
+      - run: npm run ci
+  `), [true]],
+  ['`npm ci` is an install, not the suite', job(`
+    defaults: { run: { working-directory: agent-killswitch } }
+    steps:
+      - run: npm ci
+      - run: npm run typecheck
+  `), []],
+  ['another workspace is not the suite', job(`
+    steps:
+      - run: npm test --workspace=twzrd-x402-gate
+  `), []],
+];
+
+for (const [title, text, expected] of READER_CASES) {
+  test(`reader: ${title}`, () => {
+    const [parsed] = jobsOf(yaml.load(text));
+    assert.deepEqual(parsed.suiteRuns.map(run => run.gateBuilt), expected);
+  });
+}
+
+test('reader: release credentials and root installs', () => {
+  const [parsed] = jobsOf(yaml.load(job(`
+    permissions: { contents: read, id-token: write }
+    defaults: { run: { working-directory: agent-killswitch } }
+    steps:
+      - run: npm ci
+      - run: npm install -g npm@11
+      - working-directory: .
+        run: npm ci --ignore-scripts
+  `)));
+  assert.equal(holdsReleaseCredential(parsed.permissions), true);
+  assert.deepEqual(parsed.rootInstalls, ['step 2: npm ci --ignore-scripts']);
+  assert.equal(holdsReleaseCredential({ contents: 'read' }), false);
+  assert.equal(holdsReleaseCredential({ contents: 'read', packages: 'write' }), true);
+  assert.equal(holdsReleaseCredential(null), false);
+});
+
+// --- this repository ---------------------------------------------------------
+
+test('the scripts the reader relies on still mean what it assumes', () => {
   const pkg = JSON.parse(read(new URL('package.json', root)));
-  assert.match(pkg.scripts.build, /--workspace=twzrd-x402-gate\b/);
-  const gate = JSON.parse(read(new URL('twzrd-x402-gate/package.json', root)));
+  assert.match(pkg.scripts.build, /^npm run build --workspace=twzrd-x402-gate$/);
+  assert.match(pkg.scripts.test, /^npm run build && /);
+  assert.match(pkg.scripts.ci, /^npm run build && /);
+  assert.match(pkg.scripts['test:agent-killswitch'], /npm run ci --prefix agent-killswitch$/);
+  const gate = JSON.parse(read(new URL(`${GATE}/package.json`, root)));
   assert.match(gate.scripts.build, /\btsc\b/);
+  const killswitch = JSON.parse(read(new URL(`${KILLSWITCH}/package.json`, root)));
+  assert.match(killswitch.scripts.ci, /\bnpm test\b/);
 });
 
-test('the reader finds the killswitch test step in CI and in both release workflows', () => {
-  const seen = new Set(findings().map(f => f.workflow));
-  for (const name of ['ci.yml', 'publish-agent-killswitch.yml', 'agent-killswitch-image.yml']) {
-    assert.ok(seen.has(name), `${name}: no step recognised as running the agent-killswitch tests`);
-  }
-});
-
-test('every workflow job that runs the agent-killswitch tests builds the gate first', t => {
-  const importers = gateDistImporters();
-  if (importers.length === 0) {
-    t.skip('no agent-killswitch test imports twzrd-x402-gate/dist');
-    return;
-  }
-  const missing = findings().filter(f => !f.gateBuiltFirst).map(f => `${f.workflow} (job ${f.job})`);
-  assert.deepEqual(
-    missing,
+test('an agent-killswitch test still imports the gate build (the reason for these guards)', () => {
+  const dir = new URL(`${KILLSWITCH}/test/`, root);
+  const importers = readdirSync(dir).filter(name => /twzrd-x402-gate\/dist\b/.test(read(new URL(name, dir))));
+  assert.notDeepEqual(
+    importers,
     [],
-    `${importers.join(', ')} import twzrd-x402-gate/dist, so these jobs need a repo-root `
-      + '`npm run build` step before the agent-killswitch tests',
+    'no agent-killswitch test imports twzrd-x402-gate/dist any more: the conformance job no longer '
+      + 'needs the gate build, and this file and that step can be simplified',
   );
 });
+
+test('every job that runs the agent-killswitch suite builds the gate first', () => {
+  const seen = new Set();
+  const missing = [];
+  for (const name of workflowNames()) {
+    for (const parsed of jobsOf(loadWorkflow(name))) {
+      for (const run of parsed.suiteRuns) {
+        seen.add(name);
+        if (!run.gateBuilt) missing.push(`${name} job ${parsed.name}: ${run.step}: ${run.command}`);
+      }
+    }
+  }
+  for (const name of ['ci.yml', CONFORMANCE]) {
+    assert.ok(seen.has(name), `${name}: no step recognised as running the agent-killswitch suite`);
+  }
+  assert.deepEqual(missing, [], 'these steps need a repo-root `npm run build` before them');
+});
+
+test('no job that holds a release credential runs the agent-killswitch suite', () => {
+  const offenders = [];
+  for (const name of workflowNames()) {
+    for (const parsed of jobsOf(loadWorkflow(name))) {
+      if (holdsReleaseCredential(parsed.permissions) && parsed.suiteRuns.length > 0) {
+        offenders.push(`${name} job ${parsed.name}: ${parsed.suiteRuns.map(run => run.command).join(', ')}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('the conformance workflow is callable, runs the suite and holds no credential', () => {
+  const doc = loadWorkflow(CONFORMANCE);
+  assert.ok(doc.on && typeof doc.on === 'object' && 'workflow_call' in doc.on, 'on.workflow_call is missing');
+  assert.deepEqual(doc.permissions, { contents: 'read' });
+  const parsedJobs = jobsOf(doc);
+  for (const parsed of parsedJobs) {
+    assert.deepEqual(parsed.permissions, { contents: 'read' }, `job ${parsed.name} widens the workflow permissions`);
+  }
+  assert.ok(parsedJobs.some(parsed => parsed.suiteRuns.length > 0), 'no job runs the agent-killswitch suite');
+});
+
+for (const name of RELEASE_WORKFLOWS) {
+  test(`${name}: the release job needs conformance and stays off the gate`, () => {
+    const parsedJobs = jobsOf(loadWorkflow(name));
+    const conformance = parsedJobs.filter(parsed => parsed.uses === CONFORMANCE_REF);
+    assert.equal(conformance.length, 1, `expected one job that uses ${CONFORMANCE_REF}`);
+    assert.deepEqual(conformance[0].permissions, { contents: 'read' });
+
+    const release = parsedJobs.filter(parsed => holdsReleaseCredential(parsed.permissions));
+    assert.equal(release.length, 1, 'expected exactly one job holding a release credential');
+    const [releaseJob] = release;
+    assert.notEqual(releaseJob.name, conformance[0].name);
+    assert.ok(
+      releaseJob.needs.includes(conformance[0].name),
+      `job ${releaseJob.name} must need ${conformance[0].name}`,
+    );
+    assert.deepEqual(releaseJob.suiteRuns, [], 'the release job must not run the suite');
+    assert.deepEqual(releaseJob.rootInstalls, [], 'the release job must not install the repo-root tree');
+    assert.deepEqual(releaseJob.gateBuilds, [], 'the release job must not build the gate');
+  });
+}
