@@ -1,10 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.1.9 (2026-11-11)
+
+### Added
 
 - Record requested and upstream-reported served model IDs with exact-string mismatch telemetry for JSON and SSE responses, without logging content.
 - Add verified provider text-rate estimates and validated operator `model_rates` / `KILLSWITCH_MODEL_RATES` overrides across admission, holds and settlement. Unknown IDs retain the fixed $15/$60 fallback.
 - The built-in table covers the Anthropic, DeepSeek and Gemini OpenAI-compatible endpoints (`claude-sonnet-5-5`, `deepseek-flash`, `gemini-3.6-flash`, 33 ids) and 37 OpenRouter ids. Each row is the highest price the upstream can bill for that id, including any premium the request body can select, because the agent being limited writes the body. Rows are conservative budget estimates for the limits, not the price a given call pays. Direct Gemini rows use the Priority tier and audio input (the compatibility layer honours `service_tier="priority"` and `input_audio`): `gemini-2.5-flash` is $1.80/$4.50, not the $0.30/$2.50 standard text price. Anthropic rows include fast mode where offered and the 1.1x `inference_geo` multiplier on Claude 4.6 and later. OpenRouter rows take the dearest endpoint it can route to, at the undiscounted price, since it picks the provider per request: `anthropic/claude-sonnet-4.6` is $3.30/$16.50 (regional Bedrock and Vertex), not the $3/$15 catalog headline. Tiered models use their top prompt-length tier, and announced increases (Gemini 3.6/3.8 Flash on 2027-01-01, Gemini 4 on 2026-12-01) are already applied. A known row may sit above the fallback (`claude-fable-5-2` $17.60/$88) and keeps its price, and so does an unknown id that extends it with `-` or `:` (`anthropic/claude-fable-5.2:nitro`); this also applies to operator overrides. `deepseek-chat` and `deepseek-reasoner` are not priced, because DeepSeek's pricing page no longer lists them.
+
+### Fixed
 
 - A port that is already in use no longer ends in a Node stack trace. The CLI prints one line naming the port and host, that another agent-killswitch may be running, and how to pick another port (`KILLSWITCH_PORT`), then exits 1. A port the user may not bind (`EACCES`) gets the same treatment.
 - A model on the free allowlist (`KILLSWITCH_FREE_MODELS` / `compute.free_models`) that has no row in the price table is now priced at $0, where it used to be billed at the o1 fallback rate. A local model behind Ollama no longer runs into the hourly dollar limit on spend that never happened. A listed model that has a price row keeps it, and a model off the list is still priced as o1.
