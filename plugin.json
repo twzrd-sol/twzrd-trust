@@ -1,8 +1,25 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "twzrd-trust",
+  "version": "0.1.0",
   "description": "Discover x402 callables then check the seller BEFORE paying.",
+  "author": {
+    "name": "TWZRD",
+    "url": "https://twzrd.xyz"
+  },
   "homepage": "https://intel.twzrd.xyz",
   "repository": "https://github.com/twzrd-sol/twzrd-trust",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "x402",
+    "payments",
+    "agent-payments",
+    "mcp",
+    "trust",
+    "preflight",
+    "solana",
+    "base",
+    "usdc",
+    "wash-trading"
+  ]
 }
