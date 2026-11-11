@@ -64,5 +64,9 @@ jobs:
         run: npm test --workspace=twzrd-x402-gate && npm run test:agent-killswitch
       - name: Full gate (main pushes)
         if: github.event_name != 'pull_request'
+        # The README quickstart proof calls live intel; tag it as house traffic in this repo only
+        # (forks run untagged). scripts/house-caller.mjs.
+        env:
+          TWZRD_INTERNAL_CALLER: ${{ github.repository == 'twzrd-sol/twzrd-trust' && 'twzrd:internal:ci' || '' }}
         run: npm run ci
       - run: python3 -m unittest counsel_orchestration.test_decide

@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { houseCallerHeaders } from './house-caller.mjs';
 
 const packageUrl = new URL('../twzrd-x402-gate/package.json', import.meta.url);
-export async function checkGateReleaseDrift({ fetch: fetchFn = globalThis.fetch, version } = {}) {
+export async function checkGateReleaseDrift({ fetch: fetchFn = globalThis.fetch, version, env = process.env } = {}) {
   const expected = version ?? JSON.parse(readFileSync(packageUrl, 'utf8')).version;
+  const intelHeaders = houseCallerHeaders(env);
   const checks = await Promise.all([
     ['npm', 'https://registry.npmjs.org/twzrd-x402-gate/latest'],
     ['health', 'https://intel.twzrd.xyz/health'],
@@ -13,7 +15,8 @@ export async function checkGateReleaseDrift({ fetch: fetchFn = globalThis.fetch,
     ['skill', 'https://intel.twzrd.xyz/skill.md'],
   ].map(async ([source, url]) => {
     try {
-      const response = await fetchFn(url, { signal: AbortSignal.timeout(10_000), redirect: 'error' });
+      const headers = source === 'npm' ? {} : intelHeaders;
+      const response = await fetchFn(url, { signal: AbortSignal.timeout(10_000), redirect: 'error', headers });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const text = await response.text();
       if (Buffer.byteLength(text) > 1_048_576) throw new Error('response exceeds 1 MiB');
