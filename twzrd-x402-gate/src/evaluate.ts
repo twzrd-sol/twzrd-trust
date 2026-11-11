@@ -157,10 +157,13 @@ export async function evaluate_x402_resource(
     // can_spend false alone does not block. unknown_subject is decided earlier.
     gateOnCanSpend: opts.gateOnCanSpend,
     refuseUnevaluated: opts.refuseUnevaluated,
+    // Dropped here before, so the env variable or the default applied instead.
+    refuseUncappedWarn: opts.refuseUncappedWarn,
     refuseWashFlagged: opts.refuseWashFlagged,
     refuseWashUnknown: opts.refuseWashUnknown,
     washMaxUsdc: opts.washMaxUsdc,
     unsupportedNetworkMode: opts.unsupportedNetworkMode,
+    intelTimeoutMs: opts.intelTimeoutMs,
     fetch: opts.fetch,
     attribution: opts.attribution,
     // Without these a configured sentinel location was dropped here and the
@@ -168,6 +171,7 @@ export async function evaluate_x402_resource(
     stateDir: opts.stateDir,
     killFilePath: opts.killFilePath,
     pauseFilePath: opts.pauseFilePath,
+    tripPauseOnBlockMs: opts.tripPauseOnBlockMs,
   });
   const result = await evaluateResource(resourceUrl, paymentRequirements, opts, config);
   // Last look. The approval inside read the sentinels when it was made; the

@@ -10,6 +10,7 @@ export {
 } from "./demand-desk-wallet.js";
 export { createTwzrdGate, defaultGate, type TwzrdGate } from "./gate.js";
 export { resolveConfig, type ResolvedTwzrdGateConfig } from "./config.js";
+export { routerProfile, type RouterProfileOptions, type TwzrdRouterProfile } from "./router-profile.js";
 export {
   evaluateReadinessCard,
   buildPreflightInput,

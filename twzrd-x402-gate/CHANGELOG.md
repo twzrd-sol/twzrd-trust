@@ -2,6 +2,17 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## Unreleased
+
+Not on npm. The second item changes allow/refuse results on two entry points, so it ships in a minor release (0.21.0), not a patch.
+
+- **`routerProfile({ failOpen })` (new export, `src/router-profile.ts`).** One frozen gate config for a router or payment proxy that runs the gate in its own process for its users. Every decision setting is written out, so a later default change does not reach it, and the env variable for a pinned setting does not move it (an option beats its env variable). Pinned: `refuseUnevaluated: false`, `refuseWashUnknown: false`, `refuseWashFlagged: true`, `refuseUncappedWarn: true`, `preflightMinScore: 40`, `blockDecisions: ["block"]`, `gateOnCanSpend: false`, `unsupportedNetworkMode: "observe"`, `intelTimeoutMs: 2000`. `failOpen` is required and has no default; anything but a boolean throws a `TypeError`. No `attribution` is set.
+  - Missing evidence does not refuse on its own: a seller intel has never evaluated is paid up to the card's `recommended_cap_usdc` (refused above it, or with no cap or no price), and a reachable merchant card without full wash coverage does not refuse. A finding still refuses: `decision: "block"`, a score below 40, a warn with no finite cap or over its cap, and `wash_flagged: true`.
+  - Not pinned, so an option or env variable still reaches them, and each is off unless set: `intelBase`, `washMaxUsdc` (`TWZRD_WASH_MAX_USDC` is a soft cap that pays a wash-flagged payment at or under it), `attribution`, the `.kill` / `.pause` sentinels, and `tripPauseOnBlockMs`.
+  - Tested with the profile: `createTwzrdPayKitBeforePaymentHook`, `createTwzrdBeforePaymentHook`, `createTwzrdGate`, `wrapFetchWithTwzrdGate` (pass `resolveConfig(profile)`), `withTwzrdGuard` and `evaluate_x402_resource`. Not tested with it: `createBuyerFetch` (pins its own refusals), the `"mpp"` seat, `twzrd.safeFetch`, the advisory `safeFetch` and `./cloudflare-base`.
+  - A changed value in the profile ships only in a minor release, with an entry here.
+- **`withTwzrdGuard` and `evaluate_x402_resource` pass `refuseUncappedWarn`, `intelTimeoutMs` and `tripPauseOnBlockMs` through.** Both built their config from a hand-picked list of options that missed these three, so the env variable or the default applied instead. `refuseUncappedWarn: false` now pays an evaluated warn with no cap on these two entry points (it refused before), `intelTimeoutMs` now sets the preflight deadline (it was 2000 ms or `TWZRD_INTEL_TIMEOUT_MS`), and `tripPauseOnBlockMs` with `stateDir` now writes `.pause` on a fatal refusal (nothing was written unless `TWZRD_TRIP_PAUSE_ON_BLOCK_MS` was set).
+
 ## 0.20.2 (2026-11-13)
 
 Security fixes, shipped as a patch under the security clause of the versioning
