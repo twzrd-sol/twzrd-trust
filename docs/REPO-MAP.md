@@ -23,8 +23,8 @@ The tree builds four packages. Two are headline products:
 
 The other two are supporting source, small by design: **`twzrd-log-verifier`**
 (offline transparency-log verifier) and **`eliza-plugin-source`** (what
-`@wzrd_sol/eliza-plugin` is published from). `counsel_orchestration/` is
-experiment source exercised by CI, not a published package. Everything else
+`@wzrd_sol/eliza-plugin` is published from). `counsel_orchestration/` and
+`merkle-bridge/` are unpublished source exercised by CI, not packages. Everything else
 top-level is a published artifact mirrored in, or meta-infrastructure.
 
 ## Top-level paths
@@ -38,6 +38,7 @@ top-level is a published artifact mirrored in, or meta-infrastructure.
 | `twzrd-log-verifier/` | Offline transparency-log verifier (npm `twzrd-log-verifier`). | `.github/workflows/publish-log-verifier.yml` |
 | `eliza-plugin-source/` | TypeScript source the Eliza plugin is published from (`@wzrd_sol/eliza-plugin`). Not the artifact; its `README.publish.md` is the tarball README. | `.github/workflows/publish-eliza-plugin.yml` |
 | `counsel_orchestration/` + `.grok/agents/` | Deterministic seven-role fail-closed counsel fold (Python + role briefs). CI runs `python3 -m unittest counsel_orchestration.test_decide`. Not published. | not published |
+| `merkle-bridge/` | Offline spend-ledger Merkle bridge: checks an `agent-killswitch` ledger's `prev` chain over the exact bytes it hashes and returns RFC 6962 Keccak-256 leaves and root (the tree code is `twzrd-log-verifier`'s `merkle.ts`). Root `npm run ci` runs `test:merkle-bridge` and `typecheck:merkle-bridge`. No signing, no anchoring; see its README. | not published |
 | `scripts/` | Publish pack/resync, mirror checkers, audit and proof tooling for the gate and the plugins. Tests sit beside the scripts (`node --test`). | the workflows and root `npm run ci` |
 
 ### Published-artifact mirrors — never edit; resync only from live
@@ -77,7 +78,7 @@ top-level is a published artifact mirrored in, or meta-infrastructure.
    [docs/README.md](./README.md).
 5. Mirrors stay mirrors. The buildable sources are `twzrd-x402-gate`,
    `agent-killswitch`, `twzrd-log-verifier`, and `eliza-plugin-source`;
-   `counsel_orchestration/` is experiment source, not a published package.
+   `counsel_orchestration/` and `merkle-bridge/` are unpublished source, not packages.
    The headline products are the first two.
 6. Registry listings (npm, GHCR, Glama, MCP registries, ClawHub) are changed
    by publish workflows under typed orders, never as a docs edit.
