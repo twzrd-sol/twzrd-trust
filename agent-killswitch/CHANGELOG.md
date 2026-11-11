@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Programmatic admission. `import { createBudgetGate } from "@twzrd1111/agent-killswitch"` exposes the proxy's pure gate math for in-process callers such as Mastra's `beforeToolCall` hook. Bind the limits once (`createBudgetGate({ maxTokensPerMinute, maxUsdPerHour, maxUsdPerDay, maxCostPerRequestUsd, modelRates?, allowedModels?, zeroPriceModels? })`), then call `gate.evaluate({ model, maxTokens?, window, killed?, paused?, pauseReason?, pauseDecisionId? })` or `gate.estimate({ model, maxTokens? })` per tool call. The helper does no I/O and keeps no spend state: the caller supplies the live spend window (including in-flight holds) and records actual usage after an allowed call completes. Limits, model rates and model lists are snapshotted and frozen at construction, and every checked request field is read exactly once, so accessor-based windows, options and price rows cannot fail open; an empty `allowedModels` list throws at construction because the gate math reads `[]` as "no allowlist" (pass `null` for that). Malformed options, requests and model rates throw rather than fail open, and `estimate` returns the same token/dollar hold the proxy uses in flight. The HTTP proxy remains the way to get the JSONL ledger, the kill file and the upstream lifecycle.
+
 ### Fixed
 
 - A configuration error at startup prints one `agent-killswitch:` line and exits 1 instead of a Node stack trace. This covers a missing upstream key, an invalid number or port, a config file that is not valid YAML, and a ledger path that cannot be read. A missing key names the configured key variable and where free models can be listed instead (`KILLSWITCH_FREE_MODELS`, and `compute.free_models` under a binding policy).
