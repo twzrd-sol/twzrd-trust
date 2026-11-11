@@ -19,6 +19,15 @@
 //      reads the npm token from that environment; a repository-level
 //      NPM_TOKEN is readable from any branch, so none should exist.
 //
+// One named exception: OIDC_CONSUMERS below. Such a workflow holds
+// id-token: write to sign in to a service that is not a package registry, and
+// starts from a comment, so rules 1, 2 and 4 cannot apply to it. It gets its
+// own rules instead (oidcConsumerFindings): one trigger, one commenter, no
+// write to contents or packages, no repository secret, no environment, no
+// action but actions/checkout, no publish command, one OIDC audience, and the
+// OIDC request variables removed from the step that runs the agent. A new
+// name joins the list only by an edit to this file.
+//
 // What this file cannot prove: the environment's policy and the absence of a
 // repository-level NPM_TOKEN are GitHub settings, and the npm-side trusted
 // publisher binding is an npmjs.com setting. A workflow edited on a branch
@@ -78,6 +87,80 @@ function environmentName(job) {
   return null;
 }
 
+/**
+ * Workflows that hold id-token: write and do not publish. Per file: the only
+ * trigger, the only login whose comment starts a run, the only OIDC audience,
+ * and the command that must run without the OIDC request variables.
+ */
+export const OIDC_CONSUMERS = {
+  'opencode-review.yml': {
+    trigger: 'issue_comment',
+    login: 'twzrd-sol',
+    audience: 'https://opencode.ai/console',
+    agent: 'opencode github run',
+  },
+};
+const PUBLISH_COMMAND = /\bnpm\s+(publish|token|login|adduser)\b|--provenance\b|\bdocker\s+(push|login)\b|\bgh\s+release\b|\bgit\s+push\b/;
+const OIDC_REQUEST = /ACTIONS_ID_TOKEN_REQUEST_(TOKEN|URL)/;
+const OIDC_UNSET = /\benv\s+-u\s+ACTIONS_ID_TOKEN_REQUEST_TOKEN\s+-u\s+ACTIONS_ID_TOKEN_REQUEST_URL\s+/;
+
+/** Every way an OIDC_CONSUMERS workflow breaks its rules. */
+export function oidcConsumerFindings(file, doc, rule = OIDC_CONSUMERS[file]) {
+  const findings = [];
+  const on = doc.on ?? doc[true];
+  const triggers = typeof on === 'string' ? [on] : Array.isArray(on) ? on : Object.keys(on ?? {});
+  if (triggers.length !== 1 || triggers[0] !== rule.trigger) {
+    findings.push(`${file}: triggers [${triggers.join(', ')}]; this workflow starts on ${rule.trigger} only`);
+  }
+  for (const [name, job] of Object.entries(doc?.jobs ?? {})) {
+    if (!job || typeof job !== 'object') continue;
+    const where = `${file} job ${name}`;
+    const perms = permissionsOf(doc, job);
+    if (typeof job.uses === 'string') {
+      findings.push(`${where}: a reusable workflow; this check cannot see inside it`);
+      continue;
+    }
+    for (const scope of ['contents', 'packages', 'actions', 'deployments', 'attestations']) {
+      if (grants(perms, scope)) findings.push(`${where}: holds ${scope}: write`);
+    }
+    if (readsRepoSecret(doc, job)) findings.push(`${where}: reads a repository secret`);
+    if (job.environment !== undefined) findings.push(`${where}: runs in an environment`);
+    const gate = typeof job.if === 'string' ? job.if : '';
+    if (!gate.includes(`github.event.comment.user.login == '${rule.login}'`) || /\|\|[^()]*github\.event\.comment\.user\.login/.test(gate)) {
+      findings.push(`${where}: \`if:\` does not require the comment to come from ${rule.login}`);
+    }
+    if (!grants(perms, 'id-token')) continue;
+    const steps = Array.isArray(job.steps) ? job.steps : [];
+    steps.forEach((step, i) => {
+      const at = `${where}: step ${i + 1}`;
+      if (typeof step?.uses === 'string') {
+        if (!isCheckout(step)) findings.push(`${at} uses ${step.uses}; only actions/checkout may run beside the OIDC token`);
+        for (const key of ['ref', 'repository']) {
+          if (step.with && step.with[key] !== undefined && step.with[key] !== '') {
+            findings.push(`${at} checks out \`${key}: ${step.with[key]}\``);
+          }
+        }
+        return;
+      }
+      const text = JSON.stringify(step ?? {});
+      if (PUBLISH_COMMAND.test(text)) findings.push(`${at} has a publish or push command`);
+      const run = typeof step?.run === 'string' ? step.run : '';
+      if (OIDC_REQUEST.test(run.replace(OIDC_UNSET, ''))) {
+        if (!/audience=\$AUDIENCE\b/.test(run) || step.env?.AUDIENCE !== rule.audience) {
+          findings.push(`${at} requests an OIDC token for an audience other than ${rule.audience}`);
+        }
+      }
+      if (run.includes(rule.agent) && !OIDC_UNSET.test(run)) {
+        findings.push(`${at} runs \`${rule.agent}\` with the OIDC request variables still set`);
+      }
+    });
+    if (!steps.some(step => typeof step?.run === 'string' && step.run.includes(rule.agent))) {
+      findings.push(`${where}: no step runs \`${rule.agent}\``);
+    }
+  }
+  return findings;
+}
+
 const isCheckout = step => typeof step?.uses === 'string' && /^actions\/checkout@/.test(step.uses);
 const isMainGuard = step => typeof step?.run === 'string' && MAIN_GUARD.test(step.run) && /\bexit 1\b/.test(step.run);
 
@@ -99,6 +182,7 @@ export function refGuardFindings(file, doc) {
   const findings = [];
   const jobs = publishingJobs(doc);
   if (jobs.length === 0) return findings;
+  if (Object.hasOwn(OIDC_CONSUMERS, file)) return oidcConsumerFindings(file, doc);
 
   const on = doc.on ?? doc[true]; // js-yaml 1.1 schemas can read a bare `on` as true
   const triggers = typeof on === 'string' ? [on] : Array.isArray(on) ? on : Object.keys(on ?? {});
@@ -234,6 +318,59 @@ jobs:
   assert.equal(publishingJobs(doc).length, 1);
 });
 
+const CONSUMER = `
+on:
+  issue_comment:
+    types: [created]
+permissions: {}
+jobs:
+  review:
+    if: github.event.issue.pull_request && github.event.comment.user.login == 'twzrd-sol'
+    runs-on: ubuntu-latest
+    permissions: { id-token: write, contents: read, pull-requests: write }
+    steps:
+      - uses: actions/checkout@v4
+      - env: { AUDIENCE: https://opencode.ai/console }
+        run: curl --oauth2-bearer "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE"
+      - run: env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL opencode github run
+`;
+const consumer = (from, to) => {
+  assert.ok(CONSUMER.includes(from), `fixture has no ${JSON.stringify(from)}`);
+  return refGuardFindings('opencode-review.yml', yaml.load(CONSUMER.replace(from, to)));
+};
+
+test('checker: a listed OIDC consumer passes its own rules', () => {
+  assert.deepEqual(refGuardFindings('opencode-review.yml', yaml.load(CONSUMER)), []);
+});
+
+test('checker: the same workflow under an unlisted name gets the publish rules', () => {
+  const findings = refGuardFindings('other.yml', yaml.load(CONSUMER));
+  assert.ok(findings.some(f => f.includes('starts on workflow_dispatch only')), findings.join('\n'));
+  assert.ok(findings.some(f => f.includes(`outside the ${NPM_ENVIRONMENT} environment`)), findings.join('\n'));
+});
+
+test('checker: each broken OIDC consumer rule is reported', () => {
+  const one = (from, to, want) => {
+    const findings = consumer(from, to);
+    assert.equal(findings.length, 1, `${want}: got ${JSON.stringify(findings)}`);
+    assert.ok(findings[0].includes(want), `${want}: got ${findings[0]}`);
+  };
+  one('issue_comment:\n    types: [created]', 'pull_request_target: {}', 'starts on issue_comment only');
+  one("&& github.event.comment.user.login == 'twzrd-sol'", '', 'does not require the comment to come from twzrd-sol');
+  one("&& github.event.comment.user.login == 'twzrd-sol'", "|| github.event.comment.user.login == 'twzrd-sol'", 'does not require the comment to come from twzrd-sol');
+  one('contents: read', 'contents: write', 'holds contents: write');
+  one('pull-requests: write }', 'pull-requests: write, packages: write }', 'holds packages: write');
+  one('    runs-on: ubuntu-latest', `    runs-on: ubuntu-latest\n    environment: ${NPM_ENVIRONMENT}`, 'runs in an environment');
+  one('- uses: actions/checkout@v4', '- uses: actions/checkout@v4\n      - uses: someone/action@v1', 'only actions/checkout may run beside the OIDC token');
+  one('- uses: actions/checkout@v4', '- uses: actions/checkout@v4\n        with: { ref: refs/pull/1/head }', 'checks out `ref: refs/pull/1/head`');
+  one('- uses: actions/checkout@v4', '- uses: actions/checkout@v4\n      - run: npm publish --provenance', 'has a publish or push command');
+  one('- uses: actions/checkout@v4', '- uses: actions/checkout@v4\n      - run: echo \${{ secrets.NPM_TOKEN }}', 'reads a repository secret');
+  one('AUDIENCE: https://opencode.ai/console', 'AUDIENCE: npm:registry.npmjs.org', 'audience other than https://opencode.ai/console');
+  one('&audience=$AUDIENCE', '&audience=npm:registry.npmjs.org', 'audience other than https://opencode.ai/console');
+  one('env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL opencode', 'opencode', 'with the OIDC request variables still set');
+  one('opencode github run', 'true', 'no step runs `opencode github run`');
+});
+
 // --- this repository -----------------------------------------------------------
 
 const workflowNames = () => readdirSync(workflowsDir).filter(name => /\.ya?ml$/.test(name)).sort();
@@ -242,6 +379,14 @@ const loadWorkflow = name => yaml.load(readFileSync(new URL(name, workflowsDir),
 test('every workflow that can publish is pinned to main', () => {
   const findings = workflowNames().flatMap(name => refGuardFindings(name, loadWorkflow(name)));
   assert.deepEqual(findings, []);
+});
+
+test('every listed OIDC consumer exists and holds id-token', () => {
+  for (const name of Object.keys(OIDC_CONSUMERS)) {
+    assert.ok(workflowNames().includes(name), `${name}: listed in OIDC_CONSUMERS but not in .github/workflows`);
+    assert.ok(publishingJobs(loadWorkflow(name)).some(j => grants(permissionsOf(loadWorkflow(name), j.job), 'id-token')), `${name}: no job holds id-token: write; drop it from OIDC_CONSUMERS`);
+    assert.ok(!KNOWN_PUBLISHERS.includes(name), `${name}: cannot be both a publisher and an OIDC consumer`);
+  }
 });
 
 test('the checker still recognises every known publishing workflow', () => {
