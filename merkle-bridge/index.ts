@@ -53,7 +53,8 @@ export function splitLedgerLines(ledger: Uint8Array): Uint8Array[] {
     lines.push(ledger.subarray(from, i));
     from = i + 1;
   }
-  if (from < ledger.length) {
+  const trailing = ledger.length - from;
+  if (trailing > 1) {
     throw new LedgerNotBridgeable(
       lines.length + 1,
       "bytes after the last newline (a torn or in-progress write); bridge a ledger at rest",
@@ -91,7 +92,8 @@ export function verifyLinearChain(lines: readonly Uint8Array[]): string | null {
       throw new LedgerNotBridgeable(lineNo, "no prev (a row the chain does not bind)");
     }
     const prev = (row as { prev: unknown }).prev;
-    if (prev !== expected) {
+    const linked = index === 0 ? typeof prev === "string" : prev === expected;
+    if (!linked) {
       throw new LedgerNotBridgeable(
         lineNo,
         lineNo === 1
@@ -141,7 +143,7 @@ export function bridgeSpendLedger(ledger: Uint8Array, options: BridgeOptions = {
   assertHashBackend();
   const lines = splitLedgerLines(ledger);
   const chainHead = verifyLinearChain(lines);
-  if (options.expectedHead !== undefined && options.expectedHead !== chainHead) {
+  if (chainHead !== null && options.expectedHead !== undefined && options.expectedHead !== chainHead) {
     throw new LedgerNotBridgeable(null, "the ledger does not end at the expected head");
   }
   const root = merkleRoot(lines);
