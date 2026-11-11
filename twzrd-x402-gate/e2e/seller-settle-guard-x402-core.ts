@@ -224,12 +224,13 @@ async function main() {
   assert.equal(bare.success, true, "unresolved payer fail-open must settle");
   assert.equal(mock.settleCalls.length, 1);
 
-  // --- 6) raw onBeforeSettle throw: core SWALLOWS it (warn + continue) ---
-  // Proves core contract (verified in @x402/core warnResourceServerHookFailure):
-  // a throwing lifecycle hook is caught + console.warn'd and settlement PROCEEDS.
-  // A raw throw can never veto — the ONLY veto is RETURNING {abort:true}. This is
-  // exactly why createTwzrdSettleGuard({failOpen:false}) returns an abort object
-  // instead of throwing (case 7), mirroring the PayAI runHook() caveat.
+  // --- 6) raw onBeforeSettle throw: core FAILS CLOSED (since @x402/core 2.30) ---
+  // Up to 2.27, core caught a throwing beforeSettle hook, console.warn'd it and
+  // settled anyway. 2.30 still warns, then throws SettleError(400,
+  // "before_settle_hook_error") and never calls facilitator.settle. The guard does
+  // not rely on either behavior: createTwzrdSettleGuard RETURNS {abort:true}
+  // (case 7) or continue (case 8) and never throws, so a pin bump cannot flip its
+  // decision. PayAI still swallows thrown hook errors (see toPayaiVerifyResult).
   const mockThrow = new TrackingMockFacilitator();
   const serverThrow = new x402ResourceServer(mockThrow);
   serverThrow.onBeforeSettle(async () => {
@@ -237,19 +238,16 @@ async function main() {
   });
   await serverThrow.initialize();
   mockThrow.reset();
-  const swallowed = await serverThrow.settlePayment(
-    payload("CLEAN_organic"),
-    requirements(),
-  );
-  assert.equal(
-    swallowed.success,
-    true,
-    "core contract: raw hook throw is swallowed and settlement proceeds",
+  await assert.rejects(
+    serverThrow.settlePayment(payload("CLEAN_organic"), requirements()),
+    (err: unknown) =>
+      (err as { errorReason?: string }).errorReason === "before_settle_hook_error",
+    "core contract (2.30): a raw hook throw aborts settlement with before_settle_hook_error",
   );
   assert.equal(
     mockThrow.settleCalls.length,
-    1,
-    "raw hook throw must NOT block facilitator.settle (throws are not vetoes)",
+    0,
+    "a raw hook throw must not reach facilitator.settle under @x402/core 2.30",
   );
 
   // --- 7) TWZRD screen throw + failOpen:false → abort, no settle ---
@@ -298,7 +296,7 @@ async function main() {
           "block_aborts",
           "unknown_fail_open",
           "missing_payer_fail_open",
-          "raw_hook_exception_swallowed_by_core_only_returned_abort_vetoes",
+          "raw_hook_exception_fails_closed_in_core_2_30",
           "screen_throw_failOpen_false_aborts",
           "screen_throw_default_failOpen_continues",
         ],
