@@ -3,7 +3,7 @@
 Every Markdown document in this repository, what it is for, and whether it is
 **canonical** (describes the product as it is), **historical** (a dated record,
 kept as written) or **internal** (maintainer notes, not integrator guidance).
-The version table was re-read on **2026-11-10** (registry `latest` and this tree; see the registry-cell drift note under Package mirrors). The earlier document pass was **2026-10-26**; live-surface facts were checked **2026-10-24**. The
+The version table was re-read on **2026-11-11** (registry `latest` and this tree; see the registry-cell drift note under Package mirrors). The earlier document pass was **2026-10-26**; live-surface facts were checked **2026-10-24**. The
 [README](../README.md#versions) carries the version table; [REPO-MAP.md](./REPO-MAP.md) maps the folders, not just the documents.
 
 A canonical document that disagrees with the code is a bug: open an issue. A
@@ -23,7 +23,7 @@ where the current state lives.
 | [AGENTS.md](../AGENTS.md) | canonical | What is source and what is a published-artifact mirror; the one supported install; the fork relationship with the upstream monorepo |
 | [REPO-MAP.md](./REPO-MAP.md) | canonical | Folder-level atlas: every top-level path, its role (source / published-artifact mirror / docs / manifests), who may edit it, and the invariants that keep mirrors mirrors |
 | [agent-killswitch/README.md](../agent-killswitch/README.md) | canonical | The local OpenAI-compatible spend proxy: token/dollar ceilings, file kill switch, append-only JSONL ledger, multi-instance shared ledger. Its tests run in CI (`test:agent-killswitch`); releases go by `publish-agent-killswitch.yml` and the GHCR image workflow |
-| [agent-killswitch/CHANGELOG.md](../agent-killswitch/CHANGELOG.md) | canonical | killswitch release history (0.1.8 current). The publish workflow refuses an undated entry |
+| [agent-killswitch/CHANGELOG.md](../agent-killswitch/CHANGELOG.md) | canonical | killswitch release history (0.1.9 current). The publish workflow refuses an undated entry |
 | [SECURITY.md](../SECURITY.md) | canonical | Disclosure policy and scope |
 
 ## Product and ecosystem
@@ -59,7 +59,7 @@ where the current state lives.
 
 ## Package mirrors
 
-These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-10: gate 0.20.0, killswitch 0.1.8, mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
+These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-11: gate 0.20.0, killswitch 0.1.9, mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
 
 | Document | Status | Mirrors |
 |---|---|---|
