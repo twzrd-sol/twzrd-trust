@@ -2,7 +2,7 @@
 
 One pinned MPP charge to `intel.twzrd.xyz/v1/intel/quick`, plus the zero-spend check that
 proves the client still parses today's challenge. Graduated here from an unversioned
-`~/drafts/mpp-settle-test-20261026/` directory, because a production settlement proof that
+local drafts directory, because a production settlement proof that
 lives nowhere is one cleanup away from being unrepeatable.
 
 ## Why this is not a general client
@@ -22,7 +22,7 @@ i.e. ~12,000 lamports per payment, measured 10,001 on 2026-11-11).
 ## Zero-spend check
 
 ```bash
-npm install
+npm ci
 node loopback-check.mjs <throwaway-key.json>    # expect: credentials received 1; scheme Payment
 ```
 
@@ -30,10 +30,14 @@ It fetches intel's live unpaid 402 once (user-agent `twzrd-mpp-settle-test/1`), 
 telemetry shows one unpaid hit per run. The signed credential goes only to a local loopback
 server. Use a key that holds nothing, and delete it afterwards.
 
+`package-lock.json` is the dependency tree that produced both settlements (viem 2.57.11).
+Install with `npm ci`. A fresh `npm install` fails with ERESOLVE: viem 2.57.18 and later
+declare an optional peer `mppx >= 0.17.0`, which conflicts with the `mppx` 0.15.0 pin.
+
 ## Paid run
 
 ```bash
-node pay-quick-once.mjs ~/.config/solana/proof-payer.json
+node pay-quick-once.mjs <payer-key.json>
 ```
 
 Requires an explicit operator authorization naming the payer, the endpoint, the recipient,
@@ -52,7 +56,7 @@ Both are internal-payer settlements. **External MPP settlement remains unproven.
 ## Pins
 
 `mppx@0.15.0`, `@solana/mpp@0.7.0`, `@solana/kit@6.10.0` — exact versions, because the point
-of a regression proof is comparability. Do not let a range float them; a `--legacy-peer-deps`
-install may be needed (mppx 0.15's optional peers now pull `@x402@2.30`, whose viem peer
-wants `mppx >=0.17`). If these pins stop resolving, that is a finding, not a maintenance
-chore.
+of a regression proof is comparability. Do not let a range float them. `mppx` 0.15.0 depends
+on `viem >=2.57.1`, so only the lockfile holds viem at 2.57.11; do not regenerate it with
+`--legacy-peer-deps` to get past the ERESOLVE above. If these pins stop resolving, that is a
+finding, not a maintenance chore.
