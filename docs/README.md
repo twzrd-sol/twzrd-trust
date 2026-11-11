@@ -56,6 +56,7 @@ where the current state lives.
 | [transparency-log.md](./transparency-log.md) | canonical, v0.2 draft over a live v0.1 log | Receipt transparency log: what is live (signed heads, inclusion and consistency proofs, on-chain anchors as the tree advances) and what v0.2 adds (key directory) |
 | [security-assurance.md](./security-assurance.md) | canonical | Security properties, the reproducible receipt proof, trust boundaries and non-claims |
 | [twzrd-log-verifier/README.md](../twzrd-log-verifier/README.md) | canonical | Offline verifier for the transparency log; npm 0.5.0, source here (upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes locally, 0.4.0 trusts the RPC's parsed response). Its anchor check reads the live program form and the draft memo form |
+| [merkle-bridge/README.md](../merkle-bridge/README.md) | canonical, unpublished | Spend-ledger Merkle bridge: chain-checked `agent-killswitch` ledger bytes to RFC 6962 Keccak-256 leaves and root. Offline; no signing, no anchoring; a signed head for it would need its own `log_id` |
 
 ## Package mirrors
 
