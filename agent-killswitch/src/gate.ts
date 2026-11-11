@@ -361,8 +361,14 @@ function isTextOnlyMessage(message: unknown): boolean {
  * True only for a chat-completions body whose prompt is nothing but text
  * that is present in the body itself:
  * - an allowlisted set of top-level fields;
- * - a `model` string with no `:<suffix>`, or one of the routing and price
- *   suffixes above;
+ * - a `model` string with no `@` (a preset) whose every `:<suffix>` is one
+ *   of the routing and price suffixes above;
+ * - `n` absent or exactly 1, and `service_tier` absent, `default` or `flex`,
+ *   because other values bill more than one completion at the standard rate;
+ * - `max_tokens` and `max_completion_tokens` each absent, null, or a number
+ *   of at least 1, and a usable `max_tokens` whenever `max_completion_tokens`
+ *   is set, because an upstream may read 0 as "no limit" and one that does
+ *   not know `max_completion_tokens` would generate with no limit at all;
  * - messages made of allowlisted fields, each with the exact text shape:
  *   string `role`, `name` and `tool_call_id`; string or null `refusal`;
  *   `tool_calls` and `function_call` holding only string ids, names and
@@ -371,8 +377,8 @@ function isTextOnlyMessage(message: unknown): boolean {
  *
  * This is an allowlist, so it fails toward `false`: an image, audio or file
  * part, a file or URL reference, tools, a response schema, a number or
- * object where text belongs, an unknown model suffix, or any field this
- * function does not know returns false, and requestEstimate then holds at
+ * object where text belongs, an unknown model suffix, any of the billing
+ * options above, or any field this function does not know returns false, and requestEstimate then holds at
  * least the per-request cap. The agent being limited writes the body, so an
  * unknown shape is never given the cheaper estimate.
  */
@@ -387,9 +393,42 @@ export function isTextOnlyPrompt(body: unknown): boolean {
   // the cheaper estimate.
   if (body["n"] !== undefined && body["n"] !== 1) return false;
   if (!TEXT_ONLY_SERVICE_TIERS.has(body["service_tier"])) return false;
+  // Each output-limit field is absent, null, or a usable limit. A 0, a
+  // negative or a non-number may read as "no limit" to an upstream that
+  // honours that field, whatever the other field says.
+  const classic = body["max_tokens"];
+  const completion = body["max_completion_tokens"];
+  for (const value of [classic, completion]) {
+    if (value !== undefined && value !== null && outputLimitField(value) === null) return false;
+  }
+  if (outputLimitField(classic) === null && outputLimitField(completion) !== null) return false;
   const messages = body["messages"];
   if (!Array.isArray(messages)) return false;
   return messages.every(isTextOnlyMessage);
+}
+
+/** A usable output-limit field: a finite number of at least 1, floored. Anything else is absent. */
+function outputLimitField(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : null;
+}
+
+/**
+ * The output limit of a chat-completions body, as the proxy reads it: the
+ * larger of `max_tokens` and `max_completion_tokens` (an upstream may honour
+ * either), times `n` when the body asks for several completions. A value
+ * that is not a finite number of at least 1 is absent, because an upstream
+ * may read 0 as "no limit". Null means no usable limit, and the estimate
+ * then holds at least the per-request cap.
+ */
+export function chatOutputLimit(body: unknown): number | null {
+  if (!isPlainObject(body)) return null;
+  const classic = outputLimitField(body["max_tokens"]);
+  const completion = outputLimitField(body["max_completion_tokens"]);
+  const limit = classic === null ? completion : Math.max(classic, completion ?? 0);
+  if (limit === null) return null;
+  const n = body["n"];
+  const copies = typeof n === "number" && Number.isFinite(n) && n > 1 ? Math.ceil(n) : 1;
+  return limit * copies;
 }
 
 /** The prompt size as the estimate will use it: bytes or null, and whether the byte bound holds. */
@@ -455,25 +494,20 @@ export function requestEstimate(
 }
 
 /**
- * The hourly or daily refusal, with its pause, for a request too large to
- * pass on its own.
+ * The hourly and daily checks, in 0.1.10's order: the hour, then the day,
+ * would be exceeded by `usd`; then the hour, then the day, is already at its
+ * limit. Each refusal carries its long pause, which is what halts the
+ * sibling payment gate.
  *
- * A request over the per-minute token limit or the per-request cap is
- * refused without a pause. But when the budget cannot fit even the part of
- * the request that 0.1.10 counted (max_tokens at the output rate, or the
- * per-request cap without max_tokens), the budget is spent, and that
- * refusal must still write the hour or day pause as it did before: the
- * pause file is what halts the sibling payment gate.
+ * evaluateGate runs it twice. First with `usd` = 0, before anything is
+ * priced: when even a free request would be refused (the hour or day is
+ * already at or over its limit), every request gets that refusal and its
+ * pause, however large it is or whichever other limit it would also break.
+ * Then with the request's own estimate, after the per-minute and
+ * per-request checks. A request too large to pass on its own is refused by
+ * those checks without a pause when the budget still has room.
  */
-function spentBudgetRefusal(input: GateInput, est: RequestEstimate): GateDecision | null {
-  const outputOnly = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels, input.modelRates, {
-    bytes: 0,
-    textOnly: true,
-  });
-  // Over the per-request cap on output alone: 0.1.10 refused that request
-  // without a pause too, before it looked at the hour or the day.
-  const usd = Math.min(est.usd, outputOnly.usd);
-  if (!(usd <= input.maxCostPerRequestUsd)) return null;
+function budgetWindowRefusal(input: GateInput, usd: number): GateDecision | null {
   if (input.window.hourUsd + usd > input.maxUsdPerHour) {
     return {
       allowed: false,
@@ -491,6 +525,29 @@ function spentBudgetRefusal(input: GateInput, est: RequestEstimate): GateDecisio
       status: 429,
       code: "budget_exceeded",
       message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} would be exceeded`,
+      spentUsd: input.window.dayUsd,
+      limitUsd: input.maxUsdPerDay,
+      pauseWindowMs: 86_400_000,
+    };
+  }
+  // Hard caps apply even without max_tokens: an already-blown window vetoes.
+  if (input.window.hourUsd >= input.maxUsdPerHour) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} hit`,
+      spentUsd: input.window.hourUsd,
+      limitUsd: input.maxUsdPerHour,
+      pauseWindowMs: 3_600_000,
+    };
+  }
+  if (input.window.dayUsd >= input.maxUsdPerDay) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} hit`,
       spentUsd: input.window.dayUsd,
       limitUsd: input.maxUsdPerDay,
       pauseWindowMs: 86_400_000,
@@ -536,6 +593,13 @@ export function evaluateGate(input: GateInput): GateDecision {
     };
   }
 
+  // A spent hour or day refuses every request with its long pause, before
+  // any check that prices this one: the pause is what halts the sibling
+  // payment gate, and it must not depend on how large or small this request
+  // is estimated to be.
+  const spent = budgetWindowRefusal(input, 0);
+  if (spent) return spent;
+
   // The same estimate the caller holds while the request is in flight.
   const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels, input.modelRates, input.prompt);
 
@@ -546,8 +610,6 @@ export function evaluateGate(input: GateInput): GateDecision {
   // the caller waits, so it is refused without the 60 s backpressure pause:
   // a pause would hold up other payers for a request that retrying cannot fix.
   if (est.tokens > input.maxTokensPerMinute) {
-    const spent = spentBudgetRefusal(input, est);
-    if (spent) return spent;
     return {
       allowed: false,
       status: 429,
@@ -577,8 +639,6 @@ export function evaluateGate(input: GateInput): GateDecision {
   // request is assumed to cost at least the per-request cap, so the hourly
   // and daily checks still run.
   if (est.usd > input.maxCostPerRequestUsd) {
-    const spent = spentBudgetRefusal(input, est);
-    if (spent) return spent;
     return {
       allowed: false,
       status: 429,
@@ -588,52 +648,8 @@ export function evaluateGate(input: GateInput): GateDecision {
       limitUsd: input.maxCostPerRequestUsd,
     };
   }
-  if (input.window.hourUsd + est.usd > input.maxUsdPerHour) {
-    return {
-      allowed: false,
-      status: 429,
-      code: "budget_exceeded",
-      message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} would be exceeded`,
-      spentUsd: input.window.hourUsd,
-      limitUsd: input.maxUsdPerHour,
-      pauseWindowMs: 3_600_000,
-    };
-  }
-  if (input.window.dayUsd + est.usd > input.maxUsdPerDay) {
-    return {
-      allowed: false,
-      status: 429,
-      code: "budget_exceeded",
-      message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} would be exceeded`,
-      spentUsd: input.window.dayUsd,
-      limitUsd: input.maxUsdPerDay,
-      pauseWindowMs: 86_400_000,
-    };
-  }
-
-  // Hard caps apply even without max_tokens: an already-blown window vetoes.
-  if (input.window.hourUsd >= input.maxUsdPerHour) {
-    return {
-      allowed: false,
-      status: 429,
-      code: "budget_exceeded",
-      message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} hit`,
-      spentUsd: input.window.hourUsd,
-      limitUsd: input.maxUsdPerHour,
-      pauseWindowMs: 3_600_000,
-    };
-  }
-  if (input.window.dayUsd >= input.maxUsdPerDay) {
-    return {
-      allowed: false,
-      status: 429,
-      code: "budget_exceeded",
-      message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} hit`,
-      spentUsd: input.window.dayUsd,
-      limitUsd: input.maxUsdPerDay,
-      pauseWindowMs: 86_400_000,
-    };
-  }
+  const budget = budgetWindowRefusal(input, est.usd);
+  if (budget) return budget;
 
   if (input.paused) {
     const detail = input.pauseReason ? `: ${input.pauseReason}` : "";

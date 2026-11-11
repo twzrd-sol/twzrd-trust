@@ -1,5 +1,7 @@
 import {
+  chatOutputLimit,
   evaluateGate,
+  isTextOnlyPrompt,
   requestEstimate,
   type GateDecision,
   type PromptSize,
@@ -8,7 +10,7 @@ import {
 } from "./gate.js";
 import type { ModelPrice, ModelRates } from "./pricing.js";
 
-export { isTextOnlyPrompt } from "./gate.js";
+export { chatOutputLimit, isTextOnlyPrompt } from "./gate.js";
 export type {
   GateDecision,
   PromptSize,
@@ -30,17 +32,21 @@ export interface BudgetGateOptions {
 
 export interface BudgetGateEstimateInput {
   model: string;
+  /**
+   * The output limit for the whole call: `chatOutputLimit(body)`, or null
+   * when the body has no usable limit (the per-request cap is then held).
+   * `budgetInputForChatRequest(text)` fills this and the two fields below.
+   */
   maxTokens?: number | null;
   /**
-   * UTF-8 byte length of the whole serialized request body you will send
-   * (`Buffer.byteLength(JSON.stringify(body))`). It bounds the prompt tokens
+   * UTF-8 byte length of the exact request body string you will send. It bounds the prompt tokens
    * at one token per byte. Omit it (or pass null) when you do not know it:
    * the dollar estimate is then never below the per-request cap. Anything
    * else that is not a non-negative safe integer throws.
    */
   promptBytes?: number | null;
   /**
-   * Pass `isTextOnlyPrompt(body)`. True says every prompt token comes from
+   * Pass `isTextOnlyPrompt(JSON.parse(text))` for the text you send. True says every prompt token comes from
    * text inside those bytes; without it the dollar estimate is never below
    * the per-request cap. Omitted means false; a non-boolean throws.
    */
@@ -145,6 +151,48 @@ function snapshotRates(value: ModelRates | undefined): ModelRates | undefined {
     snapshot[id] = Object.freeze({ inputPerMTok, outputPerMTok });
   }
   return Object.freeze(snapshot);
+}
+
+/**
+ * The model, output limit and prompt size of a chat-completions request,
+ * read the way the proxy reads them, ready to spread into `estimate()` or
+ * `evaluate()`.
+ *
+ * Pass the exact text you will send, not the object you built it from: the
+ * byte count is of that text, and the text-only check runs on its parsed
+ * form, so a `toJSON` or class instance cannot show the check one shape and
+ * send another.
+ *
+ *     const text = JSON.stringify(body);
+ *     const decision = gate.evaluate({ ...budgetInputForChatRequest(text), window });
+ *     // send `text`, unchanged
+ *
+ * Throws a TypeError when the text is not a JSON object or has no non-empty
+ * string `model`.
+ */
+export function budgetInputForChatRequest(sentText: string): {
+  model: string;
+  maxTokens: number | null;
+  promptBytes: number;
+  promptTextOnly: boolean;
+} {
+  if (typeof sentText !== "string") throw new TypeError("sentText must be the request body string you will send");
+  let body: unknown;
+  try {
+    body = JSON.parse(sentText);
+  } catch {
+    throw new TypeError("sentText must be JSON");
+  }
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    throw new TypeError("sentText must be a JSON object");
+  }
+  const model = modelId("model", (body as Record<string, unknown>)["model"]);
+  return {
+    model,
+    maxTokens: chatOutputLimit(body),
+    promptBytes: new TextEncoder().encode(sentText).length,
+    promptTextOnly: isTextOnlyPrompt(body),
+  };
 }
 
 /**

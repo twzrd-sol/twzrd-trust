@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { runVerifyLedger } from "./chain.js";
 import { loadConfig, type KillswitchConfig } from "./config.js";
 import {
+  chatOutputLimit,
   checkKillSwitch,
   checkPauseSwitch,
   evaluateGate,
@@ -50,33 +51,18 @@ function readBody(req: http.IncomingMessage): Promise<{ text: string; bytes: num
  * what the upstream tokenizes, and it can be longer than what arrived, so
  * the received size alone would under-count.
  *
- * The output limit is the larger of `max_tokens` and
- * `max_completion_tokens`, since an upstream may honour either, times `n`
- * when the body asks for several completions. A limit that is not a finite
- * number of at least 1 is treated as absent, so the estimate falls back to
- * the per-request cap and can never go negative; an explicit 0 is absent
- * too, because an upstream may read it as "no limit". When only
- * `max_completion_tokens` is set, an upstream that does not know the field
- * would generate without a limit, so the prompt is not reported as
- * text-only and the dollar hold stays at or above the per-request cap, as
- * it was in 0.1.10.
+ * The output limit and the text-only flag come from chatOutputLimit and
+ * isTextOnlyPrompt (gate.ts), the same functions a createBudgetGate caller
+ * gets through budgetInputForChatRequest.
  */
 export function admissionRequest(
   body: Record<string, unknown>,
   rawBytes: number,
 ): { model: string; maxTokens: number | null; prompt: PromptSize; outboundText: string } {
   const model = typeof body["model"] === "string" ? (body["model"] as string) : "unknown";
-  const limit = (raw: unknown): number | null =>
-    typeof raw === "number" && Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : null;
-  const classic = limit(body["max_tokens"]);
-  const completion = limit(body["max_completion_tokens"]);
-  let maxTokens = classic === null ? completion : Math.max(classic, completion ?? 0);
-  const n = body["n"];
-  if (maxTokens !== null && typeof n === "number" && Number.isFinite(n) && n > 1) maxTokens *= Math.ceil(n);
   const outboundText = outboundBodyText(body);
   const bytes = Math.max(rawBytes, Buffer.byteLength(outboundText, "utf8"));
-  const textOnly = isTextOnlyPrompt(body) && !(classic === null && completion !== null);
-  return { model, maxTokens, prompt: { bytes, textOnly }, outboundText };
+  return { model, maxTokens: chatOutputLimit(body), prompt: { bytes, textOnly: isTextOnlyPrompt(body) }, outboundText };
 }
 
 function json(res: http.ServerResponse, status: number, obj: object): void {
@@ -203,7 +189,12 @@ async function handle(
   });
 
   if (!decision.allowed) {
-    if (decision.code === "budget_exceeded" && decision.pauseWindowMs) {
+    // Never shorten a pause already in force: a 60 s token-per-minute
+    // refusal must not cut an hourly or daily budget pause short, which
+    // would release the sibling payment gate early.
+    const longerPauseInForce =
+      pause.paused && pause.untilUnixMs !== null && pause.untilUnixMs >= nowMs + (decision.pauseWindowMs ?? 0);
+    if (decision.code === "budget_exceeded" && decision.pauseWindowMs && !longerPauseInForce) {
       try {
         writePauseSwitch(cfg.pauseFilePath, {
           ttlMs: decision.pauseWindowMs,
