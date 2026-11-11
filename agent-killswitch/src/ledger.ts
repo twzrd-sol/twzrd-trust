@@ -1,6 +1,9 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SpendWindow } from "./gate.js";
+
+export const GENESIS_HASH = "0".repeat(64);
 
 export interface LedgerLine {
   timestamp: string;
@@ -15,6 +18,8 @@ export interface LedgerLine {
   allowed: boolean;
   veto_reason: string | null;
   request_id: string | null;
+  prev_hash?: string;
+  hash?: string;
   /**
    * How an allowed line was metered: "usage" from upstream, or
    * "held_estimate" when the call finished without usage (timeout,
@@ -28,6 +33,66 @@ interface TimedSpend {
   atMs: number;
   totalTokens: number;
   costUsd: number;
+}
+
+/** Canonical bytes for hashing: sorted-keys JSON without hash/prev_hash. */
+export function canonicalLedgerLine(line: Omit<LedgerLine, "hash" | "prev_hash">): string {
+  const obj: Record<string, unknown> = {};
+  for (const k of Object.keys(line).sort()) {
+    const v = (line as Record<string, unknown>)[k];
+    if (v !== undefined) obj[k] = v;
+  }
+  return JSON.stringify(obj);
+}
+
+export function computeLineHash(prevHash: string, line: LedgerLine): string {
+  const { hash: _h, prev_hash: _ph, ...rest } = line;
+  const canonical = canonicalLedgerLine(rest as Omit<LedgerLine, "hash" | "prev_hash">);
+  return crypto.createHash("sha256").update(prevHash + canonical, "utf8").digest("hex");
+}
+
+export interface ChainVerifyResult {
+  ok: boolean;
+  count: number;
+  /** index of first broken link, or -1 */
+  brokenAt: number;
+  reason?: string;
+  finalHash: string;
+}
+
+/** Walk the file, verify prev_hash continuity and per-line hash. Backward compat: pre-chain lines (no hash) are accepted as genesis. */
+export function verifyLedgerChain(filePath: string): ChainVerifyResult {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return { ok: true, count: 0, brokenAt: -1, finalHash: GENESIS_HASH };
+  }
+  const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+  let prev = GENESIS_HASH;
+  let count = 0;
+  for (let i = 0; i < lines.length; i++) {
+    let parsed: LedgerLine;
+    try {
+      parsed = JSON.parse(lines[i]!) as LedgerLine;
+    } catch {
+      return { ok: false, count, brokenAt: i, reason: "unparseable", finalHash: prev };
+    }
+    count++;
+    if (parsed.hash === undefined && parsed.prev_hash === undefined) {
+      // legacy pre-chain line: accept but do not advance prev
+      continue;
+    }
+    if (parsed.prev_hash !== prev) {
+      return { ok: false, count, brokenAt: i, reason: `prev_hash mismatch expected ${prev}`, finalHash: prev };
+    }
+    const expect = computeLineHash(prev, parsed);
+    if (expect !== parsed.hash) {
+      return { ok: false, count, brokenAt: i, reason: "hash mismatch", finalHash: prev };
+    }
+    prev = parsed.hash!;
+  }
+  return { ok: true, count, brokenAt: -1, finalHash: prev };
 }
 
 // Lines older than this are ignored on rebuild; the in-memory window only
@@ -205,8 +270,30 @@ export class Ledger {
     return this.holds.size;
   }
 
+  /** Read tail hash from disk for chaining (genesis if none). */
+  private tailHash(): string {
+    try {
+      const raw = fs.readFileSync(this.filePath, "utf8");
+      const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const parsed = JSON.parse(lines[i]!) as LedgerLine;
+          if (parsed.hash) return parsed.hash;
+        } catch {
+          continue;
+        }
+      }
+      return GENESIS_HASH;
+    } catch {
+      return GENESIS_HASH;
+    }
+  }
+
   append(line: LedgerLine): void {
-    const jsonLine = JSON.stringify(line) + "\n";
+    const prev_hash = this.tailHash();
+    const hash = computeLineHash(prev_hash, line);
+    const chained: LedgerLine = { ...line, prev_hash, hash };
+    const jsonLine = JSON.stringify(chained) + "\n";
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     fs.appendFileSync(this.filePath, jsonLine, "utf8");
     // The hold check reads spend from window(), which refreshes from the
