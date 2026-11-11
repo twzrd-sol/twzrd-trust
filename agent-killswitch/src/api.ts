@@ -1,14 +1,19 @@
 import {
+  chatOutputLimit,
   evaluateGate,
+  isTextOnlyPrompt,
   requestEstimate,
   type GateDecision,
+  type PromptSize,
   type RequestEstimate,
   type SpendWindow,
 } from "./gate.js";
 import type { ModelPrice, ModelRates } from "./pricing.js";
 
+export { chatOutputLimit, isTextOnlyPrompt } from "./gate.js";
 export type {
   GateDecision,
+  PromptSize,
   RequestEstimate,
   SpendWindow,
   VetoCode,
@@ -27,7 +32,27 @@ export interface BudgetGateOptions {
 
 export interface BudgetGateEstimateInput {
   model: string;
+  /**
+   * The output limit for the whole call: `chatOutputLimit(body)`, or null
+   * when the body has no usable limit (the per-request cap is then held).
+   * +Infinity means unbounded output (`chatOutputLimit` returns it when
+   * the limit times `n` overflows); every finite limit refuses it.
+   * `budgetInputForChatRequest(text)` fills this and the two fields below.
+   */
   maxTokens?: number | null;
+  /**
+   * UTF-8 byte length of the exact request body string you will send. It bounds the prompt tokens
+   * at one token per byte. Omit it (or pass null) when you do not know it:
+   * the dollar estimate is then never below the per-request cap. Anything
+   * else that is not a non-negative safe integer throws.
+   */
+  promptBytes?: number | null;
+  /**
+   * Pass `isTextOnlyPrompt(JSON.parse(text))` for the text you send. True says every prompt token comes from
+   * text inside those bytes; without it the dollar estimate is never below
+   * the per-request cap. Omitted means false; a non-boolean throws.
+   */
+  promptTextOnly?: boolean | null;
   /** Override the gate-wide zero-price list for this request. */
   zeroPriceModels?: readonly string[] | null;
 }
@@ -81,10 +106,23 @@ function optionalBoolean(name: string, value: unknown): boolean {
 
 function maxTokens(value: number | null | undefined): number | null {
   if (value === undefined || value === null) return null;
+  // Unbounded output, as chatOutputLimit reports an overflowing limit * n.
+  if (value === Number.POSITIVE_INFINITY) return value;
   if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
-    throw new TypeError("maxTokens must be null or a finite non-negative integer");
+    throw new TypeError("maxTokens must be null, +Infinity or a non-negative integer");
   }
   return value;
+}
+
+function promptSize(bytes: unknown, textOnly: unknown): PromptSize {
+  let size: number | null = null;
+  if (bytes !== undefined && bytes !== null) {
+    if (typeof bytes !== "number" || !Number.isSafeInteger(bytes) || bytes < 0) {
+      throw new TypeError("promptBytes must be null or a non-negative safe integer");
+    }
+    size = bytes;
+  }
+  return { bytes: size, textOnly: optionalBoolean("promptTextOnly", textOnly) };
 }
 
 function snapshotList(
@@ -117,6 +155,56 @@ function snapshotRates(value: ModelRates | undefined): ModelRates | undefined {
     snapshot[id] = Object.freeze({ inputPerMTok, outputPerMTok });
   }
   return Object.freeze(snapshot);
+}
+
+/**
+ * The model, output limit and prompt size of a chat-completions request,
+ * ready to spread into `estimate()` or `evaluate()`. The model, output limit
+ * and text-only flag are read with the same functions the proxy uses.
+ *
+ * Pass the exact text you will send, not the object you built it from: the
+ * byte count is of that text, and the text-only check runs on its parsed
+ * form, so a `toJSON` or class instance cannot show the check one shape and
+ * send another. Send text without duplicate keys (JSON.stringify output has
+ * none): JSON.parse keeps the last of a duplicated key, and an upstream
+ * that keeps the first would bill outside this reading.
+ *
+ * `promptBytes` is the UTF-8 length of that text. The proxy counts the
+ * larger of what it received and what it forwards, and it re-serializes
+ * the body (adding `stream_options.include_usage` to a streaming request,
+ * normalizing number forms), so for the same text its count can be higher;
+ * it is never lower.
+ *
+ *     const text = JSON.stringify(body);
+ *     const decision = gate.evaluate({ ...budgetInputForChatRequest(text), window });
+ *     // send `text`, unchanged
+ *
+ * Throws a TypeError when the text is not a JSON object or its `model` is
+ * not a non-blank string.
+ */
+export function budgetInputForChatRequest(sentText: string): {
+  model: string;
+  maxTokens: number | null;
+  promptBytes: number;
+  promptTextOnly: boolean;
+} {
+  if (typeof sentText !== "string") throw new TypeError("sentText must be the request body string you will send");
+  let body: unknown;
+  try {
+    body = JSON.parse(sentText);
+  } catch {
+    throw new TypeError("sentText must be JSON");
+  }
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    throw new TypeError("sentText must be a JSON object");
+  }
+  const model = modelId("model", (body as Record<string, unknown>)["model"]);
+  return {
+    model,
+    maxTokens: chatOutputLimit(body),
+    promptBytes: new TextEncoder().encode(sentText).length,
+    promptTextOnly: isTextOnlyPrompt(body),
+  };
 }
 
 /**
@@ -169,6 +257,7 @@ export function createBudgetGate(options: BudgetGateOptions): BudgetGate {
       const hourUsd = finiteNonNegative("window.hourUsd", rawWindow.hourUsd);
       const dayUsd = finiteNonNegative("window.dayUsd", rawWindow.dayUsd);
       const tokens = maxTokens(request.maxTokens);
+      const prompt = promptSize(request.promptBytes, request.promptTextOnly);
       const killed = optionalBoolean("killed", request.killed);
       const paused = optionalBoolean("paused", request.paused);
       const pauseReason = optionalString("pauseReason", request.pauseReason);
@@ -182,6 +271,7 @@ export function createBudgetGate(options: BudgetGateOptions): BudgetGate {
         window: { minuteTokens, hourUsd, dayUsd },
         model,
         maxTokens: tokens,
+        prompt,
         maxTokensPerMinute,
         maxUsdPerHour,
         maxUsdPerDay,
@@ -197,12 +287,14 @@ export function createBudgetGate(options: BudgetGateOptions): BudgetGate {
       }
       const model = modelId("model", request.model);
       const tokens = maxTokens(request.maxTokens);
+      const prompt = promptSize(request.promptBytes, request.promptTextOnly);
       return requestEstimate(
         model,
         tokens,
         maxCostPerRequestUsd,
         zeroPriceModelsFor(request),
         modelRates,
+        prompt,
       );
     },
   });
