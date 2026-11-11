@@ -62,7 +62,7 @@ top-level is a published artifact mirrored in, or meta-infrastructure.
 | `AGENTS.md` | The build doctrine for agents entering this checkout | Edit carefully; canonical |
 | `docs/` | Canonical doc index ([docs/README.md](./README.md)), specs, proofs, `archive/` (historical), `internal/` (maintainer-only) | New docs get an index entry |
 | `glama.json`, `plugin.json`, `mcp.json` | Registry listing manifests (Glama, agent-plugins, MCP client config) | Edit only with an intentional listing change |
-| `.github/workflows/` | CI (`ci.yml`) plus the publish and mirror-sync workflows | Publish-workflow edits need review; a changed expected_commit on publish is a separate order |
+| `.github/workflows/` | CI (`ci.yml`), the publish and mirror-sync workflows, and `opencode-review.yml` (owner-requested first-pass PR review; posts a comment, cannot push or publish) | Publish-workflow edits need review; a changed expected_commit on publish is a separate order |
 
 ## Invariants (things that must not be done)
 
