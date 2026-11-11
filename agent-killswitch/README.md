@@ -244,6 +244,45 @@ What the chain does not prove on its own:
   reported and not checked; the first chained row commits only to the last
   of them.
 
+## Programmatic admission (`createBudgetGate`)
+
+For in-process agents — for example Mastra's `beforeToolCall` hook — the
+package also exports the same pure gate math the proxy uses. No server, no
+ledger, no I/O:
+
+```js
+import { createBudgetGate } from "@twzrd1111/agent-killswitch";
+
+const gate = createBudgetGate({
+  maxTokensPerMinute: 100_000,
+  maxUsdPerHour: 0.5,
+  maxUsdPerDay: 2,
+  maxCostPerRequestUsd: 0.04,
+  // optional, same semantics as the proxy:
+  // modelRates, allowedModels, zeroPriceModels
+});
+
+// Before every model call:
+const decision = gate.evaluate({
+  model: "gpt-4o",
+  maxTokens: 1_000,
+  window: { minuteTokens, hourUsd, dayUsd }, // you own these, holds included
+});
+if (!decision.allowed) {
+  // decision.status (429/403), decision.code, decision.message
+  return;
+}
+```
+
+The limits, model rates and model lists are snapshotted and frozen when the
+gate is constructed, so a caller mutating its own objects afterwards cannot
+loosen a live gate. Malformed requests throw a `TypeError` instead of failing
+open. `gate.estimate({ model, maxTokens? })` returns the same token/dollar
+hold the proxy uses while a request is in flight; use it to add your own
+in-flight holds to the window. The gate does not record spend — after an
+allowed call completes, add the actual cost to your window yourself. For the
+ledger, the kill file and the upstream lifecycle, run the proxy.
+
 ## Tests
 
 ```sh

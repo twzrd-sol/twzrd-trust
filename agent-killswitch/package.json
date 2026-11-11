@@ -5,6 +5,7 @@
   "license": "MIT",
   "author": "TWZRD",
   "type": "module",
+  "types": "./dist/api.d.ts",
   "bin": {
     "agent-killswitch": "./dist/index.js"
   },
@@ -33,6 +34,11 @@
     "LICENSE"
   ],
   "exports": {
+    ".": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js",
+      "default": "./dist/api.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
