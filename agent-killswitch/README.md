@@ -39,7 +39,7 @@ from, so `touch ./data/.kill` stops it.
 ## 5-minute setup (Docker)
 
 ```sh
-docker pull ghcr.io/twzrd-sol/agent-killswitch:0.1.10
+docker pull ghcr.io/twzrd-sol/agent-killswitch:0.1.11
 
 mkdir -p ./data
 
@@ -47,7 +47,7 @@ docker run --rm \
   -p 127.0.0.1:4020:4020 \
   -v "$(pwd)/data:/app/data" \
   -e OPENAI_API_KEY \
-  ghcr.io/twzrd-sol/agent-killswitch:0.1.10
+  ghcr.io/twzrd-sol/agent-killswitch:0.1.11
 ```
 
 Then:
