@@ -45,8 +45,8 @@ jobs:
 
       # Short-lived token from GitHub's OIDC token. OpenCode Console only
       # accepts it from this repository on refs/heads/main. The client id is
-      # an identifier, not a secret; it lives in a repository variable to
-      # keep it out of the tree.
+      # an identifier, not a secret: it is a repository variable, and it
+      # shows in this step's log.
       - name: Sign in to OpenCode
         env:
           AUDIENCE: https://opencode.ai/console
@@ -71,7 +71,13 @@ jobs:
           echo "::add-mask::$token"
           echo "OPENCODE_API_KEY=$token" >> "$GITHUB_ENV"
 
-      # `plan` is opencode's read-only primary agent: it does not edit files.
+      # Read-only by configuration, not by request. opencode 1.19.5 ignores
+      # an AGENT variable and takes the agent from config, so:
+      #   - OPENCODE_DISABLE_PROJECT_CONFIG: the pull request's own
+      #     opencode.json is not read (the run works on the PR branch);
+      #   - OPENCODE_CONFIG_CONTENT: the agent is `plan`, which does not edit;
+      #   - OPENCODE_PERMISSION: no edits, no web access, and the shell runs
+      #     only read-only git commands.
       # The job token has no write access to contents either way. The agent
       # runs without the OIDC request variables, so nothing it executes can
       # ask GitHub for another identity token.
@@ -80,8 +86,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           USE_GITHUB_TOKEN: "true"
           MODEL: ${{ vars.OPENCODE_REVIEW_MODEL || 'opencode-go/kimi-k3.1-pro' }}
-          AGENT: plan
           MENTIONS: /opencode,/oc
+          OPENCODE_DISABLE_PROJECT_CONFIG: "1"
+          OPENCODE_CONFIG_CONTENT: '{"default_agent":"plan"}'
+          OPENCODE_PERMISSION: '{"edit":"deny","webfetch":"deny","websearch":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}'
           PROMPT: >-
             Review this pull request for correctness bugs only. Report at most
             five findings, most severe first. For each: the file and line, one
