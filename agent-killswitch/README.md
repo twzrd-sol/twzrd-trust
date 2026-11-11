@@ -261,7 +261,7 @@ For in-process agents — for example Mastra's `beforeToolCall` hook
 gate math the proxy uses. No server, no ledger, no I/O:
 
 ```js
-import { createBudgetGate, isTextOnlyPrompt } from "@twzrd1111/agent-killswitch";
+import { budgetInputForChatRequest, createBudgetGate } from "@twzrd1111/agent-killswitch";
 
 const gate = createBudgetGate({
   maxTokensPerMinute: 100_000,
@@ -273,13 +273,9 @@ const gate = createBudgetGate({
 });
 
 // Inside beforeToolCall (it runs before a tool call, not a model call):
-// `body` is the chat-completions request you are about to send.
-const request = {
-  model: "gpt-4o",
-  maxTokens: 1_000,
-  promptBytes: Buffer.byteLength(JSON.stringify(body)),
-  promptTextOnly: isTextOnlyPrompt(body),
-};
+// `text` is the exact chat-completions body you are about to send.
+const text = JSON.stringify(body);
+const request = budgetInputForChatRequest(text); // model, maxTokens, promptBytes, promptTextOnly
 const decision = gate.evaluate({
   ...request,
   window: { minuteTokens, hourUsd, dayUsd }, // you own these, holds included
@@ -297,25 +293,44 @@ minuteTokens += est.tokens;
 hourUsd += est.usd;
 dayUsd += est.usd;
 
-// After the call completes, replace the hold with the actual cost (subtract
-// est, add what was actually used), the same settle the proxy does.
+// Send `text` unchanged. After the call completes, replace the hold with
+// the actual cost (subtract est, add what was actually used), the same
+// settle the proxy does.
 ```
 
 **Add the hold synchronously, before the first `await`.** `estimate()`
 returns the same token/dollar hold the proxy uses while a request is in
 flight; two parallel calls must each see the other's hold in the window.
 
-**Prompt size.** `promptBytes` is the UTF-8 byte length of the request
-exactly as you send it (count the string you hand to your HTTP client, not
-an earlier copy of the body), and `promptTextOnly` is `isTextOnlyPrompt(body)`
-(exported next to `createBudgetGate`). Check the body you actually send:
-if it is built from class instances or objects with a `toJSON`, pass
-`isTextOnlyPrompt(JSON.parse(text))` for the string you send. `maxTokens`
-is your output limit for the whole call: the larger of `max_tokens` and
-`max_completion_tokens`, times `n`. The proxy works that out from the body;
-`createBudgetGate` takes the number you give it. Together they give the gate the same
-prompt-token bound the proxy uses (see "Prompt-token bound"). Leave
-`promptBytes` out and the dollar estimate is never below
+**Read the request with `budgetInputForChatRequest(text)`.** Give it the
+exact string you hand to your HTTP client. It returns the model, the output
+limit and the text-only flag read with the same functions the proxy uses,
+and the UTF-8 byte count of that text. It checks the parsed text rather
+than the object you built, so a `toJSON` or class instance cannot show the
+check one shape and send another. Send text without duplicate keys
+(`JSON.stringify` output has none): `JSON.parse` keeps the last of a
+duplicated key, and an upstream that keeps the first would bill outside
+this reading. The proxy's own byte count for the same text can be higher,
+never lower, because it re-serializes the body before forwarding (for
+example, it adds `stream_options.include_usage` to a streaming request). It
+throws on text that is not a JSON object with a non-blank `model`.
+
+Building the input by hand is supported but easy to get wrong:
+
+- `maxTokens` is `chatOutputLimit(body)`: the larger of `max_tokens` and
+  `max_completion_tokens`, times `n`. A value below 1 is no limit: pass
+  `null`, which holds the per-request cap. Passing `0` holds no output at
+  all, while an upstream may read 0 as "no limit". When the product
+  overflows, `chatOutputLimit` returns `Infinity`, which `evaluate()` and
+  `estimate()` accept as unbounded output and every limit refuses.
+- `promptBytes` is the UTF-8 byte length of the string you send, not of an
+  earlier copy of the body.
+- `promptTextOnly` is `isTextOnlyPrompt(JSON.parse(text))`. Among other
+  things it is false when `max_completion_tokens` is set without a usable
+  `max_tokens`, or when `n` or `service_tier` bill above one standard-rate
+  completion.
+
+Leave `promptBytes` out and the dollar estimate is never below
 `maxCostPerRequestUsd`, the same as a call without `maxTokens`. Leave
 `promptTextOnly` out, or pass `false`, and the bytes still count but the
 dollar estimate is again never below the cap. A `promptBytes` that is not a
@@ -485,9 +500,25 @@ completions. A limit below 1 counts as no limit. When
 the per-request cap, because an upstream that does not know the field
 would generate without one.
 
-When a request is too large to pass on its own and the hour or day budget
-cannot fit even its output side, the refusal is the hourly or daily one and
-the long pause file is written, as before.
+While the hour or day spend is at or over its limit, every request that
+passes the kill switch, a non-budget pause and the model allowlist is
+refused with the daily or hourly refusal and its long pause file (the daily
+one when both are spent), before the per-minute and per-request checks,
+however large the request is. When the budget still has room:
+
+- A request too large to pass on its own (over the per-minute limit or the
+  per-request cap) is refused without a pause. That includes some requests
+  for which 0.1.10 wrote the hourly or daily pause because its smaller
+  estimate did not fit what was left.
+- A request whose estimate does not fit what is left of the hour or day
+  gets the hourly or daily refusal and pause, as in 0.1.10. Because the
+  estimate is larger than in 0.1.10, this can now happen where 0.1.10
+  forwarded the request.
+
+The proxy does not shorten a pause it saw in force when it checked the
+request: a 60-second per-minute refusal leaves an hourly or daily pause
+file as it is, and an hourly refusal leaves a daily one. A pause that
+another process writes at the same moment can still be replaced.
 
 A call that is not plain text (one that sends `tools`, for example) holds
 at least the per-request cap. If upstream answers it without usage, the

@@ -102,11 +102,11 @@ test("createBudgetGate rejects malformed runtime requests instead of failing ope
   );
   assert.throws(
     () => gate.evaluate({ ...base, maxTokens: 0.5 }),
-    /maxTokens must be null or a finite non-negative integer/,
+    /maxTokens must be null, \+Infinity or a non-negative integer/,
   );
   assert.throws(
     () => gate.estimate({ model: "gpt-4o", maxTokens: Number.NaN }),
-    /maxTokens must be null or a finite non-negative integer/,
+    /maxTokens must be null, \+Infinity or a non-negative integer/,
   );
   assert.throws(
     () => gate.evaluate({ ...base, model: "" }),

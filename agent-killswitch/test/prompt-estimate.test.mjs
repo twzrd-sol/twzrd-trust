@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createBudgetGate, isTextOnlyPrompt } from "@twzrd1111/agent-killswitch";
+import { budgetInputForChatRequest, chatOutputLimit, createBudgetGate, isTextOnlyPrompt } from "@twzrd1111/agent-killswitch";
 import { admissionRequest, createServer } from "../dist/index.js";
 import { evaluateGate, requestEstimate } from "../dist/gate.js";
 import { costUsd, priceFor } from "../dist/pricing.js";
@@ -858,7 +858,7 @@ test("isTextOnlyPrompt: a service tier that can bill above the standard row ends
   for (const tier of ["priority", "auto", "scale", "", null, 1]) assert.equal(isTextOnlyPrompt(body(tier)), false, String(tier));
 });
 
-test("evaluateGate: an oversized request against a spent hour or day still writes the long pause", () => {
+test("evaluateGate: an oversized request, or one that does not fit the current minute, against a spent hour or day still writes the long pause", () => {
   const input = {
     killed: false, paused: false, pauseReason: null, pauseDecisionId: null,
     window: { minuteTokens: 0, hourUsd: 11, dayUsd: 11 },
@@ -866,21 +866,210 @@ test("evaluateGate: an oversized request against a spent hour or day still write
     maxTokensPerMinute: 100_000, maxUsdPerHour: 10, maxUsdPerDay: 50, maxCostPerRequestUsd: 0.5,
     allowedModels: null, zeroPriceModels: [], modelRates: undefined,
   };
-  // Over the per-minute limit on its own, and the hour is spent: 0.1.10 paused for the hour.
+  const room = { minuteTokens: 0, hourUsd: 1, dayUsd: 1 };
+  // Over the per-minute limit on its own, and the hour is spent: the hourly refusal and pause, as 0.1.10 gave.
   const hour = evaluateGate(input);
-  assert.equal(hour.code, "budget_exceeded");
   assert.equal(hour.pauseWindowMs, 3_600_000);
   assert.deepEqual(hour, before.evaluateGate(input));
   const day = evaluateGate({ ...input, window: { minuteTokens: 0, hourUsd: 0, dayUsd: 55 } });
   assert.equal(day.pauseWindowMs, 86_400_000);
+  // Fits the per-minute limit alone but not with the current minute, hour or day spent: the long pause, not 60 s.
+  const crowded = { ...input, prompt: { bytes: 50_000, textOnly: true }, window: { minuteTokens: 60_000, hourUsd: 11, dayUsd: 11 } };
+  assert.deepEqual(evaluateGate(crowded), before.evaluateGate(crowded));
+  assert.equal(evaluateGate(crowded).pauseWindowMs, 3_600_000);
+  const crowdedDay = { ...crowded, window: { minuteTokens: 60_000, hourUsd: 0, dayUsd: 55 } };
+  assert.deepEqual(evaluateGate(crowdedDay), before.evaluateGate(crowdedDay));
+  assert.equal(evaluateGate(crowdedDay).pauseWindowMs, 86_400_000);
+  // With room in the budget, the crowded minute keeps its 60 s pause.
+  assert.equal(evaluateGate({ ...crowded, window: { ...room, minuteTokens: 60_000 } }).pauseWindowMs, 60_000);
+  // Both windows spent: the daily refusal and its 24 h pause, whether the hour is over or exactly at its limit.
+  for (const hourUsd of [10, 10.5, 11]) {
+    const both = evaluateGate({ ...input, window: { minuteTokens: 0, hourUsd, dayUsd: 55 } });
+    assert.equal(both.pauseWindowMs, 86_400_000, `hour ${hourUsd}`);
+    assert.match(both.message, /^Daily limit \$50\.00 would be exceeded$/);
+  }
+  const dayHit = evaluateGate({ ...input, window: { minuteTokens: 0, hourUsd: 11, dayUsd: 50 } });
+  assert.equal(dayHit.pauseWindowMs, 86_400_000);
+  assert.match(dayHit.message, /^Daily limit \$50\.00 hit$/);
+  // Only the hour spent: the hourly refusal, worded as 0.1.10 words it.
+  const hourHit = evaluateGate({ ...input, window: { minuteTokens: 0, hourUsd: 10, dayUsd: 10 } });
+  assert.equal(hourHit.pauseWindowMs, 3_600_000);
+  assert.match(hourHit.message, /^Hourly limit \$10\.00 hit$/);
   // Over the per-request cap on its own (token limit raised), hour spent: same.
-  const overCap = evaluateGate({ ...input, maxTokensPerMinute: 1e9, prompt: { bytes: 300_000, textOnly: true } });
-  assert.equal(overCap.pauseWindowMs, 3_600_000);
-  // The budget has room: the oversized request is refused with no pause.
-  const room = evaluateGate({ ...input, window: { minuteTokens: 0, hourUsd: 1, dayUsd: 1 } });
-  assert.equal(room.allowed, false);
-  assert.equal(room.pauseWindowMs, undefined);
-  assert.equal(evaluateGate({ ...input, maxTokensPerMinute: 1e9, prompt: { bytes: 300_000, textOnly: true }, window: { minuteTokens: 0, hourUsd: 1, dayUsd: 1 } }).code, "per_request_cap");
-  // Unbounded output never takes the long pause.
-  assert.equal(evaluateGate({ ...input, maxTokens: Infinity }).pauseWindowMs, undefined);
+  const big = { ...input, maxTokensPerMinute: 1e9, prompt: { bytes: 300_000, textOnly: true } };
+  assert.equal(evaluateGate(big).pauseWindowMs, 3_600_000);
+  // The output limit alone over the cap, hour spent: still the hourly pause (the budget is spent either way).
+  assert.equal(evaluateGate({ ...input, maxTokens: 1_000_000, maxTokensPerMinute: 1e12 }).pauseWindowMs, 3_600_000);
+  assert.equal(evaluateGate({ ...input, maxTokens: null, maxTokensPerMinute: 1e12, prompt: { bytes: 1e6, textOnly: true } }).pauseWindowMs, 3_600_000);
+  // A $0 model with the hour exactly at its limit: "limit hit", as 0.1.10 gave.
+  const free = { ...input, model: "local-free", zeroPriceModels: ["local-free"], maxTokens: null, window: { minuteTokens: 0, hourUsd: 10, dayUsd: 10 } };
+  assert.equal(evaluateGate(free).pauseWindowMs, 3_600_000);
+  assert.equal(before.evaluateGate(free).pauseWindowMs, 3_600_000);
+  // The budget has room: the oversized request is refused with no pause, whatever its output limit.
+  assert.equal(evaluateGate({ ...input, window: room }).pauseWindowMs, undefined);
+  assert.equal(evaluateGate({ ...big, window: room }).code, "per_request_cap");
+  assert.equal(evaluateGate({ ...big, window: room }).pauseWindowMs, undefined);
+  const roomLeft = { minuteTokens: 0, hourUsd: 9.6, dayUsd: 9.6 };
+  assert.equal(evaluateGate({ ...input, maxTokens: 800_000, window: roomLeft }).pauseWindowMs, undefined);
+  // Unbounded output never takes the long pause on a budget with room.
+  assert.equal(evaluateGate({ ...input, maxTokens: Infinity, window: room }).pauseWindowMs, undefined);
+  // Room left, but the output limit alone would not fit the hour's remainder: an oversized or
+  // over-cap request still writes no pause. Pricing the output limit here (as #353's
+  // spentBudgetRefusal did) would write the 1 h pause for a budget that is not spent.
+  const nearlyFull = { minuteTokens: 0, hourUsd: 9.9, dayUsd: 9.9 };
+  const oversized = { ...input, maxTokens: 30_000, window: nearlyFull };
+  assert.equal(evaluateGate(oversized).code, "budget_exceeded");
+  assert.match(evaluateGate(oversized).message, /waiting will not help/);
+  assert.equal(evaluateGate(oversized).pauseWindowMs, undefined);
+  const overCap = { ...oversized, maxTokensPerMinute: 1e9, prompt: { bytes: 300_000, textOnly: true } };
+  assert.equal(evaluateGate(overCap).code, "per_request_cap");
+  assert.equal(evaluateGate(overCap).pauseWindowMs, undefined);
+});
+
+
+test("proxy: a token-per-minute refusal never shortens a longer budget pause already in force", async () => {
+  process.env.KILLSWITCH_MAX_USD_HOUR = "1000";
+  process.env.KILLSWITCH_MAX_USD_DAY = "1000";
+  const pauseFile = path.join(dir, ".pause");
+  process.env.KILLSWITCH_PAUSE_FILE = pauseFile;
+  const port = await startKillswitch();
+  // Fill the current minute with 60,000 settled tokens.
+  upstream.state.usage = { prompt_tokens: 59_990, completion_tokens: 10, total_tokens: 60_000 };
+  const first = await post(port, JSON.stringify({ model: "gpt-4o", max_tokens: 16, messages: [{ role: "user", content: "hi" }] }));
+  assert.equal(first.status, 200);
+  // 50 kB of text fits the 100,000 per-minute limit alone, not with the 60,000 already counted.
+  const crowding = JSON.stringify({ model: "gpt-4o", max_tokens: 16, messages: [{ role: "user", content: "a".repeat(50_000) }] });
+  // An hourly budget pause is in force: the 60 s refusal leaves it as it is.
+  const hourUntil = Date.now() + 3_600_000;
+  fs.writeFileSync(pauseFile, JSON.stringify({ schema: "twzrd.pause_sentinel.v1", until_unix_ms: hourUntil, reason: "budget_exceeded", decision_id: "hour" }) + "\n");
+  const r = await post(port, crowding);
+  assert.equal(r.status, 429);
+  assert.match(r.json.error.message, /Token-per-minute limit 100000 would be exceeded/);
+  const kept = JSON.parse(fs.readFileSync(pauseFile, "utf8"));
+  assert.equal(kept.until_unix_ms, hourUntil);
+  assert.equal(kept.decision_id, "hour");
+  // A pause that ends sooner than 60 s from now is extended to the 60 s window, as before.
+  const soon = Date.now() + 5_000;
+  fs.writeFileSync(pauseFile, JSON.stringify({ schema: "twzrd.pause_sentinel.v1", until_unix_ms: soon, reason: "budget_exceeded" }) + "\n");
+  const before60 = Date.now();
+  await post(port, crowding);
+  const extended = JSON.parse(fs.readFileSync(pauseFile, "utf8"));
+  assert.ok(extended.until_unix_ms >= before60 + 60_000, "the 60 s pause replaces a shorter one");
+  // No pause in force: the 60 s pause is written, as in 0.1.10.
+  fs.rmSync(pauseFile);
+  const before60b = Date.now();
+  await post(port, crowding);
+  const fresh = JSON.parse(fs.readFileSync(pauseFile, "utf8"));
+  assert.ok(fresh.until_unix_ms >= before60b + 60_000 && fresh.until_unix_ms <= Date.now() + 60_000);
+  assert.equal(upstream.state.hits, 1);
+});
+
+test("proxy: an hourly refusal never shortens a daily pause already in force", async () => {
+  // A $0 hourly limit is spent from the start, so every request gets the hourly refusal and its 1 h pause.
+  process.env.KILLSWITCH_MAX_USD_HOUR = "0";
+  process.env.KILLSWITCH_MAX_USD_DAY = "1000";
+  const pauseFile = path.join(dir, ".pause");
+  process.env.KILLSWITCH_PAUSE_FILE = pauseFile;
+  const port = await startKillswitch();
+  const small = JSON.stringify({ model: "gpt-4o", max_tokens: 16, messages: [{ role: "user", content: "hi" }] });
+  const dayUntil = Date.now() + 86_400_000;
+  fs.writeFileSync(pauseFile, JSON.stringify({ schema: "twzrd.pause_sentinel.v1", until_unix_ms: dayUntil, reason: "budget_exceeded", decision_id: "day" }) + "\n");
+  const r = await post(port, small);
+  assert.equal(r.status, 429);
+  assert.match(r.json.error.message, /^Hourly limit \$0\.00/);
+  const kept = JSON.parse(fs.readFileSync(pauseFile, "utf8"));
+  assert.equal(kept.until_unix_ms, dayUntil);
+  assert.equal(kept.decision_id, "day");
+  // A pause with ten minutes left is replaced by the 1 h pause.
+  fs.writeFileSync(pauseFile, JSON.stringify({ schema: "twzrd.pause_sentinel.v1", until_unix_ms: Date.now() + 600_000, reason: "budget_exceeded" }) + "\n");
+  const before1h = Date.now();
+  await post(port, small);
+  assert.ok(JSON.parse(fs.readFileSync(pauseFile, "utf8")).until_unix_ms >= before1h + 3_600_000);
+  assert.equal(upstream.state.hits, 0);
+});
+
+test("budgetInputForChatRequest: a createBudgetGate caller holds what the proxy holds for the same text", () => {
+  const cap = 0.5;
+  const gate = createBudgetGate({ maxTokensPerMinute: 1e12, maxUsdPerHour: 1e9, maxUsdPerDay: 1e9, maxCostPerRequestUsd: cap });
+  const proxyHold = (text) => {
+    const req = admissionRequest(JSON.parse(text), Buffer.byteLength(text, "utf8"));
+    return requestEstimate(req.model, req.maxTokens, cap, null, undefined, { ...req.prompt, bytes: Buffer.byteLength(text, "utf8") });
+  };
+  // The two bodies the review found: a helper caller now gets the cap, as the proxy does.
+  for (const body of [
+    { model: "gpt-4o", messages: [{ role: "user", content: "hi" }], max_completion_tokens: 10 },
+    { model: "gpt-4o", messages: [{ role: "user", content: "hi" }], max_tokens: 0 },
+  ]) {
+    const text = JSON.stringify(body);
+    const input = budgetInputForChatRequest(text);
+    assert.ok(gate.estimate(input).usd >= cap, text);
+    assert.deepEqual(gate.estimate(input), proxyHold(text), text);
+  }
+  // Same model, output limit, text-only flag and byte count as the proxy, over the seeded bodies.
+  const r = makeRng(SEED ^ 0x4242);
+  for (let i = 0; i < 5_000; i += 1) {
+    const sent = randomBody(r);
+    const text = serialize(r, sent);
+    const body = JSON.parse(text);
+    const input = budgetInputForChatRequest(text);
+    const req = admissionRequest(body, 0);
+    assert.equal(input.model, req.model, `case ${i}`);
+    assert.equal(input.maxTokens, req.maxTokens, `case ${i}`);
+    assert.equal(input.promptTextOnly, req.prompt.textOnly, `case ${i}`);
+    assert.equal(input.promptBytes, Buffer.byteLength(text, "utf8"), `case ${i}`);
+    assert.equal(input.maxTokens, chatOutputLimit(body), `case ${i}`);
+    // The proxy counts what it forwards too, so its count is never below the helper's.
+    assert.ok(input.promptBytes <= admissionRequest(body, Buffer.byteLength(text, "utf8")).prompt.bytes, `case ${i}`);
+  }
+  // A streaming body: the proxy adds stream_options.include_usage before forwarding, so it counts more.
+  const streamed = JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }], max_tokens: 10, stream: true });
+  assert.ok(budgetInputForChatRequest(streamed).promptBytes < admissionRequest(JSON.parse(streamed), Buffer.byteLength(streamed)).prompt.bytes);
+  // limit * n can overflow to +Infinity: the helper reports it, evaluate() and estimate() accept it and refuse.
+  for (const overflow of [
+    { model: "gpt-4o", messages: [{ role: "user", content: "hi" }], max_tokens: 1e308, n: 2 },
+    { model: "gpt-4o", messages: [{ role: "user", content: "hi" }], max_tokens: 16, n: 1e308 },
+    { model: "gpt-4o", messages: [{ role: "user", content: "hi" }], max_completion_tokens: 1e308, n: 3 },
+  ]) {
+    const text = JSON.stringify(overflow);
+    const input = budgetInputForChatRequest(text);
+    assert.equal(input.maxTokens, Infinity, text);
+    assert.equal(input.maxTokens, admissionRequest(overflow, Buffer.byteLength(text)).maxTokens, text);
+    assert.deepEqual(gate.estimate(input), { tokens: Infinity, usd: Infinity }, text);
+    const limited = createBudgetGate({ maxTokensPerMinute: 100_000, maxUsdPerHour: 5, maxUsdPerDay: 20, maxCostPerRequestUsd: cap });
+    const refused = limited.evaluate({ ...input, window: { minuteTokens: 0, hourUsd: 0, dayUsd: 0 } });
+    assert.equal(refused.allowed, false, text);
+    // With the hour spent, the helper path gets the same hourly pause the proxy writes.
+    const spent = limited.evaluate({ ...input, window: { minuteTokens: 0, hourUsd: 6, dayUsd: 6 } });
+    assert.equal(spent.pauseWindowMs, 3_600_000, text);
+  }
+  // The check runs on the text that is sent, so an object's toJSON cannot show it another shape.
+  const sneaky = { model: "gpt-4o", messages: [{ role: "user", content: "hi" }] };
+  Object.defineProperty(sneaky, "toJSON", {
+    enumerable: false,
+    value: () => ({ model: "gpt-4o", messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "x" } }] }] }),
+  });
+  assert.equal(isTextOnlyPrompt(sneaky), true);
+  assert.equal(budgetInputForChatRequest(JSON.stringify(sneaky)).promptTextOnly, false);
+  for (const bad of ["", "[]", "null", "{}", '{"model":""}', '{"model":"  "}', '{"model":5}', 5, undefined]) {
+    assert.throws(() => budgetInputForChatRequest(bad), TypeError, String(bad));
+  }
+});
+
+test("isTextOnlyPrompt: max_completion_tokens without a usable max_tokens is not text-only", () => {
+  const base = { model: "gpt-4o", messages: [{ role: "user", content: "x" }] };
+  assert.equal(isTextOnlyPrompt({ ...base, max_completion_tokens: 10 }), false);
+  assert.equal(isTextOnlyPrompt({ ...base, max_tokens: 0, max_completion_tokens: 10 }), false);
+  assert.equal(isTextOnlyPrompt({ ...base, max_tokens: 5, max_completion_tokens: 10 }), true);
+  // A present limit that is not usable (0, negative, a string) ends the bound; null is absent.
+  for (const bad of [0, -1, 0.5, "5", true, Infinity]) {
+    assert.equal(isTextOnlyPrompt({ ...base, max_tokens: 5, max_completion_tokens: bad }), false, String(bad));
+    assert.equal(isTextOnlyPrompt({ ...base, max_tokens: bad }), false, String(bad));
+  }
+  assert.equal(isTextOnlyPrompt({ ...base, max_tokens: 5, max_completion_tokens: null }), true);
+  assert.equal(isTextOnlyPrompt({ ...base, max_tokens: null }), true);
+  // chatOutputLimit: below 1 is absent; the larger field wins; n multiplies.
+  assert.equal(chatOutputLimit({ ...base, max_tokens: 0 }), null);
+  assert.equal(chatOutputLimit({ ...base, max_tokens: 0.9, max_completion_tokens: 7.8 }), 7);
+  assert.equal(chatOutputLimit({ ...base, max_tokens: 3, n: 4 }), 12);
+  assert.equal(chatOutputLimit(null), null);
 });
