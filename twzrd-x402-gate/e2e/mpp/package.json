@@ -1,0 +1,16 @@
+{
+  "name": "twzrd-mpp-settlement-harness",
+  "private": true,
+  "version": "0.0.1",
+  "description": "MPP settlement proof harness: one pinned 0.001 USDC charge to intel /quick, plus a zero-spend loopback check. Exact pins from the tree that produced the 2026-10-26 and 2026-11-11 settlements.",
+  "type": "module",
+  "scripts": {
+    "check": "node loopback-check.mjs",
+    "pay:once": "node pay-quick-once.mjs"
+  },
+  "dependencies": {
+    "@solana/kit": "6.10.0",
+    "@solana/mpp": "0.7.0",
+    "mppx": "0.15.0"
+  }
+}
