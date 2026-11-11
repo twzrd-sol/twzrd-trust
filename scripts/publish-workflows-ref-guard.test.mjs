@@ -104,6 +104,37 @@ const PUBLISH_COMMAND = /\bnpm\s+(publish|token|login|adduser)\b|--provenance\b|
 const OIDC_REQUEST = /ACTIONS_ID_TOKEN_REQUEST_(TOKEN|URL)/;
 const OIDC_UNSET = /\benv\s+-u\s+ACTIONS_ID_TOKEN_REQUEST_TOKEN\s+-u\s+ACTIONS_ID_TOKEN_REQUEST_URL\s+/;
 
+const parsed = value => {
+  try {
+    return typeof value === 'string' ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The agent step's environment must make the agent read-only on its own:
+ * opencode takes the agent from config (an AGENT variable is ignored), and
+ * the run works on the pull request's branch, whose opencode.json would
+ * otherwise be read.
+ */
+function readOnlyAgentFindings(at, env) {
+  const findings = [];
+  if (!['1', 'true'].includes(String(env.OPENCODE_DISABLE_PROJECT_CONFIG ?? ''))) {
+    findings.push(`${at} reads the pull request's opencode config (OPENCODE_DISABLE_PROJECT_CONFIG is not set)`);
+  }
+  if (parsed(env.OPENCODE_CONFIG_CONTENT)?.default_agent !== 'plan') {
+    findings.push(`${at} does not set the plan agent in OPENCODE_CONFIG_CONTENT`);
+  }
+  const permission = parsed(env.OPENCODE_PERMISSION);
+  if (permission?.edit !== 'deny') findings.push(`${at} does not deny edits in OPENCODE_PERMISSION`);
+  const bash = permission?.bash;
+  const bashOk = bash === 'deny' || (bash !== null && typeof bash === 'object' && bash['*'] === 'deny'
+    && Object.entries(bash).every(([pattern, action]) => action === 'deny' || /^git (diff|status|log|show)\*$/.test(pattern)));
+  if (!bashOk) findings.push(`${at} lets the agent run shell commands other than read-only git in OPENCODE_PERMISSION`);
+  return findings;
+}
+
 /** Every way an OIDC_CONSUMERS workflow breaks its rules. */
 export function oidcConsumerFindings(file, doc, rule = OIDC_CONSUMERS[file]) {
   const findings = [];
@@ -153,6 +184,7 @@ export function oidcConsumerFindings(file, doc, rule = OIDC_CONSUMERS[file]) {
       if (run.includes(rule.agent) && !OIDC_UNSET.test(run)) {
         findings.push(`${at} runs \`${rule.agent}\` with the OIDC request variables still set`);
       }
+      if (run.includes(rule.agent)) findings.push(...readOnlyAgentFindings(at, step.env ?? {}));
     });
     if (!steps.some(step => typeof step?.run === 'string' && step.run.includes(rule.agent))) {
       findings.push(`${where}: no step runs \`${rule.agent}\``);
@@ -332,7 +364,11 @@ jobs:
       - uses: actions/checkout@v4
       - env: { AUDIENCE: https://opencode.ai/console }
         run: curl --oauth2-bearer "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE"
-      - run: env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL opencode github run
+      - env:
+          OPENCODE_DISABLE_PROJECT_CONFIG: "1"
+          OPENCODE_CONFIG_CONTENT: '{"default_agent":"plan"}'
+          OPENCODE_PERMISSION: '{"edit":"deny","bash":{"*":"deny","git diff*":"allow"}}'
+        run: env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL opencode github run
 `;
 const consumer = (from, to) => {
   assert.ok(CONSUMER.includes(from), `fixture has no ${JSON.stringify(from)}`);
@@ -369,6 +405,13 @@ test('checker: each broken OIDC consumer rule is reported', () => {
   one('&audience=$AUDIENCE', '&audience=npm:registry.npmjs.org', 'audience other than https://opencode.ai/console');
   one('env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL opencode', 'opencode', 'with the OIDC request variables still set');
   one('opencode github run', 'true', 'no step runs `opencode github run`');
+  one('OPENCODE_DISABLE_PROJECT_CONFIG: "1"', 'OPENCODE_DISABLE_PROJECT_CONFIG: "0"', "reads the pull request's opencode config");
+  one('{"default_agent":"plan"}', '{"default_agent":"build"}', 'does not set the plan agent');
+  one('{"default_agent":"plan"}', 'not json', 'does not set the plan agent');
+  one('"edit":"deny"', '"edit":"allow"', 'does not deny edits');
+  one('"*":"deny"', '"*":"allow"', 'shell commands other than read-only git');
+  one('"git diff*":"allow"', '"rm *":"allow"', 'shell commands other than read-only git');
+  one('"bash":{"*":"deny","git diff*":"allow"}', '"bash":"allow"', 'shell commands other than read-only git');
 });
 
 // --- this repository -----------------------------------------------------------
