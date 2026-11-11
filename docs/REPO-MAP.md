@@ -40,6 +40,7 @@ top-level is a published artifact mirrored in, or meta-infrastructure.
 | `counsel_orchestration/` + `.grok/agents/` | Deterministic seven-role fail-closed counsel fold (Python + role briefs). CI runs `python3 -m unittest counsel_orchestration.test_decide`. Not published. | not published |
 | `merkle-bridge/` | Offline spend-ledger Merkle bridge: checks an `agent-killswitch` ledger's `prev` chain over the exact bytes it hashes and returns RFC 6962 Keccak-256 leaves and root (the tree code is `twzrd-log-verifier`'s `merkle.ts`). Root `npm run ci` runs `test:merkle-bridge` and `typecheck:merkle-bridge`. No signing, no anchoring; see its README. | not published |
 | `scripts/` | Publish pack/resync, mirror checkers, audit and proof tooling for the gate and the plugins. Tests sit beside the scripts (`node --test`). | the workflows and root `npm run ci` |
+| `examples/` | Integration examples that install the published packages from npm (`examples/mastra-agent/`: `createBudgetGate` in Mastra's `beforeToolCall`, pinned to `@twzrd1111/agent-killswitch` 0.1.11). Each has its own `package.json` and lockfile; not a root workspace, so root `npm run ci` does not run them: `npm ci && npm test` inside the example. Bump the pin with each killswitch release. | not published |
 
 ### Published-artifact mirrors — never edit; resync only from live
 

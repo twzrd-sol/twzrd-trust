@@ -1,0 +1,16 @@
+{
+  "name": "mastra-agent-killswitch-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Example: enforce @twzrd1111/agent-killswitch admission budgets inside Mastra's beforeToolCall hook. Tests run offline after one npm install; not part of the published package.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test __tests__/*.test.ts"
+  },
+  "dependencies": {
+    "@twzrd1111/agent-killswitch": "0.1.11"
+  }
+}
