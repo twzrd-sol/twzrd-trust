@@ -246,9 +246,9 @@ What the chain does not prove on its own:
 
 ## Programmatic admission (`createBudgetGate`)
 
-For in-process agents — for example Mastra's `beforeToolCall` hook — the
-package also exports the same pure gate math the proxy uses. No server, no
-ledger, no I/O:
+For in-process agents — for example Mastra's `beforeToolCall` hook
+(`@mastra/core` 1.49.0 or later) — the package also exports the same pure
+gate math the proxy uses. No server, no ledger, no I/O:
 
 ```js
 import { createBudgetGate } from "@twzrd1111/agent-killswitch";
@@ -262,7 +262,7 @@ const gate = createBudgetGate({
   // modelRates, allowedModels, zeroPriceModels
 });
 
-// Before every model call:
+// Inside beforeToolCall (it runs before a tool call, not a model call):
 const decision = gate.evaluate({
   model: "gpt-4o",
   maxTokens: 1_000,
@@ -272,16 +272,54 @@ if (!decision.allowed) {
   // decision.status (429/403), decision.code, decision.message
   return;
 }
+
+// Synchronously, before the first await, add the hold this decision assumed.
+// Mastra runs tool calls in parallel; two calls that read the same unheld
+// window both pass.
+const est = gate.estimate({ model: "gpt-4o", maxTokens: 1_000 });
+minuteTokens += est.tokens;
+hourUsd += est.usd;
+dayUsd += est.usd;
+
+// After the call completes, replace the hold with the actual cost (subtract
+// est, add what was actually used), the same settle the proxy does.
 ```
 
-The limits, model rates and model lists are snapshotted and frozen when the
-gate is constructed, so a caller mutating its own objects afterwards cannot
-loosen a live gate. Malformed requests throw a `TypeError` instead of failing
-open. `gate.estimate({ model, maxTokens? })` returns the same token/dollar
-hold the proxy uses while a request is in flight; use it to add your own
-in-flight holds to the window. The gate does not record spend — after an
-allowed call completes, add the actual cost to your window yourself. For the
-ledger, the kill file and the upstream lifecycle, run the proxy.
+**Add the hold synchronously, before the first `await`.** `estimate()`
+returns the same token/dollar hold the proxy uses while a request is in
+flight; two parallel calls must each see the other's hold in the window.
+
+**Paid calls.** A call that carries an x402 or MPP credential must pass
+`zeroPriceModels: []` for that request — that is what the proxy does. A
+credential opts the call out of free-model pricing. `zeroPriceModels: []`
+does not throw; it means "never price a model at $0 for this request".
+
+**modelRates shape.** `modelRates` takes `{ inputPerMTok, outputPerMTok }`
+per model id, the same shape as the config file's `model_rates`:
+
+```js
+createBudgetGate({
+  /* ...limits, */
+  modelRates: { "my-model": { inputPerMTok: 1, outputPerMTok: 2 } },
+});
+```
+
+`{ in, out }` is not accepted and throws.
+
+**Allowlist.** `allowedModels: []` throws at construction — pass `null` (or
+omit it) for "no allowlist". Reading `[]` as "no allowlist" would silently
+open the gate, so the empty list is rejected instead.
+
+Limits, model rates and model lists are snapshotted and frozen when the
+gate is constructed (and each request field is read exactly once), so a
+caller mutating its own objects or accessors afterwards cannot loosen a
+live gate. Malformed options, windows, requests and model rates throw a
+`TypeError` instead of failing open. `gate.estimate({ model, maxTokens? })`
+returns the same token/dollar hold the proxy uses while a request is in
+flight; use it to add your own in-flight holds to the window. The gate
+does not record spend — after an allowed call completes, add the actual
+cost to your window yourself. For the ledger, the kill file and the
+upstream lifecycle, run the proxy.
 
 ## Tests
 
@@ -306,7 +344,10 @@ removed, swapped or garbled line is reported at the line after it; forks
 from two copies (refused with `--strict`), older rows, torn tails and a
 ledger written by `twzrd-x402-gate` verify; and the `verify-ledger` exit
 codes. A test also states the limit: dropping the newest line or rewriting
-every hash verifies, and only a recorded head shows it.
+every hash verifies, and only a recorded head shows it. The programmatic
+export: the `.` export resolves to `dist/api.js` with its declarations, the
+decisions are identical to the proxy's on the same input, and malformed
+options, windows, requests and model rates throw rather than fail open.
 
 ## Pricing notes
 
