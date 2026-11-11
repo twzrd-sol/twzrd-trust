@@ -127,6 +127,11 @@ async function chat(port, body, extraHeaders = {}) {
   return { status: res.status, text, json, headers: res.headers };
 }
 
+/** Bytes the proxy receives for `body` from chat(): the prompt-token bound counts one token per byte. */
+function bodyBytes(body) {
+  return Buffer.byteLength(JSON.stringify(body));
+}
+
 async function health(port) {
   const res = await fetch(`http://127.0.0.1:${port}/healthz`);
   return res.json();
@@ -431,19 +436,21 @@ test("upstream slower than timeout_ms returns 504 upstream_timeout and keeps the
   upstream.state.delayMs = 2000;
   const port = await startKillswitch();
   const started = Date.now();
-  const r = await chat(port, { model: "gpt-4o-mini", messages: [] });
+  const body = { model: "gpt-4o-mini", messages: [] };
+  const r = await chat(port, body);
   assert.equal(r.status, 504);
   assert.equal(r.json.error.type, "killswitch_error");
   assert.equal(r.json.error.code, "upstream_timeout");
   assert.ok(Date.now() - started < 1500, "returned well before the upstream answered");
   assert.equal(upstream.state.hits, 1);
-  // No max_tokens: the hold is the per-request cap ($0.50 default) and no tokens.
+  // No max_tokens: the hold is the per-request cap ($0.50 default) and the
+  // prompt-token bound, one token per request byte.
   const lines = readLedger(dir);
   assert.equal(lines.length, 1);
   assert.equal(lines[0].allowed, true);
   assert.equal(lines[0].metered, "held_estimate");
   assert.equal(lines[0].cost_usd, 0.5);
-  assert.equal(lines[0].total_tokens, 0);
+  assert.equal(lines[0].total_tokens, bodyBytes(body));
   const h = await health(port);
   assert.equal(h.hour_usd, 0.5);
   assert.equal(h.in_flight, 0);
@@ -692,7 +699,8 @@ function spentLine(agoMs, costUsd, totalTokens = 0, model = "gpt-4o") {
 
 test("two overlapping allows: the second sees the first call's hold and is refused", async () => {
   // $4.20 already spent this hour against the $5.00 default; o1 with
-  // max_tokens 8000 holds 8000 * $60/1M = $0.48 per call.
+  // max_tokens 8000 holds 8000 * $60/1M = $0.48 per call, plus the request
+  // bytes as prompt tokens at $15/1M.
   seedLedger([spentLine(10 * 60_000, 4.2)]);
   upstream.state.delayMs = 300;
   const port = await startKillswitch();
@@ -702,7 +710,8 @@ test("two overlapping allows: the second sees the first call's hold and is refus
   assert.deepEqual(statuses, [200, 429]);
   const refused = a.status === 429 ? a : b;
   assert.equal(refused.json.error.code, "budget_exceeded");
-  assert.equal(refused.json.error.spent_usd, 4.68);
+  const held = (8000 * 60 + bodyBytes(body) * 15) / 1_000_000;
+  assert.equal(refused.json.error.spent_usd, Math.round((4.2 + held) * 10000) / 10000);
   assert.equal(upstream.state.hits, 1);
   const h = await health(port);
   assert.equal(h.in_flight, 0);
@@ -720,8 +729,9 @@ test("overlapping token holds: 35,000-token calls allow at 75,000 and refuse at 
   assert.equal(ok.length, 2);
   assert.equal(refused.length, 1);
   assert.equal(refused[0].json.error.code, "budget_exceeded");
-  // spent_usd carries the minute tokens seen by the third check: 5,000 + 2 x 35,000.
-  assert.equal(refused[0].json.error.spent_usd, 75000);
+  // spent_usd carries the minute tokens seen by the third check: 5,000 plus
+  // two holds of 35,000 and the request bytes.
+  assert.equal(refused[0].json.error.spent_usd, 5000 + 2 * (35000 + bodyBytes(body)));
   assert.equal(upstream.state.hits, 2);
 });
 
@@ -738,13 +748,14 @@ test("a call without max_tokens is checked at the per-request cap", async () => 
 test("a 200 JSON body with no usage keeps the held estimate and survives a restart", async () => {
   upstream.state.mode = "nousage";
   const port = await startKillswitch();
-  const r = await chat(port, { model: "o1", max_tokens: 1000, messages: [] });
+  const body = { model: "o1", max_tokens: 1000, messages: [] };
+  const r = await chat(port, body);
   assert.equal(r.status, 200);
-  const held = (1000 * 60) / 1_000_000;
+  const held = (1000 * 60 + bodyBytes(body) * 15) / 1_000_000;
   const lines = readLedger(dir);
   assert.equal(lines.length, 1);
   assert.equal(lines[0].metered, "held_estimate");
-  assert.equal(lines[0].total_tokens, 1000);
+  assert.equal(lines[0].total_tokens, 1000 + bodyBytes(body));
   assert.ok(Math.abs(lines[0].cost_usd - held) < 1e-12, `cost_usd ${lines[0].cost_usd}`);
   assert.ok(Math.abs((await health(port)).hour_usd - held) < 1e-12);
 
@@ -756,14 +767,15 @@ test("a 200 JSON body with no usage keeps the held estimate and survives a resta
 test("a stream that ends at [DONE] with no usage event keeps the held estimate", async () => {
   upstream.state.mode = "stream-nousage";
   const port = await startKillswitch();
-  const r = await chat(port, { model: "gpt-4o", max_tokens: 2000, stream: true, messages: [] });
+  const body = { model: "gpt-4o", max_tokens: 2000, stream: true, messages: [] };
+  const r = await chat(port, body);
   assert.equal(r.status, 200);
   assert.match(r.text, /data: \[DONE\]/);
-  const held = (2000 * 10) / 1_000_000;
+  const held = (2000 * 10 + bodyBytes(body) * 2.5) / 1_000_000;
   const lines = readLedger(dir);
   assert.equal(lines.length, 1);
   assert.equal(lines[0].metered, "held_estimate");
-  assert.equal(lines[0].total_tokens, 2000);
+  assert.equal(lines[0].total_tokens, 2000 + bodyBytes(body));
   assert.ok(Math.abs(lines[0].cost_usd - held) < 1e-12, `cost_usd ${lines[0].cost_usd}`);
 });
 

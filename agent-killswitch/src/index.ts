@@ -6,14 +6,24 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { runVerifyLedger } from "./chain.js";
 import { loadConfig, type KillswitchConfig } from "./config.js";
-import { checkKillSwitch, checkPauseSwitch, evaluateGate, requestEstimate, vetoBody, writePauseSwitch } from "./gate.js";
+import {
+  checkKillSwitch,
+  checkPauseSwitch,
+  evaluateGate,
+  isTextOnlyPrompt,
+  requestEstimate,
+  vetoBody,
+  writePauseSwitch,
+  type PromptSize,
+} from "./gate.js";
 import { Ledger } from "./ledger.js";
 import { costUsd, type ModelRates } from "./pricing.js";
 import { carriesPaymentCredential, forwardChatCompletion, type ForwardResult } from "./proxy.js";
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
-function readBody(req: http.IncomingMessage): Promise<string> {
+/** The request text and the number of bytes it arrived as (the prompt-token bound counts bytes). */
+function readBody(req: http.IncomingMessage): Promise<{ text: string; bytes: number }> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -26,9 +36,27 @@ function readBody(req: http.IncomingMessage): Promise<string> {
       }
       chunks.push(c);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve({ text: Buffer.concat(chunks).toString("utf8"), bytes: size }));
     req.on("error", reject);
   });
+}
+
+/**
+ * What the gate needs from a parsed chat-completions body: the model, a
+ * usable max_tokens, and the prompt size. `rawBytes` is the byte length of
+ * the body as received. A max_tokens that is not a finite non-negative
+ * number is treated as absent, so the estimate falls back to the
+ * per-request cap and can never go negative.
+ */
+export function admissionRequest(
+  body: Record<string, unknown>,
+  rawBytes: number,
+): { model: string; maxTokens: number | null; prompt: PromptSize } {
+  const model = typeof body["model"] === "string" ? (body["model"] as string) : "unknown";
+  const rawMax = body["max_tokens"];
+  const maxTokens =
+    typeof rawMax === "number" && Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : null;
+  return { model, maxTokens, prompt: { bytes: rawBytes, textOnly: isTextOnlyPrompt(body) } };
 }
 
 function json(res: http.ServerResponse, status: number, obj: object): void {
@@ -113,7 +141,7 @@ async function handle(
     return;
   }
 
-  const raw = await readBody(req);
+  const { text: raw, bytes: rawBytes } = await readBody(req);
   let body: Record<string, unknown>;
   try {
     body = JSON.parse(raw) as Record<string, unknown>;
@@ -122,11 +150,7 @@ async function handle(
     return;
   }
 
-  const model = typeof body["model"] === "string" ? (body["model"] as string) : "unknown";
-  const maxTokens =
-    typeof body["max_tokens"] === "number" && Number.isFinite(body["max_tokens"])
-      ? Math.floor(body["max_tokens"] as number)
-      : null;
+  const { model, maxTokens, prompt } = admissionRequest(body, rawBytes);
   const requestId =
     (req.headers["x-request-id"] as string | undefined) ??
     (typeof body["request_id"] === "string" ? (body["request_id"] as string) : randomUUID());
@@ -148,6 +172,7 @@ async function handle(
     window: ledger.window(),
     model,
     maxTokens,
+    prompt,
     maxTokensPerMinute: cfg.maxTokensPerMinute,
     maxUsdPerHour: cfg.maxUsdPerHour,
     maxUsdPerDay: cfg.maxUsdPerDay,
@@ -190,7 +215,7 @@ async function handle(
 
   // Allowed: hold the same estimate the check used, in this turn (no await
   // between the check and the hold), so a concurrent request sees it.
-  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd, zeroPriceModels, cfg.modelRates);
+  const est = requestEstimate(model, maxTokens, cfg.maxCostPerRequestUsd, zeroPriceModels, cfg.modelRates, prompt);
   const holdId = ledger.hold(est.tokens, est.usd, Date.parse(now));
 
   let result: ForwardResult | null = null;

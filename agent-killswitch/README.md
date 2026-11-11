@@ -111,12 +111,21 @@ started is never cut off by the timeout.
 An allowed call holds its pre-call estimate from the moment it passes the
 check until it finishes, so concurrent calls see each other's spend:
 
-- **With `max_tokens`**: the token hold is `max_tokens`, and the dollar hold
-  is all of those tokens at the model's output rate.
-- **Without `max_tokens`**: the dollar estimate is the per-request cap
-  (`max_cost_per_request_usd`, $0.50 by default), and the hourly and daily
-  checks run against it. There is no token estimate, so the token hold is 0.
-  A model priced at $0 holds no dollars.
+- **Prompt tokens** are bounded by the size of the request: one token per
+  byte of the request body (see "Prompt-token bound" below). That count is
+  part of every token hold.
+- **With `max_tokens`**: the token hold is `max_tokens` plus the request
+  bytes. The dollar hold is `max_tokens` at the model's output rate plus the
+  request bytes at its input rate.
+- **Without `max_tokens`**: the token hold is the request bytes. The dollar
+  estimate is the per-request cap (`max_cost_per_request_usd`, $0.50 by
+  default), or the cost of the request bytes at the input rate when that is
+  higher, and the hourly and daily checks run against it.
+- **A prompt that is not plain text** (an image, audio or file part, tools,
+  a response schema, any request field the proxy does not know): the dollar
+  hold is never below the per-request cap, with or without `max_tokens`.
+- A model priced at $0 holds no dollars. Its token hold is the same as any
+  other model's.
 
 When the call ends, the hold becomes a ledger line:
 
@@ -251,7 +260,7 @@ For in-process agents — for example Mastra's `beforeToolCall` hook
 gate math the proxy uses. No server, no ledger, no I/O:
 
 ```js
-import { createBudgetGate } from "@twzrd1111/agent-killswitch";
+import { createBudgetGate, isTextOnlyPrompt } from "@twzrd1111/agent-killswitch";
 
 const gate = createBudgetGate({
   maxTokensPerMinute: 100_000,
@@ -263,9 +272,15 @@ const gate = createBudgetGate({
 });
 
 // Inside beforeToolCall (it runs before a tool call, not a model call):
-const decision = gate.evaluate({
+// `body` is the chat-completions request you are about to send.
+const request = {
   model: "gpt-4o",
   maxTokens: 1_000,
+  promptBytes: Buffer.byteLength(JSON.stringify(body)),
+  promptTextOnly: isTextOnlyPrompt(body),
+};
+const decision = gate.evaluate({
+  ...request,
   window: { minuteTokens, hourUsd, dayUsd }, // you own these, holds included
 });
 if (!decision.allowed) {
@@ -276,7 +291,7 @@ if (!decision.allowed) {
 // Synchronously, before the first await, add the hold this decision assumed.
 // Mastra runs tool calls in parallel; two calls that read the same unheld
 // window both pass.
-const est = gate.estimate({ model: "gpt-4o", maxTokens: 1_000 });
+const est = gate.estimate(request);
 minuteTokens += est.tokens;
 hourUsd += est.usd;
 dayUsd += est.usd;
@@ -288,6 +303,17 @@ dayUsd += est.usd;
 **Add the hold synchronously, before the first `await`.** `estimate()`
 returns the same token/dollar hold the proxy uses while a request is in
 flight; two parallel calls must each see the other's hold in the window.
+
+**Prompt size.** `promptBytes` is the UTF-8 byte length of the whole
+serialized request, and `promptTextOnly` is `isTextOnlyPrompt(body)`
+(exported next to `createBudgetGate`). Together they give the gate the same
+prompt-token bound the proxy uses (see "Prompt-token bound"). Leave
+`promptBytes` out and the dollar estimate is never below
+`maxCostPerRequestUsd`, the same as a call without `maxTokens`. Leave
+`promptTextOnly` out, or pass `false`, and the bytes still count but the
+dollar estimate is again never below the cap. A `promptBytes` that is not a
+non-negative whole number, or a `promptTextOnly` that is not a boolean,
+throws.
 
 **Paid calls.** A call that carries an x402 or MPP credential must pass
 `zeroPriceModels: []` for that request — that is what the proxy does. A
@@ -318,7 +344,8 @@ Limits, model rates and model lists are snapshotted and frozen when the
 gate is constructed (and each request field is read exactly once), so a
 caller mutating its own objects or accessors afterwards cannot loosen a
 live gate. Malformed options, windows, requests and model rates throw a
-`TypeError` instead of failing open. `gate.estimate({ model, maxTokens? })`
+`TypeError` instead of failing open.
+`gate.estimate({ model, maxTokens?, promptBytes?, promptTextOnly? })`
 returns the same token/dollar hold the proxy uses while a request is in
 flight; use it to add your own in-flight holds to the window. The gate
 does not record spend — after an allowed call completes, add the actual
@@ -338,7 +365,10 @@ replay skipping vetoed, stale and torn lines, metered cost on a normal and
 a streamed request surviving a restart, the 504/502 upstream failures
 keeping the held estimate, overlapping calls seeing each other's holds
 (dollars and tokens), the per-request cap standing in for a missing
-`max_tokens`, a 200 and a stream without usage keeping the hold, an
+`max_tokens`, the prompt-token bound (two seeded 25,000-case differential
+runs against the 0.1.11 gate: the estimate never falls, no refusal is lost,
+and the proxy and `createBudgetGate` return the same estimate for the same
+request), a 200 and a stream without usage keeping the hold, an
 upstream HTTP 402 whose `WWW-Authenticate` / `PAYMENT-REQUIRED` challenge
 reaches the client, a paid retry whose `X-Payment` / `Payment-Signature` /
 `X-Payment-Signature` headers reach upstream, and `Payment-Receipt` /
@@ -365,11 +395,52 @@ price rows") unless you put it on `KILLSWITCH_FREE_MODELS`, which
 prices it at $0 (above); `nvidia/nemotron-3.5-bolt` is listed at $0. The
 ledger shows exactly what was assumed.
 
-The checks before a call do not count prompt tokens. The per-request cap
-prices `max_tokens` at the model's output rate (or uses the cap itself when
-`max_tokens` is missing), so a very large prompt with a small `max_tokens`
-is forwarded. Its real cost, prompt included, enters the hourly and daily
-windows when upstream reports usage.
+### Prompt-token bound
+
+The checks before a call count prompt tokens without a tokenizer: every
+byte of the request body counts as one prompt token, priced at the model's
+input rate. A 300 kB text prompt on `gpt-4o` with `max_tokens: 16` is
+estimated at 300,000 prompt tokens, $0.75, and refused by the default $0.50
+per-request cap. Through 0.1.11 it was forwarded.
+
+Why bytes are an upper bound for text:
+
+1. A tokenizer splits text into pieces, and every piece covers at least one
+   byte of the text. So text of N bytes is at most N tokens. This holds for
+   BPE, WordPiece, unigram and character tokenizers alike, and it is the
+   reason no tokenizer has to be named.
+2. A JSON string is never shorter than the UTF-8 text it decodes to: a
+   character written as itself has the same bytes, and every escape
+   (`\n`, `\u00e9`, a surrogate pair) is longer than what it stands for.
+   The strings in a request do not overlap, so all the text in a body of B
+   bytes is at most B bytes, and at most B tokens.
+
+What the argument does not prove, and what the proxy does about it:
+
+- **Framing tokens.** An upstream adds a few tokens per message (role
+  markers, separators, the reply primer). The bound relies on the JSON
+  around each message (at least `{"role":""}`, 11 bytes) being at least as
+  large. That is an assumption about the upstream's chat template, not a
+  proof.
+- **Content that is not text in the body.** An image, audio or file part,
+  a file or URL the upstream fetches, tools, a response schema, a search
+  plugin: the upstream can bill prompt tokens for these that no byte count
+  bounds. For such a request the dollar estimate is never below the
+  per-request cap, the same stand-in a missing `max_tokens` gets. The test
+  is an allowlist (`isTextOnlyPrompt`): plain-text messages plus sampling
+  and transport fields pass, and any field the proxy does not know counts
+  as not plain text.
+- **Tokens the upstream adds on its own**, such as a hidden system prompt.
+  No request-side check can see those.
+
+The bound is deliberately loose. English text is several bytes per token,
+so the estimate of a text prompt is several times its real size, and inline
+base64 media counts byte for byte. If a large request you want is refused,
+raise `max_tokens_per_minute` or `max_cost_per_request_usd`; the hold is
+replaced by the real cost as soon as upstream reports usage.
+
+`n` (several completions for one request) is not part of the estimate: the
+output side still counts `max_tokens` once.
 
 Upstream payment headers an MPP/x402 buyer needs — `WWW-Authenticate`
 challenges, `PAYMENT-REQUIRED`, `Payment-Receipt`, and `X-Payment-*` — are
