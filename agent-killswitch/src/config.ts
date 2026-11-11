@@ -141,11 +141,28 @@ function validateBindingComputeSection(raw: Record<string, unknown>): {
   };
 }
 
-function num(env: string | undefined, fallback: number): number {
+/** A non-negative number from the environment variable `name`; unset or empty means `fallback`. */
+function num(name: string, fallback: number): number {
+  const env = process.env[name];
   if (env === undefined || env === "") return fallback;
   const v = Number(env);
-  if (!Number.isFinite(v) || v < 0) throw new Error(`Invalid numeric env value: ${env}`);
+  if (!Number.isFinite(v) || v < 0) throw new Error(`${name} must be a non-negative number, got '${env}'`);
   return v;
+}
+
+/**
+ * The listen port: KILLSWITCH_PORT when it is set, else PORT, else the config
+ * file's value (`configKey`), else 4020. An empty variable means unset, as for
+ * every other setting. Refuses what `listen` would throw on.
+ */
+function listenPort(configValue: number | undefined, configKey: string): number {
+  const name = process.env.KILLSWITCH_PORT !== undefined ? "KILLSWITCH_PORT" : "PORT";
+  const env = process.env[name];
+  const [source, value] = env !== undefined && env !== "" ? [name, Number(env)] : [configKey, configValue ?? 4020];
+  if (!Number.isInteger(value) || value < 0 || value > 65535) {
+    throw new Error(`${source} must be a whole number from 0 to 65535, got '${env !== undefined && env !== "" ? env : String(configValue)}'`);
+  }
+  return value;
 }
 
 function str(env: string | undefined, fallback: string): string {
@@ -171,7 +188,13 @@ function configuredRates(base?: ModelRates): ModelRates {
 export function loadConfig(configPath: string): KillswitchConfig {
   let raw: RawConfig = {};
   if (fs.existsSync(configPath)) {
-    const loaded = yaml.load(fs.readFileSync(configPath, "utf8")) ?? {};
+    let loaded: unknown;
+    try {
+      loaded = yaml.load(fs.readFileSync(configPath, "utf8")) ?? {};
+    } catch (e) {
+      // js-yaml appends a multi-line code frame; the first line carries the reason and position.
+      throw new Error(`Config file ${configPath} is not valid YAML: ${(e as Error).message.split("\n")[0]}`);
+    }
     if (typeof loaded !== "object" || Array.isArray(loaded)) {
       throw new Error(`Config file ${configPath} must be a YAML/JSON object`);
     }
@@ -188,7 +211,9 @@ export function loadConfig(configPath: string): KillswitchConfig {
     const apiKeyEnv = str(process.env.KILLSWITCH_API_KEY_ENV, binding.apiKeyEnv ?? "OPENAI_API_KEY");
     const apiKey = freeModels.length > 0 ? "" : (process.env[apiKeyEnv] ?? "");
     if (!apiKey && freeModels.length === 0) {
-      throw new Error(`Upstream API key missing: set ${apiKeyEnv}`);
+      throw new Error(
+        `Upstream API key missing: set ${apiKeyEnv}, or list free models in KILLSWITCH_FREE_MODELS or compute.free_models`,
+      );
     }
     const stateDir = str(process.env.TWZRD_STATE_DIR, binding.stateDir ?? "./data");
     const killFilePath = path.resolve(
@@ -209,16 +234,16 @@ export function loadConfig(configPath: string): KillswitchConfig {
       freeModels,
       modelRates: configuredRates(),
       upstreamTimeoutMs: Math.floor(
-        num(process.env.KILLSWITCH_UPSTREAM_TIMEOUT_MS, binding.timeoutMs ?? 60000),
+        num("KILLSWITCH_UPSTREAM_TIMEOUT_MS", binding.timeoutMs ?? 60000),
       ),
       maxTokensPerMinute: num(
-        process.env.KILLSWITCH_MAX_TOKENS_MINUTE,
+        "KILLSWITCH_MAX_TOKENS_MINUTE",
         binding.maxTokensPerMinute ?? 100000,
       ),
-      maxUsdPerHour: num(process.env.KILLSWITCH_MAX_USD_HOUR, binding.maxUsdPerHour ?? 5.0),
-      maxUsdPerDay: num(process.env.KILLSWITCH_MAX_USD_DAY, binding.maxUsdPerDay ?? 25.0),
+      maxUsdPerHour: num("KILLSWITCH_MAX_USD_HOUR", binding.maxUsdPerHour ?? 5.0),
+      maxUsdPerDay: num("KILLSWITCH_MAX_USD_DAY", binding.maxUsdPerDay ?? 25.0),
       maxCostPerRequestUsd: num(
-        process.env.KILLSWITCH_MAX_COST_REQUEST,
+        "KILLSWITCH_MAX_COST_REQUEST",
         binding.maxCostPerRequestUsd ?? 0.5,
       ),
       killFilePath,
@@ -228,7 +253,7 @@ export function loadConfig(configPath: string): KillswitchConfig {
           ? process.env.KILLSWITCH_KILL_API === "1" || process.env.KILLSWITCH_KILL_API === "true"
           : (binding.enableKillApi ?? true),
       ledgerPath,
-      port: Math.floor(num(process.env.KILLSWITCH_PORT ?? process.env.PORT, binding.port ?? 4020)),
+      port: listenPort(binding.port, "compute.port"),
     };
   }
 
@@ -237,7 +262,9 @@ export function loadConfig(configPath: string): KillswitchConfig {
   // A free allowlist never copies a key into config, even if one is present in the environment.
   const apiKey = freeModels.length > 0 ? "" : (process.env[apiKeyEnv] ?? "");
   if (!apiKey && freeModels.length === 0) {
-    throw new Error(`Upstream API key missing: set ${apiKeyEnv}`);
+    throw new Error(
+      `Upstream API key missing: set ${apiKeyEnv}, or list free models in KILLSWITCH_FREE_MODELS`,
+    );
   }
 
   const stateDir = str(process.env.TWZRD_STATE_DIR, "./data");
@@ -260,16 +287,16 @@ export function loadConfig(configPath: string): KillswitchConfig {
     freeModels,
     modelRates: configuredRates(raw.model_rates === undefined ? undefined : parseModelRates(raw.model_rates)),
     upstreamTimeoutMs: Math.floor(
-      num(process.env.KILLSWITCH_UPSTREAM_TIMEOUT_MS, raw.upstream?.timeout_ms ?? 60000),
+      num("KILLSWITCH_UPSTREAM_TIMEOUT_MS", raw.upstream?.timeout_ms ?? 60000),
     ),
     maxTokensPerMinute: num(
-      process.env.KILLSWITCH_MAX_TOKENS_MINUTE,
+      "KILLSWITCH_MAX_TOKENS_MINUTE",
       raw.limits?.max_tokens_per_minute ?? 100000,
     ),
-    maxUsdPerHour: num(process.env.KILLSWITCH_MAX_USD_HOUR, raw.limits?.max_usd_per_hour ?? 5.0),
-    maxUsdPerDay: num(process.env.KILLSWITCH_MAX_USD_DAY, raw.limits?.max_usd_per_day ?? 25.0),
+    maxUsdPerHour: num("KILLSWITCH_MAX_USD_HOUR", raw.limits?.max_usd_per_hour ?? 5.0),
+    maxUsdPerDay: num("KILLSWITCH_MAX_USD_DAY", raw.limits?.max_usd_per_day ?? 25.0),
     maxCostPerRequestUsd: num(
-      process.env.KILLSWITCH_MAX_COST_REQUEST,
+      "KILLSWITCH_MAX_COST_REQUEST",
       raw.limits?.max_cost_per_request_usd ?? 0.5,
     ),
     killFilePath,
@@ -279,6 +306,6 @@ export function loadConfig(configPath: string): KillswitchConfig {
         ? process.env.KILLSWITCH_KILL_API === "1" || process.env.KILLSWITCH_KILL_API === "true"
         : (raw.kill_switch?.enable_api_endpoint ?? true),
     ledgerPath: path.resolve(str(process.env.KILLSWITCH_LEDGER_PATH, raw.logging?.path ?? path.join(stateDir, "spend-ledger.jsonl"))),
-    port: Math.floor(num(process.env.KILLSWITCH_PORT ?? process.env.PORT, raw.server?.port ?? 4020)),
+    port: listenPort(raw.server?.port, "server.port"),
   };
 }
