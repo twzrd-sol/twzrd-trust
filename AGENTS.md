@@ -18,8 +18,8 @@ path, its role, and the invariants — see [docs/REPO-MAP.md](./docs/REPO-MAP.md
   `src/` + `test/`. Lint: `npm run typecheck --workspace=@wzrd_sol/eliza-plugin-source`.
   Test: `npm test --workspace=@wzrd_sol/eliza-plugin-source`. This is **not** the
   public artifact. `@wzrd_sol/eliza-plugin@0.10.1` is the live npm line. Pack with
-  `npm run pack:eliza`. Publish via `.github/workflows/publish-eliza-plugin.yml`
-  or an `eliza-plugin-v*` tag. Resync the mirror only from the live tarball:
+  `npm run pack:eliza`. Publish via `.github/workflows/publish-eliza-plugin.yml`,
+  dispatched on `main` (no tag trigger). Resync the mirror only from the live tarball:
   `node scripts/resync-eliza-plugin.mjs --version <live>`.
 - `eliza-plugin/`, `plugin-trustgate/`, `twzrd-mcp-server/` — ship `dist/` only (no `src/`,
   no lockfile). Their `package.json` `test`/`build` scripts are no-ops in this

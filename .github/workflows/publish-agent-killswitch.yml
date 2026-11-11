@@ -39,6 +39,13 @@ jobs:
     needs: conformance
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Main only, enforced by GitHub: the Npm_token environment's deployment
+    # policy allows refs/heads/main and nothing else, so a run dispatched on
+    # any other branch never starts and is never issued an OIDC token. Bind
+    # the npm trusted publisher to this environment too, so an OIDC token
+    # minted outside it is refused by npm.
+    # Guarded by scripts/publish-workflows-ref-guard.test.mjs.
+    environment: Npm_token
     permissions:
       contents: read
       id-token: write
@@ -53,6 +60,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Refuse unless dispatched from main
+        # Second line of defence if the environment policy is ever loosened.
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::publishes from main only, got $GITHUB_REF -- refusing."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:

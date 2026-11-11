@@ -32,7 +32,7 @@ Investigation (do not import from these):
 | An older private velocity repository, `agents/eliza-plugin` | Historical home in the 0.3.0 baseline `package.json`. No longer hosts the intel plugin. |
 | Private upstream monorepo, `agents/eliza-plugin` | Still `@wzrd_sol/eliza-plugin@0.6.1` / V6. Readiness plan forbids importing that lane. |
 | npm `@wzrd_sol/eliza-plugin@0.6.1` | Published 2026-07-23. Public `eliza-plugin/` is the artifact resync of that tarball. |
-| This repo publish workflow | Gate publish plus `.github/workflows/publish-eliza-plugin.yml` / `eliza-plugin-v*` tags. Pack with `npm run pack:eliza`. Resync the artifact mirror from the live tarball: `node scripts/resync-eliza-plugin.mjs --version <live>`. |
+| This repo publish workflow | Gate publish plus `.github/workflows/publish-eliza-plugin.yml`, dispatched on `main` only. Pack with `npm run pack:eliza`. Resync the artifact mirror from the live tarball: `node scripts/resync-eliza-plugin.mjs --version <live>`. |
 
 ## V7 vs legacy V6
 
@@ -96,9 +96,8 @@ node scripts/assert-eliza-publish-pack.mjs
 
 Human-gated release: Actions → **Publish @wzrd_sol/eliza-plugin to npm**
 (`.github/workflows/publish-eliza-plugin.yml`) with `expected_version` matching
-this `package.json` (currently `0.7.0`). That workflow must exist on `main`
-before it can be dispatched. Until this branch merges, pass `source_ref` as
-the branch that contains `eliza-plugin-source/`.
+this `package.json`, dispatched on `main`. The job runs in the `Npm_token`
+environment, which allows `main` only, so a version publishes after it merges.
 
 After the version is live on npm:
 
