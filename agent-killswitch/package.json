@@ -1,6 +1,6 @@
 {
   "name": "@twzrd1111/agent-killswitch",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Drop-in local reverse proxy that enforces hard token/cost budgets on OpenAI-compatible chat completions, with an instant file-based kill switch and an append-only JSONL spend ledger.",
   "license": "MIT",
   "author": "TWZRD",
