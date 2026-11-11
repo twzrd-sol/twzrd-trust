@@ -23,7 +23,7 @@ where the current state lives.
 | [AGENTS.md](../AGENTS.md) | canonical | What is source and what is a published-artifact mirror; the one supported install; the fork relationship with the upstream monorepo |
 | [REPO-MAP.md](./REPO-MAP.md) | canonical | Folder-level atlas: every top-level path, its role (source / published-artifact mirror / docs / manifests), who may edit it, and the invariants that keep mirrors mirrors |
 | [agent-killswitch/README.md](../agent-killswitch/README.md) | canonical | The local OpenAI-compatible spend proxy: token/dollar ceilings, file kill switch, append-only JSONL ledger, multi-instance shared ledger. Its tests run in CI (`test:agent-killswitch`); releases go by `publish-agent-killswitch.yml` and the GHCR image workflow |
-| [agent-killswitch/CHANGELOG.md](../agent-killswitch/CHANGELOG.md) | canonical | killswitch release history (0.1.10 current). The publish workflow refuses an undated entry |
+| [agent-killswitch/CHANGELOG.md](../agent-killswitch/CHANGELOG.md) | canonical | killswitch release history (0.1.11 current). The publish workflow refuses an undated entry |
 | [SECURITY.md](../SECURITY.md) | canonical | Disclosure policy and scope |
 
 ## Product and ecosystem
@@ -56,10 +56,11 @@ where the current state lives.
 | [transparency-log.md](./transparency-log.md) | canonical, v0.2 draft over a live v0.1 log | Receipt transparency log: what is live (signed heads, inclusion and consistency proofs, on-chain anchors as the tree advances) and what v0.2 adds (key directory) |
 | [security-assurance.md](./security-assurance.md) | canonical | Security properties, the reproducible receipt proof, trust boundaries and non-claims |
 | [twzrd-log-verifier/README.md](../twzrd-log-verifier/README.md) | canonical | Offline verifier for the transparency log; npm 0.5.0, source here (upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes locally, 0.4.0 trusts the RPC's parsed response). Its anchor check reads the live program form and the draft memo form |
+| [merkle-bridge/README.md](../merkle-bridge/README.md) | canonical, unpublished | Spend-ledger Merkle bridge: chain-checked `agent-killswitch` ledger bytes to RFC 6962 Keccak-256 leaves and root. Offline; no signing, no anchoring; a signed head for it would need its own `log_id` |
 
 ## Package mirrors
 
-These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-11: gate 0.20.0, killswitch 0.1.10, mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
+These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-11: gate 0.20.0, killswitch 0.1.11, mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
 
 | Document | Status | Mirrors |
 |---|---|---|

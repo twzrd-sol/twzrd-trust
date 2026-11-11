@@ -214,11 +214,30 @@ function responseHeaders(upstream: Response, base: Record<string, string>): Reco
 }
 
 /**
+ * The exact text sent upstream for a parsed body. For streams,
+ * `stream_options.include_usage` is injected so the terminal SSE event
+ * carries usage. The prompt-token bound counts the bytes of this text, so
+ * the count is of what the upstream receives, not of what the client sent
+ * (the two differ: invalid UTF-8 decodes to a 3-byte replacement character,
+ * and a number can re-serialize longer than it was written).
+ */
+export function outboundBodyText(body: Record<string, unknown>): string {
+  const outbound: Record<string, unknown> = { ...body };
+  if (body["stream"] === true) {
+    const opts = { ...(outbound["stream_options"] as Record<string, unknown> | undefined) };
+    opts["include_usage"] = true;
+    outbound["stream_options"] = opts;
+  }
+  return JSON.stringify(outbound);
+}
+
+/**
  * Forward a chat-completion body upstream and pipe the response through.
- * For streams, `stream_options.include_usage` is injected so the terminal
- * SSE event carries usage; chunks are forwarded byte-for-byte and usage is
- * extracted only from the final data event. Returns the observed usage
- * (null when upstream sent none).
+ * Chunks of a stream are forwarded byte-for-byte and usage is extracted
+ * only from the final data event. Returns the observed usage (null when
+ * upstream sent none). `outboundText`, when given, must be
+ * `outboundBodyText(body)`: the caller that already serialized the body to
+ * count it passes the same text so the bytes counted are the bytes sent.
  */
 export async function forwardChatCompletion(
   upstreamBaseUrl: string,
@@ -228,14 +247,9 @@ export async function forwardChatCompletion(
   requestId: string,
   timeoutMs: number,
   clientHeaders: IncomingHttpHeaders = {},
+  outboundText: string = outboundBodyText(body),
 ): Promise<ForwardResult> {
   const streaming = body["stream"] === true;
-  const outbound: Record<string, unknown> = { ...body };
-  if (streaming) {
-    const opts = { ...(outbound["stream_options"] as Record<string, unknown> | undefined) };
-    opts["include_usage"] = true;
-    outbound["stream_options"] = opts;
-  }
 
   // Bound the wait on upstream: its response headers, plus the whole body
   // when not streaming or when upstream answered with an error. A stream
@@ -248,7 +262,7 @@ export async function forwardChatCompletion(
     upstreamRes = await fetch(`${upstreamBaseUrl}/chat/completions`, {
       method: "POST",
       headers: upstreamRequestHeaders(apiKey, requestId, clientHeaders),
-      body: JSON.stringify(outbound),
+      body: outboundText,
       signal: controller.signal,
     });
     if (!streaming || !upstreamRes.ok || !upstreamRes.body) text = await upstreamRes.text();
