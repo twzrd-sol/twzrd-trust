@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Ledger hash chain. Every new ledger line carries `prev`, the SHA-256 (hex) of the exact bytes of the line before it, or `"genesis"` for the first line. This is the convention `twzrd-x402-gate`'s durable spend ledger already uses. The writer reads the file's last line right before it appends, so several copies sharing one ledger file stay on one chain. A `prev` the caller passes is ignored.
+- `agent-killswitch verify-ledger [path] [--strict] [--json]` checks the chain offline, with no config, API key or network. It reports breaks (an edited, removed or reordered line, reported at the line after it), forks from two copies appending at once, rows written before the chain existed, unparseable lines and a torn tail. It prints the head hash to record. Exit 0 intact, 1 broken (or a `--strict` finding), 2 cannot check. On its own, the chain does not show a removed newest line or a full rewrite with recomputed hashes; a head recorded elsewhere does.
+- Spend accounting, replay and the line format are otherwise unchanged. Older readers ignore the new field.
+
 ## 0.1.9 (2026-11-11)
 
 ### Added

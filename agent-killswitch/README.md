@@ -202,7 +202,47 @@ Every decision — allowed or vetoed — appends one line to the JSONL ledger
 with timestamp, model, token counts, `cost_usd`, `allowed`, `veto_reason`,
 and `request_id`; allowed lines also carry `metered` (`usage` or
 `held_estimate`). An allowed line is written when the call ends. Restart replays the last 48 h to rebuild the spend
-windows; the ledger file is the source of truth.
+windows; the ledger file is the source of truth. Each line also carries
+`prev`, which links it to the line before it (see "Ledger integrity").
+
+## Ledger integrity
+
+Every line the proxy writes carries `prev`: the SHA-256 (hex) of the exact
+bytes of the last complete line before it, or `"genesis"` for the first line.
+Editing, removing or reordering a line breaks the link of the line after it.
+`twzrd-x402-gate`'s durable spend ledger uses the same convention.
+
+Check a ledger offline (no config, API key or network needed):
+
+```sh
+npx @twzrd1111/agent-killswitch verify-ledger ./data/spend-ledger.jsonl
+# in the container:
+docker exec <container> node dist/index.js verify-ledger
+```
+
+Without a path it reads `KILLSWITCH_LEDGER_PATH`, else
+`$TWZRD_STATE_DIR/spend-ledger.jsonl`, else `./data/spend-ledger.jsonl`. If
+your config sets `logging.path`, `compute.ledger_path` or `state_dir`, pass
+the ledger path.
+Exit 0 means the chain is intact, 1 means it is broken (or `--strict` found
+something), and 2 means the file could not be checked. `--json` prints the
+full report.
+
+What the chain does not prove on its own:
+
+- **The newest line.** Nothing commits to it yet. Removing it, or rewriting
+  every line and recomputing every hash, still verifies. The command prints
+  the `head` hash. Record it somewhere the ledger's writer cannot change: a
+  later run that shows a different head over the same lines means the history
+  was rewritten.
+- **Several copies on one file.** Each copy reads the last line just before it
+  appends, so the chain stays linear. Two copies appending at the same moment
+  both name the same `prev`. The command reports that as a fork, and one row
+  of the fork is then committed to by no later row. `--strict` refuses forks,
+  unparseable lines and rows without `prev`, for one copy per file.
+- **Older rows.** Rows written before this version have no `prev`. They are
+  reported and not checked; the first chained row commits only to the last
+  of them.
 
 ## Tests
 
@@ -221,7 +261,13 @@ keeping the held estimate, overlapping calls seeing each other's holds
 upstream HTTP 402 whose `WWW-Authenticate` / `PAYMENT-REQUIRED` challenge
 reaches the client, a paid retry whose `X-Payment` / `Payment-Signature` /
 `X-Payment-Signature` headers reach upstream, and `Payment-Receipt` /
-`X-Payment-*` on 200 (stream and non-stream).
+`X-Payment-*` on 200 (stream and non-stream). The ledger chain: rows written
+through the proxy (allowed and vetoed) verify with `--strict`; an edited,
+removed, swapped or garbled line is reported at the line after it; forks
+from two copies (refused with `--strict`), older rows, torn tails and a
+ledger written by `twzrd-x402-gate` verify; and the `verify-ledger` exit
+codes. A test also states the limit: dropping the newest line or rewriting
+every hash verifies, and only a recorded head shows it.
 
 ## Pricing notes
 
