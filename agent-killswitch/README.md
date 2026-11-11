@@ -295,7 +295,9 @@ credential opts the call out of free-model pricing. `zeroPriceModels: []`
 does not throw; it means "never price a model at $0 for this request".
 
 **modelRates shape.** `modelRates` takes `{ inputPerMTok, outputPerMTok }`
-per model id, the same shape as the config file's `model_rates`:
+per model id. This is **not** the shape of the config file's `model_rates`,
+which uses `in` and `out` (see "Operator model-rate overrides" below); the
+config shape is rejected here:
 
 ```js
 createBudgetGate({
@@ -304,7 +306,9 @@ createBudgetGate({
 });
 ```
 
-`{ in, out }` is not accepted and throws.
+`{ in, out }` is not accepted and throws. The config and environment
+overrides (`model_rates` / `KILLSWITCH_MODEL_RATES`) keep the `in`/`out`
+shape they have always used; only this programmatic option differs.
 
 **Allowlist.** `allowedModels: []` throws at construction — pass `null` (or
 omit it) for "no allowlist". Reading `[]` as "no allowlist" would silently
