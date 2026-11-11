@@ -12,7 +12,7 @@ export interface VerifyResult {
 export function verifyChain(entries: ChainEntry[]): VerifyResult {
   let prev = genesisHash();
   for (let i = 0; i < entries.length; i++) {
-    const e = entries[i]!;
+    const e = entries[i];
     if (e.sequence !== i && !(i === 0 && e.sequence === 0)) {
       // Allow non-zero start but require monotonic +1
       if (i > 0 && e.sequence !== entries[i - 1]!.sequence + 1) {
