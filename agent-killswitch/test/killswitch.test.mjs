@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createServer } from "../dist/index.js";
 import { costUsd, pessimisticRequestCostUsd, parseModelRates } from "../dist/pricing.js";
-import { clientResponseHeaders, upstreamRequestHeaders } from "../dist/proxy.js";
+import { clientResponseHeaders, outboundBodyText, upstreamRequestHeaders } from "../dist/proxy.js";
 
 const ORIGINAL_CWD = process.cwd();
 
@@ -127,9 +127,13 @@ async function chat(port, body, extraHeaders = {}) {
   return { status: res.status, text, json, headers: res.headers };
 }
 
-/** Bytes the proxy receives for `body` from chat(): the prompt-token bound counts one token per byte. */
+/**
+ * Bytes the proxy counts for `body` from chat(): one prompt token per byte of
+ * the text it forwards, which for a stream includes the injected
+ * `stream_options.include_usage`.
+ */
 function bodyBytes(body) {
-  return Buffer.byteLength(JSON.stringify(body));
+  return Math.max(Buffer.byteLength(JSON.stringify(body)), Buffer.byteLength(outboundBodyText(body)));
 }
 
 async function health(port) {

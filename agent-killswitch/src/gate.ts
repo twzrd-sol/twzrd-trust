@@ -272,7 +272,8 @@ const TEXT_ONLY_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   "request_id",
 ]);
 
-// Message fields whose content, if any, is text inside the request bytes.
+// Message fields the text-only check knows. Being on this list is not
+// enough: each value must also have the exact text shape checked below.
 const TEXT_ONLY_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   "role",
   "content",
@@ -283,18 +284,83 @@ const TEXT_ONLY_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   "refusal",
 ]);
 
+// Model-id suffixes (`<id>:<suffix>`) known to change routing or price only.
+// Any other suffix may make the upstream add prompt content the body does
+// not carry (a web-search variant, for example), so it ends the bound.
+const TEXT_ONLY_MODEL_SUFFIXES: ReadonlySet<string> = new Set(["free", "nitro", "floor", "extended", "thinking"]);
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+/** `{ "name": "<string>", "arguments": "<string>" }` and nothing else. */
+function isFunctionCallText(value: unknown): boolean {
+  return (
+    isPlainObject(value) &&
+    hasOnlyKeys(value, ["name", "arguments"]) &&
+    typeof value["name"] === "string" &&
+    typeof value["arguments"] === "string"
+  );
+}
+
+function isTextOnlyModelId(model: unknown): boolean {
+  if (typeof model !== "string" || model.length === 0) return false;
+  const at = model.lastIndexOf(":");
+  return at === -1 || TEXT_ONLY_MODEL_SUFFIXES.has(model.slice(at + 1));
+}
+
+function isTextOnlyMessage(message: unknown): boolean {
+  if (!isPlainObject(message)) return false;
+  for (const key of Object.keys(message)) {
+    if (!TEXT_ONLY_MESSAGE_KEYS.has(key)) return false;
+  }
+  if (typeof message["role"] !== "string") return false;
+  for (const key of ["name", "tool_call_id"]) {
+    if (message[key] !== undefined && typeof message[key] !== "string") return false;
+  }
+  const refusal = message["refusal"];
+  if (refusal !== undefined && refusal !== null && typeof refusal !== "string") return false;
+  const functionCall = message["function_call"];
+  if (functionCall !== undefined && functionCall !== null && !isFunctionCallText(functionCall)) return false;
+  const toolCalls = message["tool_calls"];
+  if (toolCalls !== undefined && toolCalls !== null) {
+    if (!Array.isArray(toolCalls)) return false;
+    for (const call of toolCalls) {
+      if (!isPlainObject(call) || !hasOnlyKeys(call, ["id", "type", "function"])) return false;
+      if (typeof call["id"] !== "string" || call["type"] !== "function") return false;
+      if (!isFunctionCallText(call["function"])) return false;
+    }
+  }
+  const content = message["content"];
+  if (content === undefined || content === null || typeof content === "string") return true;
+  if (!Array.isArray(content)) return false;
+  for (const part of content) {
+    if (!isPlainObject(part)) return false;
+    const keys = Object.keys(part);
+    if (keys.length !== 2 || part["type"] !== "text" || typeof part["text"] !== "string") return false;
+  }
+  return true;
+}
+
 /**
  * True only for a chat-completions body whose prompt is nothing but text
- * that is present in the body itself: an allowlisted set of top-level and
- * message fields, and message content that is a string, null/absent, or an
- * array of `{ "type": "text", "text": "<string>" }` parts.
+ * that is present in the body itself:
+ * - an allowlisted set of top-level fields;
+ * - a `model` string with no `:<suffix>`, or one of the routing and price
+ *   suffixes above;
+ * - messages made of allowlisted fields, each with the exact text shape:
+ *   string `role`, `name` and `tool_call_id`; string or null `refusal`;
+ *   `tool_calls` and `function_call` holding only string ids, names and
+ *   argument strings; and `content` that is a string, null/absent, or an
+ *   array of `{ "type": "text", "text": "<string>" }` parts.
  *
  * This is an allowlist, so it fails toward `false`: an image, audio or file
- * part, a file or URL reference, tools, a response schema, or any field this
+ * part, a file or URL reference, tools, a response schema, a number or
+ * object where text belongs, an unknown model suffix, or any field this
  * function does not know returns false, and requestEstimate then holds at
  * least the per-request cap. The agent being limited writes the body, so an
  * unknown shape is never given the cheaper estimate.
@@ -304,24 +370,10 @@ export function isTextOnlyPrompt(body: unknown): boolean {
   for (const key of Object.keys(body)) {
     if (!TEXT_ONLY_TOP_LEVEL_KEYS.has(key)) return false;
   }
+  if (!isTextOnlyModelId(body["model"])) return false;
   const messages = body["messages"];
   if (!Array.isArray(messages)) return false;
-  for (const message of messages) {
-    if (!isPlainObject(message)) return false;
-    for (const key of Object.keys(message)) {
-      if (!TEXT_ONLY_MESSAGE_KEYS.has(key)) return false;
-    }
-    if (typeof message["role"] !== "string") return false;
-    const content = message["content"];
-    if (content === undefined || content === null || typeof content === "string") continue;
-    if (!Array.isArray(content)) return false;
-    for (const part of content) {
-      if (!isPlainObject(part)) return false;
-      const keys = Object.keys(part);
-      if (keys.length !== 2 || part["type"] !== "text" || typeof part["text"] !== "string") return false;
-    }
-  }
-  return true;
+  return messages.every(isTextOnlyMessage);
 }
 
 /** The prompt size as the estimate will use it: bytes or null, and whether the byte bound holds. */
@@ -352,7 +404,8 @@ function readPromptSize(prompt: PromptSize | null | undefined): { bytes: number 
  *   dollar estimate is never below the per-request cap.
  * - A model priced at $0 (see priceFor) holds no dollars.
  *
- * A max_tokens that is not a finite non-negative number is treated as absent.
+ * A max_tokens that is negative or NaN is treated as absent. +Infinity keeps
+ * an unbounded estimate, which every limit refuses.
  */
 export function requestEstimate(
   model: string,
@@ -366,6 +419,11 @@ export function requestEstimate(
   const free = price.inputPerMTok === 0 && price.outputPerMTok === 0;
   const { bytes, bounded } = readPromptSize(prompt);
   const promptTokens = bytes ?? 0;
+  // +Infinity is not "absent": it is a request for unbounded output, and the
+  // estimate stays unbounded so every limit refuses it, as before.
+  if (maxTokens === Number.POSITIVE_INFINITY) {
+    return { tokens: Number.POSITIVE_INFINITY, usd: free ? 0 : Number.POSITIVE_INFINITY };
+  }
   const outputTokens =
     typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens >= 0 ? maxTokens : null;
 
@@ -423,6 +481,21 @@ export function evaluateGate(input: GateInput): GateDecision {
   // Token velocity gate: tokens in the last 60 s (recorded and in flight)
   // plus this request's max_tokens and prompt-token bound as a stand-in for
   // its eventual size.
+  // A request that is over the limit on its own can never fit, however long
+  // the caller waits, so it is refused without the 60 s backpressure pause:
+  // a pause would hold up other payers for a request that retrying cannot fix.
+  if (est.tokens > input.maxTokensPerMinute) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message:
+        `This request alone counts ${est.tokens} tokens (max_tokens plus one per request byte), ` +
+        `over the token-per-minute limit ${input.maxTokensPerMinute}; waiting will not help`,
+      spentUsd: input.window.minuteTokens,
+      limitUsd: input.maxTokensPerMinute,
+    };
+  }
   if (input.window.minuteTokens + est.tokens > input.maxTokensPerMinute) {
     return {
       allowed: false,

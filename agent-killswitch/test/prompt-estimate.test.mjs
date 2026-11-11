@@ -15,6 +15,12 @@ import { createBudgetGate, isTextOnlyPrompt } from "@twzrd1111/agent-killswitch"
 import { admissionRequest, createServer } from "../dist/index.js";
 import { evaluateGate, requestEstimate } from "../dist/gate.js";
 import { costUsd, priceFor } from "../dist/pricing.js";
+import { outboundBodyText } from "../dist/proxy.js";
+
+/** Bytes the proxy counts: the larger of what arrived and what it forwards. */
+function countedBytes(raw, body) {
+  return Math.max(raw.length, Buffer.byteLength(outboundBodyText(body), "utf8"));
+}
 import * as before from "./gate-0.1.11.fixture.mjs";
 
 const SEED = 0x5eed2026;
@@ -292,7 +298,7 @@ test(`differential, ${BODY_CASES} seeded request bodies: proxy and createBudgetG
     const apiRequest = {
       model: sent.model,
       maxTokens: usable ? Math.floor(m) : null,
-      promptBytes: raw.length,
+      promptBytes: countedBytes(raw, body),
       promptTextOnly: isTextOnlyPrompt(body),
       zeroPriceModels,
     };
@@ -445,8 +451,13 @@ test("requestEstimate: an absent or invalid prompt size falls back to the per-re
   for (const textOnly of [false, undefined, null, "true", 1, {}]) {
     assert.equal(requestEstimate("gpt-4o", 1_000, cap, null, undefined, { bytes: 10, textOnly }).usd, cap);
   }
-  // A max_tokens that is not a finite non-negative number is treated as absent.
-  for (const maxTokens of [Number.NaN, -1, -1e9, Infinity, "5"]) {
+  // +Infinity keeps an unbounded estimate, so every limit still refuses it (0.1.11 did).
+  assert.deepEqual(
+    requestEstimate("gpt-4o", Infinity, cap, null, undefined, { bytes: 10, textOnly: true }),
+    { tokens: Infinity, usd: Infinity },
+  );
+  // A max_tokens that is negative, NaN or not a number is treated as absent.
+  for (const maxTokens of [Number.NaN, -1, -1e9, "5"]) {
     const est = requestEstimate("gpt-4o", maxTokens, cap, null, undefined, { bytes: 10, textOnly: true });
     assert.deepEqual(est, { tokens: 10, usd: cap }, `maxTokens ${String(maxTokens)}`);
   }
@@ -496,11 +507,15 @@ let upstream;
 let servers;
 
 function startUpstream() {
-  const state = { hits: 0, usage: null };
+  const state = { hits: 0, usage: null, lastBytes: 0 };
   const server = http.createServer((req, res) => {
-    req.on("data", () => {});
+    let received = 0;
+    req.on("data", (c) => {
+      received += c.length;
+    });
     req.on("end", () => {
       state.hits += 1;
+      state.lastBytes = received;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
@@ -576,11 +591,14 @@ test("proxy: a large text prompt with a small max_tokens is refused before upstr
   assert.equal(upstream.state.hits, 0);
   // With the default 100,000 tokens per minute the token check refuses it first.
   delete process.env.KILLSWITCH_MAX_TOKENS_MINUTE;
+  process.env.KILLSWITCH_PAUSE_FILE = path.join(dir, ".pause");
   const port2 = await startKillswitch();
   const r3 = await post(port2, raw);
   assert.equal(r3.status, 429);
   assert.equal(r3.json.error.code, "budget_exceeded");
-  assert.match(r3.json.error.message, /Token-per-minute limit/);
+  assert.match(r3.json.error.message, /over the token-per-minute limit 100000; waiting will not help/);
+  // A request that can never fit sets no backpressure pause.
+  assert.equal(fs.existsSync(path.join(dir, ".pause")), false);
   assert.equal(upstream.state.hits, 0);
 });
 
@@ -604,7 +622,7 @@ test("proxy: the held estimate written to the ledger is createBudgetGate's estim
     const expected = gate.estimate({
       model: sent.model,
       maxTokens: typeof m === "number" && Number.isFinite(m) && m >= 0 ? Math.floor(m) : null,
-      promptBytes: raw.length,
+      promptBytes: countedBytes(raw, JSON.parse(raw.toString("utf8"))),
       promptTextOnly: isTextOnlyPrompt(JSON.parse(raw.toString("utf8"))),
       zeroPriceModels: [],
     });
@@ -666,4 +684,109 @@ test("proxy: settlement from upstream usage is unchanged by the larger hold", as
   const health = await (await fetch(`http://127.0.0.1:${port}/healthz`)).json();
   assert.equal(health.hour_usd, costUsd("gpt-4o-mini", 1000, 500));
   assert.equal(health.in_flight, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Review findings on the first version of this change.
+
+test("proxy: the count is of the bytes forwarded, not the bytes received (invalid UTF-8 triples)", async () => {
+  process.env.KILLSWITCH_MAX_TOKENS_MINUTE = "1000000000";
+  process.env.KILLSWITCH_MAX_USD_HOUR = "1000000";
+  process.env.KILLSWITCH_MAX_USD_DAY = "1000000";
+  process.env.KILLSWITCH_MAX_COST_REQUEST = "100";
+  const port = await startKillswitch();
+  // 30,000 bytes of 0xFF inside the message content: each decodes to U+FFFD,
+  // which is 3 bytes when the proxy re-serializes the body for the upstream.
+  const head = Buffer.from('{"model":"gpt-4o","max_tokens":1,"messages":[{"role":"user","content":"', "utf8");
+  const tail = Buffer.from('"}]}', "utf8");
+  const raw = Buffer.concat([head, Buffer.alloc(30_000, 0xff), tail]);
+  const res = await post(port, raw);
+  assert.equal(res.status, 200);
+  assert.equal(upstream.state.hits, 1);
+  assert.ok(upstream.state.lastBytes >= 90_000, `upstream received ${upstream.state.lastBytes} bytes`);
+  const line = readLedger().at(-1);
+  assert.equal(line.metered, "held_estimate");
+  // The hold covers every byte the upstream received, plus max_tokens.
+  assert.equal(line.total_tokens, upstream.state.lastBytes + 1);
+  assert.ok(line.total_tokens > raw.length * 2, `held ${line.total_tokens} for ${raw.length} received bytes`);
+});
+
+test("admissionRequest: the counted size is never below the received or the forwarded size", () => {
+  const cases = [
+    { model: "gpt-4o", messages: [{ role: "user", content: "hi" }], stream: true },
+    { model: "gpt-4o", messages: [{ role: "user", content: "hi" }], temperature: 1e21, seed: 1e20 },
+    { model: "gpt-4o", messages: [] },
+  ];
+  for (const body of cases) {
+    const compact = Buffer.byteLength(JSON.stringify(body));
+    for (const rawBytes of [0, compact, compact + 500]) {
+      const req = admissionRequest(body, rawBytes);
+      assert.equal(Buffer.byteLength(req.outboundText), Buffer.byteLength(outboundBodyText(body)));
+      assert.ok(req.prompt.bytes >= rawBytes);
+      assert.ok(req.prompt.bytes >= Buffer.byteLength(req.outboundText));
+    }
+  }
+  // A number written in exponent form is forwarded in full.
+  const grown = JSON.parse('{"model":"gpt-4o","messages":[],"seed":1e20}');
+  assert.ok(admissionRequest(grown, 44).prompt.bytes > 44);
+});
+
+test("isTextOnlyPrompt: message fields must have the exact text shape, not only an allowed name", () => {
+  const base = (message) => ({ model: "gpt-4o", messages: [{ role: "user", content: "x", ...message }] });
+  const call = { id: "call_1", type: "function", function: { name: "f", arguments: "{}" } };
+  assert.equal(isTextOnlyPrompt(base({ name: "bob" })), true);
+  assert.equal(isTextOnlyPrompt(base({ tool_call_id: "call_1" })), true);
+  assert.equal(isTextOnlyPrompt(base({ refusal: null })), true);
+  assert.equal(isTextOnlyPrompt(base({ tool_calls: [call] })), true);
+  assert.equal(isTextOnlyPrompt(base({ function_call: { name: "f", arguments: "{}" } })), true);
+  for (const bad of [
+    { name: 1e20 },
+    { name: { url: "https://example.invalid/x" } },
+    { tool_call_id: 7 },
+    { refusal: [1, 2] },
+    { tool_calls: "x" },
+    { tool_calls: [{ ...call, type: "custom" }] },
+    { tool_calls: [{ ...call, id: 1 }] },
+    { tool_calls: [{ ...call, extra: true }] },
+    { tool_calls: [{ ...call, function: { name: "f", arguments: { a: 1e20 } } }] },
+    { tool_calls: [{ ...call, function: { name: "f", arguments: "{}", file: "file-1" } }] },
+    { function_call: { name: 1, arguments: "{}" } },
+    { function_call: "auto" },
+  ]) {
+    assert.equal(isTextOnlyPrompt(base(bad)), false, JSON.stringify(bad));
+  }
+});
+
+test("isTextOnlyPrompt: an unknown model suffix ends the bound; routing and price suffixes do not", () => {
+  const body = (model) => ({ model, messages: [{ role: "user", content: "x" }] });
+  for (const model of ["gpt-4o", "meta-llama/llama-3.2-3b-instruct:free", "openai/gpt-4o:nitro", "a/b:floor"]) {
+    assert.equal(isTextOnlyPrompt(body(model)), true, model);
+  }
+  for (const model of ["openai/gpt-4o:online", "openai/gpt-4o:free:online", "qwen3:14b", "x:", "", 5, null, undefined]) {
+    assert.equal(isTextOnlyPrompt(body(model)), false, String(model));
+  }
+  // With the bound off, a priced model holds at least the cap.
+  const cap = 0.5;
+  const est = requestEstimate("openai/gpt-4o:online", 1, cap, null, undefined, { bytes: 10, textOnly: false });
+  assert.ok(est.usd >= cap);
+});
+
+test("evaluateGate: a request over the per-minute limit on its own is refused without a pause", () => {
+  const input = {
+    killed: false, paused: false, pauseReason: null, pauseDecisionId: null,
+    window: { minuteTokens: 0, hourUsd: 0, dayUsd: 0 },
+    model: "gpt-4o", maxTokens: 10, prompt: { bytes: 200, textOnly: true },
+    maxTokensPerMinute: 100, maxUsdPerHour: 1e6, maxUsdPerDay: 1e6, maxCostPerRequestUsd: 1e6,
+    allowedModels: null, zeroPriceModels: [], modelRates: undefined,
+  };
+  const alone = evaluateGate(input);
+  assert.equal(alone.allowed, false);
+  assert.equal(alone.code, "budget_exceeded");
+  assert.equal(alone.pauseWindowMs, undefined);
+  // It fits on its own but not on top of the window: the 60 s pause is kept.
+  const crowded = evaluateGate({ ...input, prompt: { bytes: 50, textOnly: true }, window: { minuteTokens: 60, hourUsd: 0, dayUsd: 0 } });
+  assert.equal(crowded.allowed, false);
+  assert.equal(crowded.pauseWindowMs, 60_000);
+  // An unbounded max_tokens is still refused, as in 0.1.11.
+  assert.equal(evaluateGate({ ...input, maxTokens: Infinity, maxTokensPerMinute: 1e12 }).allowed, false);
 });

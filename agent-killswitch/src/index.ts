@@ -18,7 +18,7 @@ import {
 } from "./gate.js";
 import { Ledger } from "./ledger.js";
 import { costUsd, type ModelRates } from "./pricing.js";
-import { carriesPaymentCredential, forwardChatCompletion, type ForwardResult } from "./proxy.js";
+import { carriesPaymentCredential, forwardChatCompletion, outboundBodyText, type ForwardResult } from "./proxy.js";
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
@@ -43,20 +43,26 @@ function readBody(req: http.IncomingMessage): Promise<{ text: string; bytes: num
 
 /**
  * What the gate needs from a parsed chat-completions body: the model, a
- * usable max_tokens, and the prompt size. `rawBytes` is the byte length of
- * the body as received. A max_tokens that is not a finite non-negative
- * number is treated as absent, so the estimate falls back to the
- * per-request cap and can never go negative.
+ * usable max_tokens, the prompt size, and the exact text to forward.
+ *
+ * The prompt size is the larger of `rawBytes` (the body as received) and
+ * the byte length of the text that will be forwarded. The forwarded text is
+ * what the upstream tokenizes, and it can be longer than what arrived, so
+ * the received size alone would under-count. A max_tokens that is not a
+ * finite non-negative number is treated as absent, so the estimate falls
+ * back to the per-request cap and can never go negative.
  */
 export function admissionRequest(
   body: Record<string, unknown>,
   rawBytes: number,
-): { model: string; maxTokens: number | null; prompt: PromptSize } {
+): { model: string; maxTokens: number | null; prompt: PromptSize; outboundText: string } {
   const model = typeof body["model"] === "string" ? (body["model"] as string) : "unknown";
   const rawMax = body["max_tokens"];
   const maxTokens =
     typeof rawMax === "number" && Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : null;
-  return { model, maxTokens, prompt: { bytes: rawBytes, textOnly: isTextOnlyPrompt(body) } };
+  const outboundText = outboundBodyText(body);
+  const bytes = Math.max(rawBytes, Buffer.byteLength(outboundText, "utf8"));
+  return { model, maxTokens, prompt: { bytes, textOnly: isTextOnlyPrompt(body) }, outboundText };
 }
 
 function json(res: http.ServerResponse, status: number, obj: object): void {
@@ -150,7 +156,7 @@ async function handle(
     return;
   }
 
-  const { model, maxTokens, prompt } = admissionRequest(body, rawBytes);
+  const { model, maxTokens, prompt, outboundText } = admissionRequest(body, rawBytes);
   const requestId =
     (req.headers["x-request-id"] as string | undefined) ??
     (typeof body["request_id"] === "string" ? (body["request_id"] as string) : randomUUID());
@@ -228,6 +234,7 @@ async function handle(
       requestId,
       cfg.upstreamTimeoutMs,
       req.headers,
+      outboundText,
     );
   } finally {
     settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: zeroPriceModels, rates: cfg.modelRates });

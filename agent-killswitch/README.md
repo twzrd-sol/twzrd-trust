@@ -112,8 +112,9 @@ An allowed call holds its pre-call estimate from the moment it passes the
 check until it finishes, so concurrent calls see each other's spend:
 
 - **Prompt tokens** are bounded by the size of the request: one token per
-  byte of the request body (see "Prompt-token bound" below). That count is
-  part of every token hold.
+  byte of the body the proxy forwards, or of the body it received when that
+  is larger (see "Prompt-token bound" below). That count is part of every
+  token hold.
 - **With `max_tokens`**: the token hold is `max_tokens` plus the request
   bytes. The dollar hold is `max_tokens` at the model's output rate plus the
   request bytes at its input rate.
@@ -304,8 +305,9 @@ dayUsd += est.usd;
 returns the same token/dollar hold the proxy uses while a request is in
 flight; two parallel calls must each see the other's hold in the window.
 
-**Prompt size.** `promptBytes` is the UTF-8 byte length of the whole
-serialized request, and `promptTextOnly` is `isTextOnlyPrompt(body)`
+**Prompt size.** `promptBytes` is the UTF-8 byte length of the request
+exactly as you send it (count the string you hand to your HTTP client, not
+an earlier copy of the body), and `promptTextOnly` is `isTextOnlyPrompt(body)`
 (exported next to `createBudgetGate`). Together they give the gate the same
 prompt-token bound the proxy uses (see "Prompt-token bound"). Leave
 `promptBytes` out and the dollar estimate is never below
@@ -414,6 +416,12 @@ Why bytes are an upper bound for text:
    (`\n`, `\u00e9`, a surrogate pair) is longer than what it stands for.
    The strings in a request do not overlap, so all the text in a body of B
    bytes is at most B bytes, and at most B tokens.
+3. The bytes counted are the bytes the upstream receives. The proxy parses
+   the request and forwards its own serialization, which can be longer than
+   what arrived: a byte that is not valid UTF-8 becomes a 3-byte
+   replacement character, and a number such as `1e20` is written out in
+   full. So the proxy counts the text it forwards, or the size it received
+   when that is larger.
 
 What the argument does not prove, and what the proxy does about it:
 
@@ -429,7 +437,15 @@ What the argument does not prove, and what the proxy does about it:
   per-request cap, the same stand-in a missing `max_tokens` gets. The test
   is an allowlist (`isTextOnlyPrompt`): plain-text messages plus sampling
   and transport fields pass, and any field the proxy does not know counts
-  as not plain text.
+  as not plain text. Message fields are checked by shape as well as by
+  name: `name` and `tool_call_id` must be strings, and `tool_calls` and
+  `function_call` may hold only string ids, names and argument strings.
+- **Model variants.** A model id with a `:suffix` can make the upstream add
+  prompt content of its own (a web-search variant, for example). Only the
+  suffixes `:free`, `:nitro`, `:floor`, `:extended` and `:thinking` keep
+  the text-only bound. Any other suffix, including a local tag such as
+  `qwen3:14b`, holds at least the per-request cap; for a model priced at $0
+  that changes nothing, because it holds no dollars.
 - **Tokens the upstream adds on its own**, such as a hidden system prompt.
   No request-side check can see those.
 
@@ -438,6 +454,12 @@ so the estimate of a text prompt is several times its real size, and inline
 base64 media counts byte for byte. If a large request you want is refused,
 raise `max_tokens_per_minute` or `max_cost_per_request_usd`; the hold is
 replaced by the real cost as soon as upstream reports usage.
+
+A request whose own count is over `max_tokens_per_minute` is refused with
+`budget_exceeded` and no pause file is written, because waiting cannot make
+it fit. With the default limit of 100,000 that is any request over about
+100 kB, which a long plain-text history can reach: set the limit to at
+least the largest body you expect, in bytes, plus its `max_tokens`.
 
 `n` (several completions for one request) is not part of the estimate: the
 output side still counts `max_tokens` once.
