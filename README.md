@@ -37,6 +37,7 @@ Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COM
 |---|---|
 | See a refusal with nothing installed | Run the [hosted no-spend check](#hosted-no-spend-check) below: one `curl`, no wallet, no key. |
 | Put the gate on a paying agent | [`twzrd-x402-gate/QUICKSTART.md`](./twzrd-x402-gate/QUICKSTART.md), then the [package README](./twzrd-x402-gate/README.md) for entry points and defaults. |
+| Stop an agent's model spend and its payments together | [One policy, two enforcers](#one-policy-two-enforcers): `agent-killswitch` and the gate read one policy format and share the `.kill` and `.pause` files. |
 | Call the checks from an MCP client | Add `https://intel.twzrd.xyz/mcp`; the tool list is live (`tools/list`). Agent contract: [llms.txt](https://intel.twzrd.xyz/llms.txt). |
 | Review the cryptography and the claims | [REVIEW.md](./REVIEW.md) (bind-v1, with mainnet ground truth), [docs/security-assurance.md](./docs/security-assurance.md), [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md), [docs/transparency-log.md](./docs/transparency-log.md), [SECURITY.md](./SECURITY.md). |
 | Know which document is current | [docs/README.md](./docs/README.md): every document in this repository, labeled canonical, historical or internal, with the versions verified on the date shown. |
@@ -58,6 +59,63 @@ Registry `latest` as read on 2026-11-11; killswitch container pin also rechecked
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
 | `twzrd-log-verifier` | npm 0.5.0 | 0.5.0 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
 | `@twzrd1111/agent-killswitch` | npm **0.1.11**; `ghcr.io/twzrd-sol/agent-killswitch:0.1.11` | 0.1.11 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
+
+## One policy, two enforcers
+
+`@twzrd1111/agent-killswitch` limits what an agent spends on model calls.
+`twzrd-x402-gate` limits what it pays to x402 sellers. They run as separate
+processes with no shared socket or daemon. What they share is one policy
+format and one state directory. Tested with gate 0.20.0 and killswitch 0.1.11.
+
+**Policy: `twzrd.binding_policy.v1`.** One object with `schema`, `state_dir`,
+`compute` and `payment`. The killswitch loads it as its config file (YAML or
+JSON) and uses `state_dir` and `compute`. The gate takes the parsed object
+through `parseBindingPolicy`, then `bindingPolicyToGateConfig` or
+`bindingPolicyToSpendControlOptions`. By default the gate validates only
+`state_dir` and `payment`, so a mistake in `compute` does not stop payments
+from loading.
+
+**Stop files in `state_dir`.**
+
+| File | Contents | Written by | Effect while in force |
+|---|---|---|---|
+| `.kill` | Anything; the file existing is the signal | You | Both refuse everything: `403 kill_switch` in the proxy, `twzrd_kill_switch` in the gate. |
+| `.pause` | `twzrd.pause_sentinel.v1` JSON: `until_unix_ms`, `reason`, optional `decision_id` | Either enforcer (below) | Until `until_unix_ms`, the gate refuses to pay (`twzrd_payment_paused`) and the proxy refuses requests. A file that cannot be read or parsed counts as an active pause. |
+
+**Who writes `.pause`:**
+
+- **A spent compute budget halts payments.** When the killswitch refuses a
+  request with `budget_exceeded` because a per-minute, hourly or daily cap is
+  spent, it writes `.pause` until that window has room again. The gate then
+  refuses to sign. A single request too large for the per-minute token limit
+  is refused without a pause, because waiting cannot make it fit.
+- **A payment refusal halts compute.** When the gate's cumulative spend cap
+  trips in `spendControlSafeFetch`, it writes `.pause` until the budget window
+  has room again. With `tripPauseOnBlockMs` set (`TWZRD_TRIP_PAUSE_ON_BLOCK_MS`;
+  off by default), a fatal refusal also writes one: a decision block, a wash
+  flag, a price cap, or a policy or mandate ceiling. The proxy then answers
+  `429 payment_gate_halt`. A transient refusal, such as the hosted checks being
+  unreachable, never writes `.pause`. The gate writes only to a location you
+  configured (`stateDir` or `pauseFilePath`).
+
+**Limits.**
+
+- It is a file contract, so both processes must see the same disk. Inside a
+  Cloudflare Worker the gate reads no sentinel.
+- Both directions are covered by tests that root CI runs. These tests drive
+  both packages against one state directory. TWZRD has not yet run both
+  enforcers together in a deployed agent.
+
+**Ledger to Merkle root, offline.** [`merkle-bridge/`](./merkle-bridge/README.md)
+is an in-tree utility, not an npm package and not an npm workspace. Root
+`npm run ci` tests and type-checks it. It checks a killswitch spend ledger's
+hash chain and returns RFC 6962 Keccak-256 leaves and a root. Nothing is signed
+or anchored on-chain.
+
+Details: the gate's [Config](./twzrd-x402-gate/README.md#config) table
+(`stateDir`, `tripPauseOnBlockMs`) and the killswitch's
+[kill switch](./agent-killswitch/README.md#the-kill-switch) and
+[Configuration](./agent-killswitch/README.md#configuration) sections.
 
 ---
 
