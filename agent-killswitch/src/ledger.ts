@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { nextPrev } from "./chain.js";
 import type { SpendWindow } from "./gate.js";
 
 export interface LedgerLine {
@@ -22,6 +23,12 @@ export interface LedgerLine {
    * Absent on vetoes and on lines written before 0.1.5.
    */
   metered?: "usage" | "held_estimate";
+  /**
+   * SHA-256 (hex) of the line before this one, or "genesis" (chain.ts).
+   * Written by `append()`; a value the caller passes is ignored. Absent on
+   * lines written before the chain existed.
+   */
+  prev?: string;
 }
 
 interface TimedSpend {
@@ -206,9 +213,19 @@ export class Ledger {
   }
 
   append(line: LedgerLine): void {
-    const jsonLine = JSON.stringify(line) + "\n";
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.appendFileSync(this.filePath, jsonLine, "utf8");
+    // Read the current last line and append on the same O_APPEND descriptor,
+    // so a row a peer copy wrote a moment ago is the one this row commits to
+    // (chain.ts). The caller never chooses `prev`.
+    const fd = fs.openSync(this.filePath, "a+");
+    try {
+      const { prev: _callerPrev, ...fields } = line;
+      const buf = Buffer.from(JSON.stringify({ ...fields, prev: nextPrev(fd) }) + "\n", "utf8");
+      let written = 0;
+      while (written < buf.length) written += fs.writeSync(fd, buf, written, buf.length - written);
+    } finally {
+      fs.closeSync(fd);
+    }
     // The hold check reads spend from window(), which refreshes from the
     // file. The append path deliberately does NOT cache appended bytes or
     // move the read cursor: the cursor advances only in refresh(), by the

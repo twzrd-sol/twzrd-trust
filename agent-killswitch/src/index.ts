@@ -4,6 +4,7 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { runVerifyLedger } from "./chain.js";
 import { loadConfig } from "./config.js";
 import { checkKillSwitch, checkPauseSwitch, evaluateGate, requestEstimate, vetoBody, writePauseSwitch } from "./gate.js";
 import { Ledger } from "./ledger.js";
@@ -271,7 +272,11 @@ function invokedAsMain(): boolean {
     return false;
   }
 }
-if (invokedAsMain()) {
+const runAsMain = invokedAsMain();
+if (runAsMain && process.argv[2] === "verify-ledger") {
+  // Offline audit of the ledger's hash chain: no config, no API key, no network.
+  process.exitCode = runVerifyLedger(process.argv.slice(3));
+} else if (runAsMain) {
   if (process.argv[2]) process.env.KILLSWITCH_CONFIG = process.argv[2];
   const cfg = loadConfig(process.env.KILLSWITCH_CONFIG ?? "./config.yaml");
   const port = Number(process.env.KILLSWITCH_PORT ?? process.env.PORT ?? cfg.port);
