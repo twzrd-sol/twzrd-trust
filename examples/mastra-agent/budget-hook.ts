@@ -12,15 +12,34 @@
  * spend window is caller-owned and updated synchronously, so parallel tool
  * calls cannot both read a stale window. For the JSONL ledger, the kill
  * file and the upstream lifecycle, run the proxy itself instead.
+ *
+ * Written against @twzrd1111/agent-killswitch 0.1.11. Since 0.1.11 the
+ * estimate counts the prompt: give `promptBytes` and `promptTextOnly` for
+ * the model call a tool makes (`budgetInputForChatRequest(text)` reads both
+ * from the request text). Without them every call holds at least
+ * `maxCostPerRequestUsd`.
  */
 import { createBudgetGate } from "@twzrd1111/agent-killswitch";
-import type { BudgetGate, BudgetGateRequest } from "@twzrd1111/agent-killswitch";
+import type { BudgetGate, BudgetGateEstimateInput, BudgetGateRequest } from "@twzrd1111/agent-killswitch";
 
 export interface ToolCallEstimate {
   /** Model id used for pricing. Unknown ids are priced at the $15/$60 fallback. */
   model: string;
-  /** Requested max_tokens for the model call this tool triggers, or null if unknown. */
+  /**
+   * Output limit for the model call this tool triggers (`chatOutputLimit(body)`),
+   * or null if unknown; null holds the per-request cap.
+   */
   maxTokens?: number | null;
+  /**
+   * UTF-8 byte length of the request text the tool sends. Omitted or null:
+   * the dollar estimate is never below `maxCostPerRequestUsd`.
+   */
+  promptBytes?: number | null;
+  /**
+   * `isTextOnlyPrompt(JSON.parse(text))` for that text. Omitted means false,
+   * which also keeps the estimate at or above `maxCostPerRequestUsd`.
+   */
+  promptTextOnly?: boolean | null;
   /** Override the zero-price list for this call (e.g. [] for a paid x402/MPP call). */
   zeroPriceModels?: readonly string[] | null;
 }
@@ -64,9 +83,14 @@ export interface AgentKillswitchHookOptions {
   gate?: BudgetGate;
 }
 
+/**
+ * Mastra's `ToolBeforeHookResult`: the only non-void return of
+ * `beforeToolCall`. `proceed` must be the literal `false`; any other shape
+ * does not type-check as Mastra's `ToolHooks`.
+ */
 export interface BeforeToolCallResult {
-  proceed: boolean;
-  output?: unknown;
+  proceed: false;
+  output: unknown;
 }
 
 /** OpenAI-shaped refusal body, same contract as the proxy's vetoBody(). */
@@ -89,11 +113,20 @@ export function refusalPayload(decision: {
   };
 }
 
-function toBudgetGateRequest(estimate: ToolCallEstimate, opts: AgentKillswitchHookOptions): BudgetGateRequest {
+/** The estimate fields both `evaluate()` and `estimate()` read, built once so they cannot differ. */
+function toEstimateInput(estimate: ToolCallEstimate): BudgetGateEstimateInput {
   return {
     model: estimate.model,
     maxTokens: estimate.maxTokens ?? null,
+    promptBytes: estimate.promptBytes ?? null,
+    promptTextOnly: estimate.promptTextOnly ?? null,
     zeroPriceModels: estimate.zeroPriceModels,
+  };
+}
+
+function toBudgetGateRequest(input: BudgetGateEstimateInput, opts: AgentKillswitchHookOptions): BudgetGateRequest {
+  return {
+    ...input,
     window: { ...opts.window },
     killed: opts.isKilled?.() ?? false,
     paused: opts.isPaused?.() ?? false,
@@ -127,19 +160,18 @@ export function createAgentKillswitchHooks(options: AgentKillswitchHookOptions) 
   ): BeforeToolCallResult | undefined => {
     const estimate = options.estimate({ toolName, input }); // throws -> call does not execute
     if (!estimate || typeof estimate.model !== "string" || estimate.model.trim() === "") {
-      throw new TypeError("options.estimate must return { model: string, maxTokens?, zeroPriceModels? }");
+      throw new TypeError(
+        "options.estimate must return { model: string, maxTokens?, promptBytes?, promptTextOnly?, zeroPriceModels? }",
+      );
     }
     // Synchronous section: evaluate and hold before any await so parallel
     // tool calls cannot both read the pre-hold window.
-    const decision = gate.evaluate(toBudgetGateRequest(estimate, options));
+    const gateInput = toEstimateInput(estimate);
+    const decision = gate.evaluate(toBudgetGateRequest(gateInput, options));
     if (!decision.allowed) {
       return { proceed: false, output: refusalPayload(decision) };
     }
-    const hold = gate.estimate({
-      model: estimate.model,
-      maxTokens: estimate.maxTokens ?? null,
-      zeroPriceModels: estimate.zeroPriceModels,
-    });
+    const hold = gate.estimate(gateInput);
     window.minuteTokens += hold.tokens;
     window.hourUsd += hold.usd;
     window.dayUsd += hold.usd;

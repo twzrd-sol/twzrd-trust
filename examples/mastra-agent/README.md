@@ -4,17 +4,17 @@ Enforce the killswitch admission budgets **inside the agent**, before any
 tool executes — no proxy, no daemon, no file I/O in the hook itself.
 
 Requires `@mastra/core` **1.49.0 or later** (agent-level `hooks`, documented
-at <https://mastra.ai/docs/agents/tools>). The example itself does not
-depend on `@mastra/core`; the hook is a plain function Mastra calls.
+at <https://mastra.ai/docs/agents/tools>) and the published
+`@twzrd1111/agent-killswitch` **0.1.11**. The example itself does not
+depend on `@mastra/core`; the hook is a plain function Mastra calls, and
+`createAgentKillswitchHooks()` type-checks as Mastra's `ToolHooks`.
 
-## Install and test (offline)
+## Install and test
 
 ```sh
-# from the repository root of twzrd-trust
-npm --prefix ../../agent-killswitch run build   # dist/api.js must exist
 cd examples/mastra-agent
-npm install --offline                          # file: dependency, no network
-npm test                                       # node --test __tests__/
+npm ci        # @twzrd1111/agent-killswitch@0.1.11 from the npm registry
+npm test      # node --test __tests__/ (offline; Node 22.18+ runs the .ts directly)
 ```
 
 `__tests__/budget-hook.test.ts` models Mastra's semantics with a mock tool
@@ -25,6 +25,7 @@ tool, anything else executes; `afterToolCall` settles the hold.
 
 ```ts
 import { Agent } from '@mastra/core/agent';
+import { budgetInputForChatRequest } from '@twzrd1111/agent-killswitch';
 import { createAgentKillswitchHooks } from './budget-hook';
 
 // Caller-owned, live window. Persist this however you like (this example
@@ -40,8 +41,13 @@ const hooks = createAgentKillswitchHooks({
   estimate: ({ toolName, input }) => {
     // Map the tool call to the model call it stands for. Keep it pure.
     // Throwing here means the tool never executes (fail closed).
-    if (toolName === 'expensiveResearch') return { model: 'gpt-4o', maxTokens: 4_000 };
-    return { model: 'gpt-4o-mini', maxTokens: 500 };
+    // Best: build the exact request text the tool will send and read it.
+    // (requestTextFor is yours: the JSON text the tool will POST.)
+    if (toolName === 'summarize') return budgetInputForChatRequest(requestTextFor(input));
+    // Otherwise pass a bound the tool enforces: it must never send more than
+    // promptBytes bytes of text-only request. Without promptBytes and
+    // promptTextOnly every call holds at least maxCostPerRequestUsd.
+    return { model: 'gpt-4o-mini', maxTokens: 500, promptBytes: 4_000, promptTextOnly: true };
   },
   // optional settle-on-completion: replace the hold with actual usage
   actualCost: ({ toolName, output }) => extractUsage(output),
@@ -67,6 +73,15 @@ export const agent = new Agent({
   with `code` one of `budget_exceeded | kill_switch | payment_gate_halt |
   per_request_cap | model_not_allowed` (429-equivalent for budgets, 403 for
   the kill switch and disallowed models).
+- **Prompt size** (0.1.11): the estimate bounds the prompt at one token per
+  byte of the request text. Unless a call gives both `promptBytes` and
+  `promptTextOnly: true`, it is held at `maxCostPerRequestUsd` or more, so an
+  hourly budget smaller than that cap refuses every such call.
+  `budgetInputForChatRequest(text)` returns `model`, `maxTokens`,
+  `promptBytes` and `promptTextOnly` for the exact text you send.
+- **Spent windows** (0.1.11): while the hour or day is at or over its limit,
+  every call that passes the kill switch and pause checks is refused with
+  `budget_exceeded`, the daily refusal first when both are spent.
 - **Hold before await, synchronously**: the estimate hold is added to
   `window` before `beforeToolCall` returns, so two parallel tool calls
   cannot both read the pre-hold window.

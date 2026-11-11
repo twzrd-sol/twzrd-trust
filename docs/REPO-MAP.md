@@ -39,6 +39,7 @@ top-level is a published artifact mirrored in, or meta-infrastructure.
 | `eliza-plugin-source/` | TypeScript source the Eliza plugin is published from (`@wzrd_sol/eliza-plugin`). Not the artifact; its `README.publish.md` is the tarball README. | `.github/workflows/publish-eliza-plugin.yml` |
 | `counsel_orchestration/` + `.grok/agents/` | Deterministic seven-role fail-closed counsel fold (Python + role briefs). CI runs `python3 -m unittest counsel_orchestration.test_decide`. Not published. | not published |
 | `scripts/` | Publish pack/resync, mirror checkers, audit and proof tooling for the gate and the plugins. Tests sit beside the scripts (`node --test`). | the workflows and root `npm run ci` |
+| `examples/` | Integration examples that install the published packages from npm (`examples/mastra-agent/`: `createBudgetGate` in Mastra's `beforeToolCall`, pinned to `@twzrd1111/agent-killswitch` 0.1.11). Each has its own `package.json` and lockfile; not a root workspace, so root `npm run ci` does not run them: `npm ci && npm test` inside the example. Bump the pin with each killswitch release. | not published |
 
 ### Published-artifact mirrors — never edit; resync only from live
 
