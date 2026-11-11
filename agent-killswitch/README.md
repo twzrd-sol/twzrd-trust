@@ -304,18 +304,25 @@ flight; two parallel calls must each see the other's hold in the window.
 
 **Read the request with `budgetInputForChatRequest(text)`.** Give it the
 exact string you hand to your HTTP client. It returns the model, the output
-limit, the byte count and the text-only flag exactly as the proxy reads
-them, and it checks the parsed text rather than the object you built, so a
-`toJSON` or class instance cannot show the check one shape and send
-another. It throws on text that is not a JSON object with a non-empty
-`model`.
+limit and the text-only flag read with the same functions the proxy uses,
+and the UTF-8 byte count of that text. It checks the parsed text rather
+than the object you built, so a `toJSON` or class instance cannot show the
+check one shape and send another. Send text without duplicate keys
+(`JSON.stringify` output has none): `JSON.parse` keeps the last of a
+duplicated key, and an upstream that keeps the first would bill outside
+this reading. The proxy's own byte count for the same text can be higher,
+never lower, because it re-serializes the body before forwarding (for
+example, it adds `stream_options.include_usage` to a streaming request). It
+throws on text that is not a JSON object with a non-blank `model`.
 
 Building the input by hand is supported but easy to get wrong:
 
 - `maxTokens` is `chatOutputLimit(body)`: the larger of `max_tokens` and
   `max_completion_tokens`, times `n`. A value below 1 is no limit: pass
   `null`, which holds the per-request cap. Passing `0` holds no output at
-  all, while an upstream may read 0 as "no limit".
+  all, while an upstream may read 0 as "no limit". When the product
+  overflows, `chatOutputLimit` returns `Infinity`, which `evaluate()` and
+  `estimate()` accept as unbounded output and every limit refuses.
 - `promptBytes` is the UTF-8 byte length of the string you send, not of an
   earlier copy of the body.
 - `promptTextOnly` is `isTextOnlyPrompt(JSON.parse(text))`. Among other
@@ -493,16 +500,25 @@ completions. A limit below 1 counts as no limit. When
 the per-request cap, because an upstream that does not know the field
 would generate without one.
 
-While the hour or day spend is at or over its limit, every request is
-refused with the hourly or daily refusal and its long pause file, before
-the per-minute and per-request checks, however large the request is. When
-the budget still has room, a request too large to pass on its own is
-refused by those checks without a pause, and a request whose estimate does
-not fit what is left of the hour or day gets the hourly or daily refusal
-and pause, as in 0.1.10. Because the estimate is larger than in 0.1.10, that
-last case can now happen where 0.1.10 forwarded the request. A refusal never
-shortens a pause already in force: a 60-second per-minute refusal leaves an
-hourly or daily pause file as it is.
+While the hour or day spend is at or over its limit, every request that
+passes the kill switch, a non-budget pause and the model allowlist is
+refused with the daily or hourly refusal and its long pause file (the daily
+one when both are spent), before the per-minute and per-request checks,
+however large the request is. When the budget still has room:
+
+- A request too large to pass on its own (over the per-minute limit or the
+  per-request cap) is refused without a pause. That includes some requests
+  for which 0.1.10 wrote the hourly or daily pause because its smaller
+  estimate did not fit what was left.
+- A request whose estimate does not fit what is left of the hour or day
+  gets the hourly or daily refusal and pause, as in 0.1.10. Because the
+  estimate is larger than in 0.1.10, this can now happen where 0.1.10
+  forwarded the request.
+
+The proxy does not shorten a pause it saw in force when it checked the
+request: a 60-second per-minute refusal leaves an hourly or daily pause
+file as it is, and an hourly refusal leaves a daily one. A pause that
+another process writes at the same moment can still be replaced.
 
 A call that is not plain text (one that sends `tools`, for example) holds
 at least the per-request cap. If upstream answers it without usage, the

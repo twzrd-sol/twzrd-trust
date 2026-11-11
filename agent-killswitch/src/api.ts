@@ -35,6 +35,8 @@ export interface BudgetGateEstimateInput {
   /**
    * The output limit for the whole call: `chatOutputLimit(body)`, or null
    * when the body has no usable limit (the per-request cap is then held).
+   * +Infinity means unbounded output (`chatOutputLimit` returns it when
+   * the limit times `n` overflows); every finite limit refuses it.
    * `budgetInputForChatRequest(text)` fills this and the two fields below.
    */
   maxTokens?: number | null;
@@ -104,8 +106,10 @@ function optionalBoolean(name: string, value: unknown): boolean {
 
 function maxTokens(value: number | null | undefined): number | null {
   if (value === undefined || value === null) return null;
+  // Unbounded output, as chatOutputLimit reports an overflowing limit * n.
+  if (value === Number.POSITIVE_INFINITY) return value;
   if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
-    throw new TypeError("maxTokens must be null or a finite non-negative integer");
+    throw new TypeError("maxTokens must be null, +Infinity or a non-negative integer");
   }
   return value;
 }
@@ -155,20 +159,28 @@ function snapshotRates(value: ModelRates | undefined): ModelRates | undefined {
 
 /**
  * The model, output limit and prompt size of a chat-completions request,
- * read the way the proxy reads them, ready to spread into `estimate()` or
- * `evaluate()`.
+ * ready to spread into `estimate()` or `evaluate()`. The model, output limit
+ * and text-only flag are read with the same functions the proxy uses.
  *
  * Pass the exact text you will send, not the object you built it from: the
  * byte count is of that text, and the text-only check runs on its parsed
  * form, so a `toJSON` or class instance cannot show the check one shape and
- * send another.
+ * send another. Send text without duplicate keys (JSON.stringify output has
+ * none): JSON.parse keeps the last of a duplicated key, and an upstream
+ * that keeps the first would bill outside this reading.
+ *
+ * `promptBytes` is the UTF-8 length of that text. The proxy counts the
+ * larger of what it received and what it forwards, and it re-serializes
+ * the body (adding `stream_options.include_usage` to a streaming request,
+ * normalizing number forms), so for the same text its count can be higher;
+ * it is never lower.
  *
  *     const text = JSON.stringify(body);
  *     const decision = gate.evaluate({ ...budgetInputForChatRequest(text), window });
  *     // send `text`, unchanged
  *
- * Throws a TypeError when the text is not a JSON object or has no non-empty
- * string `model`.
+ * Throws a TypeError when the text is not a JSON object or its `model` is
+ * not a non-blank string.
  */
 export function budgetInputForChatRequest(sentText: string): {
   model: string;

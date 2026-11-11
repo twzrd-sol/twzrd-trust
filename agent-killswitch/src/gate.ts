@@ -428,6 +428,9 @@ export function chatOutputLimit(body: unknown): number | null {
   if (limit === null) return null;
   const n = body["n"];
   const copies = typeof n === "number" && Number.isFinite(n) && n > 1 ? Math.ceil(n) : 1;
+  // The product can overflow to +Infinity (max_tokens 1e308 with n 2).
+  // requestEstimate reads +Infinity as unbounded output, which every
+  // finite limit refuses, and createBudgetGate accepts it.
   return limit * copies;
 }
 
@@ -494,65 +497,67 @@ export function requestEstimate(
 }
 
 /**
- * The hourly and daily checks, in 0.1.10's order: the hour, then the day,
- * would be exceeded by `usd`; then the hour, then the day, is already at its
- * limit. Each refusal carries its long pause, which is what halts the
- * sibling payment gate.
+ * The hourly and daily refusals. Each carries its long pause, which is what
+ * halts the sibling payment gate.
  *
- * evaluateGate runs it twice. First with `usd` = 0, before anything is
- * priced: when even a free request would be refused (the hour or day is
- * already at or over its limit), every request gets that refusal and its
- * pause, however large it is or whichever other limit it would also break.
- * Then with the request's own estimate, after the per-minute and
- * per-request checks. A request too large to pass on its own is refused by
- * those checks without a pause when the budget still has room.
+ * evaluateGate checks the windows twice. First spentWindowRefusal, before
+ * anything is priced: while the day or hour is at or over its limit, every
+ * request that passes the kill switch, a non-budget pause and the model
+ * allowlist gets that refusal and its pause, however large it is or
+ * whichever other limit it would also break. Then budgetWindowRefusal with
+ * the request's own estimate, after the per-minute and per-request checks.
+ * A request too large to pass on its own is refused by those checks without
+ * a pause when the budget still has room.
  */
+function hourlyRefusal(input: GateInput, state: "would be exceeded" | "hit"): GateDecision {
+  return {
+    allowed: false,
+    status: 429,
+    code: "budget_exceeded",
+    message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} ${state}`,
+    spentUsd: input.window.hourUsd,
+    limitUsd: input.maxUsdPerHour,
+    pauseWindowMs: 3_600_000,
+  };
+}
+
+function dailyRefusal(input: GateInput, state: "would be exceeded" | "hit"): GateDecision {
+  return {
+    allowed: false,
+    status: 429,
+    code: "budget_exceeded",
+    message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} ${state}`,
+    spentUsd: input.window.dayUsd,
+    limitUsd: input.maxUsdPerDay,
+    pauseWindowMs: 86_400_000,
+  };
+}
+
+/**
+ * A window that is already at or over its limit, checked before anything
+ * prices the request. The day comes first: while the day is spent no
+ * request can run until it drains, so its 24 h pause is the one to write
+ * even when the hour is spent too. The wording ("would be exceeded" over
+ * the limit, "hit" exactly at it) is 0.1.10's for a $0 request.
+ */
+function spentWindowRefusal(input: GateInput): GateDecision | null {
+  const { hourUsd, dayUsd } = input.window;
+  if (dayUsd >= input.maxUsdPerDay) {
+    return dailyRefusal(input, dayUsd > input.maxUsdPerDay ? "would be exceeded" : "hit");
+  }
+  if (hourUsd >= input.maxUsdPerHour) {
+    return hourlyRefusal(input, hourUsd > input.maxUsdPerHour ? "would be exceeded" : "hit");
+  }
+  return null;
+}
+
+/** 0.1.10's window checks for a request estimated at `usd`, in 0.1.10's order. */
 function budgetWindowRefusal(input: GateInput, usd: number): GateDecision | null {
-  if (input.window.hourUsd + usd > input.maxUsdPerHour) {
-    return {
-      allowed: false,
-      status: 429,
-      code: "budget_exceeded",
-      message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} would be exceeded`,
-      spentUsd: input.window.hourUsd,
-      limitUsd: input.maxUsdPerHour,
-      pauseWindowMs: 3_600_000,
-    };
-  }
-  if (input.window.dayUsd + usd > input.maxUsdPerDay) {
-    return {
-      allowed: false,
-      status: 429,
-      code: "budget_exceeded",
-      message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} would be exceeded`,
-      spentUsd: input.window.dayUsd,
-      limitUsd: input.maxUsdPerDay,
-      pauseWindowMs: 86_400_000,
-    };
-  }
+  if (input.window.hourUsd + usd > input.maxUsdPerHour) return hourlyRefusal(input, "would be exceeded");
+  if (input.window.dayUsd + usd > input.maxUsdPerDay) return dailyRefusal(input, "would be exceeded");
   // Hard caps apply even without max_tokens: an already-blown window vetoes.
-  if (input.window.hourUsd >= input.maxUsdPerHour) {
-    return {
-      allowed: false,
-      status: 429,
-      code: "budget_exceeded",
-      message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} hit`,
-      spentUsd: input.window.hourUsd,
-      limitUsd: input.maxUsdPerHour,
-      pauseWindowMs: 3_600_000,
-    };
-  }
-  if (input.window.dayUsd >= input.maxUsdPerDay) {
-    return {
-      allowed: false,
-      status: 429,
-      code: "budget_exceeded",
-      message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} hit`,
-      spentUsd: input.window.dayUsd,
-      limitUsd: input.maxUsdPerDay,
-      pauseWindowMs: 86_400_000,
-    };
-  }
+  if (input.window.hourUsd >= input.maxUsdPerHour) return hourlyRefusal(input, "hit");
+  if (input.window.dayUsd >= input.maxUsdPerDay) return dailyRefusal(input, "hit");
   return null;
 }
 
@@ -593,11 +598,11 @@ export function evaluateGate(input: GateInput): GateDecision {
     };
   }
 
-  // A spent hour or day refuses every request with its long pause, before
-  // any check that prices this one: the pause is what halts the sibling
-  // payment gate, and it must not depend on how large or small this request
-  // is estimated to be.
-  const spent = budgetWindowRefusal(input, 0);
+  // A spent hour or day refuses every request that reaches this point with
+  // its long pause, before any check that prices this one: the pause is
+  // what halts the sibling payment gate, and it must not depend on how
+  // large or small this request is estimated to be.
+  const spent = spentWindowRefusal(input);
   if (spent) return spent;
 
   // The same estimate the caller holds while the request is in flight.

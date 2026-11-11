@@ -189,9 +189,12 @@ async function handle(
   });
 
   if (!decision.allowed) {
-    // Never shorten a pause already in force: a 60 s token-per-minute
-    // refusal must not cut an hourly or daily budget pause short, which
-    // would release the sibling payment gate early.
+    // Do not shorten the pause this request saw in force: a 60 s
+    // per-minute refusal must not cut an hourly or daily budget pause short,
+    // which would release the sibling payment gate early. Nothing is awaited
+    // between the read above and this write, so within one process this
+    // holds; a pause another process writes in that gap can still be
+    // replaced, as before.
     const longerPauseInForce =
       pause.paused && pause.untilUnixMs !== null && pause.untilUnixMs >= nowMs + (decision.pauseWindowMs ?? 0);
     if (decision.code === "budget_exceeded" && decision.pauseWindowMs && !longerPauseInForce) {
