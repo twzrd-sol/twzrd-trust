@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { pessimisticRequestCostUsd, priceFor, type ModelRates } from "./pricing.js";
+import { priceFor, type ModelRates } from "./pricing.js";
 
 export type VetoCode =
   | "budget_exceeded"
@@ -202,6 +202,11 @@ export interface GateInput {
   model: string;
   /** Requested max_tokens, if the client sent one. Without it the dollar estimate is the per-request cap. */
   maxTokens: number | null;
+  /**
+   * Size of the request, for the prompt-token bound (see requestEstimate).
+   * Absent or invalid: the dollar estimate is never below the per-request cap.
+   */
+  prompt?: PromptSize | null;
   maxTokensPerMinute: number;
   maxUsdPerHour: number;
   maxUsdPerDay: number;
@@ -217,17 +222,206 @@ export interface GateInput {
 }
 
 export interface RequestEstimate {
-  /** Tokens held against the per-minute window: max_tokens, or 0 without it. */
+  /** Tokens held against the per-minute window: max_tokens plus the prompt-token bound. */
   tokens: number;
   /** Dollars held against the hourly and daily windows. */
   usd: number;
 }
 
+/** What the caller knows about the size of the request it is about to send. */
+export interface PromptSize {
+  /**
+   * UTF-8 byte length of the whole serialized request body, or null when it
+   * is not known. Anything but a non-negative safe integer counts as unknown.
+   */
+  bytes: number | null;
+  /**
+   * True only when isTextOnlyPrompt(body) is true: every prompt token comes
+   * from text carried in those bytes. Anything but `true` counts as false.
+   */
+  textOnly: boolean;
+}
+
+// Top-level request fields that cannot add prompt tokens: sampling and
+// transport settings, and the fields the gate itself reads. Any other
+// field (tools, response_format, plugins, a provider extension) may make the
+// upstream add or fetch prompt content, so its presence ends the text-only
+// bound. Being on this list is not always enough: `n` and `service_tier`
+// are also checked by value in isTextOnlyPrompt, because they change what
+// the call bills without adding a byte.
+const TEXT_ONLY_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
+  "model",
+  "messages",
+  "max_tokens",
+  "max_completion_tokens",
+  "temperature",
+  "top_p",
+  "n",
+  "stream",
+  "stream_options",
+  "stop",
+  "presence_penalty",
+  "frequency_penalty",
+  "seed",
+  "user",
+  "logprobs",
+  "top_logprobs",
+  "logit_bias",
+  "metadata",
+  "store",
+  "service_tier",
+  "reasoning_effort",
+  "request_id",
+]);
+
+// Message fields the text-only check knows. Being on this list is not
+// enough: each value must also have the exact text shape checked below.
+const TEXT_ONLY_MESSAGE_KEYS: ReadonlySet<string> = new Set([
+  "role",
+  "content",
+  "name",
+  "tool_calls",
+  "tool_call_id",
+  "function_call",
+  "refusal",
+]);
+
+// Model-id suffixes (`<id>:<suffix>`) known to change routing or price only.
+// Any other suffix may make the upstream add prompt content the body does
+// not carry (a web-search variant, for example), so it ends the bound.
+const TEXT_ONLY_MODEL_SUFFIXES: ReadonlySet<string> = new Set(["free", "nitro", "floor", "extended", "thinking"]);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+/** `{ "name": "<string>", "arguments": "<string>" }` and nothing else. */
+function isFunctionCallText(value: unknown): boolean {
+  return (
+    isPlainObject(value) &&
+    hasOnlyKeys(value, ["name", "arguments"]) &&
+    typeof value["name"] === "string" &&
+    typeof value["arguments"] === "string"
+  );
+}
+
+// Every `:suffix` must be on the list, not only the last one, so
+// `<id>:online:free` does not pass. An `@` marks a preset (`@preset/<name>`,
+// `<id>@preset/<name>`), which can carry a system prompt and plugins the
+// body does not. Ids that add content with no marker in the id (a search
+// model, an auto-router) cannot be told apart here; the README says so.
+function isTextOnlyModelId(model: unknown): boolean {
+  if (typeof model !== "string" || model.length === 0 || model.includes("@")) return false;
+  return model.split(":").slice(1).every((suffix) => TEXT_ONLY_MODEL_SUFFIXES.has(suffix));
+}
+
+// Service tiers that never bill above the standard price row. Anything else
+// (`priority`, `auto`, `scale`, an unknown tier) may bill more per token
+// than the row the estimate uses.
+const TEXT_ONLY_SERVICE_TIERS: ReadonlySet<unknown> = new Set([undefined, "default", "flex"]);
+
+function isTextOnlyMessage(message: unknown): boolean {
+  if (!isPlainObject(message)) return false;
+  for (const key of Object.keys(message)) {
+    if (!TEXT_ONLY_MESSAGE_KEYS.has(key)) return false;
+  }
+  if (typeof message["role"] !== "string") return false;
+  for (const key of ["name", "tool_call_id"]) {
+    if (message[key] !== undefined && typeof message[key] !== "string") return false;
+  }
+  const refusal = message["refusal"];
+  if (refusal !== undefined && refusal !== null && typeof refusal !== "string") return false;
+  const functionCall = message["function_call"];
+  if (functionCall !== undefined && functionCall !== null && !isFunctionCallText(functionCall)) return false;
+  const toolCalls = message["tool_calls"];
+  if (toolCalls !== undefined && toolCalls !== null) {
+    if (!Array.isArray(toolCalls)) return false;
+    for (const call of toolCalls) {
+      if (!isPlainObject(call) || !hasOnlyKeys(call, ["id", "type", "function"])) return false;
+      if (typeof call["id"] !== "string" || call["type"] !== "function") return false;
+      if (!isFunctionCallText(call["function"])) return false;
+    }
+  }
+  const content = message["content"];
+  if (content === undefined || content === null || typeof content === "string") return true;
+  if (!Array.isArray(content)) return false;
+  for (const part of content) {
+    if (!isPlainObject(part)) return false;
+    const keys = Object.keys(part);
+    if (keys.length !== 2 || part["type"] !== "text" || typeof part["text"] !== "string") return false;
+  }
+  return true;
+}
+
+/**
+ * True only for a chat-completions body whose prompt is nothing but text
+ * that is present in the body itself:
+ * - an allowlisted set of top-level fields;
+ * - a `model` string with no `:<suffix>`, or one of the routing and price
+ *   suffixes above;
+ * - messages made of allowlisted fields, each with the exact text shape:
+ *   string `role`, `name` and `tool_call_id`; string or null `refusal`;
+ *   `tool_calls` and `function_call` holding only string ids, names and
+ *   argument strings; and `content` that is a string, null/absent, or an
+ *   array of `{ "type": "text", "text": "<string>" }` parts.
+ *
+ * This is an allowlist, so it fails toward `false`: an image, audio or file
+ * part, a file or URL reference, tools, a response schema, a number or
+ * object where text belongs, an unknown model suffix, or any field this
+ * function does not know returns false, and requestEstimate then holds at
+ * least the per-request cap. The agent being limited writes the body, so an
+ * unknown shape is never given the cheaper estimate.
+ */
+export function isTextOnlyPrompt(body: unknown): boolean {
+  if (!isPlainObject(body)) return false;
+  for (const key of Object.keys(body)) {
+    if (!TEXT_ONLY_TOP_LEVEL_KEYS.has(key)) return false;
+  }
+  if (!isTextOnlyModelId(body["model"])) return false;
+  // `n` multiplies the billed output. The estimate a caller builds from
+  // max_tokens covers one completion, so only an absent `n` or `n: 1` keeps
+  // the cheaper estimate.
+  if (body["n"] !== undefined && body["n"] !== 1) return false;
+  if (!TEXT_ONLY_SERVICE_TIERS.has(body["service_tier"])) return false;
+  const messages = body["messages"];
+  if (!Array.isArray(messages)) return false;
+  return messages.every(isTextOnlyMessage);
+}
+
+/** The prompt size as the estimate will use it: bytes or null, and whether the byte bound holds. */
+function readPromptSize(prompt: PromptSize | null | undefined): { bytes: number | null; bounded: boolean } {
+  if (!isPlainObject(prompt)) return { bytes: null, bounded: false };
+  const raw = prompt["bytes"];
+  const bytes = typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
+  return { bytes, bounded: bytes !== null && prompt["textOnly"] === true };
+}
+
 /**
  * Pre-call estimate, used both by evaluateGate and by the in-flight hold.
- * With max_tokens: all of them at the output rate. Without it there is no
- * token estimate, and the dollar estimate is the per-request cap, except for
- * a model priced at $0 (see priceFor), which holds no dollars.
+ *
+ * Prompt tokens are bounded without a tokenizer by the byte length of the
+ * request body: one token per byte. A token of any tokenizer that splits
+ * text into pieces covers at least one byte of the text it encodes, and a
+ * JSON string is never shorter than the UTF-8 text it decodes to, so the
+ * text in a body of B bytes is at most B tokens. That argument covers text
+ * carried in the body and nothing else, so the bound is used alone only when
+ * `prompt.textOnly` is true (isTextOnlyPrompt). See README "Prompt-token
+ * bound" for the argument and what it assumes about the upstream.
+ *
+ * - Tokens: max_tokens (0 without it) plus the byte count (0 when unknown).
+ * - Dollars, with max_tokens: max_tokens at the output rate plus the byte
+ *   count at the input rate. Without max_tokens: the per-request cap, or the
+ *   prompt bound's cost when that is higher.
+ * - When the size is unknown, invalid, or the prompt is not text-only, the
+ *   dollar estimate is never below the per-request cap.
+ * - A model priced at $0 (see priceFor) holds no dollars.
+ *
+ * A max_tokens that is negative or NaN is treated as absent. +Infinity keeps
+ * an unbounded estimate, which every limit refuses.
  */
 export function requestEstimate(
   model: string,
@@ -235,13 +429,74 @@ export function requestEstimate(
   maxCostPerRequestUsd: number,
   freeModels?: readonly string[] | null,
   rates?: ModelRates,
+  prompt?: PromptSize | null,
 ): RequestEstimate {
-  if (maxTokens === null) {
-    const { price } = priceFor(model, freeModels, rates);
-    const free = price.inputPerMTok === 0 && price.outputPerMTok === 0;
-    return { tokens: 0, usd: free ? 0 : maxCostPerRequestUsd };
+  const { price } = priceFor(model, freeModels, rates);
+  const free = price.inputPerMTok === 0 && price.outputPerMTok === 0;
+  const { bytes, bounded } = readPromptSize(prompt);
+  const promptTokens = bytes ?? 0;
+  // +Infinity is not "absent": it is a request for unbounded output, and the
+  // estimate stays unbounded so every limit refuses it, as before.
+  if (maxTokens === Number.POSITIVE_INFINITY) {
+    return { tokens: Number.POSITIVE_INFINITY, usd: free ? 0 : Number.POSITIVE_INFINITY };
   }
-  return { tokens: maxTokens, usd: pessimisticRequestCostUsd(model, maxTokens, freeModels, rates) };
+  const outputTokens =
+    typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens >= 0 ? maxTokens : null;
+
+  if (outputTokens === null) {
+    const promptUsd = (promptTokens * price.inputPerMTok) / 1_000_000;
+    return { tokens: promptTokens, usd: free ? 0 : Math.max(maxCostPerRequestUsd, promptUsd) };
+  }
+  const usd = (outputTokens * price.outputPerMTok + promptTokens * price.inputPerMTok) / 1_000_000;
+  return {
+    tokens: outputTokens + promptTokens,
+    usd: bounded || free ? usd : Math.max(usd, maxCostPerRequestUsd),
+  };
+}
+
+/**
+ * The hourly or daily refusal, with its pause, for a request too large to
+ * pass on its own.
+ *
+ * A request over the per-minute token limit or the per-request cap is
+ * refused without a pause. But when the budget cannot fit even the part of
+ * the request that 0.1.10 counted (max_tokens at the output rate, or the
+ * per-request cap without max_tokens), the budget is spent, and that
+ * refusal must still write the hour or day pause as it did before: the
+ * pause file is what halts the sibling payment gate.
+ */
+function spentBudgetRefusal(input: GateInput, est: RequestEstimate): GateDecision | null {
+  const outputOnly = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels, input.modelRates, {
+    bytes: 0,
+    textOnly: true,
+  });
+  // Over the per-request cap on output alone: 0.1.10 refused that request
+  // without a pause too, before it looked at the hour or the day.
+  const usd = Math.min(est.usd, outputOnly.usd);
+  if (!(usd <= input.maxCostPerRequestUsd)) return null;
+  if (input.window.hourUsd + usd > input.maxUsdPerHour) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} would be exceeded`,
+      spentUsd: input.window.hourUsd,
+      limitUsd: input.maxUsdPerHour,
+      pauseWindowMs: 3_600_000,
+    };
+  }
+  if (input.window.dayUsd + usd > input.maxUsdPerDay) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} would be exceeded`,
+      spentUsd: input.window.dayUsd,
+      limitUsd: input.maxUsdPerDay,
+      pauseWindowMs: 86_400_000,
+    };
+  }
+  return null;
 }
 
 /** Pure pre-call budget evaluator. No I/O, no tokenizer. The window must include in-flight holds. */
@@ -282,10 +537,28 @@ export function evaluateGate(input: GateInput): GateDecision {
   }
 
   // The same estimate the caller holds while the request is in flight.
-  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels, input.modelRates);
+  const est = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels, input.modelRates, input.prompt);
 
   // Token velocity gate: tokens in the last 60 s (recorded and in flight)
-  // plus this request's max_tokens as a stand-in for its eventual size.
+  // plus this request's max_tokens and prompt-token bound as a stand-in for
+  // its eventual size.
+  // A request that is over the limit on its own can never fit, however long
+  // the caller waits, so it is refused without the 60 s backpressure pause:
+  // a pause would hold up other payers for a request that retrying cannot fix.
+  if (est.tokens > input.maxTokensPerMinute) {
+    const spent = spentBudgetRefusal(input, est);
+    if (spent) return spent;
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message:
+        `This request alone counts ${est.tokens} tokens (max_tokens plus one per request byte), ` +
+        `over the token-per-minute limit ${input.maxTokensPerMinute}; waiting will not help`,
+      spentUsd: input.window.minuteTokens,
+      limitUsd: input.maxTokensPerMinute,
+    };
+  }
   if (input.window.minuteTokens + est.tokens > input.maxTokensPerMinute) {
     return {
       allowed: false,
@@ -299,9 +572,13 @@ export function evaluateGate(input: GateInput): GateDecision {
   }
 
   // Pessimistic cost gate: every requested max_token bills at the output
-  // rate. Without max_tokens the request is assumed to cost the per-request
-  // cap, so the hourly and daily checks still run.
+  // rate and every request byte as one prompt token at the input rate.
+  // Without max_tokens, or without a text-only prompt of known size, the
+  // request is assumed to cost at least the per-request cap, so the hourly
+  // and daily checks still run.
   if (est.usd > input.maxCostPerRequestUsd) {
+    const spent = spentBudgetRefusal(input, est);
+    if (spent) return spent;
     return {
       allowed: false,
       status: 429,

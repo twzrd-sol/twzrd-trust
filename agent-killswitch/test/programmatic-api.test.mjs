@@ -74,8 +74,13 @@ test("createBudgetGate snapshots limits and model rates at construction", () => 
   });
   assert.equal(decision.code, "budget_exceeded");
   assert.deepEqual(
+    gate.estimate({ model: "demo", maxTokens: 1_000, promptBytes: 500, promptTextOnly: true }),
+    { tokens: 1_500, usd: 0.0015 },
+  );
+  // Without a prompt size the dollar estimate is never below the per-request cap.
+  assert.deepEqual(
     gate.estimate({ model: "demo", maxTokens: 1_000 }),
-    { tokens: 1_000, usd: 0.001 },
+    { tokens: 1_000, usd: 0.04 },
   );
 });
 

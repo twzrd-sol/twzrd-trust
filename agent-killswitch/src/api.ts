@@ -2,13 +2,16 @@ import {
   evaluateGate,
   requestEstimate,
   type GateDecision,
+  type PromptSize,
   type RequestEstimate,
   type SpendWindow,
 } from "./gate.js";
 import type { ModelPrice, ModelRates } from "./pricing.js";
 
+export { isTextOnlyPrompt } from "./gate.js";
 export type {
   GateDecision,
+  PromptSize,
   RequestEstimate,
   SpendWindow,
   VetoCode,
@@ -28,6 +31,20 @@ export interface BudgetGateOptions {
 export interface BudgetGateEstimateInput {
   model: string;
   maxTokens?: number | null;
+  /**
+   * UTF-8 byte length of the whole serialized request body you will send
+   * (`Buffer.byteLength(JSON.stringify(body))`). It bounds the prompt tokens
+   * at one token per byte. Omit it (or pass null) when you do not know it:
+   * the dollar estimate is then never below the per-request cap. Anything
+   * else that is not a non-negative safe integer throws.
+   */
+  promptBytes?: number | null;
+  /**
+   * Pass `isTextOnlyPrompt(body)`. True says every prompt token comes from
+   * text inside those bytes; without it the dollar estimate is never below
+   * the per-request cap. Omitted means false; a non-boolean throws.
+   */
+  promptTextOnly?: boolean | null;
   /** Override the gate-wide zero-price list for this request. */
   zeroPriceModels?: readonly string[] | null;
 }
@@ -85,6 +102,17 @@ function maxTokens(value: number | null | undefined): number | null {
     throw new TypeError("maxTokens must be null or a finite non-negative integer");
   }
   return value;
+}
+
+function promptSize(bytes: unknown, textOnly: unknown): PromptSize {
+  let size: number | null = null;
+  if (bytes !== undefined && bytes !== null) {
+    if (typeof bytes !== "number" || !Number.isSafeInteger(bytes) || bytes < 0) {
+      throw new TypeError("promptBytes must be null or a non-negative safe integer");
+    }
+    size = bytes;
+  }
+  return { bytes: size, textOnly: optionalBoolean("promptTextOnly", textOnly) };
 }
 
 function snapshotList(
@@ -169,6 +197,7 @@ export function createBudgetGate(options: BudgetGateOptions): BudgetGate {
       const hourUsd = finiteNonNegative("window.hourUsd", rawWindow.hourUsd);
       const dayUsd = finiteNonNegative("window.dayUsd", rawWindow.dayUsd);
       const tokens = maxTokens(request.maxTokens);
+      const prompt = promptSize(request.promptBytes, request.promptTextOnly);
       const killed = optionalBoolean("killed", request.killed);
       const paused = optionalBoolean("paused", request.paused);
       const pauseReason = optionalString("pauseReason", request.pauseReason);
@@ -182,6 +211,7 @@ export function createBudgetGate(options: BudgetGateOptions): BudgetGate {
         window: { minuteTokens, hourUsd, dayUsd },
         model,
         maxTokens: tokens,
+        prompt,
         maxTokensPerMinute,
         maxUsdPerHour,
         maxUsdPerDay,
@@ -197,12 +227,14 @@ export function createBudgetGate(options: BudgetGateOptions): BudgetGate {
       }
       const model = modelId("model", request.model);
       const tokens = maxTokens(request.maxTokens);
+      const prompt = promptSize(request.promptBytes, request.promptTextOnly);
       return requestEstimate(
         model,
         tokens,
         maxCostPerRequestUsd,
         zeroPriceModelsFor(request),
         modelRates,
+        prompt,
       );
     },
   });
