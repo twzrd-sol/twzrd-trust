@@ -308,7 +308,12 @@ flight; two parallel calls must each see the other's hold in the window.
 **Prompt size.** `promptBytes` is the UTF-8 byte length of the request
 exactly as you send it (count the string you hand to your HTTP client, not
 an earlier copy of the body), and `promptTextOnly` is `isTextOnlyPrompt(body)`
-(exported next to `createBudgetGate`). Together they give the gate the same
+(exported next to `createBudgetGate`). Check the body you actually send:
+if it is built from class instances or objects with a `toJSON`, pass
+`isTextOnlyPrompt(JSON.parse(text))` for the string you send. `maxTokens`
+is your output limit for the whole call: the larger of `max_tokens` and
+`max_completion_tokens`, times `n`. The proxy works that out from the body;
+`createBudgetGate` takes the number you give it. Together they give the gate the same
 prompt-token bound the proxy uses (see "Prompt-token bound"). Leave
 `promptBytes` out and the dollar estimate is never below
 `maxCostPerRequestUsd`, the same as a call without `maxTokens`. Leave
@@ -368,7 +373,8 @@ a streamed request surviving a restart, the 504/502 upstream failures
 keeping the held estimate, overlapping calls seeing each other's holds
 (dollars and tokens), the per-request cap standing in for a missing
 `max_tokens`, the prompt-token bound (two seeded 25,000-case differential
-runs against the 0.1.11 gate: the estimate never falls, no refusal is lost,
+runs against the 0.1.10 gate: the estimate never falls, no request that was
+refused is allowed,
 and the proxy and `createBudgetGate` return the same estimate for the same
 request), a 200 and a stream without usage keeping the hold, an
 upstream HTTP 402 whose `WWW-Authenticate` / `PAYMENT-REQUIRED` challenge
@@ -402,8 +408,10 @@ ledger shows exactly what was assumed.
 The checks before a call count prompt tokens without a tokenizer: every
 byte of the request body counts as one prompt token, priced at the model's
 input rate. A 300 kB text prompt on `gpt-4o` with `max_tokens: 16` is
-estimated at 300,000 prompt tokens, $0.75, and refused by the default $0.50
-per-request cap. Through 0.1.11 it was forwarded.
+estimated at 300,000 prompt tokens and $0.75. With the defaults it is
+refused by the 100,000 tokens-per-minute limit, which is checked first; with
+that limit raised it is refused by the $0.50 per-request cap. Through 0.1.10
+it was forwarded.
 
 Why bytes are an upper bound for text:
 
@@ -443,9 +451,18 @@ What the argument does not prove, and what the proxy does about it:
 - **Model variants.** A model id with a `:suffix` can make the upstream add
   prompt content of its own (a web-search variant, for example). Only the
   suffixes `:free`, `:nitro`, `:floor`, `:extended` and `:thinking` keep
-  the text-only bound. Any other suffix, including a local tag such as
-  `qwen3:14b`, holds at least the per-request cap; for a model priced at $0
-  that changes nothing, because it holds no dollars.
+  the text-only bound, and every suffix on the id must be one of them
+  (`:online:free` does not pass). Any other suffix, including a local tag
+  such as `qwen3:14b`, and any id with an `@` (a preset), holds at least
+  the per-request cap; for a model priced at $0 that changes nothing,
+  because it holds no dollars. A model that searches or routes with no
+  marker in its id (a search model, an auto-router) is not detected: its
+  added tokens are the next item.
+- **Billing options.** `n` other than 1 and a `service_tier` other than
+  `default` or `flex` hold at least the per-request cap, because they
+  change what the call bills without adding a byte. The price rows for
+  OpenAI models are standard-tier prices, so a `priority` call is still
+  ledgered at the standard rate when upstream reports usage.
 - **Tokens the upstream adds on its own**, such as a hidden system prompt.
   No request-side check can see those.
 
@@ -461,8 +478,21 @@ it fit. With the default limit of 100,000 that is any request over about
 100 kB, which a long plain-text history can reach: set the limit to at
 least the largest body you expect, in bytes, plus its `max_tokens`.
 
-`n` (several completions for one request) is not part of the estimate: the
-output side still counts `max_tokens` once.
+The output side of the estimate is the larger of `max_tokens` and
+`max_completion_tokens`, multiplied by `n` when the body asks for several
+completions. A limit below 1 counts as no limit. When
+`max_completion_tokens` is the only limit, the dollar hold is never below
+the per-request cap, because an upstream that does not know the field
+would generate without one.
+
+When a request is too large to pass on its own and the hour or day budget
+cannot fit even its output side, the refusal is the hourly or daily one and
+the long pause file is written, as before.
+
+A call that is not plain text (one that sends `tools`, for example) holds
+at least the per-request cap. If upstream answers it without usage, the
+ledger records that hold, so with the defaults ten such calls use the $5
+hourly limit. Upstreams that report usage are ledgered at the real cost.
 
 Upstream payment headers an MPP/x402 buyer needs — `WWW-Authenticate`
 challenges, `PAYMENT-REQUIRED`, `Payment-Receipt`, and `X-Payment-*` — are

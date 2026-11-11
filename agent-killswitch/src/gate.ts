@@ -243,10 +243,12 @@ export interface PromptSize {
 }
 
 // Top-level request fields that cannot add prompt tokens: sampling and
-// transport settings, and the two fields the gate itself reads. Any other
+// transport settings, and the fields the gate itself reads. Any other
 // field (tools, response_format, plugins, a provider extension) may make the
 // upstream add or fetch prompt content, so its presence ends the text-only
-// bound.
+// bound. Being on this list is not always enough: `n` and `service_tier`
+// are also checked by value in isTextOnlyPrompt, because they change what
+// the call bills without adding a byte.
 const TEXT_ONLY_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   "model",
   "messages",
@@ -307,11 +309,20 @@ function isFunctionCallText(value: unknown): boolean {
   );
 }
 
+// Every `:suffix` must be on the list, not only the last one, so
+// `<id>:online:free` does not pass. An `@` marks a preset (`@preset/<name>`,
+// `<id>@preset/<name>`), which can carry a system prompt and plugins the
+// body does not. Ids that add content with no marker in the id (a search
+// model, an auto-router) cannot be told apart here; the README says so.
 function isTextOnlyModelId(model: unknown): boolean {
-  if (typeof model !== "string" || model.length === 0) return false;
-  const at = model.lastIndexOf(":");
-  return at === -1 || TEXT_ONLY_MODEL_SUFFIXES.has(model.slice(at + 1));
+  if (typeof model !== "string" || model.length === 0 || model.includes("@")) return false;
+  return model.split(":").slice(1).every((suffix) => TEXT_ONLY_MODEL_SUFFIXES.has(suffix));
 }
+
+// Service tiers that never bill above the standard price row. Anything else
+// (`priority`, `auto`, `scale`, an unknown tier) may bill more per token
+// than the row the estimate uses.
+const TEXT_ONLY_SERVICE_TIERS: ReadonlySet<unknown> = new Set([undefined, "default", "flex"]);
 
 function isTextOnlyMessage(message: unknown): boolean {
   if (!isPlainObject(message)) return false;
@@ -371,6 +382,11 @@ export function isTextOnlyPrompt(body: unknown): boolean {
     if (!TEXT_ONLY_TOP_LEVEL_KEYS.has(key)) return false;
   }
   if (!isTextOnlyModelId(body["model"])) return false;
+  // `n` multiplies the billed output. The estimate a caller builds from
+  // max_tokens covers one completion, so only an absent `n` or `n: 1` keeps
+  // the cheaper estimate.
+  if (body["n"] !== undefined && body["n"] !== 1) return false;
+  if (!TEXT_ONLY_SERVICE_TIERS.has(body["service_tier"])) return false;
   const messages = body["messages"];
   if (!Array.isArray(messages)) return false;
   return messages.every(isTextOnlyMessage);
@@ -438,6 +454,51 @@ export function requestEstimate(
   };
 }
 
+/**
+ * The hourly or daily refusal, with its pause, for a request too large to
+ * pass on its own.
+ *
+ * A request over the per-minute token limit or the per-request cap is
+ * refused without a pause. But when the budget cannot fit even the part of
+ * the request that 0.1.10 counted (max_tokens at the output rate, or the
+ * per-request cap without max_tokens), the budget is spent, and that
+ * refusal must still write the hour or day pause as it did before: the
+ * pause file is what halts the sibling payment gate.
+ */
+function spentBudgetRefusal(input: GateInput, est: RequestEstimate): GateDecision | null {
+  const outputOnly = requestEstimate(input.model, input.maxTokens, input.maxCostPerRequestUsd, input.zeroPriceModels, input.modelRates, {
+    bytes: 0,
+    textOnly: true,
+  });
+  // Over the per-request cap on output alone: 0.1.10 refused that request
+  // without a pause too, before it looked at the hour or the day.
+  const usd = Math.min(est.usd, outputOnly.usd);
+  if (!(usd <= input.maxCostPerRequestUsd)) return null;
+  if (input.window.hourUsd + usd > input.maxUsdPerHour) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} would be exceeded`,
+      spentUsd: input.window.hourUsd,
+      limitUsd: input.maxUsdPerHour,
+      pauseWindowMs: 3_600_000,
+    };
+  }
+  if (input.window.dayUsd + usd > input.maxUsdPerDay) {
+    return {
+      allowed: false,
+      status: 429,
+      code: "budget_exceeded",
+      message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} would be exceeded`,
+      spentUsd: input.window.dayUsd,
+      limitUsd: input.maxUsdPerDay,
+      pauseWindowMs: 86_400_000,
+    };
+  }
+  return null;
+}
+
 /** Pure pre-call budget evaluator. No I/O, no tokenizer. The window must include in-flight holds. */
 export function evaluateGate(input: GateInput): GateDecision {
   if (input.killed) {
@@ -485,6 +546,8 @@ export function evaluateGate(input: GateInput): GateDecision {
   // the caller waits, so it is refused without the 60 s backpressure pause:
   // a pause would hold up other payers for a request that retrying cannot fix.
   if (est.tokens > input.maxTokensPerMinute) {
+    const spent = spentBudgetRefusal(input, est);
+    if (spent) return spent;
     return {
       allowed: false,
       status: 429,
@@ -514,6 +577,8 @@ export function evaluateGate(input: GateInput): GateDecision {
   // request is assumed to cost at least the per-request cap, so the hourly
   // and daily checks still run.
   if (est.usd > input.maxCostPerRequestUsd) {
+    const spent = spentBudgetRefusal(input, est);
+    if (spent) return spent;
     return {
       allowed: false,
       status: 429,

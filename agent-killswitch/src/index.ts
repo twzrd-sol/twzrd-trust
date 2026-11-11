@@ -48,21 +48,35 @@ function readBody(req: http.IncomingMessage): Promise<{ text: string; bytes: num
  * The prompt size is the larger of `rawBytes` (the body as received) and
  * the byte length of the text that will be forwarded. The forwarded text is
  * what the upstream tokenizes, and it can be longer than what arrived, so
- * the received size alone would under-count. A max_tokens that is not a
- * finite non-negative number is treated as absent, so the estimate falls
- * back to the per-request cap and can never go negative.
+ * the received size alone would under-count.
+ *
+ * The output limit is the larger of `max_tokens` and
+ * `max_completion_tokens`, since an upstream may honour either, times `n`
+ * when the body asks for several completions. A limit that is not a finite
+ * number of at least 1 is treated as absent, so the estimate falls back to
+ * the per-request cap and can never go negative; an explicit 0 is absent
+ * too, because an upstream may read it as "no limit". When only
+ * `max_completion_tokens` is set, an upstream that does not know the field
+ * would generate without a limit, so the prompt is not reported as
+ * text-only and the dollar hold stays at or above the per-request cap, as
+ * it was in 0.1.10.
  */
 export function admissionRequest(
   body: Record<string, unknown>,
   rawBytes: number,
 ): { model: string; maxTokens: number | null; prompt: PromptSize; outboundText: string } {
   const model = typeof body["model"] === "string" ? (body["model"] as string) : "unknown";
-  const rawMax = body["max_tokens"];
-  const maxTokens =
-    typeof rawMax === "number" && Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : null;
+  const limit = (raw: unknown): number | null =>
+    typeof raw === "number" && Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : null;
+  const classic = limit(body["max_tokens"]);
+  const completion = limit(body["max_completion_tokens"]);
+  let maxTokens = classic === null ? completion : Math.max(classic, completion ?? 0);
+  const n = body["n"];
+  if (maxTokens !== null && typeof n === "number" && Number.isFinite(n) && n > 1) maxTokens *= Math.ceil(n);
   const outboundText = outboundBodyText(body);
   const bytes = Math.max(rawBytes, Buffer.byteLength(outboundText, "utf8"));
-  return { model, maxTokens, prompt: { bytes, textOnly: isTextOnlyPrompt(body) }, outboundText };
+  const textOnly = isTextOnlyPrompt(body) && !(classic === null && completion !== null);
+  return { model, maxTokens, prompt: { bytes, textOnly }, outboundText };
 }
 
 function json(res: http.ServerResponse, status: number, obj: object): void {

@@ -1,7 +1,9 @@
 // Reference oracle for test/prompt-estimate.test.mjs. Do not edit.
 // This is the TypeScript compiler output for src/gate.ts at commit
-// 34fa85b0c5955f3421c3cb545297762aa825cd31 (the 0.1.11 tree, before the
-// prompt-token bound), unchanged except for the pricing import path.
+// 34fa85b0c5955f3421c3cb545297762aa825cd31 (before the prompt-token bound),
+// unchanged except for the pricing import path. src/gate.ts at that commit
+// is the same file as in the published 0.1.10
+// (51c04bbe9f864fac8a6511bc0663747c9ab60881), so this is the 0.1.10 gate.
 // src/pricing.ts is the same file in both trees.
 import * as fs from "node:fs";
 import * as path from "node:path";

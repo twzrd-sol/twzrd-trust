@@ -2,7 +2,7 @@
 // byte). These tests are offline: a stub upstream on 127.0.0.1:0, no key,
 // no network, no spend.
 //
-// The differential tests compare this tree with test/gate-0.1.11.fixture.mjs,
+// The differential tests compare this tree with test/gate-0.1.10.fixture.mjs,
 // the compiled gate of the tree before the bound existed. Cases come from a
 // fixed-seed generator (mulberry32), so a failure reproduces exactly.
 import { test, beforeEach, afterEach } from "node:test";
@@ -21,7 +21,7 @@ import { outboundBodyText } from "../dist/proxy.js";
 function countedBytes(raw, body) {
   return Math.max(raw.length, Buffer.byteLength(outboundBodyText(body), "utf8"));
 }
-import * as before from "./gate-0.1.11.fixture.mjs";
+import * as before from "./gate-0.1.10.fixture.mjs";
 
 const SEED = 0x5eed2026;
 const GATE_CASES = 25_000;
@@ -236,7 +236,22 @@ function randomMessage(r) {
   return message;
 }
 
-const MAX_TOKENS_VALUES = [0, 1, 16, 1_000, 8_000, 250_000, 12.7, -1, -1_000_000, "100", null, true];
+const MAX_TOKENS_VALUES = [0, 0.5, 1, 16, 1_000, 8_000, 250_000, 12.7, -1, -1_000_000, "100", null, true];
+
+/**
+ * The output limit and text-only flag a createBudgetGate caller should pass for a chat body,
+ * written out here without calling the proxy's admissionRequest: the larger of max_tokens and
+ * max_completion_tokens (a value below 1 or not a finite number is absent), times n; and not
+ * text-only when max_completion_tokens is the only limit.
+ */
+function callerInputs(sent, body) {
+  const limit = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 1 ? Math.floor(v) : null);
+  const classic = limit(sent.max_tokens);
+  const completion = limit(sent.max_completion_tokens);
+  let maxTokens = classic === null ? completion : Math.max(classic, completion ?? 0);
+  if (maxTokens !== null && typeof sent.n === "number" && sent.n > 1) maxTokens *= Math.ceil(sent.n);
+  return { maxTokens, promptTextOnly: isTextOnlyPrompt(body) && !(classic === null && completion !== null) };
+}
 
 function randomBody(r) {
   const body = { model: r.pick(MODELS) };
@@ -245,7 +260,10 @@ function randomBody(r) {
   if (r.chance(0.7)) body.max_tokens = r.pick(MAX_TOKENS_VALUES);
   if (r.chance(0.2)) body.temperature = r.next();
   if (r.chance(0.1)) body.stream = r.chance(0.5);
-  if (r.chance(0.05)) body.n = r.int(1, 4);
+  if (r.chance(0.1)) body.max_completion_tokens = r.pick(MAX_TOKENS_VALUES);
+  if (r.chance(0.05)) body.n = r.pick([1, 2, 4, 2.5, 0, "3"]);
+  if (r.chance(0.03)) body.service_tier = r.pick(["default", "flex", "priority", "auto"]);
+  if (r.chance(0.04)) body.model = `${body.model}${r.pick([":free", ":online", ":online:free", "@preset/p"])}`;
   if (r.chance(0.06)) body.tools = [{ type: "function", function: { name: "f", parameters: {} } }];
   if (r.chance(0.03)) body.response_format = { type: "json_object" };
   if (r.chance(0.03)) body.plugins = [{ id: "web" }];
@@ -261,7 +279,7 @@ function serialize(r, body) {
   return JSON.stringify(body).replace(/[\u0080-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
-test(`differential, ${BODY_CASES} seeded request bodies: proxy and createBudgetGate agree, and neither is below 0.1.11`, (t) => {
+test(`differential, ${BODY_CASES} seeded request bodies: proxy and createBudgetGate agree, and neither is below 0.1.10`, (t) => {
   const r = makeRng(SEED ^ 0x9e3779b9);
   const seen = {
     cases: 0,
@@ -294,19 +312,18 @@ test(`differential, ${BODY_CASES} seeded request bodies: proxy and createBudgetG
 
     // createBudgetGate side, from the same request, computed without the proxy's parse.
     const m = sent.max_tokens;
-    const usable = typeof m === "number" && Number.isFinite(m) && m >= 0;
     const apiRequest = {
       model: sent.model,
-      maxTokens: usable ? Math.floor(m) : null,
+      ...callerInputs(sent, body),
       promptBytes: countedBytes(raw, body),
-      promptTextOnly: isTextOnlyPrompt(body),
       zeroPriceModels,
     };
+    const usable = apiRequest.maxTokens !== null;
     const gate = createBudgetGate({ ...limits, modelRates });
     assert.deepEqual(gate.estimate(apiRequest), proxyEst, `estimate differs, ${label}`);
     assert.deepEqual(gate.evaluate({ ...apiRequest, window }), proxyDecision, `decision differs, ${label}`);
 
-    // Against 0.1.11, with 0.1.11's own reading of max_tokens (any finite number, floored).
+    // Against 0.1.10, with 0.1.10's own reading of max_tokens (any finite number, floored).
     const oldMax = typeof m === "number" && Number.isFinite(m) ? Math.floor(m) : null;
     const oldEst = before.requestEstimate(sent.model, oldMax, limits.maxCostPerRequestUsd, zeroPriceModels, modelRates);
     const oldDecision = before.evaluateGate({
@@ -380,7 +397,7 @@ test("isTextOnlyPrompt accepts plain text chats and nothing else", () => {
     { model: "gpt-4o", messages: [user("hi")], max_tokens: 10, temperature: 0, stream: true, stream_options: {} },
     { model: "gpt-4o", messages: [{ role: "system", content: "s" }, user([{ type: "text", text: "hi" }])] },
     { model: "gpt-4o", messages: [{ role: "assistant", content: null, tool_calls: [] }, { role: "tool", tool_call_id: "c", content: "{}" }] },
-    { model: "gpt-4o", messages: [{ role: "assistant" }], n: 2, stop: ["x"], seed: 1, user: "u", request_id: "r" },
+    { model: "gpt-4o", messages: [{ role: "assistant" }], n: 1, stop: ["x"], seed: 1, user: "u", request_id: "r", service_tier: "default" },
   ];
   const no = [
     null,
@@ -431,7 +448,7 @@ test("requestEstimate: one prompt token per byte, at the input rate", () => {
 
 test("requestEstimate: an absent or invalid prompt size falls back to the per-request cap", () => {
   const cap = 0.5;
-  const low = (1_000 * 10) / 1_000_000; // what 0.1.11 held: max_tokens only
+  const low = (1_000 * 10) / 1_000_000; // what 0.1.10 held: max_tokens only
   const unusable = [
     undefined,
     null,
@@ -451,7 +468,7 @@ test("requestEstimate: an absent or invalid prompt size falls back to the per-re
   for (const textOnly of [false, undefined, null, "true", 1, {}]) {
     assert.equal(requestEstimate("gpt-4o", 1_000, cap, null, undefined, { bytes: 10, textOnly }).usd, cap);
   }
-  // +Infinity keeps an unbounded estimate, so every limit still refuses it (0.1.11 did).
+  // +Infinity keeps an unbounded estimate, so every limit still refuses it (0.1.10 did).
   assert.deepEqual(
     requestEstimate("gpt-4o", Infinity, cap, null, undefined, { bytes: 10, textOnly: true }),
     { tokens: Infinity, usd: Infinity },
@@ -621,9 +638,8 @@ test("proxy: the held estimate written to the ledger is createBudgetGate's estim
     const m = sent.max_tokens;
     const expected = gate.estimate({
       model: sent.model,
-      maxTokens: typeof m === "number" && Number.isFinite(m) && m >= 0 ? Math.floor(m) : null,
+      ...callerInputs(sent, JSON.parse(raw.toString("utf8"))),
       promptBytes: countedBytes(raw, JSON.parse(raw.toString("utf8"))),
-      promptTextOnly: isTextOnlyPrompt(JSON.parse(raw.toString("utf8"))),
       zeroPriceModels: [],
     });
     const linesBefore = readLedger().length;
@@ -762,13 +778,21 @@ test("isTextOnlyPrompt: an unknown model suffix ends the bound; routing and pric
   for (const model of ["gpt-4o", "meta-llama/llama-3.2-3b-instruct:free", "openai/gpt-4o:nitro", "a/b:floor"]) {
     assert.equal(isTextOnlyPrompt(body(model)), true, model);
   }
-  for (const model of ["openai/gpt-4o:online", "openai/gpt-4o:free:online", "qwen3:14b", "x:", "", 5, null, undefined]) {
+  for (const model of [
+    "openai/gpt-4o:online", "openai/gpt-4o:free:online", "openai/gpt-4o:online:free", "openai/gpt-4o:online:nitro",
+    "@preset/research", "openai/gpt-4o@preset/research", "qwen3:14b", "x:", "", 5, null, undefined,
+  ]) {
     assert.equal(isTextOnlyPrompt(body(model)), false, String(model));
   }
-  // With the bound off, a priced model holds at least the cap.
+  // Through the proxy's own reading of the body: a variant holds at least the cap, a routing suffix does not.
   const cap = 0.5;
-  const est = requestEstimate("openai/gpt-4o:online", 1, cap, null, undefined, { bytes: 10, textOnly: false });
-  assert.ok(est.usd >= cap);
+  const hold = (model) => {
+    const req = admissionRequest({ ...body(model), max_tokens: 1 }, 0);
+    return requestEstimate(req.model, req.maxTokens, cap, null, undefined, req.prompt).usd;
+  };
+  assert.ok(hold("openai/gpt-4o:online:free") >= cap);
+  assert.ok(hold("openai/gpt-4o@preset/research") >= cap);
+  assert.ok(hold("openai/gpt-4o:nitro") < cap);
 });
 
 test("evaluateGate: a request over the per-minute limit on its own is refused without a pause", () => {
@@ -787,6 +811,76 @@ test("evaluateGate: a request over the per-minute limit on its own is refused wi
   const crowded = evaluateGate({ ...input, prompt: { bytes: 50, textOnly: true }, window: { minuteTokens: 60, hourUsd: 0, dayUsd: 0 } });
   assert.equal(crowded.allowed, false);
   assert.equal(crowded.pauseWindowMs, 60_000);
-  // An unbounded max_tokens is still refused, as in 0.1.11.
+  // An unbounded max_tokens is still refused, as in 0.1.10.
   assert.equal(evaluateGate({ ...input, maxTokens: Infinity, maxTokensPerMinute: 1e12 }).allowed, false);
+});
+
+test("admissionRequest: the output limit is the larger of max_tokens and max_completion_tokens, times n", () => {
+  const cap = 0.5;
+  const base = { model: "o1", messages: [{ role: "user", content: "hi" }] };
+  const read = (extra) => {
+    const req = admissionRequest({ ...base, ...extra }, 0);
+    return { ...req, est: requestEstimate(req.model, req.maxTokens, cap, null, undefined, req.prompt) };
+  };
+  // Both fields: the larger one is the limit, and the hold covers it.
+  const both = read({ max_tokens: 1, max_completion_tokens: 100_000 });
+  assert.equal(both.maxTokens, 100_000);
+  assert.ok(both.est.usd >= costUsd("o1", 0, 100_000));
+  assert.equal(read({ max_tokens: 500, max_completion_tokens: 20 }).maxTokens, 500);
+  // max_completion_tokens alone: counted, and never below the cap that 0.1.10 held.
+  const small = read({ max_completion_tokens: 10 });
+  assert.equal(small.maxTokens, 10);
+  assert.equal(small.prompt.textOnly, false);
+  assert.ok(small.est.usd >= cap);
+  const large = read({ max_completion_tokens: 1_000_000 });
+  assert.ok(large.est.usd >= costUsd("o1", 0, 1_000_000));
+  assert.ok(large.est.tokens >= 1_000_000);
+  // n completions bill n times the output; the request also loses the text-only estimate.
+  const many = read({ max_tokens: 4096, n: 128 });
+  assert.equal(many.maxTokens, 4096 * 128);
+  assert.equal(many.prompt.textOnly, false);
+  assert.ok(many.est.usd >= costUsd("o1", 0, 4096 * 128));
+  assert.equal(read({ max_tokens: 100, n: 1 }).maxTokens, 100);
+  assert.equal(read({ max_tokens: 100, n: 1 }).prompt.textOnly, true);
+  assert.equal(read({ max_tokens: 100, n: 2.5 }).maxTokens, 300);
+  for (const n of [0, -1, "3", null, 2]) assert.equal(isTextOnlyPrompt({ ...base, n }), false, String(n));
+  // An explicit 0 (or anything below 1) is no limit: the cap is held, as with no max_tokens.
+  for (const zero of [0, 0.5, -3]) {
+    const none = read({ max_tokens: zero });
+    assert.equal(none.maxTokens, null, String(zero));
+    assert.ok(none.est.usd >= cap);
+  }
+});
+
+test("isTextOnlyPrompt: a service tier that can bill above the standard row ends the bound", () => {
+  const body = (service_tier) => ({ model: "gpt-4o", messages: [{ role: "user", content: "x" }], service_tier });
+  for (const tier of ["default", "flex", undefined]) assert.equal(isTextOnlyPrompt(body(tier)), true, String(tier));
+  for (const tier of ["priority", "auto", "scale", "", null, 1]) assert.equal(isTextOnlyPrompt(body(tier)), false, String(tier));
+});
+
+test("evaluateGate: an oversized request against a spent hour or day still writes the long pause", () => {
+  const input = {
+    killed: false, paused: false, pauseReason: null, pauseDecisionId: null,
+    window: { minuteTokens: 0, hourUsd: 11, dayUsd: 11 },
+    model: "gpt-4o", maxTokens: 16, prompt: { bytes: 150_000, textOnly: true },
+    maxTokensPerMinute: 100_000, maxUsdPerHour: 10, maxUsdPerDay: 50, maxCostPerRequestUsd: 0.5,
+    allowedModels: null, zeroPriceModels: [], modelRates: undefined,
+  };
+  // Over the per-minute limit on its own, and the hour is spent: 0.1.10 paused for the hour.
+  const hour = evaluateGate(input);
+  assert.equal(hour.code, "budget_exceeded");
+  assert.equal(hour.pauseWindowMs, 3_600_000);
+  assert.deepEqual(hour, before.evaluateGate(input));
+  const day = evaluateGate({ ...input, window: { minuteTokens: 0, hourUsd: 0, dayUsd: 55 } });
+  assert.equal(day.pauseWindowMs, 86_400_000);
+  // Over the per-request cap on its own (token limit raised), hour spent: same.
+  const overCap = evaluateGate({ ...input, maxTokensPerMinute: 1e9, prompt: { bytes: 300_000, textOnly: true } });
+  assert.equal(overCap.pauseWindowMs, 3_600_000);
+  // The budget has room: the oversized request is refused with no pause.
+  const room = evaluateGate({ ...input, window: { minuteTokens: 0, hourUsd: 1, dayUsd: 1 } });
+  assert.equal(room.allowed, false);
+  assert.equal(room.pauseWindowMs, undefined);
+  assert.equal(evaluateGate({ ...input, maxTokensPerMinute: 1e9, prompt: { bytes: 300_000, textOnly: true }, window: { minuteTokens: 0, hourUsd: 1, dayUsd: 1 } }).code, "per_request_cap");
+  // Unbounded output never takes the long pause.
+  assert.equal(evaluateGate({ ...input, maxTokens: Infinity }).pauseWindowMs, undefined);
 });
