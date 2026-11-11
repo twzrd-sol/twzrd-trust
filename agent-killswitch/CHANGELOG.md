@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A configuration error at startup prints one `agent-killswitch:` line and exits 1 instead of a Node stack trace. This covers a missing upstream key, an invalid number or port, a config file that is not valid YAML, and a ledger path that cannot be read. A missing key names the configured key variable and where free models can be listed instead (`KILLSWITCH_FREE_MODELS`, and `compute.free_models` under a binding policy).
+- A numeric setting that is not a non-negative number now names its variable (`KILLSWITCH_MAX_USD_DAY must be a non-negative number, got 'lots'`), not only the value.
+- A port that is not a whole number from 0 to 65535 is refused at startup. Before, an out-of-range or fractional port in the environment crashed in `listen`, and a fractional port in the config file was rounded down.
+- An empty `KILLSWITCH_PORT` means unset, as an empty value does for every other setting, so the config file's port or 4020 is used. Before, it listened on a random port.
+
 ## 0.1.10 (2026-11-11)
 
 ### Added

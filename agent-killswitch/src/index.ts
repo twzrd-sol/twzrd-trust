@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { runVerifyLedger } from "./chain.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, type KillswitchConfig } from "./config.js";
 import { checkKillSwitch, checkPauseSwitch, evaluateGate, requestEstimate, vetoBody, writePauseSwitch } from "./gate.js";
 import { Ledger } from "./ledger.js";
 import { costUsd, type ModelRates } from "./pricing.js";
@@ -36,9 +36,9 @@ function json(res: http.ServerResponse, status: number, obj: object): void {
   res.end(JSON.stringify(obj));
 }
 
-export function createServer(): http.Server {
-  const configPath = process.env.KILLSWITCH_CONFIG ?? "./config.yaml";
-  const cfg = loadConfig(configPath);
+export function createServer(
+  cfg: KillswitchConfig = loadConfig(process.env.KILLSWITCH_CONFIG ?? "./config.yaml"),
+): http.Server {
   const ledger = new Ledger(cfg.ledgerPath);
   const replayed = ledger.load();
   // eslint-disable-next-line no-console
@@ -278,13 +278,33 @@ if (runAsMain && process.argv[2] === "verify-ledger") {
   process.exitCode = runVerifyLedger(process.argv.slice(3));
 } else if (runAsMain) {
   if (process.argv[2]) process.env.KILLSWITCH_CONFIG = process.argv[2];
-  const cfg = loadConfig(process.env.KILLSWITCH_CONFIG ?? "./config.yaml");
-  const port = Number(process.env.KILLSWITCH_PORT ?? process.env.PORT ?? cfg.port);
+  // Expected startup failures (bad config, unreadable ledger) are operator
+  // errors, not programmer faults: one actionable line and exit 1, no Node
+  // stack trace. Programmatic callers of loadConfig still get the exception.
+  // Explicit type so TypeScript treats a call as the end of this branch.
+  const fail: (message: string) => never = (message) => {
+    // eslint-disable-next-line no-console
+    console.error(`agent-killswitch: ${message}`);
+    process.exit(1);
+  };
+  const reason = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+  let cfg: KillswitchConfig;
+  try {
+    cfg = loadConfig(process.env.KILLSWITCH_CONFIG ?? "./config.yaml");
+  } catch (err) {
+    fail(reason(err));
+  }
+  const port = cfg.port;
   // Default loopback for local runs. Containers set KILLSWITCH_HOST=0.0.0.0
   // (see Dockerfile) so Docker's published port can reach the server; the
   // host-side -p 127.0.0.1:... binding keeps it local-only from outside.
   const host = process.env.KILLSWITCH_HOST ?? "127.0.0.1";
-  const server = createServer();
+  let server: http.Server;
+  try {
+    server = createServer(cfg);
+  } catch (err) {
+    fail(`cannot read the ledger at ${cfg.ledgerPath}: ${reason(err)}`);
+  }
   // A taken port is the most common first-run failure: say what to change
   // instead of dumping a Node stack trace.
   server.on("error", (err: NodeJS.ErrnoException) => {
