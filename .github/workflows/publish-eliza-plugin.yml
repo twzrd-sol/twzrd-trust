@@ -1,9 +1,9 @@
 name: Publish @wzrd_sol/eliza-plugin to npm
 
 # Not pull_request-triggered -- that is how CI publish tokens get exfiltrated.
-# Operator button: workflow_dispatch. Also runs on write-access tag pushes
-# matching eliza-plugin-v* (this environment can push tags but cannot
-# workflow_dispatch: GitHub App 403).
+# Operator button only: workflow_dispatch on main. The eliza-plugin-v* tag
+# trigger and the source_ref input were removed (2026-11-11): a tag push or
+# a source_ref let a run publish a commit that never landed on main.
 #
 # Auth (either works):
 # - secrets.NPM_TOKEN
@@ -18,34 +18,38 @@ on:
       expected_version:
         description: 'eliza-plugin-source package.json version this run must match'
         required: true
-      source_ref:
-        description: 'git ref that contains eliza-plugin-source and the pack scripts (empty = the branch selected in the Actions UI)'
-        required: false
-        default: ''
-  push:
-    tags:
-      - 'eliza-plugin-v*'
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Main only, enforced by GitHub: the Npm_token environment's deployment
+    # policy allows refs/heads/main and nothing else, so a run dispatched on
+    # any other branch never starts and never sees NPM_TOKEN or an OIDC token.
+    # The job reads the NPM_TOKEN stored in this environment. A repository-
+    # level NPM_TOKEN is readable from any branch, so none should exist.
+    # Guarded by scripts/publish-workflows-ref-guard.test.mjs.
+    environment: Npm_token
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref != '' && inputs.source_ref || github.ref }}
+
+      - name: Refuse unless dispatched from main
+        # Second line of defence if the environment policy is ever loosened.
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::publishes from main only, got $GITHUB_REF -- refusing."
+            exit 1
+          fi
 
       - name: Resolve expected version
         id: ver
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "expected=${{ inputs.expected_version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "expected=${GITHUB_REF_NAME#eliza-plugin-v}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Publishing expected version from ${{ github.event_name }}"
+          echo "expected=$EXPECTED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing expected version $EXPECTED_VERSION"
 
       - uses: actions/setup-node@v4
         with:
