@@ -41,7 +41,7 @@ interface RawConfig {
     max_usd_per_day?: number;
     max_cost_per_request_usd?: number;
   };
-  kill_switch?: { file_path?: string; pause_file_path?: string; enable_api_endpoint?: boolean };
+  kill_switch?: { file_path?: string; pause_file_path?: string; enable_api_endpoint?: unknown };
   logging?: { path?: string };
   server?: { port?: number };
 }
@@ -65,6 +65,14 @@ function nonNegNum(val: unknown, name: string): number | undefined {
   if (val === undefined) return undefined;
   if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
     throw new Error(`Invalid numeric compute config '${name}': ${String(val)}`);
+  }
+  return val;
+}
+
+function literalBoolean(val: unknown, name: string): boolean | undefined {
+  if (val === undefined) return undefined;
+  if (typeof val !== "boolean") {
+    throw new Error(`${name} must be a boolean, got '${String(val)}'`);
   }
   return val;
 }
@@ -257,6 +265,10 @@ export function loadConfig(configPath: string): KillswitchConfig {
     };
   }
 
+  const legacyEnableKillApi = literalBoolean(
+    raw.kill_switch?.enable_api_endpoint,
+    "kill_switch.enable_api_endpoint",
+  );
   const freeModels = freeModelList();
   const apiKeyEnv = str(process.env.KILLSWITCH_API_KEY_ENV, raw.upstream?.api_key_env ?? "OPENAI_API_KEY");
   // A free allowlist never copies a key into config, even if one is present in the environment.
@@ -304,7 +316,7 @@ export function loadConfig(configPath: string): KillswitchConfig {
     enableKillApi:
       process.env.KILLSWITCH_KILL_API !== undefined
         ? process.env.KILLSWITCH_KILL_API === "1" || process.env.KILLSWITCH_KILL_API === "true"
-        : (raw.kill_switch?.enable_api_endpoint ?? true),
+        : (legacyEnableKillApi ?? true),
     ledgerPath: path.resolve(str(process.env.KILLSWITCH_LEDGER_PATH, raw.logging?.path ?? path.join(stateDir, "spend-ledger.jsonl"))),
     port: listenPort(raw.server?.port, "server.port"),
   };

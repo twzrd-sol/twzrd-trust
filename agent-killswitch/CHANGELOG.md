@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 (2026-11-12)
+
+### Changed
+
+- Removed HTTP `POST /reset`. Operators resume by removing the `.kill` and
+  `.pause` sentinel files; the low-friction `POST /kill` emergency stop remains.
+
+### Fixed
+
+- Legacy `kill_switch.enable_api_endpoint` now accepts only a literal YAML
+  boolean. String values such as `"false"`, `off`, and `no` fail at startup
+  instead of becoming truthy and enabling the endpoint.
+
 ## 0.1.11 (2026-11-11)
 
 ### Changed

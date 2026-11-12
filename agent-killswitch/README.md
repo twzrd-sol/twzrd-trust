@@ -39,7 +39,7 @@ from, so `touch ./data/.kill` stops it.
 ## 5-minute setup (Docker)
 
 ```sh
-docker pull ghcr.io/twzrd-sol/agent-killswitch:0.1.11
+docker pull ghcr.io/twzrd-sol/agent-killswitch:0.2.0
 
 mkdir -p ./data
 
@@ -47,7 +47,7 @@ docker run --rm \
   -p 127.0.0.1:4020:4020 \
   -v "$(pwd)/data:/app/data" \
   -e OPENAI_API_KEY \
-  ghcr.io/twzrd-sol/agent-killswitch:0.1.11
+  ghcr.io/twzrd-sol/agent-killswitch:0.2.0
 ```
 
 Then:
@@ -76,8 +76,9 @@ else that speaks `/v1/chat/completions` — streaming included.
 # Stop all spend immediately (no upstream call is made after this)
 touch ./data/.kill     # or: curl -X POST http://127.0.0.1:4020/kill
 
-# Resume
-rm ./data/.kill        # or: curl -X POST http://127.0.0.1:4020/reset
+# Resume (file-only; there is no HTTP reset endpoint)
+rm ./data/.kill
+rm -f ./data/.pause
 ```
 
 With the Docker setup above, `./data` is mounted from the host, so from
@@ -148,15 +149,15 @@ It caps what a **runaway** agent can spend (a loop, a retry storm, a prompt
 that will not end) and refuses the next call once a limit would be crossed.
 It does not stop the loop itself: calls that stay under the limits keep
 going until you touch the kill file, and a call already sent upstream runs
-to its end. It does not stop an **adversarial** agent either. Any local process that can
-write the kill file's directory, or reach `127.0.0.1:4020` while the kill
-API is on, can lift the kill with `rm` or `POST /reset`, and that includes
-the agent itself. If the agent could act against you:
+to its end. It does not stop an **adversarial** agent either. Any local process
+that can write the sentinel directory can lift the kill by removing `.kill`
+or `.pause`, and that includes the agent itself. HTTP has no reset endpoint.
+If the agent could act against you:
 
 - run the proxy as a different user or in a container, with `data/` not
   writable by the agent;
-- set `KILLSWITCH_KILL_API=false` so `/kill` and `/reset` are off (the file
-  still works);
+- set `KILLSWITCH_KILL_API=false` so HTTP `/kill` is off (the file still
+  works);
 - keep the upstream key out of the agent's environment, or it can call
   upstream directly and skip the proxy. Traffic that never reaches the
   proxy's port is not capped.
@@ -165,7 +166,9 @@ the agent itself. If the agent could act against you:
 
 YAML file plus env overrides (env wins). A missing config file uses the
 defaults below. Copy `config.example.yaml` to `config.yaml` only if you
-want to edit the limits in a file:
+want to edit the limits in a file. `kill_switch.enable_api_endpoint` must be
+a literal YAML boolean; strings such as `"false"`, `off`, and `no` are rejected
+at startup rather than coerced:
 
 | Env var | YAML key | Default |
 |---|---|---|

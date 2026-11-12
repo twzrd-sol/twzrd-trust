@@ -120,6 +120,21 @@ test("loadConfig fails closed on unknown compute keys in twzrd.binding_policy.v1
   assert.throws(() => loadConfig(policyPath), /unknown compute key/i);
 });
 
+test("legacy enable_api_endpoint accepts only a literal YAML boolean", () => {
+  const configPath = path.join(dir, "config.yaml");
+  for (const value of ["off", "no", '"false"']) {
+    fs.writeFileSync(configPath, `kill_switch:\n  enable_api_endpoint: ${value}\n`);
+    assert.throws(
+      () => loadConfig(configPath),
+      /kill_switch\.enable_api_endpoint must be a boolean/i,
+      `${value} must not become a truthy API flag`,
+    );
+  }
+
+  fs.writeFileSync(configPath, "kill_switch:\n  enable_api_endpoint: false\n");
+  assert.equal(loadConfig(configPath).enableKillApi, false);
+});
+
 test("active .pause sentinel vetoes with 429 payment_gate_halt and surfaces decision_id", async () => {
   fs.mkdirSync(path.join(dir, "data"), { recursive: true });
   const until = Date.now() + 60_000;

@@ -18,6 +18,7 @@ kill_switch:
   # immediately without contacting upstream. `touch ./data/.kill` to stop.
   # Under data/ so the Docker volume mount exposes it to the host.
   file_path: "./data/.kill"
+  # Literal YAML boolean only. This controls POST /kill; recovery is file-only.
   enable_api_endpoint: true
 
 logging:

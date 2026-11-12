@@ -208,7 +208,7 @@ test("a .kill in the working directory root no longer engages the default switch
   assert.equal((await health(port)).killed, false);
 });
 
-test("POST /kill then POST /reset toggles the default kill file", async () => {
+test("POST /reset cannot lift a kill; recovery is file-only", async () => {
   const port = await startKillswitch();
   const kill = await fetch(`http://127.0.0.1:${port}/kill`, { method: "POST" });
   assert.equal(kill.status, 200);
@@ -217,8 +217,12 @@ test("POST /kill then POST /reset toggles the default kill file", async () => {
   assert.equal(vetoed.status, 403);
 
   const reset = await fetch(`http://127.0.0.1:${port}/reset`, { method: "POST" });
-  assert.equal(reset.status, 200);
-  assert.ok(!fs.existsSync(path.join(dir, "data", ".kill")));
+  assert.equal(reset.status, 404);
+  assert.ok(fs.existsSync(path.join(dir, "data", ".kill")));
+  const stillVetoed = await chat(port, { model: "gpt-4o-mini", messages: [] });
+  assert.equal(stillVetoed.status, 403);
+
+  fs.unlinkSync(path.join(dir, "data", ".kill"));
   const allowed = await chat(port, { model: "gpt-4o-mini", messages: [] });
   assert.equal(allowed.status, 200);
   assert.equal(upstream.state.hits, 1);

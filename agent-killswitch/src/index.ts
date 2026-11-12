@@ -130,18 +130,6 @@ async function handle(
     return;
   }
 
-  if (cfg.enableKillApi && req.method === "POST" && url.pathname === "/reset") {
-    for (const p of [cfg.killFilePath, cfg.pauseFilePath]) {
-      try {
-        fs.unlinkSync(p);
-      } catch {
-        /* already absent */
-      }
-    }
-    json(res, 200, { ok: true, killed: false, paused: false });
-    return;
-  }
-
   if (req.method !== "POST" || url.pathname !== "/v1/chat/completions") {
     json(res, 404, { error: { type: "not_found", message: "only POST /v1/chat/completions is proxied" } });
     return;
