@@ -2,6 +2,13 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.20.1 (2026-11-12)
+
+- Cold-start probes now disable native redirect following and fail closed on
+  every redirect response.
+- Bounty preflight probes now disable native redirect following and refuse a
+  redirected paid endpoint before reading or evaluating its payment challenge.
+
 ## 0.20.0 (2026-11-10)
 
 Track 5 Binding Plane (`twzrd.binding_policy.v1` + `.kill` / `.pause` sentinels) and Track 6 SVM Execution Write-Ahead Log (`twzrd.svm_wal.v1`).

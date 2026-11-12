@@ -23,6 +23,7 @@ const DEFAULT_PAID_ENDPOINTS: Record<string, string> = {
 };
 const DEFAULT_ATTEMPT_COST_USD = 0.02; // DeskCrew ticket only; row.entry_fee_usd carries the $0.06 submission
 const DEFAULT_NETWORKS = ["solana", "base"];
+const HTTP_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 export const USAGE = `usage: twzrd-bounty-preflight --board <https url> [--paid-endpoint <https url>]
          [--attempt-cost-usd 0.02] [--max-attempt-usd <usd>] [--assumed-win-prob <0..1>]
@@ -114,7 +115,7 @@ export async function runBountyPreflight(
     { fetch?: typeof fetch; evaluate?: EvaluateFn; now?: () => string } = {},
 ): Promise<{ report: PreflightReport; exitCode: 0 | 1 }> {
   const fetchBound = withTimeout(doFetch);
-  const jsonGet = { headers: { accept: "application/json" } };
+  const jsonGet: RequestInit = { headers: { accept: "application/json" }, redirect: "manual" };
   const boardRes = await fetchBound(args.boardUrl, jsonGet);
   if (!boardRes.ok) throw new Error(`board GET ${boardRes.status}`);
   let boardJson: unknown;
@@ -124,7 +125,10 @@ export async function runBountyPreflight(
   // The unpaid 402 is the only honest source of the payTo the worker is about to pay.
   let gate: GateVerdict;
   const paidRes = await fetchBound(args.paidEndpoint, jsonGet);
-  if (paidRes.status !== 402) gate = UNGATED("paid_endpoint_not_402");
+  if (HTTP_REDIRECT_STATUSES.has(paidRes.status)) {
+    try { await paidRes.body?.cancel(); } catch { /* refusal does not depend on body cleanup */ }
+    gate = UNGATED("paid_endpoint_redirect_not_followed");
+  } else if (paidRes.status !== 402) gate = UNGATED("paid_endpoint_not_402");
   else {
     const challenge = await paymentRequiredFromResponse(paidRes);
     const req = pickRequirements(challenge?.accepts);

@@ -44,6 +44,7 @@ export const DEFAULT_COLD_START_DIET: readonly string[] = [
 export const DEFAULT_MAX_PER_CALL_USDC = 0.05;
 export const DEFAULT_MAX_PER_DAY_USDC = 0.5;
 const FETCH_TIMEOUT_MS = 15_000;
+const PROBE_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const DEFAULT_INTEL = "https://intel.twzrd.xyz";
 const HOP_INSPECT_CAP = 8;
 
@@ -366,6 +367,18 @@ function hostRow(
   };
 }
 
+type ProbeRefusalReason =
+  | "forbidden_private_resolution"
+  | "forbidden_twzrd_or_loopback"
+  | "redirect_not_followed";
+
+class ProbeRefusalError extends Error {
+  constructor(readonly reason: ProbeRefusalReason) {
+    super(reason);
+    this.name = "ProbeRefusalError";
+  }
+}
+
 async function probeUnpaid402(
   url: string,
   fetchImpl: typeof fetch,
@@ -376,7 +389,14 @@ async function probeUnpaid402(
   amountMicro: string | undefined;
   error: "not_402" | "no_payto" | RequirementFieldConflict | null;
 }> {
-  const resp = await fetchImpl(url, { headers: { accept: "application/json" } });
+  const resp = await fetchImpl(url, {
+    headers: { accept: "application/json" },
+    redirect: "manual",
+  });
+  if (PROBE_REDIRECT_STATUSES.has(resp.status)) {
+    await resp.body?.cancel();
+    throw new ProbeRefusalError("redirect_not_followed");
+  }
   if (resp.status !== 402) {
     return { httpStatus: resp.status, req: {}, payTo: undefined, amountMicro: undefined, error: "not_402" };
   }
@@ -529,6 +549,12 @@ export async function runColdStart(
         abort: !approved,
       });
     } catch (err) {
+      if (err instanceof ProbeRefusalError) {
+        return hostRow(role, url, {
+          status: "forbidden",
+          reason: err.reason,
+        });
+      }
       return hostRow(role, url, {
         status: "probe_error",
         reason: err instanceof Error ? err.message : String(err),

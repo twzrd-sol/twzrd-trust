@@ -242,6 +242,68 @@ test("runColdStart forbids a diet URL that is a private IP literal, with zero fe
   assert.equal(fetchMock.mock.callCount(), 0, "a private literal is never fetched");
 });
 
+test("runColdStart refuses a redirect to loopback before fetching the target", async (t) => {
+  const dir = tempDir("cold-start-ssrf-redirect-");
+  const seller = "https://directory-listed.example/product";
+  const loopback = "http://127.0.0.1:4020/reset";
+  const fetched: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: unknown, init?: RequestInit) => {
+    const url = String(input);
+    fetched.push(url);
+    if (url === seller) {
+      assert.equal(init?.redirect, "manual", "the platform must not follow redirects implicitly");
+      return new Response(null, { status: 302, headers: { location: loopback } });
+    }
+    throw new Error(`must not fetch redirected target: ${url}`);
+  });
+
+  const { transcript } = await runColdStart(
+    parseArgs([
+      "--diet-url",
+      seller,
+      "--no-hop",
+      "--policy-out",
+      join(dir, "policy.json"),
+    ]),
+    { resolveHost: RESOLVE_PUBLIC },
+  );
+
+  const diet = transcript.hosts.find((h) => h.role === "diet");
+  assert.equal(diet?.status, "forbidden");
+  assert.equal(diet?.reason, "redirect_not_followed");
+  assert.deepEqual(fetched, [seller]);
+});
+
+test("runColdStart also refuses a redirect to a public target", async (t) => {
+  const dir = tempDir("cold-start-public-redirect-refusal-");
+  const seller = "https://public-redirect.example/start";
+  const final = "https://public-redirect.example/product";
+  const fetched: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: unknown, init?: RequestInit) => {
+    const url = String(input);
+    fetched.push(url);
+    assert.equal(init?.redirect, "manual");
+    if (url === seller) return new Response(null, { status: 302, headers: { location: final } });
+    throw new Error(`must not fetch redirected target: ${url}`);
+  });
+
+  const { transcript } = await runColdStart(
+    parseArgs([
+      "--diet-url",
+      seller,
+      "--no-hop",
+      "--policy-out",
+      join(dir, "policy.json"),
+    ]),
+    { resolveHost: RESOLVE_PUBLIC },
+  );
+
+  const diet = transcript.hosts.find((h) => h.role === "diet");
+  assert.equal(diet?.status, "forbidden");
+  assert.equal(diet?.reason, "redirect_not_followed");
+  assert.deepEqual(fetched, [seller]);
+});
+
 test("runColdStart never probes a hop candidate that DNS-resolves to a private address", async (t) => {
   const dir = tempDir("cold-start-ssrf-hop-");
   const hopUrl = "https://rebinder.example/product";

@@ -123,6 +123,35 @@ test("run: a paid endpoint that does not answer 402 is gated closed, never treat
   assert.deepEqual(report.refuse_reasons, ["gate_block", "gate_unscored"]);
 });
 
+test("run: a paid endpoint redirect is refused without fetching its target", async () => {
+  const redirectTarget = "https://redirect-target.example/paid";
+  const fetched: string[] = [];
+  const fetchImpl: typeof fetch = (async (url: unknown, init?: RequestInit) => {
+    const current = String(url);
+    fetched.push(current);
+    if (current === BOARD_URL) {
+      return new Response(JSON.stringify(DESKCREW), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (current === PING) {
+      assert.equal(init?.redirect, "manual", "the platform must not follow paid-endpoint redirects");
+      return new Response(null, { status: 302, headers: { location: redirectTarget } });
+    }
+    throw new Error(`must not fetch redirected paid endpoint: ${current}`);
+  }) as unknown as typeof fetch;
+
+  const { report, exitCode } = await runBountyPreflight(
+    parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "0.2"]),
+    { fetch: fetchImpl, evaluate: allowGate, now: () => "2026-09-10T00:00:00.000Z" },
+  );
+
+  assert.equal(exitCode, 1);
+  assert.equal(report.gate?.reason, "paid_endpoint_redirect_not_followed");
+  assert.deepEqual(fetched, [BOARD_URL, PING]);
+});
+
 test("run: a Base payTo the gate cannot score is refused as gate_unscored until the operator opts in", async () => {
   const refused = await runBountyPreflight(parseArgs(["--board", BOARD_URL, "--assumed-win-prob", "0.2"]), { fetch: fakeFetch(), evaluate: unscoredGate, now: () => "2026-09-10T00:00:00.000Z" });
   assert.equal(refused.exitCode, 1);
