@@ -83,6 +83,16 @@ needs to re-sync divergence between the two packages, start from that PR.
   `https://intel.twzrd.xyz`** (free preflight, no key/signup). They need outbound
   egress; they spend **no** USDC. If egress is blocked these demos fail even
   though unit tests pass.
+- **House traffic tag.** Three repo scripts call live intel: `test:quickstart`
+  (part of `npm run ci`), `scripts/check-gate-release-drift.mjs`, and
+  `scripts/sync-intel-mirror.mjs`. They send `x-twzrd-caller: twzrd:internal:<subsystem>`
+  only when `TWZRD_INTERNAL_CALLER` is set (`scripts/house-caller.mjs`; anything else
+  is refused). This repo's workflows set it, guarded on `github.repository`. TWZRD's own
+  local `npm run ci` gate runner should export `TWZRD_INTERNAL_CALLER=twzrd:internal:local-ci`.
+  Never set it in examples, README quickstarts, or package code: an unset variable is
+  what keeps outside runs countable as outside traffic. Gate SDK runs are tagged
+  differently, through `attribution` / `TWZRD_ATTRIBUTION_INTEGRATION` +
+  `TWZRD_ATTRIBUTION_RUN_ID`.
 - `x402-solana` is an optional peer. Consumers install
   `twzrd-x402-gate@0.20.0 x402-solana@3.0.1`. This checkout lists `x402-solana`
   as a gate **devDependency** so the seat is present after root `npm ci`. It is

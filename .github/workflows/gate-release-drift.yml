@@ -21,3 +21,6 @@ jobs:
         with:
           node-version: 20
       - run: node scripts/check-gate-release-drift.mjs
+        # House traffic tag for the intel fetches, this repo only (scripts/house-caller.mjs).
+        env:
+          TWZRD_INTERNAL_CALLER: ${{ github.repository == 'twzrd-sol/twzrd-trust' && 'twzrd:internal:release-drift' || '' }}

@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { houseCallerHeaders } from './house-caller.mjs';
 
 const LLMS_URL = 'https://intel.twzrd.xyz/llms.txt';
 const MCP_URL = 'https://intel.twzrd.xyz/.well-known/mcp.json';
@@ -12,8 +13,8 @@ const MAX_BYTES = 1_048_576;
 const DEFAULT_LLMS = new URL('../server/llms.txt', import.meta.url);
 const DEFAULT_MCP = new URL('../server/.well-known/mcp.json', import.meta.url);
 
-async function fetchText(fetchFn, url) {
-  const response = await fetchFn(url, { signal: AbortSignal.timeout(10_000), redirect: 'error' });
+async function fetchText(fetchFn, url, headers) {
+  const response = await fetchFn(url, { signal: AbortSignal.timeout(10_000), redirect: 'error', headers });
   if (!response.ok) throw new Error(`${url} HTTP ${response.status}`);
   const text = await response.text();
   if (Buffer.byteLength(text) > MAX_BYTES) throw new Error(`${url} exceeds 1 MiB`);
@@ -31,8 +32,10 @@ export async function syncIntelMirror({
   llmsPath = DEFAULT_LLMS,
   mcpPath = DEFAULT_MCP,
   write = false,
+  env = process.env,
 } = {}) {
-  const [liveLlms, liveMcp] = await Promise.all([fetchText(fetchFn, LLMS_URL), fetchText(fetchFn, MCP_URL)]);
+  const headers = houseCallerHeaders(env);
+  const [liveLlms, liveMcp] = await Promise.all([fetchText(fetchFn, LLMS_URL, headers), fetchText(fetchFn, MCP_URL, headers)]);
   const wantMcp = mirrorMcp(liveMcp);
   const haveLlms = readFileSync(llmsPath, 'utf8');
   const haveMcp = readFileSync(mcpPath, 'utf8');
