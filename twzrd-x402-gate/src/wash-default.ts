@@ -137,7 +137,9 @@ export type WashDefaultOptions = {
   refuseWashFlagged?: boolean;
   /**
    * Soft cap: if wash_flagged and priceUsdc <= washMaxUsdc, allow.
-   * Default null = hard refuse on wash_flagged.
+   * Left out, TWZRD_WASH_MAX_USDC applies; with neither, wash_flagged is a
+   * hard refuse. An explicit null is always a hard refuse and the env variable
+   * is not read (0.21.0).
    */
   washMaxUsdc?: number | null;
   /** Optional telemetry; never throws into the payment path. */
@@ -238,6 +240,8 @@ function resolveRefuseWash(opts?: WashDefaultOptions): boolean {
 }
 
 function resolveWashMaxUsdc(opts?: WashDefaultOptions): number | null {
+  // Same rule as resolveConfig: an explicit null is no soft cap, env not read.
+  if (opts?.washMaxUsdc === null) return null;
   if (opts?.washMaxUsdc != null && Number.isFinite(opts.washMaxUsdc)) {
     return opts.washMaxUsdc;
   }

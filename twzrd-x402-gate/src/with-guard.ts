@@ -126,7 +126,9 @@ export function withTwzrdGuard(
       refuseUncappedWarn: config.refuseUncappedWarn,
       refuseWashFlagged: config.refuseWashFlagged,
       refuseWashUnknown: config.refuseWashUnknown,
-      washMaxUsdc: config.washMaxUsdc ?? undefined,
+      // The resolved value, null included: `?? undefined` here sent a null (no
+      // soft cap) back through resolveConfig, which then read TWZRD_WASH_MAX_USDC.
+      washMaxUsdc: config.washMaxUsdc,
       unsupportedNetworkMode: config.unsupportedNetworkMode,
       intelTimeoutMs: config.intelTimeoutMs,
       fetch: config.fetch,

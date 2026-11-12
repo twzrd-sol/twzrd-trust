@@ -172,8 +172,13 @@ export type TwzrdGateConfig = {
    * Soft cap instead of hard refuse: when wash_flagged and priceUsdc <= this,
    * allow (reason twzrd_wash_capped_*). Above the cap (or unknown price) refuse.
    * Only applies when refuseWashFlagged is true. Env: TWZRD_WASH_MAX_USDC.
+   *
+   * `null` means no soft cap: wash_flagged always refuses, and
+   * TWZRD_WASH_MAX_USDC is not read (0.21.0; before that an explicit null fell
+   * back to the env variable, the same as leaving the option out). Left out,
+   * the env variable still applies.
    */
-  washMaxUsdc?: number;
+  washMaxUsdc?: number | null;
   /**
    * How to handle payments on networks TWZRD does not reputation-score.
    * Solana mainnet and Base mainnet (`eip155:8453`) are scored and do not use

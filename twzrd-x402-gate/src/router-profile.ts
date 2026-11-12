@@ -19,7 +19,9 @@ import type { TwzrdGateConfig } from "./types.js";
  *   fully answered the wash question does not refuse.
  * - A finding still refuses. `decision: "block"`, a score below 40, an
  *   evaluated warn without a finite cap or above it, and `wash_flagged: true`
- *   all refuse before the signer.
+ *   all refuse before the signer. `washMaxUsdc: null` keeps the wash refusal
+ *   hard: there is no soft cap, and `TWZRD_WASH_MAX_USDC` on the host is not
+ *   read.
  * - `failOpen` has no default here. The caller decides what an intel outage
  *   does: `true` pays through it, `false` refuses it.
  * - Nothing is added to what the gate sends. No `attribution` is set, so the
@@ -28,16 +30,16 @@ import type { TwzrdGateConfig } from "./types.js";
  *   merchant card call carries no TWZRD header.
  *
  * Not pinned, so an option or env variable still reaches them: `intelBase`
- * (`TWZRD_INTEL_BASE`), `washMaxUsdc` (`TWZRD_WASH_MAX_USDC`, a soft cap that
- * lets a wash-flagged payment at or under it through), `attribution`
- * (`TWZRD_ATTRIBUTION_INTEGRATION` + `TWZRD_ATTRIBUTION_RUN_ID`), the `.kill` /
- * `.pause` sentinels (`stateDir`, `TWZRD_STATE_DIR`) and `tripPauseOnBlockMs`
- * (`TWZRD_TRIP_PAUSE_ON_BLOCK_MS`). Each is off or inert unless the operator
- * sets it.
+ * (`TWZRD_INTEL_BASE`), `attribution` (`TWZRD_ATTRIBUTION_INTEGRATION` +
+ * `TWZRD_ATTRIBUTION_RUN_ID`), the `.kill` / `.pause` sentinels (`stateDir`,
+ * `TWZRD_STATE_DIR`) and `tripPauseOnBlockMs` (`TWZRD_TRIP_PAUSE_ON_BLOCK_MS`).
+ * Each is off or inert unless the operator sets it.
  *
  * Spread it to override a field: `{ ...routerProfile({ failOpen: true }),
- * intelTimeoutMs: 800 }`. A changed value in this object ships only in a minor
- * release, with a CHANGELOG entry.
+ * intelTimeoutMs: 800 }`. A soft wash cap is such an override, written in the
+ * router's own code (`washMaxUsdc: 0.02`); the env variable cannot set it. A
+ * changed value in this object ships only in a minor release, with a CHANGELOG
+ * entry.
  */
 export type RouterProfileOptions = {
   /** Required. What an intel outage (preflight or merchant card) does: true pays, false refuses. */
@@ -49,6 +51,7 @@ export type TwzrdRouterProfile = Readonly<{
   refuseUnevaluated: false;
   refuseWashUnknown: false;
   refuseWashFlagged: true;
+  washMaxUsdc: null;
   refuseUncappedWarn: true;
   preflightMinScore: 40;
   blockDecisions: readonly ["block"];
@@ -69,6 +72,7 @@ export function routerProfile(options: RouterProfileOptions): TwzrdRouterProfile
     refuseUnevaluated: false,
     refuseWashUnknown: false,
     refuseWashFlagged: true,
+    washMaxUsdc: null,
     refuseUncappedWarn: true,
     preflightMinScore: 40,
     blockDecisions: Object.freeze(["block"] as const),

@@ -8,6 +8,10 @@
  *   a reachable card without full wash coverage both pay. A finding refuses:
  *   decision block, a low score, an uncapped warn, a price over the cap, and
  *   wash_flagged true.
+ * - The wash refusal is hard: the profile pins washMaxUsdc: null, so
+ *   TWZRD_WASH_MAX_USDC on the host cannot pay a wash-flagged seller on any
+ *   seat. The same env does pay it on the package defaults, which is the
+ *   control that shows the variable is live.
  * - failOpen decides both outages (preflight, merchant card), both ways.
  * - No attribution headers and no payer wallet are sent; the constant client
  *   tag is.
@@ -92,6 +96,7 @@ const PINNED_ENV = [
   "TWZRD_REFUSE_UNEVALUATED",
   "TWZRD_REFUSE_WASH_UNKNOWN",
   "TWZRD_REFUSE_WASH_FLAGGED",
+  "TWZRD_WASH_MAX_USDC",
   "TWZRD_REFUSE_UNCAPPED_WARN",
   "TWZRD_PREFLIGHT_MIN_SCORE",
   "TWZRD_BLOCK_DECISIONS",
@@ -119,6 +124,8 @@ const HOSTILE_ENV: Record<(typeof PINNED_ENV)[number], string> = {
   TWZRD_REFUSE_UNEVALUATED: "1",
   TWZRD_REFUSE_WASH_UNKNOWN: "1",
   TWZRD_REFUSE_WASH_FLAGGED: "0",
+  // Far above every price in this file: it would pay any wash-flagged seller here.
+  TWZRD_WASH_MAX_USDC: "1000",
   TWZRD_REFUSE_UNCAPPED_WARN: "0",
   TWZRD_PREFLIGHT_MIN_SCORE: "95",
   TWZRD_BLOCK_DECISIONS: "block,warn",
@@ -126,6 +133,17 @@ const HOSTILE_ENV: Record<(typeof PINNED_ENV)[number], string> = {
   TWZRD_UNSUPPORTED_NETWORK_MODE: "strict",
   TWZRD_INTEL_TIMEOUT_MS: "5",
 };
+
+const FETCH_SEAT_REQS = {
+  payTo: SELLER,
+  maxAmountRequired: "10000",
+  resource: "https://merchant.example/paid",
+  network: "solana",
+  asset: USDC,
+} as X402PaymentRequirements;
+const fetchSeat402 = (async () =>
+  jsonResponse({ x402Version: 1, error: "payment_required", accepts: [{ ...FETCH_SEAT_REQS, scheme: "exact" }] }, 402)) as unknown as typeof fetch;
+const PAID_URL = "https://merchant.example/paid";
 
 const aborted = (r: { abort?: boolean; reason?: string } | void | undefined) => Boolean(r && r.abort === true);
 const reasonOf = (r: { reason?: string } | void | undefined) => String(r?.reason ?? "");
@@ -140,6 +158,7 @@ test("the profile object is pinned, frozen, and has no failOpen default", () => 
         refuseUnevaluated: false,
         refuseWashUnknown: false,
         refuseWashFlagged: true,
+        washMaxUsdc: null,
         refuseUncappedWarn: true,
         preflightMinScore: 40,
         blockDecisions: ["block"],
@@ -150,7 +169,7 @@ test("the profile object is pinned, frozen, and has no failOpen default", () => 
     );
     assert.ok(Object.isFrozen(p) && Object.isFrozen(p.blockDecisions));
     assert.equal("attribution" in p, false, "the profile never sets attribution");
-    assert.equal("washMaxUsdc" in p, false);
+    assert.equal(p.washMaxUsdc, null, "an explicit null, not a missing key: resolveConfig reads the env for a missing one");
   }
   for (const bad of [undefined, null, {}, { failOpen: "true" }, { failOpen: 1 }, { failOpen: undefined }]) {
     assert.throws(() => routerProfile(bad as never), TypeError, `rejects ${JSON.stringify(bad)}`);
@@ -169,6 +188,7 @@ test("env variables for pinned settings do not move the resolved profile", async
     assert.equal(resolved.refuseUnevaluated, false);
     assert.equal(resolved.refuseWashUnknown, false);
     assert.equal(resolved.refuseWashFlagged, true);
+    assert.equal(resolved.washMaxUsdc, null, "TWZRD_WASH_MAX_USDC=1000 does not become a soft cap");
     assert.equal(resolved.refuseUncappedWarn, true);
     assert.equal(resolved.preflightMinScore, 40);
     assert.deepEqual([...resolved.blockDecisions], ["block"]);
@@ -183,7 +203,6 @@ test("operator settings the profile does not pin still reach it", async () => {
   const resolved = await withEnv(
     {
       TWZRD_INTEL_BASE: "https://intel.example",
-      TWZRD_WASH_MAX_USDC: "0.02",
       TWZRD_ATTRIBUTION_INTEGRATION: "router-x",
       TWZRD_ATTRIBUTION_RUN_ID: "run-1",
       TWZRD_TRIP_PAUSE_ON_BLOCK_MS: "60000",
@@ -191,12 +210,78 @@ test("operator settings the profile does not pin still reach it", async () => {
     () => resolveConfig(routerProfile({ failOpen: false })),
   );
   assert.equal(resolved.intelBase, "https://intel.example");
-  assert.equal(resolved.washMaxUsdc, 0.02);
   assert.deepEqual(resolved.attribution, { integration: "router-x", runId: "run-1" });
   assert.equal(resolved.tripPauseOnBlockMs, 60000);
   const plain = resolveConfig(routerProfile({ failOpen: false }));
-  assert.equal(plain.washMaxUsdc, null, "unset: a wash flag is a hard refusal");
   assert.equal(plain.attribution, undefined);
+  assert.equal(plain.tripPauseOnBlockMs, undefined);
+});
+
+test("a soft wash cap is a code override on the profile, never the env variable", async () => {
+  const flagged = () => intel(ALLOW, FLAGGED);
+  // The router writes the cap itself: at or under it pays, above it refuses.
+  const tuned = { ...routerProfile({ failOpen: false }), washMaxUsdc: 0.02 };
+  assert.equal(resolveConfig(tuned).washMaxUsdc, 0.02);
+  const under = await createTwzrdBeforePaymentHook({ ...tuned, fetch: flagged() })(req("10000"));
+  assert.equal(aborted(under), false, reasonOf(under));
+  const over = await createTwzrdBeforePaymentHook({ ...tuned, fetch: flagged() })(req("50000"));
+  assert.equal(aborted(over), true);
+  assert.match(reasonOf(over), /twzrd_wash_flagged/);
+  // The written cap also beats a looser env value.
+  await withEnv({ TWZRD_WASH_MAX_USDC: "1000" }, async () => {
+    assert.equal(resolveConfig(tuned).washMaxUsdc, 0.02);
+    const stillOver = await createTwzrdBeforePaymentHook({ ...tuned, fetch: flagged() })(req("50000"));
+    assert.equal(aborted(stillOver), true);
+  });
+});
+
+test("TWZRD_WASH_MAX_USDC cannot pay a wash-flagged seller on any seat", async () => {
+  const profile = routerProfile({ failOpen: false });
+  const ctx = { payTo: SELLER, chain: SOL, priceUsdc: 0.01, asset: USDC };
+  const clientCtx = { selectedRequirements: req("10000") };
+  await withEnv({ TWZRD_WASH_MAX_USDC: "1000" }, async () => {
+    // Control: on the package defaults the same env pays the same seller, so
+    // the refusals below come from the pinned null and not from a dead variable.
+    const control = await createTwzrdBeforePaymentHook({ fetch: intel(ALLOW, FLAGGED) })(req("10000"));
+    assert.equal(aborted(control), false, `env soft cap is live on the defaults: ${reasonOf(control)}`);
+    const controlGate = await createTwzrdGate({ fetch: intel(ALLOW, FLAGGED) }).approvePayment(ctx);
+    assert.equal(controlGate.approved, true);
+    assert.match(controlGate.reason, /twzrd_wash_capped_0\.01_le_1000/);
+
+    const hook = await createTwzrdBeforePaymentHook({ ...profile, fetch: intel(ALLOW, FLAGGED) })(req("10000"));
+    assert.equal(aborted(hook), true, "createTwzrdBeforePaymentHook");
+    assert.match(reasonOf(hook), /twzrd_wash_flagged/);
+
+    const payKit = await createTwzrdPayKitBeforePaymentHook({ ...profile, fetch: intel(ALLOW, FLAGGED) })(clientCtx as never);
+    assert.equal(aborted(payKit), true, "createTwzrdPayKitBeforePaymentHook");
+    assert.match(reasonOf(payKit), /twzrd_wash_flagged/);
+
+    const gate = await createTwzrdGate({ ...profile, fetch: intel(ALLOW, FLAGGED) }).approvePayment(ctx);
+    assert.equal(gate.approved, false, "createTwzrdGate");
+    assert.equal(gate.reason, "twzrd_wash_flagged");
+
+    await assert.rejects(
+      () => wrapFetchWithTwzrdGate(fetchSeat402, resolveConfig({ ...profile, fetch: intel(ALLOW, FLAGGED) }))(PAID_URL),
+      /twzrd_wash_flagged/,
+      "wrapFetchWithTwzrdGate",
+    );
+    // withTwzrdGuard resolves the config and then calls evaluate_x402_resource,
+    // which resolves again; the null has to survive that second hop.
+    await assert.rejects(
+      () => withTwzrdGuard(fetchSeat402, { ...profile, fetch: intel(ALLOW, FLAGGED) })(PAID_URL),
+      /twzrd_wash_flagged/,
+      "withTwzrdGuard",
+    );
+    const evaluated = await evaluate_x402_resource(PAID_URL, FETCH_SEAT_REQS, { ...profile, fetch: intel(ALLOW, FLAGGED) });
+    assert.equal(evaluated.approved, false, "evaluate_x402_resource");
+    assert.equal(evaluated.reason, "twzrd_wash_flagged");
+
+    // An unevaluated seller within its own cap is paid on the profile, but not
+    // when it is wash-flagged, env or no env.
+    const unevaluated = await createTwzrdBeforePaymentHook({ ...profile, fetch: intel(UNEVALUATED, FLAGGED) })(req("10000"));
+    assert.equal(aborted(unevaluated), true);
+    assert.match(reasonOf(unevaluated), /twzrd_wash_flagged/);
+  });
 });
 
 test("missing evidence pays; the same calls refuse on the package defaults", async () => {
@@ -343,17 +428,6 @@ test("the other full-config seats give the same answers", async () => {
   assert.equal(evalFlagged.approved, false);
   assert.equal(evalFlagged.reason, "twzrd_wash_flagged");
 });
-
-const FETCH_SEAT_REQS = {
-  payTo: SELLER,
-  maxAmountRequired: "10000",
-  resource: "https://merchant.example/paid",
-  network: "solana",
-  asset: USDC,
-} as X402PaymentRequirements;
-const fetchSeat402 = (async () =>
-  jsonResponse({ x402Version: 1, error: "payment_required", accepts: [{ ...FETCH_SEAT_REQS, scheme: "exact" }] }, 402)) as unknown as typeof fetch;
-const PAID_URL = "https://merchant.example/paid";
 
 test("withTwzrdGuard and evaluate_x402_resource pass refuseUncappedWarn through", async () => {
   const warn = { decision: "warn", trust_score: 50, can_spend: true };

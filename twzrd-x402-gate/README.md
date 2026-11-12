@@ -1107,7 +1107,8 @@ What the guard does on HTTP 402:
 
 Opt out of wash refuse: `withTwzrdGuard(fetch, { refuseWashFlagged: false })` or
 `TWZRD_REFUSE_WASH_FLAGGED=0`. Soft cap instead of hard refuse: `washMaxUsdc` /
-`TWZRD_WASH_MAX_USDC`.
+`TWZRD_WASH_MAX_USDC`. Unreleased: `washMaxUsdc: null` means no soft cap and the
+env variable is not read, and the guard reads the cap once, when it is built.
 
 Non-402 responses pass through unchanged.
 
@@ -1710,7 +1711,7 @@ field, spread it: `{ ...routerProfile({ failOpen: true }), intelTimeoutMs: 800 }
 | Seller intel has never evaluated, price at or under the card's `recommended_cap_usdc` | pays | refuses (`twzrd_unevaluated_subject_*`) |
 | Seller never evaluated, price above that cap, or no cap, or no price | refuses (`twzrd_unevaluated_over_cap_*`, `twzrd_unevaluated_no_cap_*`, `twzrd_unevaluated_unknown_price_*`) | refuses |
 | Merchant card reachable, wash coverage missing, partial or stale | pays | refuses (`twzrd_wash_unknown`) |
-| `wash_flagged: true` | refuses (`twzrd_wash_flagged`) | refuses |
+| `wash_flagged: true` | refuses (`twzrd_wash_flagged`), whatever `TWZRD_WASH_MAX_USDC` says | refuses, unless `washMaxUsdc` or `TWZRD_WASH_MAX_USDC` sets a soft cap and the price is at or under it |
 | `decision: "block"`, or a score below 40 | refuses | refuses |
 | Evaluated warn with no finite cap, or over its cap | refuses (`twzrd_warn_no_cap`, `twzrd_over_recommended_cap_*`) | refuses |
 | Preflight or merchant card unreachable | your `failOpen` | refuses unless `TWZRD_FAIL_OPEN` is set |
@@ -1730,12 +1731,17 @@ do not send the payer's wallet. Leave `x402Fetch` unset unless you want paid hop
 with one, a warn buys the $0.001 `/quick` and an allowed payment above $2.50
 buys the $0.05 `/trust` receipt, from that fetch's wallet.
 
+**No soft wash cap.** The profile pins `washMaxUsdc: null`. `null` means no
+soft cap: a wash-flagged seller is refused at any price, and
+`TWZRD_WASH_MAX_USDC` is not read, so a value set on the host cannot pay one.
+To allow small wash-flagged payments, say so in code:
+`{ ...routerProfile({ failOpen: true }), washMaxUsdc: 0.02 }`.
+
 **Not pinned.** An option or env variable still reaches these, and each is off
-unless set: `intelBase` (`TWZRD_INTEL_BASE`), `washMaxUsdc`
-(`TWZRD_WASH_MAX_USDC`, a soft cap that pays a wash-flagged payment at or under
-it), `attribution` (`TWZRD_ATTRIBUTION_INTEGRATION` +
-`TWZRD_ATTRIBUTION_RUN_ID`), the `.kill` / `.pause` sentinels (`stateDir`,
-`TWZRD_STATE_DIR`) and `tripPauseOnBlockMs` (`TWZRD_TRIP_PAUSE_ON_BLOCK_MS`).
+unless set: `intelBase` (`TWZRD_INTEL_BASE`), `attribution`
+(`TWZRD_ATTRIBUTION_INTEGRATION` + `TWZRD_ATTRIBUTION_RUN_ID`), the `.kill` /
+`.pause` sentinels (`stateDir`, `TWZRD_STATE_DIR`) and `tripPauseOnBlockMs`
+(`TWZRD_TRIP_PAUSE_ON_BLOCK_MS`).
 
 **Seats.** Tested with the profile: `createTwzrdPayKitBeforePaymentHook` (an
 `x402Client`'s `onBeforePaymentCreation`, PayKit's
