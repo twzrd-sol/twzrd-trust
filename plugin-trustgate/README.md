@@ -10,7 +10,7 @@ Buyer-side **x402 trust gate** for elizaOS agents. Before your agent signs a pay
 Current compatible fetch-gate release:
 
 ```bash
-npm install twzrd-x402-gate@0.12.5
+npm install twzrd-x402-gate@0.20.2
 ```
 
 The results below were captured on 2026-07-16, before `0.8.2` was published.
@@ -66,7 +66,7 @@ npm install @wzrd_sol/plugin-trustgate
 
 Compatibility: `@elizaos/core >=1.0.0`. The package has no direct dependency on
 `twzrd-x402-gate`; the reproducible fetch-gate example above is pinned to the
-current `twzrd-x402-gate@0.12.5` release.
+current `twzrd-x402-gate@0.20.2` release.
 
 ## Use (3 lines)
 
@@ -82,10 +82,11 @@ wash-flagged seller (decision `block`) and proceeds on a clean one (decision `wa
 
 ## How it works
 
-- **`trustGateProvider`** injects `BLOCK / WARN / ALLOW` + score for the counterparty seller into the agent's context, so the model won't choose to pay a blocked merchant in the first place.
+- **`trustGateProvider`** injects `BLOCK / WARN / ALLOW` + score into the agent's context, so the model won't choose to pay a blocked merchant in the first place. It checks **every** wallet the payment context names (each `sellerWallet` / `payTo` / `merchant` / `recipient` state value and each Solana address in the message text), reports the worst verdict, and lists the verdict per wallet. A message that names more than 4 wallets gets `BLOCK` with none checked. `data.trustVerdict` is the worst verdict; `data.trustVerdicts` holds one per wallet.
 - **`canSpendSafely(sellerWallet)`** is the enforcement primitive your payment action calls before signing: `false` = do not pay. It hits free `POST https://intel.twzrd.xyz/v1/intel/preflight` and blocks on `decision === "block"` (sellers TWZRD flags as high-risk via preflight).
 - **Enforcement is opt-in:** the plugin does **not** auto-intercept signatures - your payment action must call `canSpendSafely(payTo)`. The provider only makes the model *aware*.
 - **Fail-closed by default:** a preflight outage blocks the payment (`canSpendSafely` returns `false`, verdict carries `gateAvailable: false`) so an intel hiccup never silently approves a spend. Set `failOpen: true` to opt into legacy allow-on-outage (liveness > security).
+- **An answer with no readable decision blocks, always:** a 200 whose body is not a JSON object, whose `readiness_card` is not an object, or whose `decision` is not the string `allow`, `warn` or `block` (`{}`, an error envelope, `["allow"]`) is a block with `gateAvailable: true`. `failOpen` does not change it: that setting covers "no answer" (unreachable, timeout, non-2xx, a body that is not JSON), and this is an answer.
 
 ## Config
 
@@ -93,8 +94,8 @@ wash-flagged seller (decision `block`) and proceeds on a clean one (decision `wa
 import { checkTrust, createTrustGateProvider } from "@wzrd_sol/plugin-trustgate";
 
 const verdict = await checkTrust(payTo, {
-  minScore: 0,     // also block when trust_score < this. Default 0 (decision-only).
-  failOpen: false, // true = allow on a preflight outage (legacy). Default false (fail-closed).
+  minScore: 0,     // also block when trust_score < this, or when the card has no numeric trust_score. Default 0 (decision-only).
+  failOpen: false, // true = allow on a preflight outage (legacy). Default false (fail-closed). Never allows an unreadable answer.
   timeoutMs: 4000,
   intelBase: "https://intel.twzrd.xyz",
 });
@@ -103,7 +104,7 @@ const verdict = await checkTrust(payTo, {
 const provider = createTrustGateProvider({ failOpen: true }); // opt into legacy allow-on-outage
 ```
 
-**Sharp edge - `minScore`:** unknown sellers score **45** (`default_no_data`), so `minScore > 45` blocks *every* not-yet-seen merchant, not just bad ones. Use it deliberately; decision-only (`minScore: 0`) blocks just the wash-flagged `block` verdicts from preflight.
+**Sharp edge - `minScore`:** unknown sellers score **45** (`default_no_data`), so `minScore > 45` blocks *every* not-yet-seen merchant, not just bad ones. Use it deliberately; decision-only (`minScore: 0`) blocks just the wash-flagged `block` verdicts from preflight. With `minScore` set, a card with no numeric `trust_score` blocks: a floor that cannot be checked is not met.
 
 Powered by the TWZRD agent-intel corpus (the independent scorer on the real Solana x402 payment graph). MIT.
 
@@ -132,7 +133,8 @@ const payerChooser = createTwzrdPayerChooser();
 // wrap(fetch, { handlers, payerChooser })
 ```
 
-Hard-blocks only `decision === "block"` (and optional `minScore`). Free-tier
+Hard-blocks only `decision === "block"` (and optional `minScore`), plus any
+answer with no readable decision. Free-tier
 `warn` / `can_spend=false` does **not** reject alone. Fail-closed on preflight
 outage. Solana-only by default. Throws `TwzrdPayerChooserBlockedError` when all
 scoreable candidates are blocked — **no signature**.

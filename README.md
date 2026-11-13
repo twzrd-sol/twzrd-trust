@@ -52,9 +52,9 @@ Registry `latest` as read on 2026-11-11; killswitch container pin also rechecked
 | `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
 | `twzrd-receipt-verifier` | npm and PyPI 1.4.4 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
 | `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.3 / PyPI 0.2.3 | 0.6.3 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
-| `@wzrd_sol/eliza-plugin` | npm 0.10.1 | 0.10.1 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
-| `@wzrd_sol/plugin-trustgate` | npm 0.3.11 | 0.3.10 | elizaOS and facilitator settle hook; mirror resync pending in #288 |
-| `twzrd-preflight` | npm 0.5.0 | separate repository | OpenClaw wrapped-fetch adapter |
+| `@wzrd_sol/eliza-plugin` | npm 0.10.2 | 0.10.2 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
+| `@wzrd_sol/plugin-trustgate` | npm 0.3.12 | 0.3.12 (`dist/` mirror) | elizaOS and facilitator settle hook |
+| `twzrd-preflight` | npm 0.5.1 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
 | `twzrd-log-verifier` | npm 0.5.1 | 0.5.1 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. 0.5.1 does not follow redirects from the log. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
 | `@twzrd1111/agent-killswitch` | npm **0.2.1**; `ghcr.io/twzrd-sol/agent-killswitch:0.2.1` | 0.2.1 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
@@ -306,7 +306,7 @@ What a card is, and what it is not:
 | `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
 | `twzrd-mcp-server` | **@0.6.3** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
-| `@wzrd_sol/plugin-trustgate` | **@^0.3.10** | Eliza / facilitator adapter |
+| `@wzrd_sol/plugin-trustgate` | **@^0.3.12** | Eliza / facilitator adapter |
 
 - **Document index (what is current, what is history):** [docs/README.md](./docs/README.md)
 - **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)

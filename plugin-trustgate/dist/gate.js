@@ -9,6 +9,10 @@
  * is never silently approved by an intel hiccup. Set failOpen=true to opt into
  * legacy fail-open behavior (allow on outage) when liveness > security.
  *
+ * An answer that arrives but carries no readable decision is not an outage: it
+ * blocks whatever failOpen says. Only "allow" and "warn", spelled as strings on
+ * a JSON object, let a payment through.
+ *
  * No @elizaos/core or @solana/web3.js dependency - usable from any JS runtime.
  */
 const DEFAULT_BASE = "https://intel.twzrd.xyz";
@@ -38,24 +42,42 @@ export async function checkTrust(sellerWallet, config = {}) {
         });
         if (!res.ok)
             return gateUnavailable(sellerWallet, `preflight HTTP ${res.status}`, failOpen);
-        const body = (await res.json());
-        const card = (body.readiness_card ?? body);
+        const body = await res.json();
+        if (!isRecord(body))
+            return unreadableAnswer(sellerWallet, "the body is not a JSON object");
+        // A readiness_card that is present must be an object; absent (or null) means the card is the body.
+        const nested = body.readiness_card;
+        if (nested !== undefined && nested !== null && !isRecord(nested)) {
+            return unreadableAnswer(sellerWallet, "readiness_card is not an object");
+        }
+        const card = isRecord(nested) ? nested : body;
         // Also check top-level paid_trust_endpoint (server returns it at both levels)
         const paidTrustEndpoint = (body.paid_trust_endpoint ?? card.paid_trust_endpoint);
         if (paidTrustEndpoint)
             card.paid_trust_endpoint = paidTrustEndpoint;
-        const raw = String(card.decision ?? "warn").toLowerCase();
+        // No default and no coercion: `{}` or an error envelope used to read as "warn",
+        // and String(["allow"]) reads as "allow".
+        if (typeof card.decision !== "string") {
+            return unreadableAnswer(sellerWallet, card.decision === undefined ? "no decision field" : "decision is not a string");
+        }
+        const raw = card.decision.toLowerCase();
         const KNOWN = ["allow", "warn", "block"];
-        const decision = KNOWN.includes(raw) ? raw : "block";
-        const trustScore = typeof card.trust_score === "number" ? card.trust_score : null;
+        if (!KNOWN.includes(raw)) {
+            return unreadableAnswer(sellerWallet, "decision is not allow, warn or block");
+        }
+        const decision = raw;
+        const trustScore = typeof card.trust_score === "number" && Number.isFinite(card.trust_score) ? card.trust_score : null;
         const canSpend = card.can_spend === true;
-        const scoreBlocks = minScore > 0 && trustScore !== null && trustScore < minScore;
+        // A floor needs a score to compare: no numeric trust_score, no pass.
+        const scoreBlocks = minScore > 0 && (trustScore === null || trustScore < minScore);
         const blocked = decision === "block" || scoreBlocks;
         const reason = !blocked
             ? `TWZRD preflight: ${decision} (trust_score=${trustScore})`
             : decision === "block"
                 ? `TWZRD preflight blocked (trust_score=${trustScore})`
-                : `trust_score ${trustScore} below min ${minScore}`;
+                : trustScore === null
+                    ? `no numeric trust_score to check against min ${minScore}`
+                    : `trust_score ${trustScore} below min ${minScore}`;
         const teaser = (card.paid_teaser ?? card.paid_quick_endpoint);
         const paidDeepDive = decision === "warn"
             ? typeof teaser === "string" && teaser.includes("/quick")
@@ -79,6 +101,25 @@ export async function checkTrust(sellerWallet, config = {}) {
  */
 export async function canSpendSafely(sellerWallet, config = {}) {
     return !(await checkTrust(sellerWallet, config)).blocked;
+}
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+/**
+ * Verdict for "the preflight answered, and the answer says nothing the gate can read".
+ * Always a block: failOpen is an outage setting, and this is not an outage.
+ */
+function unreadableAnswer(sellerWallet, why) {
+    console.warn(`[twzrd] payment BLOCKED: the preflight answered with no readable decision (${why}).`);
+    return {
+        sellerWallet,
+        decision: "block",
+        trustScore: null,
+        canSpend: false,
+        blocked: true,
+        reason: `TWZRD preflight returned no readable decision (${why})`,
+        gateAvailable: true,
+    };
 }
 /** Verdict for the "preflight could not produce an answer" path. */
 function gateUnavailable(sellerWallet, reason, failOpen) {

@@ -9,6 +9,10 @@
  * is never silently approved by an intel hiccup. Set failOpen=true to opt into
  * legacy fail-open behavior (allow on outage) when liveness > security.
  *
+ * An answer that arrives but carries no readable decision is not an outage: it
+ * blocks whatever failOpen says. Only "allow" and "warn", spelled as strings on
+ * a JSON object, let a payment through.
+ *
  * No @elizaos/core or @solana/web3.js dependency - usable from any JS runtime.
  */
 export type TwzrdDecision = "allow" | "warn" | "block";
@@ -18,7 +22,8 @@ export interface TrustGateConfig {
     /**
      * Also block when trust_score < this, even if decision !== "block". Default 0 (decision-only).
      * Sharp edge: unknown sellers score 45 (default_no_data), so minScore > 45 blocks every
-     * not-yet-seen merchant. Use deliberately.
+     * not-yet-seen merchant. Use deliberately. With a floor set, a card that carries no
+     * numeric trust_score blocks too: a floor that cannot be checked is not met.
      */
     minScore?: number;
     /** Injectable fetch (tests / non-global-fetch runtimes). Default globalThis.fetch. */
@@ -28,6 +33,8 @@ export interface TrustGateConfig {
     /**
      * On a preflight outage: false (default) = block and log loudly (fail-closed).
      * Set to true to opt into legacy fail-open behavior (allow on outage).
+     * Covers "no answer" only (unreachable, timeout, non-2xx, a body that is not JSON).
+     * A JSON answer with no readable decision always blocks.
      */
     failOpen?: boolean;
 }
@@ -39,7 +46,10 @@ export interface TrustVerdict {
     /** true => DO NOT sign/spend. */
     blocked: boolean;
     reason: string;
-    /** false when the preflight was unreachable (the verdict came from the fail-open/closed path). */
+    /**
+     * false when the preflight was unreachable (the verdict came from the fail-open/closed path).
+     * true with blocked:true and trustScore:null also covers an answer that had no readable decision.
+     */
     gateAvailable: boolean;
     /** On warn verdict: first paid hop, e.g. /v1/intel/quick/{wallet} at $0.001. */
     paidDeepDive?: string;
