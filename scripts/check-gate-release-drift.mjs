@@ -33,7 +33,11 @@ export async function checkGateReleaseDrift({ fetch: fetchFn = globalThis.fetch,
         const agent = JSON.parse(text);
         pins = [agent.capabilities?.gate_package?.replace(/^twzrd-x402-gate@/, '')];
       } else {
-        pins = [...new Set([...text.matchAll(/twzrd-x402-gate@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g)].map(match => match[1]))];
+        // A dated changelog line names the release a change shipped in ("shipped in
+        // `twzrd-x402-gate@0.20.0`"). That is history, not install guidance, so it is not a
+        // pin. Every other mention must be the current version, and one must remain.
+        const guidance = text.replace(/shipped in `?twzrd-x402-gate@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`?/g, '');
+        pins = [...new Set([...guidance.matchAll(/twzrd-x402-gate@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g)].map(match => match[1]))];
       }
       const ok = pins.length > 0 && pins.every(pin => pin === expected);
       return { source, url, ok, pins, expected };
