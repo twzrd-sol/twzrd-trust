@@ -75,8 +75,32 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * The log answered with a redirect, and it was not followed.
+ *
+ * Every URL this client fetches is on the log's own base URL, but the answers
+ * come from the log, which is the party being checked. A redirect would let it
+ * send the verifier's request to any address the verifier's host can reach
+ * (loopback, a private network, a cloud metadata endpoint) and hand back
+ * whatever JSON is there as a descriptor, a tree head or a proof.
+ */
+export class RedirectRefusedError extends HttpError {
+  constructor(url: string, status: number) {
+    super(url, status);
+    this.name = "RedirectRefusedError";
+    this.message = `GET ${url} -> HTTP ${status}: redirect not followed`;
+  }
+}
+
 async function getJson(url: string, fetchImpl: FetchLike): Promise<unknown> {
-  const res = await fetchImpl(url, { headers: { accept: "application/json" } });
+  const res = await fetchImpl(url, { headers: { accept: "application/json" }, redirect: "manual" });
+  // A fetch that honours "manual" returns the 3xx itself (status 0 and
+  // type "opaqueredirect" in a browser). One that ignores it has already
+  // followed, and says so in `redirected`: its body is not the log's answer.
+  const seen = res as { redirected?: unknown; type?: unknown };
+  if ((res.status >= 300 && res.status < 400) || seen.type === "opaqueredirect" || seen.redirected === true) {
+    throw new RedirectRefusedError(url, res.status);
+  }
   if (!res.ok) throw new HttpError(url, res.status);
   return res.json();
 }

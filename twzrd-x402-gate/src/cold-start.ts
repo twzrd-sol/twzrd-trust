@@ -21,7 +21,12 @@ import {
   priceUsdcFromAmountMicro,
   type RequirementFieldConflict,
 } from "./payto.js";
-import { hasForbiddenResolution, type HostResolver } from "./ssrf.js";
+import {
+  createPinnedFetch,
+  resolvePublicAddresses,
+  type HostResolver,
+  type ResolvedAddress,
+} from "./ssrf.js";
 import type { X402PaymentRequirements } from "./types.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -448,6 +453,12 @@ export function buildPolicy(input: {
 export type ColdStartDeps = {
   /** Injectable for tests; defaults to a real DNS lookup. Never used to skip the check. */
   resolveHost?: HostResolver;
+  /**
+   * Injectable for tests. Called with the addresses the guard approved for the
+   * URL about to be probed, and returns the fetch that probes it. The default
+   * opens a connection that can go to those addresses only.
+   */
+  pinnedFetch?: (addresses: ResolvedAddress[]) => typeof fetch;
 };
 
 export async function runColdStart(
@@ -466,11 +477,16 @@ export async function runColdStart(
     // Directory-listed hop candidates (and any diet URL) are third-party-controlled
     // hostnames: block private/loopback/link-local literals and DNS-rebound targets
     // before the real probe fetch, not just the twzrd/loopback hostname strings above.
-    if (await hasForbiddenResolution(url, deps.resolveHost)) {
+    const approved = await resolvePublicAddresses(url, deps.resolveHost);
+    if (approved === null) {
       return hostRow(role, url, { status: "forbidden", reason: "forbidden_private_resolution" });
     }
+    // The probe connects to the addresses that were just checked. An ordinary
+    // fetch would resolve the name again, and a name whose answer changes in
+    // between (DNS rebinding) would take the probe to a private address.
+    const probeFetch = withTimeout((deps.pinnedFetch ?? createPinnedFetch)(approved));
     try {
-      const probed = await probeUnpaid402(url, fetchBound);
+      const probed = await probeUnpaid402(url, probeFetch);
       if (probed.error === "not_402") {
         return hostRow(role, url, {
           status: "not_402",

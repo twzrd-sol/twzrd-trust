@@ -369,12 +369,57 @@ export function mppChallengeToIntent(
     );
   }
   const raw = (challenge.request ?? {}) as Record<string, unknown>;
-  const details =
-    raw.methodDetails &&
-    typeof raw.methodDetails === "object" &&
-    !Array.isArray(raw.methodDetails)
-      ? (raw.methodDetails as Record<string, unknown>)
-      : {};
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP solana charge request must be an object",
+    );
+  }
+  if (
+    raw.methodDetails !== undefined &&
+    raw.methodDetails !== null &&
+    (typeof raw.methodDetails !== "object" || Array.isArray(raw.methodDetails))
+  ) {
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      "[twzrd] MPP solana charge methodDetails must be an object",
+    );
+  }
+  const details = (raw.methodDetails ?? {}) as Record<string, unknown>;
+  // A field that is present with the wrong type is not absent. The guard used
+  // to skip it and read the other side, while the payment client coerces it:
+  // an array amount, recipient, decimals or cluster on the request, with a
+  // well-formed decoy in methodDetails, was approved as the decoy and paid as
+  // the array. Every field a client pays from is type-checked on both sides
+  // before anything is compared or folded, and a mistyped one is refused.
+  const requireType = (
+    label: string,
+    value: unknown,
+    ok: (v: unknown) => boolean,
+    expected: string,
+  ): void => {
+    if (value === undefined || ok(value)) return;
+    throw new TwzrdMppBlockError(
+      "MALFORMED_CHALLENGE",
+      `[twzrd] MPP solana charge ${label} must be ${expected}; a mistyped field is refused, not skipped`,
+    );
+  };
+  const isText = (v: unknown): boolean => typeof v === "string" && v.length > 0;
+  const isAmount = (v: unknown): boolean =>
+    isText(v) || (typeof v === "number" && Number.isFinite(v));
+  const isCount = (v: unknown): boolean =>
+    typeof v === "number" && Number.isFinite(v);
+  for (const [side, fields] of [
+    ["request", raw],
+    ["methodDetails", details],
+  ] as const) {
+    requireType(`${side}.recipient`, fields.recipient, isText, "a non-empty string");
+    requireType(`${side}.currency`, fields.currency, isText, "a non-empty string");
+    requireType(`${side}.amount`, fields.amount, isAmount, "a string or a finite number");
+    requireType(`${side}.decimals`, fields.decimals, isCount, "a number");
+    requireType(`${side}.cluster`, fields.cluster, isText, "a non-empty string");
+    requireType(`${side}.network`, fields.network, isText, "a non-empty string");
+  }
   // Community mppx-solana puts decimals/cluster on the request. The Solana
   // Foundation @solana/mpp charge, which intel.twzrd.xyz sends, nests them in
   // methodDetails. When only one side names a field, that side is used. When
@@ -489,15 +534,20 @@ export function mppChallengeToIntent(
   // more money than the decision covers — the exact approve/execute divergence
   // the intent hash exists to prevent. Refuse until an intent version can carry
   // multiple legs.
-  if (
-    req.sponsored === true ||
-    typeof req.sponsorPath === "string" ||
-    typeof req.feeTokenAmount === "string"
-  ) {
+  // The client decides this by truthiness (`sponsored: "yes"`,
+  // `sponsorPath: ["/sponsor"]`), so the guard does not decide it by type:
+  // any value other than an absent field, null or a literal false refuses,
+  // on the request and in methodDetails.
+  const namesSponsorship = (fields: Record<string, unknown>): boolean =>
+    ["sponsored", "sponsorPath", "feeTokenAmount"].some(
+      (key) =>
+        fields[key] !== undefined && fields[key] !== null && fields[key] !== false,
+    );
+  if (namesSponsorship(raw) || namesSponsorship(details)) {
     throw new TwzrdMppBlockError(
       "SPONSORED_CHARGE",
       "[twzrd] MPP sponsored charge refused: it transfers feeTokenAmount" +
-        `${req.feeTokenAmount ? ` (${req.feeTokenAmount})` : ""} to a sponsor in addition to` +
+        `${typeof req.feeTokenAmount === "string" && req.feeTokenAmount ? ` (${req.feeTokenAmount})` : ""} to a sponsor in addition to` +
         " the advertised amount, and PaymentIntent v1 binds only a single transfer." +
         " Approving it would authorize more value than the signed decision covers.",
     );

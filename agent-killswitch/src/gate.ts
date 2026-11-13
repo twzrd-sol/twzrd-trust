@@ -214,9 +214,11 @@ export interface GateInput {
   /** When set, any other model is vetoed before budget math and before upstream. */
   allowedModels?: readonly string[] | null;
   /**
-   * Models priced at $0 for this request when they have no price row (see
-   * priceFor). The caller passes the free allowlist for an unpaid call and
-   * nothing for a call that carries a payment credential.
+   * Models that may be priced at $0 for this request: one with no price row,
+   * or with a built-in $0 row (see priceFor). The caller passes the free
+   * allowlist for an unpaid call and an empty list for a call that carries a
+   * payment credential. Null or absent makes no statement: a built-in $0 row
+   * then keeps its price and nothing else is free.
    */
   zeroPriceModels?: readonly string[] | null;
 }

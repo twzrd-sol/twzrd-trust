@@ -7,7 +7,8 @@
  * @wzrd_sol/sdk 0.5, a preflight answer with no known decision refuses the paid
  * lookup (SDK 0.4 read it as warn and allowed it), and the gate pin moves to
  * 0.14.0, the first release that exports createDemandDeskWallet. Those 0.13
- * refusal defaults are unchanged on 0.14.0.
+ * refusal defaults are unchanged on 0.14.0. 0.10.2: the gate pin moves to
+ * 0.20.2, which also refuses a 402 whose payTo or asset is not a string.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -152,8 +153,8 @@ describe('merchant_card is fail-closed', () => {
         cb,
       );
       assert.ok(headers);
-      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.10.1@${GATE_PIN}`);
-      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.10.1');
+      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.10.2@${GATE_PIN}`);
+      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.10.2');
       assert.equal(headers.get('X-TWZRD-Client'), `twzrd-x402-gate/${GATE_PIN}`);
       assert.ok((headers.get('X-TWZRD-Run-Id') ?? '').length > 0);
     } finally {
@@ -333,12 +334,12 @@ describe('paid trust needs a spend confirmation', () => {
 });
 
 describe('gate pin', () => {
-  it('depends on twzrd-x402-gate exactly 0.14.0', () => {
+  it('depends on twzrd-x402-gate exactly 0.20.2', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.14.0');
-    assert.equal(GATE_PIN, '0.14.0');
+    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.20.2');
+    assert.equal(GATE_PIN, '0.20.2');
   });
 });
 
@@ -358,14 +359,14 @@ describe('installTwzrdAutoGate attribution', () => {
   });
 });
 
-describe('installTwzrdAutoGate on gate 0.14.0 defaults', () => {
+describe('installTwzrdAutoGate on gate 0.20.2 defaults', () => {
   const RESOURCE = 'https://merchant.example/paid';
 
-  function merchant402(): typeof fetch {
+  function merchant402(offer?: Record<string, unknown>): typeof fetch {
     return (async () =>
       new Response(
         JSON.stringify({
-          accepts: [{ network: 'solana', payTo: SELLER, maxAmountRequired: '10000', resource: RESOURCE }],
+          accepts: [offer ?? { network: 'solana', payTo: SELLER, maxAmountRequired: '10000', resource: RESOURCE }],
         }),
         { status: 402, headers: { 'content-type': 'application/json' } },
       )) as unknown as typeof fetch;
@@ -448,6 +449,23 @@ describe('installTwzrdAutoGate on gate 0.14.0 defaults', () => {
     };
     const r = await payThrough(unevaluated, CLEAN);
     assert.match(r.error ?? '', /twzrd_unevaluated_subject_no_settlement_graph/);
+    assert.equal(r.signed, 0);
+  });
+
+  // A pay client reads the raw field as a public key; the gate has to refuse
+  // what it cannot read as a string instead of scoring something else.
+  it('refuses a 402 whose payTo is not a string, before the pay client signs', async () => {
+    const offer = { network: 'solana', payTo: [SELLER], maxAmountRequired: '10000', resource: RESOURCE };
+    const r = await payThrough(ALLOW, CLEAN, { rawFetch: merchant402(offer) });
+    assert.match(r.error ?? '', /payto_malformed/);
+    assert.equal(r.signed, 0);
+  });
+
+  it('refuses a 402 whose asset is not a string, before the pay client signs', async () => {
+    const mintBytes = Array.from({ length: 32 }, (_, i) => (i * 7 + 3) % 256);
+    const offer = { network: 'solana', payTo: SELLER, asset: mintBytes, maxAmountRequired: '10000', resource: RESOURCE };
+    const r = await payThrough(ALLOW, CLEAN, { rawFetch: merchant402(offer) });
+    assert.match(r.error ?? '', /asset_malformed/);
     assert.equal(r.signed, 0);
   });
 });

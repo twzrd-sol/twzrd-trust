@@ -39,7 +39,7 @@ from, so `touch ./data/.kill` stops it.
 ## 5-minute setup (Docker)
 
 ```sh
-docker pull ghcr.io/twzrd-sol/agent-killswitch:0.2.0
+docker pull ghcr.io/twzrd-sol/agent-killswitch:0.2.1
 
 mkdir -p ./data
 
@@ -47,7 +47,7 @@ docker run --rm \
   -p 127.0.0.1:4020:4020 \
   -v "$(pwd)/data:/app/data" \
   -e OPENAI_API_KEY \
-  ghcr.io/twzrd-sol/agent-killswitch:0.2.0
+  ghcr.io/twzrd-sol/agent-killswitch:0.2.1
 ```
 
 Then:
@@ -204,8 +204,11 @@ The $0 price is for unpaid calls only. Keyless mode is also how an
 MPP/x402 buyer runs the proxy, so a call that carries a payment credential
 (`X-Payment`, `Payment-Signature`, any `X-Payment-*`, or `Authorization:
 Payment ...`) is priced as if the model were not on the list, and the
-dollar limits apply to it. Do not list a model your upstream bills for in
-a way the proxy cannot see.
+dollar limits apply to it. The same goes for a model the built-in table
+lists at $0 (`nvidia/nemotron-3.5-bolt`): a paid call to it is priced at
+the $15/$60 fallback. A rate you set yourself in `model_rates` is used as
+given, at $0 too. Do not list a model your upstream bills for in a way the
+proxy cannot see.
 
 A $0 call without `max_tokens` holds nothing before it is sent, so a burst
 of parallel calls to a local model all reach upstream; the per-minute token
@@ -343,7 +346,12 @@ throws.
 **Paid calls.** A call that carries an x402 or MPP credential must pass
 `zeroPriceModels: []` for that request — that is what the proxy does. A
 credential opts the call out of free-model pricing. `zeroPriceModels: []`
-does not throw; it means "never price a model at $0 for this request".
+does not throw; it means "no free model for this request": neither a
+model on the gate-wide list nor one the built-in table lists at $0
+(`nvidia/nemotron-3.5-bolt`) is priced at $0. A `modelRates` entry you set
+to $0 still applies. For an unpaid call with no free list, leave
+`zeroPriceModels` out or pass `null`; `[]` there prices the built-in $0
+model at the fallback.
 
 **modelRates shape.** `modelRates` takes `{ inputPerMTok, outputPerMTok }`
 per model id. This is **not** the shape of the config file's `model_rates`,
@@ -418,8 +426,8 @@ An **unknown model is estimated at a fixed fallback** of
 failing closed on cost beats failing open. A model id that is not in the
 table is priced at that fallback (or at a dearer row it extends; see "Built-in
 price rows") unless you put it on `KILLSWITCH_FREE_MODELS`, which
-prices it at $0 (above); `nvidia/nemotron-3.5-bolt` is listed at $0. The
-ledger shows exactly what was assumed.
+prices it at $0 (above); `nvidia/nemotron-3.5-bolt` is listed at $0 for
+unpaid calls. The ledger shows exactly what was assumed.
 
 ### Prompt-token bound
 
@@ -586,7 +594,9 @@ model_rates:
 
 Exact ID precedence: environment entry > config entry > built-in table > existing
 unpaid free-model allowlist rule > fixed $15/$60 unknown fallback, raised to
-any dearer row or override the id extends with `-` or `:`. Each override
+any dearer row or override the id extends with `-` or `:`. A built-in $0
+row belongs to the unpaid free-model rule: a call that carries a payment
+credential skips it. Each override
 requires both finite nonnegative numeric fields; malformed JSON, missing fields,
 negative values and unknown fields fail startup. Zero rates are an explicit
 operator assertion. Request bodies cannot override these rates. Restart to reload.
@@ -615,7 +625,7 @@ full list, grouped by source, is in `src/pricing.ts`.
 | Anthropic, [OpenAI SDK compatibility](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) (`claude-sonnet-5-5`, …) | 18 | [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing): fast mode where offered, times the 1.1x `inference_geo` multiplier on Claude 4.6 and later |
 | DeepSeek API (`deepseek-flash`, `deepseek-v4-pro`) | 4 | [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/), peak band, cache-miss input |
 | Gemini API, OpenAI compatibility (`gemini-3.6-flash`, …) | 11 | [Gemini pricing](https://aistudio.google.com/docs/pricing): Priority tier, and audio input where it bills above text |
-| OpenAI and BlockRun | 7 | OpenAI published prices; BlockRun's free `nvidia/nemotron-3.5-bolt` |
+| OpenAI and BlockRun | 7 | OpenAI published prices; BlockRun's free `nvidia/nemotron-3.5-bolt` ($0 for unpaid calls only) |
 
 What the rule produces, for example:
 

@@ -640,7 +640,9 @@ test("proxy: the held estimate written to the ledger is createBudgetGate's estim
       model: sent.model,
       ...callerInputs(sent, JSON.parse(raw.toString("utf8"))),
       promptBytes: countedBytes(raw, JSON.parse(raw.toString("utf8"))),
-      zeroPriceModels: [],
+      // What the keyed proxy passes for a call with no payment credential:
+      // no list. An empty list would say "paid call" and price the $0 row.
+      zeroPriceModels: null,
     });
     const linesBefore = readLedger().length;
     const res = await post(port, raw);

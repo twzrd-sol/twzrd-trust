@@ -1,11 +1,20 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { twzrdSentinelRefusal } from "./binding-plane.js";
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { isTwzrdAutoGateDisabled } from "./auto-gate.js";
 import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
-import { createOutcomeLedgerX402Binding, type OutcomeLedgerX402Options } from "./outcome-ledger-x402.js";
+import { UNRECORDABLE_REQUIREMENT_REASON, createOutcomeLedgerX402Binding, type OutcomeLedgerX402Options } from "./outcome-ledger-x402.js";
 import type { OutcomeLedger } from "./outcome-ledger.js";
 import { toMicroUsd } from "./intent.js";
 import { PAYMENT_DECISION_SCHEMA } from "./payment-decision.js";
+import {
+  approvedRequirementOf,
+  paymentBindingRefusal,
+  paymentHeadersOf,
+  refuseRecoveredPayments,
+  requestHeadersOf,
+  type ApprovedRequirement,
+} from "./payment-binding.js";
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
 import {
   createTwzrdPayKitBeforePaymentHook,
@@ -331,7 +340,26 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   const fulfilled = options.onFulfillment
     ? wrapFetchRecordFulfillment(transport, options.onFulfillment)
     : transport;
-  const fetchImpl = outcome ? outcome.wrapTransport(fulfilled) : fulfilled;
+  // One store per call of the returned fetch: whether the pre-sign hook ran in
+  // it, and the requirement the hook approved. The approval is for one payment;
+  // the transport checks the payment header against it before the request is made.
+  const calls = new AsyncLocalStorage<{ checked: boolean; approved?: ApprovedRequirement }>();
+  const bound: typeof fetch = async (input, init) => {
+    const call = calls.getStore();
+    // A header on a call the hook never ran in is the caller's own; it is not ours to judge.
+    if (call?.checked) {
+      const payments = paymentHeadersOf(requestHeadersOf(input, init));
+      if (payments.length > 0) {
+        if (!call.approved) throw new Error("[twzrd-guarded-fetch] payment_without_approval");
+        for (const header of payments) {
+          const differs = paymentBindingRefusal(call.approved, header);
+          if (differs !== undefined) throw new Error(`[twzrd-guarded-fetch] ${differs}`);
+        }
+      }
+    }
+    return fulfilled(input, init);
+  };
+  const fetchImpl = outcome ? outcome.wrapTransport(bound) : bound;
   const entries: SpendEntry[] = [];
   let pendingMicro = 0n;
   const twzrdHook = createTwzrdPayKitBeforePaymentHook(options.twzrd);
@@ -424,7 +452,7 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   // The outcome ledger brackets the checks: begin() before them, refuse() on
   // an abort, markSigning() (durable) when they pass and before the scheme
   // signs. An unresolved earlier attempt on the same intent aborts here.
-  const guardedHook = async (
+  const ledgeredHook = async (
     context: BeforePaymentCreationContext,
   ): Promise<BeforePaymentCreationResult> => {
     if (!outcome) return innerHook(context);
@@ -438,12 +466,40 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       if (opened) outcome.close(opened.intentHash, { abort: true, reason: `hook_threw:${(err as Error)?.name ?? "Error"}` });
       throw err;
     }
-    return opened ? outcome.close(opened.intentHash, result) : result;
+    if (opened) return outcome.close(opened.intentHash, result);
+    // The ledger could not write a row for this requirement. The checks above
+    // refuse a malformed one with their own reason; if they passed it, the
+    // signer would run for a payment nothing records. Refuse.
+    return result?.abort ? result : abort(UNRECORDABLE_REQUIREMENT_REASON);
+  };
+
+  // Record what was approved, for the transport check. Each creation is
+  // approved on its own: an earlier approval in the same call does not carry over.
+  const guardedHook = async (
+    context: BeforePaymentCreationContext,
+  ): Promise<BeforePaymentCreationResult> => {
+    const call = calls.getStore();
+    if (call) {
+      call.checked = true;
+      call.approved = undefined;
+    }
+    const result = await ledgeredHook(context);
+    if (call && !result?.abort) {
+      call.approved = approvedRequirementOf(context.selectedRequirements ?? context.requirements);
+    }
+    return result;
   };
 
   // Register our composite hook once. It applies local limits first, then the
   // same official x402 pre-sign evaluator used by AutoGate 0.9.13.
   options.client.onBeforePaymentCreation(guardedHook);
+  // A payment that fails to build stays failed. A scheme may otherwise answer
+  // the failure with a payload for a different accepts[] entry, which none of
+  // the checks above has seen.
+  refuseRecoveredPayments(options.client, () => {
+    const call = calls.getStore();
+    if (call) call.approved = undefined;
+  });
   guardedClients.add(options.client as object);
 
   let payingFetch: typeof fetch | undefined;
@@ -487,7 +543,7 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
     };
     // With a ledger, the caller's own {url, method, body} is bound to this call so the
     // pre-sign hook and the paid leg record the request actually being paid for.
-    return outcome ? outcome.bindCall(input, init, run) : run();
+    return calls.run({ checked: false }, () => (outcome ? outcome.bindCall(input, init, run) : run()));
   };
 }
 

@@ -19,6 +19,13 @@
 //      reads the npm token from that environment; a repository-level
 //      NPM_TOKEN is readable from any branch, so none should exist.
 //
+// And for every workflow, publisher or not:
+//
+//   5. no run script contains a `${{ }}` expression. The runner expands an
+//      expression into the script text before the shell parses it, so a
+//      dispatch input such as `1.2.3$(command)` runs as a command. A value
+//      reaches a script through `env:` and is read as "$NAME".
+//
 // One named exception: OIDC_CONSUMERS below. Such a workflow holds
 // id-token: write to sign in to a service that is not a package registry, and
 // starts from a comment, so rules 1, 2 and 4 cannot apply to it. It gets its
@@ -34,8 +41,11 @@
 // can drop step 2 and the environment; the environment policy and the npm
 // binding are what stop it there.
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 const root = new URL('../', import.meta.url);
@@ -257,6 +267,23 @@ export function refGuardFindings(file, doc) {
   return findings;
 }
 
+const EXPRESSION = /\$\{\{[\s\S]*?\}\}/g;
+
+/** Rule 5: every run script in `doc` that has an expression pasted into it. */
+export function runExpressionFindings(file, doc) {
+  const findings = [];
+  for (const [name, job] of Object.entries(doc?.jobs ?? {})) {
+    const steps = Array.isArray(job?.steps) ? job.steps : [];
+    steps.forEach((step, i) => {
+      if (typeof step?.run !== 'string') return;
+      for (const expression of step.run.match(EXPRESSION) ?? []) {
+        findings.push(`${file} job ${name}: step ${i + 1} pastes ${expression} into its run script; pass it through env: and read "$NAME"`);
+      }
+    });
+  }
+  return findings;
+}
+
 // --- the checker itself --------------------------------------------------------
 
 const GUARD = `
@@ -414,6 +441,21 @@ test('checker: each broken OIDC consumer rule is reported', () => {
   one('"bash":{"*":"deny","git diff*":"allow"}', '"bash":"allow"', 'shell commands other than read-only git');
 });
 
+test('checker: an expression in a run script is reported, one in env is not', () => {
+  const doc = fixture({ steps: `${GUARD}
+      - env:
+          EXPECTED_VERSION: \${{ inputs.expected_version }}
+        run: test "$EXPECTED_VERSION" = 1.2.3
+      - run: |
+          if [ "$ACTUAL" != "\${{ inputs.expected_version }}" ]; then exit 1; fi
+      - run: bash verify.sh "\${{ steps.ver.outputs.expected }}" \${{github.event.inputs.tag}}` });
+  assert.deepEqual(runExpressionFindings('x.yml', doc), [
+    'x.yml job publish: step 3 pastes ${{ inputs.expected_version }} into its run script; pass it through env: and read "$NAME"',
+    'x.yml job publish: step 4 pastes ${{ steps.ver.outputs.expected }} into its run script; pass it through env: and read "$NAME"',
+    'x.yml job publish: step 4 pastes ${{github.event.inputs.tag}} into its run script; pass it through env: and read "$NAME"',
+  ]);
+});
+
 // --- this repository -----------------------------------------------------------
 
 const workflowNames = () => readdirSync(workflowsDir).filter(name => /\.ya?ml$/.test(name)).sort();
@@ -438,3 +480,86 @@ test('the checker still recognises every known publishing workflow', () => {
     assert.ok(seen.includes(name), `${name}: no job recognised as holding a publish credential`);
   }
 });
+
+test('no run script in any workflow has an expression pasted into it', () => {
+  const findings = workflowNames().flatMap(name => runExpressionFindings(name, loadWorkflow(name)));
+  assert.deepEqual(findings, []);
+});
+
+// The version check, run the way the runner runs it: every expression in the
+// script is replaced by its value before bash sees the text, and every
+// expression in `env:` becomes a variable's value. A dispatch input carrying a
+// command substitution must not run, and must not pass the check.
+const VERSION_INPUT = /\$\{\{\s*(inputs\.expected_version|steps\.ver\.outputs\.expected)\s*\}\}/g;
+const VERSION_CHECKS = {
+  'publish.yml': { cwd: 'twzrd-x402-gate' },
+  'publish-eliza-plugin.yml': { cwd: '.' },
+};
+
+function runVersionSteps(file, input) {
+  const dir = mkdtempSync(join(tmpdir(), 'publish-version-check-'));
+  try {
+    for (const sub of ['twzrd-x402-gate', 'eliza-plugin-source']) {
+      mkdirSync(join(dir, sub), { recursive: true });
+      writeFileSync(join(dir, sub, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.2.3' }));
+    }
+    const job = loadWorkflow(file).jobs.publish;
+    const render = env => Object.fromEntries(
+      Object.entries(env ?? {})
+        .filter(([, value]) => !String(value).includes('secrets.'))
+        .map(([key, value]) => [key, String(value).replace(VERSION_INPUT, input)]),
+    );
+    const steps = job.steps.filter(step => typeof step.run === 'string'
+      && (VERSION_INPUT.test(step.run) || step.run.includes('EXPECTED_VERSION'))
+      && !step.run.includes('verify-live-npm-version.sh'));
+    VERSION_INPUT.lastIndex = 0;
+    assert.ok(steps.length > 0, `${file}: no step checks the expected version`);
+    let out = '';
+    for (const step of steps) {
+      const script = step.run.replace(VERSION_INPUT, input);
+      const result = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script], {
+        cwd: join(dir, VERSION_CHECKS[file].cwd),
+        env: { PATH: process.env.PATH, GITHUB_OUTPUT: join(dir, 'github-output'), ...render(job.env), ...render(step.env) },
+        encoding: 'utf8',
+      });
+      out += result.stdout + result.stderr;
+      if (result.status !== 0) return { passed: false, out, marker: existsSync(join(dir, 'injected-marker')) };
+    }
+    return { passed: true, out, marker: existsSync(join(dir, 'injected-marker')) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+for (const file of Object.keys(VERSION_CHECKS)) {
+  test(`${file}: the version check passes the confirmed version and refuses another`, () => {
+    const ok = runVersionSteps(file, '1.2.3');
+    assert.equal(ok.passed, true, ok.out);
+    assert.match(ok.out, /Confirmed: publishing/);
+    assert.equal(runVersionSteps(file, '1.2.4').passed, false);
+    assert.equal(runVersionSteps(file, '').passed, false);
+  });
+
+  test(`${file}: a dispatch input is never run as shell`, () => {
+    const marker = join(tmpdir(), `publish-injected-${process.pid}`);
+    const payloads = [
+      '1.2.3$(touch injected-marker)',
+      '1.2.3`touch injected-marker`',
+      '1.2.3"; touch injected-marker; echo "',
+      `1.2.3$(touch ${marker})`,
+      '1.2.3\n::error::forged',
+      '$(node -p "require(\'./package.json\').version")',
+    ];
+    try {
+      for (const input of payloads) {
+        const result = runVersionSteps(file, input);
+        assert.equal(result.marker, false, `${JSON.stringify(input)} ran a command`);
+        assert.equal(existsSync(marker), false, `${JSON.stringify(input)} ran a command`);
+        assert.equal(result.passed, false, `${JSON.stringify(input)} passed the version check: ${result.out}`);
+        assert.doesNotMatch(result.out, /Confirmed: publishing/);
+      }
+    } finally {
+      rmSync(marker, { force: true });
+    }
+  });
+}

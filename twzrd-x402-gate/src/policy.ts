@@ -568,6 +568,39 @@ export async function twzrdApprovePayment(
         policyAction,
         adapter: context.agentIntent,
       });
+    // A Solana network label does not bind the transaction to a cluster: the
+    // client pays on whatever RPC it is configured with, and takes the mint
+    // from the requirement. So a devnet/testnet/localnet label is taken at its
+    // word only for an asset that exists on that cluster alone, its own USDC
+    // mint. Any other named asset is refused here, where observe would allow
+    // it with no preflight: a seller that labels a mainnet USDC requirement
+    // `solana-devnet` would otherwise be paid on mainnet unscreened. Same rule
+    // as the MPP guard (mpp-hook.ts). EVM labels are not checked: an EVM
+    // signature commits to its chain id.
+    if (
+      undecided.policyAction !== "block" &&
+      netCls.kind === "solana" &&
+      context.asset &&
+      !isUsdcRequirement({
+        network: context.chain ?? netCls.network,
+        asset: context.asset,
+        payTo: context.payTo ?? context.sellerWallet,
+      })
+    ) {
+      unsupportedLog("block");
+      return finalize({
+        decisionId,
+        approved: false,
+        verdict: "block",
+        score: null,
+        card: {},
+        reason: "twzrd_non_usdc_asset",
+        network: undecided.network,
+        networkSupported: undecided.networkSupported,
+        reputationScored: false,
+        policyAction: "block",
+      });
+    }
     // Strict: block before intel. Wash opt-out: keep the observe allow.
     // Observe + refuseWashFlagged (default): still GET merchant_card.
     if (undecided.policyAction === "block" || !cfg.refuseWashFlagged) {

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.1 (2026-11-13)
+
+### Fixed
+
+- A call that carries a payment credential is no longer priced at $0 for a
+  model the built-in table lists at $0 (`nvidia/nemotron-3.5-bolt`). The
+  proxy already dropped the free allowlist for such a call; the built-in row
+  was read first and kept the call at $0, so the hourly and daily dollar
+  limits never counted it. It is now priced at the $15/$60 fallback: the hold
+  before the call, the ledger cost after it and both dollar limits apply.
+  Unpaid calls to that model are still $0, in keyless mode with the model on
+  `KILLSWITCH_FREE_MODELS` and in keyed mode. A rate you set in `model_rates`
+  is used as given, at $0 too.
+- `createBudgetGate`: `zeroPriceModels: []` on a request now does what the
+  README says for a paid call, including for the built-in $0 model. A caller
+  that passed `[]` for unpaid calls should pass `null` or leave it out, or
+  that model is priced at the fallback. A list that names other models and
+  not this one also leaves it at the fallback.
+
 ## 0.2.0 (2026-11-12)
 
 ### Changed

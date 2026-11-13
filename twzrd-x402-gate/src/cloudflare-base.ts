@@ -254,25 +254,66 @@ export async function twzrdBasePreflight(
 }
 
 
+/** v1 names for Solana clusters. With any CAIP-2 namespace other than eip155, the rails an EVM signer cannot pay. */
+const SOLANA_V1_NETWORKS = new Set(["solana", "solana-mainnet", "solana-mainnet-beta", "solana-devnet", "solana-testnet"]);
+
 /**
- * A Base entry by network name or chain id, read case- and whitespace-insensitively ("BASE",
- * "eip155:8453 ") so a spelling variant is scored, not skipped. This Worker pays EVM entries
- * only: Solana siblings are not its to sign and are deliberately not scored here (0.11.4).
+ * What an accepts[] entry is to this seat:
+ *  - "base": a Base entry, by network name or chain id, read case- and
+ *    whitespace-insensitively ("BASE", "eip155:8453 ") so a spelling variant
+ *    is scored, not skipped. When both a network and a chain id are given,
+ *    both must say Base.
+ *  - "not_evm": an entry on a rail the EVM signer behind this seat cannot pay
+ *    (Solana, or another non-eip155 CAIP-2 namespace). Not its to sign and
+ *    deliberately not scored here (0.11.4).
+ *  - "unvetted": everything else. Another EVM chain, a network this module
+ *    cannot place, no network at all, a mistyped field, a non-object. The
+ *    client behind this seat signs any EVM entry and picks the first one it
+ *    can pay, and nothing here scores an entry that is not Base.
  */
-function isBaseEntry(c: Record<string, unknown>): boolean {
-  const network = typeof c.network === "string" ? c.network.trim().toLowerCase() : undefined;
+type EntryRail = "base" | "not_evm" | "unvetted";
+
+function entryRail(candidate: unknown): EntryRail {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return "unvetted";
+  const c = candidate as Record<string, unknown>;
+  if (c.network != null && typeof c.network !== "string") return "unvetted";
+  const network = typeof c.network === "string" ? c.network.trim().toLowerCase() : "";
   const chainId = c.chainId ?? c.chain_id;
   const chain = typeof chainId === "string" ? chainId.trim() : chainId;
-  return network === BASE_NETWORK || network === "base" || network === "base-mainnet" || chain === BASE_CHAIN_ID || chain === String(BASE_CHAIN_ID);
+  const chainNamed = chain != null && chain !== "";
+  const chainIsBase = chain === BASE_CHAIN_ID || chain === String(BASE_CHAIN_ID);
+  if (network === "") return chainIsBase ? "base" : "unvetted";
+  if (network === BASE_NETWORK || network === "base" || network === "base-mainnet") {
+    return !chainNamed || chainIsBase ? "base" : "unvetted";
+  }
+  // A chain id is an EVM field: on a network that is not Base it names another
+  // chain, or contradicts the network. Neither is scored.
+  if (chainNamed) return "unvetted";
+  const colon = network.indexOf(":");
+  const notEvm = colon > 0 ? network.slice(0, colon) !== "eip155" : SOLANA_V1_NETWORKS.has(network);
+  return notEvm ? "not_evm" : "unvetted";
 }
 
-/** One requirements object per Base entry, so every entry the Worker could sign is evaluated (0.11.3). */
+function isBaseEntry(candidate: unknown): candidate is Record<string, unknown> {
+  return entryRail(candidate) === "base";
+}
+
+/**
+ * One requirements object per Base entry, so every entry the Worker could sign
+ * is evaluated (0.11.3). An entry that is neither Base nor on a rail the EVM
+ * signer cannot pay refuses the whole 402: approving it on the strength of a
+ * Base sibling let the client sign the entry nobody scored.
+ */
 function perBaseEntry(requirements: CloudflareBaseRequirements): CloudflareBaseRequirements[] {
-  const accepts = Array.isArray(requirements.accepts) ? requirements.accepts : [];
-  const base = accepts.filter((c) => {
-    if (!c || typeof c !== "object") return false;
-    return isBaseEntry(c);
-  });
+  const accepts: unknown[] = Array.isArray(requirements.accepts) ? requirements.accepts : [];
+  const base: Array<Record<string, unknown>> = [];
+  for (const entry of accepts) {
+    const rail = entryRail(entry);
+    if (rail === "unvetted") {
+      throw new OfferRefusal("unvetted_payment_option", "[twzrd] the 402 lists an offer that is not Base and that an EVM signer could pay");
+    }
+    if (rail === "base") base.push(entry as Record<string, unknown>);
+  }
   if (base.length === 0) return [requirements];
   if (base.length > 8) throw new OfferRefusal("too_many_payment_options", "[twzrd] more than 8 Base offers");
   return base.map((entry) => ({ ...requirements, accepts: [entry] }));
@@ -381,7 +422,7 @@ function refusalCode(error: unknown): string {
  */
 function baseOffer(requirements: CloudflareBaseRequirements): { payTo: string; priceUsdc: number } {
   const accepts = Array.isArray(requirements.accepts) ? requirements.accepts : [];
-  const accept = accepts.find((candidate) => !!candidate && typeof candidate === "object" && isBaseEntry(candidate));
+  const accept = accepts.find((candidate) => isBaseEntry(candidate));
   const payTo = accept?.payTo ?? accept?.pay_to;
   if (typeof payTo !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(payTo)) {
     throw new OfferRefusal("twzrd_unidentifiable_payment_recipient", "[twzrd] Base x402 requirements lack a valid eip155:8453 payTo");

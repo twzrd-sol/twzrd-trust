@@ -31,7 +31,13 @@ export class TwzrdUnpricedAssetError extends Error {
 /* ------------------------------------------------------------------ */
 
 export type X402IntentContext = {
-  /** Resource URL when the requirement omits `resource` (v2 top-level). */
+  /**
+   * The URL the caller is fetching. It becomes the intent's resource, ahead of
+   * the requirement's own `resource` field: that field is written by the
+   * seller, and a mandate scoped to a resource is checked against the intent.
+   * Omit it only when the caller does not know the URL; the requirement's
+   * field is then used as given.
+   */
   resourceUrl?: string;
   method?: string;
   facilitator?: string;
@@ -88,7 +94,10 @@ export function x402RequirementsToIntent(
     amount: microUnitsToDecimal(amountUnits, ctx?.decimals ?? 6),
     payTo,
     resource: {
-      url: req.resource ?? ctx?.resourceUrl,
+      // The caller's URL first. `req.resource` is the seller's description of
+      // what is being sold; letting it win let a 402 name an in-scope URL for
+      // a request to an out-of-scope one.
+      url: ctx?.resourceUrl ?? req.resource,
       method: ctx?.method,
     },
     facilitator: ctx?.facilitator,

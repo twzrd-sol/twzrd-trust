@@ -32,6 +32,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,12 +45,17 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve expected version
-        id: ver
-        env:
-          EXPECTED_VERSION: ${{ inputs.expected_version }}
+      - name: Refuse an expected version that is not a version
+        # The dispatch input is read from the environment (job-level
+        # EXPECTED_VERSION), never pasted into a run script: an expression in
+        # a script is expanded before the shell parses it, so a value such as
+        # 1.2.3$(command) would run. Checked here once, before anything uses it.
+        # Guarded by scripts/publish-workflows-ref-guard.test.mjs.
         run: |
-          echo "expected=$EXPECTED_VERSION" >> "$GITHUB_OUTPUT"
+          if ! [[ "$EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::expected_version is not a version (MAJOR.MINOR.PATCH, optional -prerelease) -- refusing to publish."
+            exit 1
+          fi
           echo "Publishing expected version $EXPECTED_VERSION"
 
       - uses: actions/setup-node@v4
@@ -82,9 +89,8 @@ jobs:
       - name: Verify source version matches the operator's confirmation
         run: |
           ACTUAL=$(node -p "require('./eliza-plugin-source/package.json').version")
-          EXPECTED="${{ steps.ver.outputs.expected }}"
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "::error::eliza-plugin-source is $ACTUAL, you confirmed $EXPECTED -- refusing to publish."
+          if [ "$ACTUAL" != "$EXPECTED_VERSION" ]; then
+            echo "::error::eliza-plugin-source is $ACTUAL, you confirmed $EXPECTED_VERSION -- refusing to publish."
             exit 1
           fi
           echo "Confirmed: publishing @wzrd_sol/eliza-plugin@$ACTUAL"
@@ -128,4 +134,4 @@ jobs:
         # Run 39886755826: 18×10s ended 2026-10-23T01:59:31Z; npm recorded
         # 0.8.1 at 2026-10-23T02:00:32Z. The shared poller's ~10 min backoff
         # window covers that lag. It does not publish.
-        run: bash scripts/verify-live-npm-version.sh @wzrd_sol/eliza-plugin "${{ steps.ver.outputs.expected }}"
+        run: bash scripts/verify-live-npm-version.sh @wzrd_sol/eliza-plugin "$EXPECTED_VERSION"

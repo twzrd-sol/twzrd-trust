@@ -91,7 +91,9 @@ export function demandDeskMessageHash(bytes: Uint8Array): string {
 /**
  * Exclusive capability facade for SVM and ElizaOS wallet providers. The raw
  * signer is retained only in this closure. Verification and signer invocation
- * have no asynchronous gap; batch calls validate every item before signing any.
+ * have no asynchronous gap; batch calls validate every item before signing any,
+ * sign a private copy of the batch, and validate each item again immediately
+ * before its own signer call.
  * Without `replayGuard` the facade is stateless and one-use enforcement belongs
  * to the Desk. With it, the outcome ledger is consulted (and `approved` moved
  * to `signing`) in the same synchronous step as the signer call.
@@ -148,9 +150,16 @@ export function createDemandDeskWallet<T>(adapter: DemandDeskWalletAdapter<T>) {
   return Object.freeze({
     signTransaction,
     async signAllTransactions(items: readonly { transaction: T; context: DemandDeskWalletContext }[]): Promise<T[]> {
+      // Copy the batch before the first await. The caller's array stays the
+      // caller's: an item swapped in or appended while an earlier one is being
+      // signed is not in this copy, so it is neither verified nor signed.
+      const batch = Array.from(items, (item) => ({
+        transaction: item.transaction,
+        context: { authorization: item.context?.authorization, messageHash: item.context?.messageHash },
+      }));
       const hashes: (string | null)[] = [];
       const seen = new Set<string>();
-      for (const item of items) {
+      for (const item of batch) {
         verify(item.transaction, item.context);
         const hash = checkReplay(item.transaction, item.context);
         if (hash !== null) {
@@ -160,7 +169,16 @@ export function createDemandDeskWallet<T>(adapter: DemandDeskWalletAdapter<T>) {
         hashes.push(hash);
       }
       const signed: T[] = [];
-      for (let i = 0; i < items.length; i++) signed.push(await signChecked(items[i]!.transaction, hashes[i]!));
+      for (let i = 0; i < batch.length; i++) {
+        const { transaction, context } = batch[i]!;
+        // The signer calls before this one were awaited. Check this item again,
+        // in the same synchronous step as its own signer call: the transaction
+        // object can have been changed in place (its bytes must still hash to
+        // the message verified above), and the mandate can have been revoked.
+        verify(transaction, context);
+        if (checkReplay(transaction, context) !== hashes[i]) throw new Error("batch_item_changed");
+        signed.push(await signChecked(transaction, hashes[i]!));
+      }
       return signed;
     },
     async signAndSendTransaction(tx: T, context: DemandDeskWalletContext): Promise<string> {

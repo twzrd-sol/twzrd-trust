@@ -67,7 +67,7 @@ import {
   type OutcomeLedger,
   type ValidationFact,
 } from "./outcome-ledger.js";
-import { resolveRequirementFields } from "./payto.js";
+import { isBaseUnitAmount, resolveRequirementFields } from "./payto.js";
 import type { BeforePaymentCreationContext, BeforePaymentCreationResult } from "./x402-client-hook.js";
 
 /** Default validation rule: PAYMENT-RESPONSE success with a transaction, and a 2xx response. */
@@ -140,6 +140,11 @@ export type BoundRequest = { method: string; bodyHash: string; url: string; oper
 
 /** Reason the pre-sign hook aborts when no buyer call is bound to it. */
 export const UNBOUND_REQUEST_REASON = "unbound_request";
+/**
+ * Reason the pre-sign hook aborts when the checks passed a requirement this
+ * ledger could not write a row for. The signer never runs unrecorded.
+ */
+export const UNRECORDABLE_REQUIREMENT_REASON = "unrecordable_requirement";
 
 type Dict = Record<string, unknown>;
 const asRecord = (v: unknown): Dict | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Dict) : null);
@@ -211,9 +216,13 @@ export function termsOf(req: unknown): RequirementTerms | null {
   if (fields.conflict) return null;
   const payTo = str(fields.payTo);
   const amount = str(fields.amount);
-  if (!payTo || !amount || !/^(0|[1-9][0-9]*)$/.test(amount)) return null;
+  // Same rule as the reader every other check uses (digits only), then one
+  // spelling per value: a payment client reads "01000" as 1000, so "01000" and
+  // "1000" are the same attempt and must share a ledger key.
+  if (!payTo || !amount || !isBaseUnitAmount(amount)) return null;
+  const amountAtomic = BigInt(amount).toString();
   const timeout = typeof r.maxTimeoutSeconds === "number" && Number.isFinite(r.maxTimeoutSeconds) ? r.maxTimeoutSeconds : null;
-  return { payTo, network: str(r.network) ?? "unknown", asset: str(r.asset) ?? "unknown", amountAtomic: amount, maxTimeoutSeconds: timeout };
+  return { payTo, network: str(r.network) ?? "unknown", asset: str(r.asset) ?? "unknown", amountAtomic, maxTimeoutSeconds: timeout };
 }
 
 /** The key: what the gate saw, hashed with the same canonical form as every other PaymentIntent. */
@@ -257,6 +266,10 @@ export type OutcomeLedgerX402Binding = {
   /**
    * Call first in the pre-sign hook. `abort` means do not run the signer.
    * Aborts with `unbound_request` when the hook runs outside `bindCall`.
+   * `null` means no row could be written for this requirement (no recipient,
+   * no readable amount, conflicting fields): the caller runs its own checks
+   * for their reason and then refuses with `unrecordable_requirement` if they
+   * passed. It is never a licence to sign.
    */
   open(context: BeforePaymentCreationContext): { intentHash: string } | { abort: string } | null;
   /** Call with the hook's own result. Returns an abort when the approval expired meanwhile. */
@@ -283,7 +296,7 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
     open(context) {
       const selected = asRecord(context.selectedRequirements ?? context.requirements) ?? {};
       const terms = termsOf(selected);
-      if (!terms) return null; // the hook's own checks will refuse a malformed requirement; nothing to sign
+      if (!terms) return null; // no row can be written: the caller refuses (see open() above)
       const request = calls.getStore();
       // No bound call: the signer would run for a request this ledger cannot name. Refuse.
       if (!request) return { abort: `${UNBOUND_REQUEST_REASON}:call_the_returned_fetch_not_createPaymentPayload` };

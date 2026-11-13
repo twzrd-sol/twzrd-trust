@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { hasForbiddenResolution, isBlockedIpAddress } from "../src/ssrf.js";
+import { hasForbiddenResolution, isBlockedIpAddress, resolvePublicAddresses } from "../src/ssrf.js";
 
 test("isBlockedIpAddress covers private, loopback, link-local, and CGNAT ranges", () => {
   for (const addr of [
@@ -87,4 +87,47 @@ test("hasForbiddenResolution blocks when only one of several resolved addresses 
     { address: "10.0.0.1", family: 4 },
   ];
   assert.equal(await hasForbiddenResolution("https://multi-homed.example/", resolve), true);
+});
+
+test("resolvePublicAddresses returns exactly the addresses it checked", async () => {
+  let calls = 0;
+  const resolve = async () => {
+    calls += 1;
+    return [
+      { address: "93.184.216.34", family: 4 },
+      { address: "2606:4700:4700::1111", family: 6 },
+    ];
+  };
+  assert.deepEqual(await resolvePublicAddresses("https://seller.example/x", resolve), [
+    { address: "93.184.216.34", family: 4 },
+    { address: "2606:4700:4700::1111", family: 6 },
+  ]);
+  assert.equal(calls, 1, "one lookup: the answer checked is the answer returned");
+});
+
+test("resolvePublicAddresses is null when any answer is private, and for everything the guard forbids", async () => {
+  const mixed = async () => [
+    { address: "93.184.216.34", family: 4 },
+    { address: "127.0.0.1", family: 4 },
+  ];
+  assert.equal(await resolvePublicAddresses("https://rebinder.example/x", mixed), null);
+  assert.equal(await resolvePublicAddresses("https://rebinder.example/x", async () => []), null);
+  assert.equal(
+    await resolvePublicAddresses("https://rebinder.example/x", async () => { throw new Error("SERVFAIL"); }),
+    null,
+  );
+  const never = async () => { throw new Error("must not be called"); };
+  assert.equal(await resolvePublicAddresses("not a url", never), null);
+  assert.equal(await resolvePublicAddresses("https://0x7f000001/", never), null);
+  assert.equal(await resolvePublicAddresses("https://10.0.0.5/", never), null);
+});
+
+test("resolvePublicAddresses returns a public literal as itself, with no lookup", async () => {
+  const never = async () => { throw new Error("must not be called"); };
+  assert.deepEqual(await resolvePublicAddresses("https://93.184.216.34/x", never), [
+    { address: "93.184.216.34", family: 4 },
+  ]);
+  assert.deepEqual(await resolvePublicAddresses("https://[2606:4700:4700::1111]/x", never), [
+    { address: "2606:4700:4700::1111", family: 6 },
+  ]);
 });

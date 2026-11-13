@@ -77,7 +77,7 @@ sentinels: an install with evaluation off still refuses while one is in force.
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.20.1 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.20.2 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -337,7 +337,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.20.1 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.20.2 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -376,7 +376,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.20.1
+npm install twzrd-x402-gate@0.20.2
 ```
 
 ```typescript
@@ -421,7 +421,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.20.1
+npm install twzrd-x402-gate@0.20.2
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -441,7 +441,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.20.1 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.20.2 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -1132,6 +1132,10 @@ const safeFetch = withTwzrdGuard(x402Fetch, {
 
 `autoReceipt` is **off by default** — it spends the **buyer's** USDC, so you opt in. When on
 and `/quick` did not already settle, warn/allow can buy the $0.05 V7 credential.
+The receipt is bought only for a seller the gate approved. A refusal buys
+nothing, whatever the card's decision string says: a wash-flagged seller, a
+seller intel has never evaluated and a score under your floor all refuse on a
+card that still reads `allow` or `warn`.
 
 **`x402Fetch` is yours to supply** (this package is dependency-free). Wire the proven
 `@x402/svm` sponsored-feePayer client — the same one `twzrd-mcp-server` uses:
@@ -1460,13 +1464,21 @@ first refusal is reported with that entry's `payTo` (0.11.2+).
 `withTwzrdBasePreflight` and `createTwzrdCloudflareBaseApproval` apply the same
 rules to the Base USDC entry, restated in the module so it imports nothing:
 `twzrd_unidentifiable_payment_recipient`, `amount_field_conflict`,
-`amount_malformed`, `twzrd_non_usdc_asset`, `invalid_base_offer` (before
+`amount_malformed`, `twzrd_non_usdc_asset`, `unvetted_payment_option`,
+`invalid_base_offer` (before
 intel; `failOpen` never signs these), then `twzrd_decision_block`, `twzrd_wash_flagged`,
 `twzrd_unevaluated_subject_*`, `twzrd_unevaluated_no_cap_*`,
 `twzrd_unevaluated_over_cap_*`, `twzrd_score_*_below_*` and
 `twzrd_over_recommended_cap_*`. The price comes from the entry's own `amount`;
 the `priceUsdc` option is ignored for the decision. Before 0.11.2 this seat
 signed on any non-block verdict.
+
+`unvetted_payment_option`: the 402 also lists an entry that is not Base and
+that an EVM signer could pay (another `eip155` chain, an unrecognized network
+name, no network, or a network and `chainId` that disagree). This seat scores
+Base entries only, and the client behind it picks among every EVM entry, so
+the whole 402 is refused. Entries on a rail an EVM signer cannot pay (Solana,
+or another non-`eip155` CAIP-2 namespace) are still ignored.
 
 From 0.20.0 both functions read `.kill` and `.pause` when the host has a
 filesystem (`process.versions.node` is set and `node:fs` loads): on entry, on
@@ -1581,7 +1593,7 @@ Checked on a transaction the gate already holds, before any socket. A refusal ap
 | `refuseUncappedWarn` | `TWZRD_REFUSE_UNCAPPED_WARN` | `true` (0.13.0+) | Refuse an evaluated `warn` whose card has no finite `recommended_cap_usdc` (`twzrd_warn_no_cap`) or whose price is unknown (`twzrd_warn_unknown_price`). Only `false`, `0`, `"no"`, `"off"` in any case turn it off; a typo leaves it on. |
 | `refuseWashUnknown` | `TWZRD_REFUSE_WASH_UNKNOWN` | `true` (0.13.0; `false` in 0.12.x) | Refuse (`twzrd_wash_unknown`) when the merchant card is reachable but its wash coverage is missing, partial or stale. Also refuses an unevaluated seller within its cap when its card has no full coverage. Only `false`, `0`, `"no"`, `"off"` turn it off; any other value, including a typo, leaves it on. |
 | `intelTimeoutMs` | `TWZRD_INTEL_TIMEOUT_MS` | `2000` | Deadline for each free intel call (preflight, merchant card). A miss is an outage, decided by `failOpen`. Paid hops are not cut off mid-payment. |
-| `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` when `/quick` did not already settle |
+| `autoReceipt` | — | `false` | Optional V7: auto-buy $0.05 `/trust` for an approved seller when `/quick` did not already settle |
 | `x402Fetch` | — | — | x402-capable fetch for `autoReceipt` |
 | `onReceipt` | — | — | Callback after receipt is captured |
 | `disabled` (`installTwzrdAutoGate` only) | `TWZRD_AUTO_GATE=0`/`false` | `false` | Skip seller evaluation. `.kill` and `.pause` still refuse: `payWrap` gets a fetch that throws on a 402 while either is in force |

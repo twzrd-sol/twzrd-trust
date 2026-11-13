@@ -134,8 +134,9 @@ export type EvaluateX402Result = {
  *   2. Return decision + trust score.
  *   3. If escalateOnWarn is set and decision=warn: settle GET /quick
  *      $0.001 first and re-decide on the paid score (no double settle).
- *   4. Else if autoReceipt / requireReceipt triggers and decision !== block:
- *      auto-fetch optional V7 GET /trust via x402Fetch ($0.05).
+ *   4. Else if autoReceipt / requireReceipt triggers and the seller is
+ *      approved: auto-fetch optional V7 GET /trust via x402Fetch ($0.05).
+ *      A refused seller gets no paid call.
  *      With requireReceipt.hard (default), deny spend if /trust fails.
  *
  * Defaults to gateOnCanSpend=false — `can_spend: false` alone does not block.
@@ -243,7 +244,7 @@ async function evaluateResource(
 
   // First paid hop is $0.001 GET /quick on warn (escalateOnWarn). Optional
   // V7 $0.05 GET /trust (requireReceipt / autoReceipt) runs only when the
-  // cheap hop did not already settle. Never on block.
+  // cheap hop did not already settle. Never for a refused seller.
   const receiptPolicy = resolveRequireReceiptPolicy(opts.requireReceipt);
   // No paid receipt for a seller intel has never evaluated (0.11.2).
   const receiptRequired =
@@ -313,7 +314,10 @@ async function evaluateResource(
       escalatedScore: null,
     };
   }
-  const attemptReceipt = scoredRail && wantPathA && !wantQuick;
+  // The receipt is bought for a seller the gate is about to pay. The card's
+  // decision string does not say that: a wash flag, an unevaluated subject or a
+  // score under the host's floor refuse the payment and leave it at allow/warn.
+  const attemptReceipt = base.approved && scoredRail && wantPathA && !wantQuick;
   if (!scoredRail && wantPathA) {
     base.receiptSkipped = "unscored_network";
   }
@@ -429,6 +433,7 @@ async function evaluateResource(
       receiptMiss = "paid_fetch_error";
     }
   } else if (
+    base.approved &&
     receiptRequired &&
     receiptPolicy?.hard !== false &&
     typeof opts.x402Fetch !== "function"

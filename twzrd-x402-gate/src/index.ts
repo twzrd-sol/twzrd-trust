@@ -27,12 +27,23 @@ export {
   AMOUNT_FIELD_CONFLICT,
   AMOUNT_MALFORMED,
   PAYTO_FIELD_CONFLICT,
+  PAYTO_MALFORMED,
+  ASSET_MALFORMED,
+  NETWORK_MALFORMED,
+  BATCH_SETTLEMENT_REFUSED,
+  isBatchSettlement,
   SVM_SPLITS_REFUSED,
   hasSvmExactSplits,
   isBaseUnitAmount,
   TWZRD_FEE_PAYER,
 } from "./payto.js";
 export type { RequirementFieldConflict } from "./payto.js";
+export {
+  PAYMENT_DIFFERS_FROM_APPROVAL,
+  PAYMENT_PAYLOAD_UNREADABLE,
+  paymentBindingRefusal,
+  type ApprovedRequirement,
+} from "./payment-binding.js";
 export {
   classifyNetwork,
   solanaCluster,
@@ -170,6 +181,7 @@ export {
   mapX402SolanaRequirements,
   flattenDeclaredResource,
   resourceUrlFromPaymentRequired,
+  MANDATE_RESOURCE_UNVERIFIABLE,
   type X402ClientLike,
   type X402SelectedRequirements,
   type X402DeclaredResource,
@@ -216,6 +228,7 @@ export {
   type BindStrength,
   type ResourceBindReq,
   type ResourceBindDecision,
+  type StampResourceBindOptions,
   type ResourceBindSchema,
   type DecisionBind,
 } from "./resource-bind.js";
@@ -266,6 +279,7 @@ export {
   operationKeyOf,
   X402_PAID_RESPONSE_RULE_V1,
   UNBOUND_REQUEST_REASON,
+  UNRECORDABLE_REQUIREMENT_REASON,
   UNRESOLVED_OPERATION_REASON,
   MERCHANT_REPORTED_SETTLEMENT,
   type BoundRequest,
@@ -507,6 +521,8 @@ export {
   createTwzrdSettleGuard,
   defaultExtractPayer,
   extractSvmPayerFromTransaction,
+  payerBodiesAmbiguous,
+  PAYER_AMBIGUOUS_REASON,
   twzrdPayerScreen,
   toPayaiVerifyResult,
   type SettleGuardContext,

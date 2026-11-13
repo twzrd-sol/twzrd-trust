@@ -405,7 +405,7 @@ async function run() {
   bindPayCalls = 0;
   const unknownScheme = await twzrd.safeFetch(resource, {
     fetch: fetch402(body402({
-      payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint, scheme: "batch-settlement",
+      payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint, scheme: "deferred",
     })),
     requireOfferBinding: true,
     composeBoundTransaction: composeUnder,
@@ -414,6 +414,21 @@ async function run() {
   assert.equal(unknownScheme.verdict, "block");
   assert.equal(unknownScheme.reason, "bind_mismatch");
   assert.equal(unknownScheme.signerInvocations, 0);
+  assert.equal(bindPayCalls, 0);
+
+  // batch-settlement is refused by the requirement reader, before the bind is composed.
+  bindPayCalls = 0;
+  const batchScheme = await twzrd.safeFetch(resource, {
+    fetch: fetch402(body402({
+      payTo: FIX.expectedTokenPayer, amount: "50000", asset: FIX.mint, scheme: "batch-settlement",
+    })),
+    requireOfferBinding: true,
+    composeBoundTransaction: composeUnder,
+    pay: async () => { bindPayCalls += 1; return { response: new Response("x") }; },
+  });
+  assert.equal(batchScheme.verdict, "block");
+  assert.equal(batchScheme.reason, "batch_settlement_refused");
+  assert.equal(batchScheme.signerInvocations, 0);
   assert.equal(bindPayCalls, 0);
 
   const uptoReq = {

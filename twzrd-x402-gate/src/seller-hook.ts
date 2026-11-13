@@ -28,6 +28,7 @@ import { isTrueFlag } from "./config.js";
  */
 
 import { fetchMerchantCardResult, type TwzrdMerchantCard } from "./merchant-card.js";
+import { classifyNetwork } from "./network.js";
 import type { TwzrdDecision } from "./types.js";
 
 /**
@@ -139,6 +140,50 @@ function hasAuthoritativeSchemeShape(pl: Record<string, unknown> | null): boolea
   return false;
 }
 
+/** Reason the guard refuses a payload with two scheme bodies and no named rail. */
+export const PAYER_AMBIGUOUS_REASON = "twzrd_payer_ambiguous";
+
+/** Whether the payload carries an exact-EVM body (EIP-3009 or Permit2). */
+function hasEvmBody(pl: Record<string, unknown> | null): boolean {
+  return Boolean(pl && (recordOf(pl.authorization) || recordOf(pl.permit2Authorization)));
+}
+
+/** Whether the payload carries an exact-SVM body (a base64 transaction). */
+function hasSvmBody(pl: Record<string, unknown> | null): boolean {
+  return Boolean(pl && typeof pl.transaction === "string" && pl.transaction.trim());
+}
+
+function payloadOf(ctx: SettleGuardContext): Record<string, unknown> | null {
+  return recordOf(recordOf(ctx?.paymentPayload)?.payload);
+}
+
+/**
+ * The rail this payment settles on, from the first network that is named: the
+ * seller's own requirements, then the requirement the payload says it accepted
+ * (x402 v2), then the payload's own network (v1). Undefined when none is named
+ * or the name is neither Solana nor EVM.
+ */
+function settlementRail(ctx: SettleGuardContext): "solana" | "evm" | undefined {
+  const pp = recordOf(ctx?.paymentPayload);
+  const named = [recordOf(ctx?.requirements)?.network, recordOf(pp?.accepted)?.network, pp?.network];
+  for (const network of named) {
+    if (typeof network !== "string" || !network.trim()) continue;
+    const kind = classifyNetwork(network).kind;
+    return kind === "solana" || kind === "evm" ? kind : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * True when the payload carries both an exact-EVM body and an exact-SVM body
+ * and nothing says which rail settles. Only one of them is the payment; the
+ * other names a wallet the sender chose. No real client sends both.
+ */
+export function payerBodiesAmbiguous(ctx: SettleGuardContext): boolean {
+  const pl = payloadOf(ctx);
+  return settlementRail(ctx) === undefined && hasEvmBody(pl) && hasSvmBody(pl);
+}
+
 /**
  * Recover the token payer (owner of the source ATA) from an exact-SVM base64
  * transaction via optional peer `@x402/svm`. Returns null when the peer is
@@ -209,15 +254,22 @@ async function withTimeout<T>(
  * Authoritative payer extraction across x402 schemes (svm/evm) and PayAI-flat
  * shapes.
  *
- * Priority (signed/encoded first — never let a client-supplied alias outrank
- * them):
- *   1. exact-EVM EIP-3009 `payload.authorization.from`
- *   2. exact-EVM Permit2 `payload.permit2Authorization.from`
- *   3. exact-SVM `payload.transaction` → decode via optional `@x402/svm`
- *   4. Loose aliases (`payload.payer|from|account|sender`, top-level
- *      `paymentPayload.payer`, flat `ctx.payer`) ONLY when no authoritative
- *      scheme shape is present — otherwise a spoofed `payer: "clean"` next to
- *      a signed wash authorization would bypass screening.
+ * The payer is read from the body the settlement rail uses, and from nothing
+ * else. `authorization.from` on a Solana payment is an unsigned field the
+ * sender wrote; the payer there is the transfer authority in the signed
+ * transaction. The rail is the first network named by the seller's
+ * requirements, the payload's accepted requirement, or the payload itself.
+ *
+ *   - Solana rail: `payload.transaction` → decode via optional `@x402/svm`.
+ *   - EVM rail: EIP-3009 `payload.authorization.from`, then Permit2
+ *     `payload.permit2Authorization.from`.
+ *   - No rail named: whichever single scheme body is present. Both present is
+ *     ambiguous: null here, and the guard refuses the payment
+ *     (`twzrd_payer_ambiguous`).
+ *   - Loose aliases (`payload.payer|from|account|sender`, top-level
+ *     `paymentPayload.payer`, flat `ctx.payer`) ONLY when no scheme body is
+ *     present — otherwise a spoofed `payer: "clean"` next to a signed wash
+ *     authorization would bypass screening.
  *
  * Async because SVM recovery may dynamic-import the optional peer.
  * Returns null when unresolved (-> fail-open / fail-closed per options).
@@ -231,26 +283,30 @@ export async function defaultExtractPayer(
       ? ((pp.payload ?? null) as Record<string, unknown> | null)
       : null;
 
-  // 1) EIP-3009 exact-EVM
-  const auth = recordOf(pl?.authorization);
-  const eipFrom = asNonEmptyString(auth?.from) ?? asNonEmptyString(auth?.payer);
-  if (eipFrom) return eipFrom;
+  const rail = settlementRail(ctx);
+  const evmBody = hasEvmBody(pl);
+  const svmBody = hasSvmBody(pl);
+  // Two scheme bodies and no rail to choose by: neither wallet is trustworthy.
+  if (rail === undefined && evmBody && svmBody) return null;
 
-  // 2) Permit2 exact-EVM
-  const permit2 = recordOf(pl?.permit2Authorization);
-  const permitFrom = asNonEmptyString(permit2?.from);
-  if (permitFrom) return permitFrom;
-
-  // 3) exact-SVM base64 transaction (optional peer)
-  if (typeof pl?.transaction === "string" && pl.transaction.trim()) {
-    const svmPayer = await extractSvmPayerFromTransaction(pl.transaction);
-    if (svmPayer) return svmPayer;
-    // Authoritative shape present but unrecoverable — do NOT fall through to
-    // spoofable aliases.
-    return null;
+  // exact-EVM: EIP-3009, then Permit2. Never read on a Solana rail.
+  if (evmBody && rail !== "solana") {
+    const auth = recordOf(pl?.authorization);
+    const permit2 = recordOf(pl?.permit2Authorization);
+    return (
+      asNonEmptyString(auth?.from) ??
+      asNonEmptyString(auth?.payer) ??
+      asNonEmptyString(permit2?.from)
+    );
   }
 
-  // 4) Loose / PayAI shapes only when no signed scheme body is present.
+  // exact-SVM base64 transaction (optional peer). Never read on an EVM rail.
+  if (svmBody && rail !== "evm") {
+    // Unrecoverable stays null — do NOT fall through to spoofable aliases.
+    return extractSvmPayerFromTransaction(pl!.transaction as string);
+  }
+
+  // Loose / PayAI shapes only when no signed scheme body is present.
   if (hasAuthoritativeSchemeShape(pl)) {
     return null;
   }
@@ -333,6 +389,17 @@ export function createTwzrdSettleGuard(
     };
 
     const run = async (): Promise<SettleGuardResult> => {
+      // Not an outage, so not subject to failOpen: a payload shaped to make
+      // the guard pick the wrong wallet is refused. A caller-supplied
+      // extractor owns its own reading of the payload.
+      if (!opts.getPayer && payerBodiesAmbiguous(ctx)) {
+        emit(null, true, PAYER_AMBIGUOUS_REASON);
+        return {
+          abort: true,
+          reason: PAYER_AMBIGUOUS_REASON,
+          message: "payment payload carries both an EVM authorization and a Solana transaction, and no network says which one settles",
+        };
+      }
       payer = (await getPayer(ctx)) ?? null;
       if (!payer) {
         const peerMissing = await svmShapeWithoutPeer(ctx);

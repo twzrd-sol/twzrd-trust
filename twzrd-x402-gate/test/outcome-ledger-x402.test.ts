@@ -643,3 +643,55 @@ test("P2 restart: an expired never-signed approval left on disk lapses for a cha
     await binding.bindCall(URL_OP, undefined, async () => assert.match(String((binding.open(ctxAt("3000")) as { abort: string }).abort), /^unresolved_operation/));
   }
 });
+
+// One amount, one ledger key, however the seller spells it.
+//
+// A payment client reads "040000" as 40000. The ledger used to refuse to build
+// terms for the leading-zero spelling and let the call through with no row, so
+// the signer ran for a payment nothing recorded, and an unresolved earlier
+// payment for the same request no longer blocked the next one.
+
+test("amount form: a leading-zero amount is recorded under the same key as its canonical spelling", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const h = harness(async () => new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }), { amount: "040000" });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
+  const resp = await guarded(RESOURCE, POST);
+  assert.equal(resp.status, 200);
+  assert.equal(h.signs(), 1);
+  const row = ledger.get(keyFor("all"));
+  assert.ok(row, "the row sits under the canonical-amount key");
+  assert.equal(row.approval.amountAtomic, "40000");
+  assert.equal(row.state, "completed");
+});
+
+test("amount form: re-quoting an unresolved payment with leading zeros does not buy a second signature", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const first = harness(async () => { throw Object.assign(new Error("socket hang up after send"), { name: "ECONNRESET" }); });
+  const guardedFirst = createGuardedX402Fetch({ client: first.client, fetch: first.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
+  await assert.rejects(() => guardedFirst(RESOURCE, POST));
+  assert.equal(first.signs(), 1);
+  assert.equal(ledger.get(keyFor("all"))?.state, "unknown");
+
+  for (const amount of ["040000", "0040000", "00000000000000000040000"]) {
+    const again = harness(async () => new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }), { amount });
+    const guarded = createGuardedX402Fetch({ client: again.client, fetch: again.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
+    await assert.rejects(() => guarded(RESOURCE, POST), /unknown|unresolved/i, `amount ${amount}`);
+    assert.equal(again.signs(), 0, `amount ${amount}: the signer does not run while the first payment is unresolved`);
+  }
+  assert.equal(ledger.unresolved().length, 1, "still one unresolved attempt, not a second row");
+});
+
+test("amount form: a requirement the ledger cannot record is refused, not signed unrecorded", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  // No amount at all: nothing else in this configuration refuses it.
+  const h = harness(async () => new Response("{}", { status: 200, headers: { "PAYMENT-RESPONSE": settledOk } }), { amount: undefined as unknown as string });
+  const guarded = createGuardedX402Fetch({ client: h.client, fetch: h.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
+  await assert.rejects(() => guarded(RESOURCE, POST), /unrecordable_requirement/);
+  assert.equal(h.signs(), 0);
+
+  // A malformed amount keeps the reason the checks give it.
+  const malformed = harness(async () => new Response("{}", { status: 200 }), { amount: "4e4" });
+  const guardedMalformed = createGuardedX402Fetch({ client: malformed.client, fetch: malformed.transport, twzrd: { disabled: true }, outcomeLedger: { ledger, settlement: CONFIRMED } });
+  await assert.rejects(() => guardedMalformed(RESOURCE, POST), /amount_malformed/);
+  assert.equal(malformed.signs(), 0);
+});

@@ -23,7 +23,7 @@ import {
   writePauseSentinel,
 } from "./binding-plane.js";
 import { toMicroUsd } from "./intent.js";
-import { classifyNetwork } from "./network.js";
+import { canonicalEvmNetwork, classifyNetwork } from "./network.js";
 import {
   payToFromRequirements,
   pickRequirements,
@@ -314,15 +314,33 @@ function reserveSpend(pending: Map<string, bigint>, keys: string[], micro: bigin
   };
 }
 
+/**
+ * Is an offer's network one of the `allowNetworks` entries?
+ *
+ * Whole identifiers, never substrings. An entry is one of:
+ *  - "solana": any Solana cluster, as the classifier reads it;
+ *  - "base", "base-mainnet" or "eip155:8453": Base mainnet under any of those
+ *    three spellings, and nothing else (not base-sepolia, not eip155:84532);
+ *  - a classifier kind ("evm", "other");
+ *  - any other network id, matched in full, case-insensitively.
+ *
+ * It used to test `network.includes(entry)`: "eip155:1" admitted eip155:137,
+ * and "eip155:8453" or "base" admitted eip155:84532.
+ */
 function netOk(network: string | undefined, payTo: string | undefined, allow?: string[]): boolean {
   if (!allow?.length) return true;
   const c = classifyNetwork(network, payTo);
-  const n = (network ?? "").toLowerCase();
+  const n = (network ?? "").trim().toLowerCase();
+  const base = canonicalEvmNetwork(n);
   return allow.some((a) => {
-    const x = a.toLowerCase();
-    if (x === "solana") return c.kind === "solana";
-    if (x === "base") return n.includes("base") || n.includes("8453") || (c.kind === "evm" && n.includes("8453"));
-    return n.includes(x) || c.kind === x;
+    const x = String(a).trim().toLowerCase();
+    if (x === "") return false;
+    // The classifier finds "solana" anywhere in the string; an eip155 id is
+    // an EVM chain whatever else it contains.
+    if (x === "solana") return c.kind === "solana" && !n.startsWith("eip155:");
+    const allowedBase = canonicalEvmNetwork(x);
+    if (allowedBase) return base === allowedBase;
+    return n === x || c.kind === x;
   });
 }
 
@@ -551,10 +569,13 @@ export async function spendControlSafeFetch(
     }
     let stamped = null as ReturnType<typeof stampResourceBind> | null;
     if (opts.requireOfferBinding) {
+      // `body` is the 402 this call just read and is about to pay: the leaf
+      // comes from it and from nothing remembered from an earlier response.
       stamped = stampResourceBind(
         selected as ResourceBindReq,
         body,
         decisionId ? { decision_id: decisionId, preflight_id: preflightId } : undefined,
+        { currentInvoiceOnly: true },
       );
     }
     const bindReq: ResourceBindReq = {

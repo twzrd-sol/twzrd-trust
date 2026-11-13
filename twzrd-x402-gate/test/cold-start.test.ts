@@ -19,6 +19,7 @@ import {
   isForbiddenUrl,
   parseArgs,
   runColdStart,
+  type ColdStartDeps,
   type ColdStartHostRow,
 } from "../src/cold-start.js";
 import type { HostResolver } from "../src/ssrf.js";
@@ -34,6 +35,15 @@ import type { HostResolver } from "../src/ssrf.js";
  * resolver.
  */
 const RESOLVE_PUBLIC: HostResolver = async () => [{ address: "93.184.216.34", family: 4 }];
+
+/**
+ * The real probe opens a socket pinned to the addresses the guard approved.
+ * Here it is the mocked global fetch instead, looked up at call time so each
+ * test's mock is the one used. No socket is opened.
+ */
+const PROBE_VIA_MOCK: NonNullable<ColdStartDeps["pinnedFetch"]> = () =>
+  ((input, init) => globalThis.fetch(input, init)) as typeof fetch;
+const MOCKED: ColdStartDeps = { resolveHost: RESOLVE_PUBLIC, pinnedFetch: PROBE_VIA_MOCK };
 
 test("runColdStart enforces known prices, including a zero cap", async (t) => {
   const dir = tempDir("cold-start-cap-");
@@ -58,7 +68,7 @@ test("runColdStart enforces known prices, including a zero cap", async (t) => {
       const { policy, transcript } = await runColdStart(parseArgs([
         "--diet-url", seller, "--no-hop", "--max-per-call-usdc", String(cap),
         "--policy-out", join(dir, "policy.json"), "--out", join(dir, "transcript.json"),
-      ]), { resolveHost: RESOLVE_PUBLIC });
+      ]), MOCKED);
       const valid = amount !== undefined && /^\d+$/.test(amount);
       const allowed = valid && Number(amount) / 1e6 <= cap;
       assert.equal(policy.hosts.length, allowed ? 1 : 0, `amount=${amount}, cap=${cap}`);
@@ -265,7 +275,7 @@ test("runColdStart refuses a redirect to loopback before fetching the target", a
       "--policy-out",
       join(dir, "policy.json"),
     ]),
-    { resolveHost: RESOLVE_PUBLIC },
+    MOCKED,
   );
 
   const diet = transcript.hosts.find((h) => h.role === "diet");
@@ -295,7 +305,7 @@ test("runColdStart also refuses a redirect to a public target", async (t) => {
       "--policy-out",
       join(dir, "policy.json"),
     ]),
-    { resolveHost: RESOLVE_PUBLIC },
+    MOCKED,
   );
 
   const diet = transcript.hosts.find((h) => h.role === "diet");
@@ -330,6 +340,7 @@ test("runColdStart never probes a hop candidate that DNS-resolves to a private a
   const { transcript } = await runColdStart(
     parseArgs(["--policy-out", join(dir, "policy.json")]),
     {
+      pinnedFetch: PROBE_VIA_MOCK,
       resolveHost: async (host) =>
         host === "rebinder.example"
           ? [{ address: "10.0.0.9", family: 4 }]
@@ -341,6 +352,59 @@ test("runColdStart never probes a hop candidate that DNS-resolves to a private a
   const hop = transcript.hosts.find((h) => h.role === "hop");
   assert.equal(hop?.status, "no_eligible_hop");
   assert.equal(hopProbed, false, "the rebinding target must never be fetched");
+});
+
+test("runColdStart probes a hop at the addresses it checked, not at a second DNS answer", async (t) => {
+  const dir = tempDir("cold-start-rebind-");
+  const hopUrl = "https://rebind.example:8443/probe";
+  const unpinned: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/v1/intel/resources")) {
+      return Response.json({
+        resources: [{ resource_url: hopUrl, pay_to: "HopSeller11111111111111111111111111111111", live_402: true }],
+      });
+    }
+    // An ordinary fetch of the hop resolves the name again at connect.
+    if (url === hopUrl) unpinned.push(url);
+    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false, confidence: "full" });
+    if (url.endsWith("/preflight")) {
+      return Response.json({ readiness_card: { decision: "allow", trust_score: 90, can_spend: true } });
+    }
+    return new Response("", { status: 404 });
+  });
+  // The rebinding answer pair: public for the first lookup, loopback after it.
+  let lookups = 0;
+  const probes: Array<{ url: string; pinnedTo: unknown }> = [];
+  const { transcript } = await runColdStart(
+    parseArgs(["--policy-out", join(dir, "policy.json")]),
+    {
+      resolveHost: async (host) => {
+        if (host !== "rebind.example") return [{ address: "93.184.216.34", family: 4 }];
+        lookups += 1;
+        return [{ address: lookups === 1 ? "203.0.113.10" : "127.0.0.1", family: 4 }];
+      },
+      pinnedFetch: (addresses) =>
+        (async (input: unknown) => {
+          const url = String(input);
+          probes.push({ url, pinnedTo: addresses });
+          if (url !== hopUrl) return new Response("", { status: 404 });
+          return Response.json({ accepts: [{
+            scheme: "exact", network: "solana", amount: "1000",
+            payTo: "HopSeller11111111111111111111111111111111",
+          }] }, { status: 402 });
+        }) as typeof fetch,
+    },
+  );
+  assert.equal(lookups, 1, "the name is resolved once: there is no second answer to be sent to");
+  assert.deepEqual(
+    probes.filter((probe) => probe.url === hopUrl),
+    [{ url: hopUrl, pinnedTo: [{ address: "203.0.113.10", family: 4 }] }],
+    "the probe is pinned to the address that was checked",
+  );
+  assert.deepEqual(unpinned, [], "the hop is never handed to a fetch that resolves it again");
+  const hop = transcript.hosts.find((h) => h.role === "hop");
+  assert.equal(hop?.http_status, 402);
 });
 
 test("runColdStart skips a private-resolving hop candidate and still attempts the next listing", async (t) => {
@@ -372,6 +436,7 @@ test("runColdStart skips a private-resolving hop candidate and still attempts th
   await runColdStart(
     parseArgs(["--policy-out", join(dir, "policy.json")]),
     {
+      pinnedFetch: PROBE_VIA_MOCK,
       resolveHost: async (host) =>
         host === "rebinder.example"
           ? [{ address: "10.0.0.9", family: 4 }]
@@ -417,7 +482,7 @@ test("a hop candidate whose live-resolved payTo duplicates an already-scored wal
   });
   const { transcript } = await runColdStart(
     parseArgs(["--diet-url", dietSeller, "--policy-out", join(dir, "policy.json")]),
-    { resolveHost: RESOLVE_PUBLIC },
+    MOCKED,
   );
   const hop = transcript.hosts.find((h) => h.role === "hop");
   // The duplicate wallet must not be recorded as a second scored hop row.
@@ -451,7 +516,7 @@ test("a wash-capped gate approval is still refused by cold-start, and the reason
   });
   const { transcript } = await runColdStart(parseArgs([
     "--diet-url", seller, "--no-hop", "--policy-out", join(dir, "policy.json"),
-  ]), { resolveHost: RESOLVE_PUBLIC });
+  ]), MOCKED);
   const host = transcript.hosts[0]!;
   assert.equal(host.wash_flagged, true);
   assert.equal(host.approved, false);
@@ -493,7 +558,7 @@ test("ok credits a hop-scored host even when the exported API is called with no 
       policyOut: join(dir, "policy.json"),
       out: null,
     },
-    { resolveHost: RESOLVE_PUBLIC },
+    MOCKED,
   );
   assert.equal(transcript.hosts.some((h) => h.role === "diet"), false);
   const hop = transcript.hosts.find((h) => h.role === "hop");
@@ -530,7 +595,7 @@ test("a write failure on --policy-out is reported, not thrown, and the transcrip
       policyOut: badPolicyOut,
       out: null,
     },
-    { resolveHost: RESOLVE_PUBLIC },
+    MOCKED,
   );
   assert.ok(transcript.policy_write_error, "the write failure is surfaced, not swallowed");
   assert.equal(transcript.policy_path, null);

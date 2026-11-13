@@ -2,6 +2,97 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.20.2 (2026-11-13)
+
+Security fixes, shipped as a patch under the security clause of the versioning
+policy below. Each one adds a refusal or narrows what is signed, paid or
+recorded. One spelling case newly passes and is called out under
+`allowNetworks`.
+
+**New refusals**
+
+- **Mistyped requirement fields.** A `payTo`, `asset`, `network` or amount that
+  is present with the wrong type (an array, an object, a number where a string
+  is read) is refused on every seat that reads a requirement: `payto_malformed`,
+  `asset_malformed`, `network_malformed`, `amount_malformed`. They were read as
+  absent, or coerced, while the payment client used the raw value. The MPP
+  Solana charge guard type-checks `request` and `methodDetails` the same way,
+  and refuses any sponsorship marker other than absent, `null` or `false`.
+- **`batch-settlement` scheme.** Refused by the requirement reader on every
+  entry point. Its client escrows a channel deposit (the seller's
+  `extra.minDeposit`, or a multiple of the amount), which a cap or a budget on
+  the amount does not bound.
+- **Payment that differs from the approval.** `createBuyerFetch` and
+  `createGuardedX402Fetch` compare the outgoing `PAYMENT-SIGNATURE` /
+  `X-PAYMENT` header with the requirement that was approved (recipient, asset,
+  network, amount, scheme) and refuse a mismatch: `payment_differs_from_approval`,
+  or `payment_payload_unreadable` when the header is not base64 JSON. Both also
+  keep a failed payment creation failed, so a scheme's or an extension's
+  recovery hook no longer runs on a guarded client.
+- **Solana cluster label and mint.** A requirement labeled devnet, testnet or
+  localnet that names a mint other than that cluster's own USDC is refused
+  (`twzrd_non_usdc_asset`) before any intel call. A devnet requirement naming
+  devnet USDC, or no asset, keeps the observe-mode allow.
+- **Requirement the outcome ledger cannot record.** `createGuardedX402Fetch`
+  refuses it (`unrecordable_requirement`) instead of letting the signer run
+  with no row. Amounts are stored in one spelling, so `"01000"` and `"1000"`
+  are the same attempt.
+- **Ambiguous payer on the settle guard.** `createTwzrdSettleGuard` reads the
+  payer from the body the settlement rail uses (the signed transaction on
+  Solana, the authorization on EVM). With no rail named, a payload carrying
+  both is refused (`twzrd_payer_ambiguous`) whatever `failOpen` says. A
+  caller-supplied `getPayer` is left alone.
+- **Resource-scoped mandate.** `mandate.resourceAllow` is checked against the
+  URL the buyer fetches, not the resource the 402 names. The bare pre-sign hook
+  only sees the 402: with `resourceAllow` set it needs
+  `paymentControl.requestUrl` and refuses with `mandate_resource_unverifiable`
+  without it. `createTwzrdPolicyFetch` already passes the URL.
+- **Base Worker seat (`./cloudflare-base`).** A 402 that lists any entry the
+  seat did not score and an EVM signer could pay is refused with
+  `unvetted_payment_option` before intel is called, and `failOpen` does not
+  sign it: another `eip155` chain, an unrecognized or missing network, a
+  mistyped entry, or a network and `chainId` that disagree. Solana and other
+  non-`eip155` CAIP-2 entries are ignored as before.
+- **`allowNetworks` on `twzrd.safeFetch`.** An entry matches a network id in
+  full, case-insensitively. `"base"`, `"base-mainnet"` and `"eip155:8453"` all
+  mean Base mainnet and match each other; none of them matches Base Sepolia any
+  more. `"solana"` still means any Solana cluster, and never an `eip155` id.
+  A prefix such as `"eip155"` is not a family alias: it matches nothing, and
+  the offer is refused with `network_not_allowed`. Newly passing: an entry of
+  `"eip155:8453"` now admits an offer the seller spells `"base"` or
+  `"base-mainnet"`. It is the same chain, and it was refused before.
+- **Evidence bundles.** `validateEvidenceBundle` applies its outcome rules to
+  the signed preimage and requires the printed outcome to equal it
+  (`outcome_contradicts_preimage`, `outcome_contradicts_decision`,
+  `outcome_contradicts_signer`). `outcome_binds_decision` in
+  `verifyBundleLinkage` fails when the signed verdict or outcome contradicts
+  the bundle's decision. An honest bundle is unchanged.
+
+**Narrower spending and recording**
+
+- **Budget is booked at the go-ahead.** The pre-sign hook with Payment Control
+  holds the decision's spend while its later gates run (clearance, `/quick`,
+  receipt, the last halt read) and writes it to the ledger only when it lets
+  the payment through. A refusal after the policy decision books nothing.
+  Holds in flight count against every cap, so concurrent offers still cannot
+  both clear one ceiling. Holds are per process and per ledger instance.
+- **Paid trust receipt.** `evaluate_x402_resource` (and `withTwzrdGuard`) buys
+  the $0.05 receipt only for a seller it approved. A wash-flagged seller, a
+  seller intel has never evaluated and a score under the host's floor refuse
+  with no paid call, whatever the card's decision string says.
+- **Demand Desk batch signing.** `signAllTransactions` signs the batch it
+  verified: the array is copied before the first await and each item is
+  verified again in the same step as its signer call.
+- **Offer binding.** `stampResourceBind` takes the leaf from the 402 being
+  paid. A remembered v1 body is used only when it is that same offer, field for
+  field, in another spelling of the same network. `twzrd.safeFetch` stamps from
+  the body it just read (`currentInvoiceOnly`). `wrapFetchRememberInvoice`
+  drops a URL's remembered body when its newest 402 has no v1 body.
+- **Cold-start probe.** The hop probe connects to the addresses the SSRF guard
+  checked, through a lookup that answers only from them, so a hostname whose
+  DNS answer changes after the check cannot move the connection.
+  `ColdStartDeps.pinnedFetch` is the test seam.
+
 ## 0.20.1 (2026-11-12)
 
 - Cold-start probes now disable native redirect following and fail closed on

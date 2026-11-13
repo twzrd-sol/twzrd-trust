@@ -308,3 +308,105 @@ test("halt: a configured sentinel directory is read without the environment", as
     assert.equal(signCalls.length, 0);
   });
 });
+
+// ---- batch: what was verified is what is signed ----
+const TX2: Tx = { bytes: new Uint8Array([5, 6, 7, 8]), id: "tx2" };
+const EVIL: Tx = { bytes: new Uint8Array([9, 9, 9, 9]), id: "evil" };
+const ctxFor = (tx: Tx) => ({ authorization: issue(), messageHash: demandDeskMessageHash(tx.bytes) });
+
+/** A wallet whose signer runs `during` while the first item of a batch is being signed. */
+function batchRig(during: () => void, isActive: () => boolean = () => true) {
+  const signed: string[] = [];
+  const wallet = createDemandDeskWallet<Tx>({
+    messageBytes: (tx) => tx.bytes, expectation: () => expectation(), isActive,
+    signTransaction: async (tx) => {
+      signed.push(tx.id);
+      if (signed.length === 1) during();
+      await new Promise((resolve) => setImmediate(resolve));
+      return tx;
+    },
+    sendTransaction: async () => "sig",
+  });
+  return { wallet, signed };
+}
+
+test("batch: control, the unauthorized transaction is refused on its own", async () => {
+  const { wallet, signed } = batchRig(() => {});
+  // EVIL's bytes do not hash to the message the authorization context names.
+  await assert.rejects(wallet.signTransaction(EVIL, ctxFor(TX)), /transaction_message_mismatch/);
+  await assert.rejects(wallet.signAllTransactions([{ transaction: EVIL, context: ctxFor(TX) }]), /transaction_message_mismatch/);
+  assert.deepEqual(signed, []);
+  assert.deepEqual((await wallet.signAllTransactions([
+    { transaction: TX, context: ctxFor(TX) }, { transaction: TX2, context: ctxFor(TX2) },
+  ])).map((tx) => tx.id), ["tx1", "tx2"]);
+});
+
+test("batch: an item swapped in after verification is not signed", async () => {
+  const items = [{ transaction: TX, context: ctxFor(TX) }, { transaction: TX2, context: ctxFor(TX2) }];
+  const { wallet, signed } = batchRig(() => { items[1] = { transaction: EVIL, context: ctxFor(TX2) }; });
+  const out = await wallet.signAllTransactions(items);
+  assert.deepEqual(signed, ["tx1", "tx2"], "the verified second item was signed, not the one swapped in");
+  assert.deepEqual(out.map((tx) => tx.id), ["tx1", "tx2"]);
+});
+
+test("batch: an item appended after verification is not signed", async () => {
+  const items = [{ transaction: TX, context: ctxFor(TX) }];
+  const { wallet, signed } = batchRig(() => { items.push({ transaction: EVIL, context: ctxFor(TX) }); });
+  const out = await wallet.signAllTransactions(items);
+  assert.deepEqual(signed, ["tx1"]);
+  assert.equal(out.length, 1);
+});
+
+test("batch: a transaction changed in place after verification is refused", async () => {
+  const second: Tx = { bytes: new Uint8Array(TX2.bytes), id: "tx2" };
+  const items = [{ transaction: TX, context: ctxFor(TX) }, { transaction: second, context: ctxFor(TX2) }];
+  const { wallet, signed } = batchRig(() => { second.bytes = EVIL.bytes; second.id = "evil"; });
+  await assert.rejects(wallet.signAllTransactions(items), /transaction_message_mismatch/);
+  assert.deepEqual(signed, ["tx1"], "the changed transaction never reached the signer");
+});
+
+test("batch: a context rewritten after verification does not re-point an item", async () => {
+  // The caller's context object is rewritten to match the evil bytes; the copy still names TX2.
+  const second: Tx = { bytes: new Uint8Array(TX2.bytes), id: "tx2" };
+  const context = ctxFor(TX2);
+  const items = [{ transaction: TX, context: ctxFor(TX) }, { transaction: second, context }];
+  const { wallet, signed } = batchRig(() => {
+    second.bytes = EVIL.bytes; second.id = "evil";
+    context.messageHash = demandDeskMessageHash(EVIL.bytes);
+  });
+  await assert.rejects(wallet.signAllTransactions(items), /transaction_message_mismatch/);
+  assert.deepEqual(signed, ["tx1"]);
+});
+
+test("batch: a mandate revoked while the first item is signed stops the rest", async () => {
+  let active = true;
+  const items = [{ transaction: TX, context: ctxFor(TX) }, { transaction: TX2, context: ctxFor(TX2) }];
+  const { wallet, signed } = batchRig(() => { active = false; }, () => active);
+  await assert.rejects(wallet.signAllTransactions(items), /mandate_inactive/);
+  assert.deepEqual(signed, ["tx1"]);
+});
+
+test("batch: an intent hash that changes between verification and signing is refused", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const hashes = new Map<string, string>([["tx1", "11".repeat(32)], ["tx2", "22".repeat(32)]]);
+  for (const h of [...hashes.values(), "33".repeat(32)]) ledger.begin({ intentHash: h, decisionId: `d-${h.slice(0, 2)}`, approval });
+  const signed: string[] = [];
+  const wallet = createDemandDeskWallet<Tx>({
+    messageBytes: (tx) => tx.bytes, expectation: () => expectation(), isActive: () => true,
+    signTransaction: async (tx) => {
+      signed.push(tx.id);
+      // The guard's key for the second item moves to another approved intent.
+      hashes.set("tx2", "33".repeat(32));
+      await new Promise((resolve) => setImmediate(resolve));
+      return tx;
+    },
+    sendTransaction: async () => "sig",
+    replayGuard: { ledger, intentHash: (tx) => hashes.get(tx.id)! },
+  });
+  await assert.rejects(wallet.signAllTransactions([
+    { transaction: TX, context: ctxFor(TX) }, { transaction: TX2, context: ctxFor(TX2) },
+  ]), /batch_item_changed/);
+  assert.deepEqual(signed, ["tx1"]);
+  assert.equal(ledger.get("22".repeat(32))!.state, "approved");
+  assert.equal(ledger.get("33".repeat(32))!.state, "approved");
+});

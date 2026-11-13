@@ -104,7 +104,8 @@ const PRICES: Record<string, ModelPrice> = {
   "gemini-4-carbon": { inputPerMTok: 7.2, outputPerMTok: 36 },  // Priority price from 2026-12-01
   "gemini-4-argon": { inputPerMTok: 7.2, outputPerMTok: 36 },  // Priority price from 2026-12-01
   // BlockRun catalog 2026-11-07: billing_mode free, input 0, output 0.
-  // The fixed fallback is independent of this free catalog entry.
+  // A $0 row is a free-catalog entry, not a price: priceFor drops it for a
+  // call whose zero-price list does not name the model (a paid call).
   "nvidia/nemotron-3.5-bolt": { inputPerMTok: 0, outputPerMTok: 0 },
   "o1": { inputPerMTok: 15.0, outputPerMTok: 60.0 },
   "gpt-4o": { inputPerMTok: 2.5, outputPerMTok: 10.0 },
@@ -161,19 +162,33 @@ function fallbackFor(model: string, rates?: ModelRates): ModelPrice {
 }
 
 /**
- * `freeModels` is the operator's free allowlist (KILLSWITCH_FREE_MODELS /
- * compute.free_models). A model on it that has no row in the table is the
- * operator's statement that it costs nothing (a local Ollama model, a free
- * catalog entry), so it is priced at $0 and not at the fallback. A model
- * that does have a row keeps that row, and a dated or suffixed id of a priced
- * model (`gpt-4o-2024-11-20`) keeps the fallback: listing `gpt-4o` as free
- * does not zero a priced model. The caller passes no list for a call that
- * carries a payment credential. Token limits apply either way.
+ * `freeModels` is the zero-price list for this call: the operator's free
+ * allowlist (KILLSWITCH_FREE_MODELS / compute.free_models) for an unpaid
+ * call, and an empty list for a call that carries a payment credential.
+ * Absent (null or undefined) means the caller made no statement.
+ *
+ * - An operator rate (`rates`) is used as given, at $0 or not.
+ * - A built-in row above $0 is used as given: listing `gpt-4o` as free does
+ *   not zero a priced model.
+ * - A built-in $0 row is a catalog saying the model is free. It is used when
+ *   the list is absent or names the model. An explicit list that does not
+ *   name it (the empty list of a paid call) leaves the model at the
+ *   fallback: a call that pays for a model is not a free call.
+ * - A model with no row is $0 when the list names it (a local Ollama model,
+ *   a free catalog entry), unless it is a dated or suffixed id of a priced
+ *   model (`gpt-4o-2024-11-20`).
+ * - Everything else is the fallback. Token limits apply either way.
  */
 export function priceFor(model: string, freeModels?: readonly string[] | null, rates?: ModelRates): { price: ModelPrice; known: boolean } {
-  const price = rates && Object.hasOwn(rates, model) ? rates[model] : Object.hasOwn(PRICES, model) ? PRICES[model] : undefined;
-  if (price) return { price, known: true };
-  if (freeModels && freeModels.includes(model) && !looksLikePricedModel(model, rates)) return { price: FREE, known: false };
+  if (rates && Object.hasOwn(rates, model)) return { price: rates[model], known: true };
+  const listed = Array.isArray(freeModels) && freeModels.includes(model);
+  const row = Object.hasOwn(PRICES, model) ? PRICES[model] : undefined;
+  if (row) {
+    const zeroRow = row.inputPerMTok === 0 && row.outputPerMTok === 0;
+    if (!zeroRow || listed || !Array.isArray(freeModels)) return { price: row, known: true };
+  } else if (listed && !looksLikePricedModel(model, rates)) {
+    return { price: FREE, known: false };
+  }
   // Fail closed: an unlisted model could be a pricey reasoning model, so we
   // assume the worst instead of silently undercounting spend.
   return { price: fallbackFor(model, rates), known: false };

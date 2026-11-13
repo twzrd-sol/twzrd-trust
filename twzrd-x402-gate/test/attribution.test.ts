@@ -13,11 +13,15 @@ import { CLIENT_VERSION } from "../src/version.js";
 const PREFLIGHT_ID = 219886;
 
 // config.fetch: free preflight returns a readiness_card + the top-level preflight_id sibling.
+// The card carries a cap above the price: a warn with no cap is refused, and a
+// refused seller gets no paid call at all.
 const preflightFetch: typeof fetch = (async () =>
   new Response(
     JSON.stringify({
-      readiness_card: { decision: "warn", trust_score: 45, seller_wallet: "SELLER" },
+      readiness_card: { decision: "warn", trust_score: 45, seller_wallet: "SELLER", recommended_cap_usdc: 1000 },
       preflight_id: PREFLIGHT_ID,
+      wash_flagged: false,
+      confidence: "full",
     }),
     { status: 200, headers: { "content-type": "application/json" } },
   )) as unknown as typeof fetch;
@@ -61,6 +65,7 @@ async function run() {
       `twzrd-x402-gate/${CLIENT_VERSION}`,
       "paid call must stamp X-Twzrd-Caller (previously unstamped)",
     );
+    assert.equal(result.approved, true, "the seller the receipt is bought for is approved");
     assert.equal(result.receiptFeeCaptured, true, "receipt fee captured");
   }
 
@@ -106,10 +111,14 @@ async function run() {
   // 2. no preflight_id in the response -> header is simply absent (no crash, backward compatible)
   {
     const noIdPreflight: typeof fetch = (async () =>
-      new Response(JSON.stringify({ readiness_card: { decision: "warn", trust_score: 45, seller_wallet: "S2" } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      })) as unknown as typeof fetch;
+      new Response(
+        JSON.stringify({
+          readiness_card: { decision: "warn", trust_score: 45, seller_wallet: "S2", recommended_cap_usdc: 1000 },
+          wash_flagged: false,
+          confidence: "full",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as unknown as typeof fetch;
     let paidHeaders: Headers | undefined;
     const x402Fetch: typeof fetch = (async (_url: unknown, init?: { headers?: RequestInit["headers"] }) => {
       paidHeaders = new Headers(init?.headers);
@@ -124,7 +133,8 @@ async function run() {
       { payTo: "S2", maxAmountRequired: "50000", resource: "https://merchant/paid", network: "solana" },
       { autoReceipt: true, x402Fetch, fetch: noIdPreflight, preflightMinScore: 0 },
     );
-    assert.equal(paidHeaders?.get("x-twzrd-preflight-id"), null, "no preflight_id -> header omitted, no crash");
+    assert.ok(paidHeaders, "the paid call fires");
+    assert.equal(paidHeaders.get("x-twzrd-preflight-id"), null, "no preflight_id -> header omitted, no crash");
   }
 
   console.log("attribution.test.ts: ALL PASSED");

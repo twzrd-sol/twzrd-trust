@@ -380,6 +380,64 @@ function validateSections(b: Record<string, unknown>, e: ValidationError[]): voi
   }
 }
 
+type PreimageContradiction = { code: string; path: string; message: string };
+
+/**
+ * What the SIGNED part of an outcome attestation says, against what the
+ * bundle around it says.
+ *
+ * The leaf, and so the signature, commit to `preimage.outcome` and
+ * `preimage.verdict`. The `outcome` printed beside the preimage and the
+ * bundle's `decision` are unsigned. Checking only the unsigned copy let a
+ * bundle read "blocked, never signed" and pass while the signature it carried
+ * attested "allow, settled". Every rule the copy is held to is applied to the
+ * preimage, and the copy must equal it.
+ */
+function preimageContradictions(b: Record<string, unknown>): PreimageContradiction[] {
+  const o = isObj(b.outcomeAttestation) ? b.outcomeAttestation : null;
+  const pre = o && isObj(o.preimage) ? o.preimage : null;
+  if (!o || !pre) return [];
+  const out: PreimageContradiction[] = [];
+  if (pre.outcome !== o.outcome) {
+    out.push({
+      code: "outcome_contradicts_preimage", path: "outcomeAttestation.outcome",
+      message: `outcome ${JSON.stringify(o.outcome)} is not the outcome the attestation preimage commits to ` +
+        `(${JSON.stringify(pre.outcome)})`,
+    });
+  }
+  const d = isObj(b.decision) ? b.decision : null;
+  if (!d) return out;
+  const signer = d.signerInvocations;
+  if (pre.outcome === "blocked_never_signed" && d.approved === true) {
+    out.push({
+      code: "outcome_contradicts_decision", path: "outcomeAttestation.preimage.outcome",
+      message: "signed outcome blocked_never_signed contradicts decision.approved:true",
+    });
+  }
+  if (pre.outcome === "settled" && d.approved === false) {
+    out.push({
+      code: "outcome_contradicts_decision", path: "outcomeAttestation.preimage.outcome",
+      message: "signed outcome settled contradicts decision.approved:false (gate breach shape)",
+    });
+  }
+  if (pre.outcome === "blocked_never_signed" && isInt0(signer) && signer > 0) {
+    out.push({
+      code: "outcome_contradicts_signer", path: "outcomeAttestation.preimage.outcome",
+      message: `signed outcome blocked_never_signed contradicts ${signer} signer invocation(s)`,
+    });
+  }
+  // Compared only when the bundle's verdict is one an attestation can carry;
+  // "unknown" and the like are not a claim to contradict.
+  const attested = ["allow", "warn", "block"];
+  if (isStr(pre.verdict) && isStr(d.verdict) && attested.includes(d.verdict) && pre.verdict !== d.verdict) {
+    out.push({
+      code: "outcome_contradicts_decision", path: "outcomeAttestation.preimage.verdict",
+      message: `signed verdict ${JSON.stringify(pre.verdict)} contradicts decision.verdict ${JSON.stringify(d.verdict)}`,
+    });
+  }
+  return out;
+}
+
 /**
  * Self-contradiction. Every rule here is a statement the bundle makes about
  * itself that cannot be true at the same time as another.
@@ -453,6 +511,8 @@ function validateCoherence(b: Record<string, unknown>, e: ValidationError[]): vo
         `outcome blocked_never_signed contradicts ${signer} signer invocation(s)`);
     }
   }
+  // The same rules against what the attestation actually signs.
+  for (const c of preimageContradictions(b)) err(e, c.code, c.path, c.message);
 }
 
 /**
@@ -754,12 +814,18 @@ function outcomeChecks(
   if (!claimedId || !preId) {
     out.push(ck("outcome_binds_decision", "unchecked",
       "decision.decisionId or preimage.decision_id absent", "absent"));
+  } else if (claimedId !== preId) {
+    out.push(ck("outcome_binds_decision", "failed",
+      "attestation is for a different decisionId than the bundle's decision"));
   } else {
-    out.push(claimedId === preId
+    // Same id is not enough: the signed verdict and outcome must be the ones
+    // the bundle reports for that decision.
+    const contradictions = preimageContradictions(b);
+    out.push(contradictions.length === 0
       ? ck("outcome_binds_decision", "verified",
-          "attestation preimage names the same decisionId as the bundle decision")
+          "attestation preimage names the same decisionId, verdict and outcome as the bundle decision")
       : ck("outcome_binds_decision", "failed",
-          "attestation is for a different decisionId than the bundle's decision"));
+          `attestation preimage contradicts the bundle: ${contradictions.map((c) => c.message).join("; ")}`));
   }
 }
 

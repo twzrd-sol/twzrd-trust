@@ -31,7 +31,8 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
-On npm; 0.5.0 is the current version (published 2026-10-30). It fetches the
+On npm; 0.5.1 is the current version (published 2026-11-13). It refuses redirects
+from the log (below) and is otherwise 0.5.0 (published 2026-10-30). It fetches the
 transaction bytes and verifies the transaction identity and the authority's signature
 locally (see the anchor trust table below). Upgrade from earlier versions: 0.4.0's
 anchor check still trusts the RPC's `jsonParsed` fields for the transaction's signers
@@ -112,6 +113,13 @@ compare. Anchor transactions use static account keys; a versioned transaction
 that references an address-table account, or one whose message version is not
 legacy or 0, is reported as an error, not a verdict.
 
+### Changed in 0.5.1
+
+- The live-log helpers and the CLI no longer follow redirects (see Usage). A log
+  that answers with a 3xx is an error, and nothing is fetched from its `Location`.
+- A custom `fetchImpl` is called with `redirect: "manual"`, and a response it marks
+  `redirected: true` is refused.
+
 ### Breaking for library users in 0.5.0
 
 - `fetchAnchorTransaction` requests `encoding: "base64"` from the RPC and parses the
@@ -173,6 +181,13 @@ const res = await verifyReceiptInLog({
 Generation functions (`merkleRoot`, `inclusionProof`, `consistencyProof`,
 `signSth`) are exported so proofs are reproducible from an entry list; relying
 parties only need the `verify*` half.
+
+The live-log helpers and the CLI do not follow redirects. Every request goes to
+the base URL you gave; a log that answers with a 3xx gets
+`GET <url> -> HTTP <status>: redirect not followed` and nothing is fetched from
+the `Location`. A custom `fetchImpl` is called with `redirect: "manual"`; a
+response it marks `redirected: true` is refused as well. If your log moved, pass
+its new base URL.
 
 ## File shapes
 

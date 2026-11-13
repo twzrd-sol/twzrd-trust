@@ -66,7 +66,7 @@ Paid tools are **opt-in on both runtimes**: they sign only when you set
 both — the server runs read-only and never signs. Spend is bounded by per-call and
 session caps.
 
-Before any Solana signature the Node server runs `twzrd-x402-gate@0.15.0` wash
+Before any Solana signature the Node server runs `twzrd-x402-gate@0.20.2` wash
 default (Python `twzrd-mcp` 0.2.2 does the same `merchant_card` check on the 402
 `payTo`): abort iff `wash_flagged===true`, and fail closed if intel cannot answer
 (timeout, 5xx/429, unreadable body): an outage is never read as clean. That is
@@ -118,6 +118,7 @@ the paying-client brake, not a Path A shop.
 - **Identifiable recipient** — a challenge with no `payTo` is refused.
 - **Solana-only** — a non-`exact` / non-`solana:` challenge is refused, never mis-signed.
 - **Single-shot retry** — at most one signed retry per tool call; a second 402 is surfaced, not silently re-paid.
+- **One option, checked and signed** — the payment option is chosen once from the 402, wash-checked, and handed to the x402 client alone. The built payment must name that same option (`payTo`, `amount`, `asset`, `network`, `scheme`) or it is not sent. A 402 whose first Solana `exact` option the client cannot pay is refused; it is never paid through a later option that was not checked.
 - **Free tools never enter the payment path.**
 
 ## Verify receipts offline (trust no one)

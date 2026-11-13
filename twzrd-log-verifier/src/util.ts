@@ -10,6 +10,8 @@ export type FetchLike = (
     method?: string;
     headers?: Record<string, string>;
     body?: string;
+    /** The log client passes "manual": a redirect from a log is refused, not followed. */
+    redirect?: "follow" | "manual" | "error";
   },
 ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 

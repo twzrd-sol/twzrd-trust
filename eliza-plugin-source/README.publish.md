@@ -128,7 +128,7 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 `payWrap` receives the **guarded** fetch. Opt out with `TWZRD_AUTO_GATE=0` or `{ disabled: true }`.
 Lookups carry `X-TWZRD-Integration: eliza-plugin/<version>` unless you pass your own `attribution`.
 
-On `twzrd-x402-gate` 0.14.0 the guard refuses each of these before `payWrap` signs (the 0.13 defaults, unchanged in 0.14.0):
+On `twzrd-x402-gate` 0.20.2 the guard refuses each of these before `payWrap` signs (the 0.13 defaults, unchanged since):
 
 | Refused by default | Reason | Opt out (restores the 0.12.5 outcome) |
 |---|---|---|
@@ -138,6 +138,11 @@ On `twzrd-x402-gate` 0.14.0 the guard refuses each of these before `payWrap` sig
 
 An unreachable card is still an outage, decided by `failOpen`. The env opt-outs also accept
 `false`, `no` and `off`; any other value leaves the refusal on.
+
+The guard also refuses a 402 it cannot read the way a pay client does: a `payTo`, `asset` or
+`network` that is not a string, or an amount that is an array or an object (`payto_malformed`,
+`asset_malformed`, `network_malformed`, `amount_malformed`). These are refused before intel is
+asked, and `failOpen` does not open them.
 
 ### Paid trust receipt
 
@@ -153,6 +158,24 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 ```
 
 Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
+
+## 0.10.2 changes
+
+Security release: the `twzrd-x402-gate` pin moves from `0.14.0` to `0.20.2`.
+
+- On gate 0.14.0, `installTwzrdAutoGate` read a 402 field of the wrong type as absent, or coerced
+  it, while a pay client uses the raw value. A `payTo` sent as a one-element array was scored as
+  the wallet inside it, and an `asset` that was not a string was read as no asset named. The guard
+  could approve one payment while the client signed another. Gate 0.20.2 refuses these before
+  `payWrap` signs.
+- The pin is exact, so this plugin installs its own copy of the gate. Upgrading `twzrd-x402-gate`
+  in your app does not change the copy the plugin calls: upgrade the plugin.
+- The move crosses gate 0.15.0 to 0.20.2. On `installTwzrdAutoGate` that also means: a Solana
+  `exact` offer that carries `extra.splits` is refused (`svm_splits_refused`), a `batch-settlement`
+  offer is refused (`batch_settlement_refused`), and a `.kill` or `.pause` file in the gate's state
+  directory (`stateDir`, `TWZRD_STATE_DIR`) refuses the payment. A well-formed offer is decided as
+  before, and the refusal defaults in the table above are unchanged.
+- No other source change. `X-Twzrd-Caller` reads `eliza-plugin/0.10.2@0.20.2`.
 
 ## 0.10.1 changes
 

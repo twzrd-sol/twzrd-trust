@@ -20,6 +20,7 @@ import { CLIENT_VERSION } from "./version.js";
 import type { TwzrdApprovalResult, TwzrdGateConfig } from "./types.js";
 import { x402RequirementsToIntent } from "./intent-adapters.js";
 import { evaluateIntent, type Mandate, type SpendLedger, type SpendPolicy } from "./policy-runtime.js";
+import { createSpendReservation, type SpendReservation } from "./spend-reservation.js";
 import {
   createSeededDecisionSigner,
   type DecisionSigner,
@@ -111,7 +112,20 @@ type X402PaymentControlCommon = {
   facilitator?: string;
   /** Resource method bound into the intent (GET/POST/…). */
   method?: string;
+  /**
+   * The URL the buyer is fetching for the payment in progress. Required when
+   * `mandate.resourceAllow` is set: this hook only sees the seller's 402, and
+   * the resource URL in a 402 is whatever the seller wrote, so the scope
+   * cannot be checked against it. Return the URL your code passed to the
+   * paying fetch (a closure or AsyncLocalStorage around the call). Without it
+   * a resource-scoped mandate refuses with `mandate_resource_unverifiable`.
+   * `createTwzrdPolicyFetch` owns the fetch and needs no such callback.
+   */
+  requestUrl?: () => string | undefined;
 };
+
+/** Reason the hook refuses a resource-scoped mandate it cannot check. */
+export const MANDATE_RESOURCE_UNVERIFIABLE = "mandate_resource_unverifiable";
 
 /**
  * Exactly one signing source. Modeled as a union so the type system rejects
@@ -280,6 +294,27 @@ export async function evaluateBeforePaymentCreation(
   pcSigner?: DecisionSigner,
   paymentRequired?: unknown,
 ): Promise<BeforePaymentCreationResult> {
+  // Payment Control spend is held while the remaining gates run and written to
+  // the ledger only on the go-ahead. Every other way out (an abort from a later
+  // gate, a throw) drops it: a payment that is never signed books nothing.
+  const spend: SpendHold = {};
+  try {
+    return await evaluateHoldingSpend(selectedRequirements, options, pcSigner, paymentRequired, spend);
+  } finally {
+    spend.reservation?.release();
+  }
+}
+
+/** The Payment Control spend of one hook call, held until the go-ahead. */
+type SpendHold = { reservation?: SpendReservation };
+
+async function evaluateHoldingSpend(
+  selectedRequirements: X402SelectedRequirements,
+  options: InstallX402ClientHookOptions | undefined,
+  pcSigner: DecisionSigner | undefined,
+  paymentRequired: unknown,
+  spend: SpendHold,
+): Promise<BeforePaymentCreationResult> {
   options = resolveBuyerPathADefaults(options ?? {});
   const cfg: ResolvedTwzrdGateConfig = resolveConfig(options);
   const fields = resolveRequirementFields(selectedRequirements);
@@ -362,6 +397,37 @@ export async function evaluateBeforePaymentCreation(
     }
     return { abort: true, reason };
   }
+  // A mandate scoped to resources is checked against the URL the buyer is
+  // fetching. The only URL this hook can see is the one in the seller's 402,
+  // so the buyer's own must be supplied; a scope checked against the seller's
+  // word passes whenever the seller names an allowed URL.
+  let requestUrl: string | undefined;
+  if (options?.paymentControl) {
+    try {
+      const named = options.paymentControl.requestUrl?.();
+      requestUrl = typeof named === "string" && named.trim() !== "" ? named : undefined;
+    } catch {
+      requestUrl = undefined;
+    }
+    if (options.paymentControl.mandate?.resourceAllow && !requestUrl) {
+      const reason = `[twzrd] ${MANDATE_RESOURCE_UNVERIFIABLE}: mandate.resourceAllow needs paymentControl.requestUrl payTo=${payTo ?? "unknown"}`;
+      try {
+        options.onDecision?.({
+          approved: false,
+          reason,
+          verdict: String(approval.verdict),
+          payTo,
+          network: approval.network ?? network,
+          amountMicro,
+          reputationScored: approval.reputationScored,
+          policyAction: "block",
+        });
+      } catch {
+        /* telemetry */
+      }
+      return { abort: true, reason };
+    }
+  }
   let intent: PaymentIntent | undefined;
   let decision: PaymentDecision | undefined;
   if (options?.paymentControl && payTo && amountMicro) {
@@ -369,24 +435,28 @@ export async function evaluateBeforePaymentCreation(
     const pc = options.paymentControl;
     // x402RequirementsToIntent converts the wire micro-amount to decimal USD.
     intent = x402RequirementsToIntent(selectedRequirements, {
-      resourceUrl: selectedRequirements.resource,
+      resourceUrl: requestUrl ?? selectedRequirements.resource,
       method: pc.method,
       facilitator: pc.facilitator,
       purpose: pc.purpose,
     });
+    // The caps are checked against recorded spend plus every hold in flight,
+    // and this decision's spend becomes a hold in the same synchronous step.
+    spend.reservation = pc.ledger ? createSpendReservation(pc.ledger) : undefined;
     decision = await evaluateIntent(intent, {
       signer: signer!,
       policy: pc.policy,
       mandate: pc.mandate,
-      ledger: pc.ledger,
+      ledger: spend.reservation?.ledger,
       ttlMs: pc.ttlMs,
       now: options.now?.(),
       stateDir: cfg.stateDir,
       killFilePath: cfg.killFilePath,
       pauseFilePath: cfg.pauseFilePath,
-      // Ledger hygiene: never record spend for a payment the legacy gate
+      // Ledger hygiene: never hold spend for a payment the legacy gate
       // already denied — the hook aborts it regardless of this decision,
-      // so recording would pollute cumulative/monthly caps.
+      // so recording would pollute cumulative/monthly caps. What is held
+      // here reaches the ledger only at the go-ahead below.
       recordSpend: approval.approved,
       intelligence: () => ({
         // NOT reputationScored — that flag is true for any scored Solana path,
@@ -691,6 +761,11 @@ export async function evaluateBeforePaymentCreation(
   if (haltedBeforeSign) return haltedBeforeSign;
 
   const resourceBind = stampResourceBind(selectedRequirements, paymentRequired);
+
+  // Every gate has passed: the spend is booked now, and only now. A ledger
+  // that cannot take the record throws, and the payment is not signed.
+  spend.reservation?.commit();
+
   try {
     options?.onDecision?.({
       approved: true,

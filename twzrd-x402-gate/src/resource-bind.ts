@@ -34,7 +34,16 @@ export type DecisionBind = {
   preflight_id?: number;
 };
 
-/** v1 402 JSON body keyed by request URL and accepts[].resource. Header is CAIP. */
+/**
+ * v1 402 JSON body keyed by request URL and accepts[].resource. Header is CAIP.
+ *
+ * A memory of the seller's own spelling, for the client that shows the hook
+ * only the CAIP form. It is process-wide, any 402 can file a body under any
+ * resource through accepts[].resource, and an entry outlives the response it
+ * came from. So it never decides what a leaf commits to: stampResourceBind
+ * takes a remembered entry only when it is the offer being paid, field for
+ * field, in another spelling of the same network.
+ */
 export const rawInvoiceByResource = new Map<string, unknown>();
 
 export function rememberRawInvoice(body: unknown, requestUrl?: string): void {
@@ -56,8 +65,11 @@ export function wrapFetchRememberInvoice(inner: typeof fetch): typeof fetch {
   return async (input, init) => {
     const res = await inner(input, init);
     if (res.status !== 402) return res;
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    // The newest 402 from this URL is the one being paid. If it has no v1 body
+    // there is nothing to remember, and what an earlier answer left is stale.
+    rawInvoiceByResource.delete(url);
     try {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       rememberRawInvoice(await res.clone().json(), url);
     } catch { /* not JSON */ }
     return res;
@@ -225,13 +237,51 @@ export function pickBindMemo(memos: readonly string[]): string | null {
   return memos[0] ?? null;
 }
 
+/** Aliases of one network compare equal; anything else compares as written. */
+function sameNetwork(a?: string, b?: string): boolean {
+  return (a ?? "") === (b ?? "") || networksEquivalent(a, b);
+}
+
+/**
+ * True when `remembered` is the offer `paying` describes: every field the leaf
+ * commits to is equal, and the network is the same network in either spelling.
+ */
+function sameOffer(remembered: ResourceBindReq, paying: ResourceBindReq): boolean {
+  const r = resolveRequirementFields(remembered);
+  const p = resolveRequirementFields(paying);
+  if (r.conflict || p.conflict) return false;
+  return (
+    r.payTo !== undefined && r.payTo === p.payTo &&
+    r.amount !== undefined && r.amount === p.amount &&
+    (remembered.asset ?? "") === (paying.asset ?? "") &&
+    (remembered.scheme ?? "") === (paying.scheme ?? "") &&
+    (remembered.resource ?? "") === (paying.resource ?? "") &&
+    sameNetwork(remembered.network, paying.network)
+  );
+}
+
+export type StampResourceBindOptions = {
+  /**
+   * The caller read `paymentRequired` off the response it is paying and has no
+   * rawer form of it: stamp from that body alone, never from a remembered one.
+   */
+  currentInvoiceOnly?: boolean;
+};
+
 export function stampResourceBind(
   req: ResourceBindReq, paymentRequired?: unknown, bind?: Partial<DecisionBind>,
+  options?: StampResourceBindOptions,
 ): ResourceBindDecision {
-  const cached = (req.resource && rawInvoiceByResource.get(req.resource))
-    || rawInvoiceByResource.get(String(req.resource || ""));
-  const hashSrc = rawReqFromPaymentRequired(cached ?? paymentRequired, req) ?? req;
-  if (!hashSrc.resource && req.resource) hashSrc.resource = req.resource;
+  // The offer in the 402 being paid. This is what the leaf commits to.
+  const current = rawReqFromPaymentRequired(paymentRequired, req) ?? req;
+  if (!current.resource && req.resource) current.resource = req.resource;
+  // A remembered v1 body may only supply the seller's spelling of that offer.
+  let hashSrc = current;
+  if (!options?.currentInvoiceOnly && req.resource) {
+    const remembered = rawReqFromPaymentRequired(rawInvoiceByResource.get(req.resource), req);
+    const paying: ResourceBindReq = { ...req, resource: current.resource };
+    if (remembered && sameOffer(remembered, paying)) hashSrc = remembered;
+  }
   const hf = resolveRequirementFields(hashSrc);
   if (hf.conflict) return refuse(hf.conflict);
   if (!hf.payTo || !hf.amount || !hashSrc.resource) {

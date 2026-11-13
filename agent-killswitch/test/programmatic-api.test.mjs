@@ -213,6 +213,27 @@ test("zeroPriceModels: [] opts a request out of free pricing without throwing", 
   assert.ok(paid.usd > 0);
 });
 
+test("zeroPriceModels: [] also prices a model the built-in table lists at $0", () => {
+  const model = "nvidia/nemotron-3.5-bolt";
+  const window = { minuteTokens: 0, hourUsd: 0, dayUsd: 0 };
+  const gate = createBudgetGate({ ...limits, maxUsdPerHour: 0.05, maxCostPerRequestUsd: 1 });
+
+  // No list: the catalog price, nothing held.
+  assert.equal(gate.estimate({ model, maxTokens: 1_000 }).usd, 0);
+  assert.equal(gate.evaluate({ model, maxTokens: 1_000, window }).allowed, true);
+
+  // A paid request passes []: 1,000 output tokens at the $60/M fallback.
+  assert.equal(gate.estimate({ model, maxTokens: 1_000, promptBytes: 0, promptTextOnly: true, zeroPriceModels: [] }).usd, 0.06);
+  const refused = gate.evaluate({ model, maxTokens: 1_000, promptBytes: 0, promptTextOnly: true, window, zeroPriceModels: [] });
+  assert.equal(refused.allowed, false);
+  assert.equal(refused.code, "budget_exceeded");
+
+  // A gate-wide list that names the model keeps it at $0 for unpaid requests.
+  const listed = createBudgetGate({ ...limits, zeroPriceModels: [model] });
+  assert.equal(listed.estimate({ model, maxTokens: 1_000 }).usd, 0);
+  assert.ok(listed.estimate({ model, maxTokens: 1_000, zeroPriceModels: [] }).usd > 0);
+});
+
 test("malformed booleans and pause strings throw instead of being coerced", () => {
   const gate = createBudgetGate(limits);
   const base = {

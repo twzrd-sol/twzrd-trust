@@ -4,6 +4,13 @@ import { resolveConfig } from "./config.js";
 import { sharedFileDecisionLedger, type DecisionLedgerRow } from "./decision-ledger-file.js";
 import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
 import { toMicroUsd } from "./intent.js";
+import {
+  approvedRequirementOf,
+  paymentBindingRefusal,
+  paymentHeadersOf,
+  refuseRecoveredPayments,
+  type ApprovedRequirement,
+} from "./payment-binding.js";
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
 import { twzrdApprovePayment, twzrdSentinelRefusal } from "./policy.js";
 import type { SpendLedger } from "./policy-runtime.js";
@@ -67,7 +74,12 @@ type Attempt = {
   challengeSeen: boolean;
   recorded: boolean;
   blocked?: BuyerFetchBlockedError;
-  approvedForSigning?: boolean;
+  /**
+   * The requirement the pre-sign checks approved for this attempt. A payment
+   * header may leave only while this is set, and only if it names this
+   * requirement: the approval is for one payment, not for the attempt.
+   */
+  approved?: ApprovedRequirement;
   /** decision_id of the durable allow/warn row that permitted signing. */
   decisionId?: string;
   input: { resource: string; pay_to?: string; network?: string; amount_micro?: string };
@@ -204,6 +216,8 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
   client.onBeforePaymentCreation(async context => {
     const attempt = attempts.getStore();
     if (!attempt) throw new BuyerFetchBlockedError("use_buyer_fetch_for_payment");
+    // Each creation is approved on its own; an earlier approval does not carry over.
+    attempt.approved = undefined;
     const selected = context.selectedRequirements ?? context.requirements ?? {};
     const fields = resolveRequirementFields(selected);
     attempt.input = { resource: attempt.resource, pay_to: fields.payTo,
@@ -252,23 +266,35 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
       if (halted !== undefined) return refuse(attempt, halted.split(/[ (]/)[0]);
       try { ledger.record(scope, micro, Date.now()); }
       catch { return refuse(attempt, "spend_ledger_unavailable"); }
-      attempt.approvedForSigning = true;
+      attempt.approved = approvedRequirementOf(selected);
     } finally {
       const left = (inFlight.get(scope) ?? 0n) - micro;
       if (left > 0n) inFlight.set(scope, left); else inFlight.delete(scope);
     }
+  });
+  // A payment that fails to build stays failed. A scheme may otherwise answer the failure with a
+  // payload for a different accepts[] entry, which none of the checks above has seen.
+  refuseRecoveredPayments(client, () => {
+    const attempt = attempts.getStore();
+    if (attempt) attempt.approved = undefined;
   });
   clients.add(client as object);
 
   const transport: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     const current = attempts.getStore();
-    if (current && !current.approvedForSigning &&
-      (request.headers.has("payment-signature") || request.headers.has("x-payment"))) {
-      return refuse(current, "payment_without_approval");
+    const payments = paymentHeadersOf(request.headers);
+    if (current && payments.length > 0) {
+      if (!current.approved) return refuse(current, "payment_without_approval");
+      // The payload about to leave must be the payment that was approved, not merely one made
+      // during an approved attempt.
+      for (const header of payments) {
+        const differs = paymentBindingRefusal(current.approved, header);
+        if (differs !== undefined) return refuse(current, differs);
+      }
     }
     const response = await raw(request, { redirect: "error" });
-    if (current?.approvedForSigning && current.decisionId &&
+    if (current?.approved && current.decisionId &&
       (request.headers.has("payment-signature") || request.headers.has("x-payment"))) {
       const settle = paymentResponseOf(response);
       if (settle) {

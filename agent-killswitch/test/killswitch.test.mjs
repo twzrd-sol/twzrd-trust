@@ -523,6 +523,81 @@ test("a paid call in keyless mode keeps the fail-closed price and the dollar lim
   }
 });
 
+const CATALOG_FREE = "nvidia/nemotron-3.5-bolt";
+
+test("the built-in $0 row is a free-catalog price: an explicit zero-price list decides whether it applies", () => {
+  // No list: the caller made no statement, the catalog price stands.
+  assert.equal(costUsd(CATALOG_FREE, 1_000_000, 1_000_000), 0);
+  assert.equal(costUsd(CATALOG_FREE, 1_000_000, 1_000_000, null), 0);
+  // On the list: the operator says the same thing the catalog does.
+  assert.equal(costUsd(CATALOG_FREE, 1_000_000, 1_000_000, [CATALOG_FREE]), 0);
+  // An empty list is what a paid call passes: nothing is $0 for it.
+  assert.equal(costUsd(CATALOG_FREE, 1_000_000, 1_000_000, []), 75);
+  assert.equal(pessimisticRequestCostUsd(CATALOG_FREE, 1_000_000, []), 60);
+  // A list that names other models does not cover this one.
+  assert.equal(costUsd(CATALOG_FREE, 1_000_000, 1_000_000, ["local-model"]), 75);
+  // The operator's own rate still wins, at zero or not.
+  const zero = parseModelRates({ [CATALOG_FREE]: { in: 0, out: 0 } });
+  assert.equal(costUsd(CATALOG_FREE, 1_000_000, 1_000_000, [], zero), 0);
+  const priced = parseModelRates({ [CATALOG_FREE]: { in: 1, out: 2 } });
+  assert.equal(costUsd(CATALOG_FREE, 1_000_000, 1_000_000, [], priced), 3);
+  assert.equal(costUsd(CATALOG_FREE, 1_000_000, 1_000_000, [CATALOG_FREE], priced), 3);
+});
+
+for (const [window, envName] of [["hour", "KILLSWITCH_MAX_USD_HOUR"], ["day", "KILLSWITCH_MAX_USD_DAY"]]) {
+  test(`a paid call to the built-in $0 model is priced and stops at the ${window} limit`, async () => {
+    delete process.env.OPENAI_API_KEY;
+    process.env.KILLSWITCH_FREE_MODELS = CATALOG_FREE;
+    process.env[envName] = "0.05";
+    upstream.state.mode = "402-until-paid";
+    const port = await startKillswitch();
+    const body = { model: CATALOG_FREE, max_tokens: 256, messages: [{ role: "user", content: "hi" }] };
+    const paidHeaders = { "x-payment": "pay-payload" };
+
+    // Paid: 1000 prompt + 500 completion tokens at the fallback = $0.045.
+    const paid = await chat(port, body, paidHeaders);
+    assert.equal(paid.status, 200);
+    assert.equal(readLedger(dir).at(-1).cost_usd, 0.045);
+    assert.equal((await health(port))[`${window}_usd`], 0.045);
+
+    // The next paid call would cross $0.05 and never reaches the seller.
+    const hitsBefore = upstream.state.hits;
+    const capped = await chat(port, body, paidHeaders);
+    assert.equal(capped.status, 429);
+    assert.equal(capped.json.error.code, "budget_exceeded");
+    assert.equal(upstream.state.hits, hitsBefore);
+  });
+}
+
+test("a paid call to the built-in $0 model holds dollars while it is in flight", async () => {
+  delete process.env.OPENAI_API_KEY;
+  process.env.KILLSWITCH_FREE_MODELS = CATALOG_FREE;
+  upstream.state.mode = "402-until-paid";
+  upstream.state.delayMs = 300;
+  const port = await startKillswitch();
+  const body = { model: CATALOG_FREE, max_tokens: 1000, messages: [{ role: "user", content: "hi" }] };
+
+  const inFlight = chat(port, body, { "x-payment": "pay-payload" });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const during = await health(port);
+  assert.equal(during.in_flight, 1);
+  // 1000 output tokens at $60/M plus one input token per request byte at $15/M.
+  const held = (1000 * 60 + bodyBytes(body) * 15) / 1_000_000;
+  assert.ok(Math.abs(during.hour_usd - held) < 1e-9, `held ${during.hour_usd}, expected ${held}`);
+  assert.equal((await inFlight).status, 200);
+});
+
+test("the built-in $0 model stays $0 for an unpaid call, keyed or on the free list", async () => {
+  // Keyed mode, no free list, no payment credential: the catalog price.
+  const keyed = await startKillswitch();
+  const body = { model: CATALOG_FREE, max_tokens: 16, messages: [{ role: "user", content: "hi" }] };
+  assert.equal((await chat(keyed, body)).status, 200);
+  assert.equal(readLedger(dir).at(-1).cost_usd, 0);
+  // The same keyed proxy prices it once the call carries a payment credential.
+  assert.equal((await chat(keyed, body, { "x-payment": "pay-payload" })).status, 200);
+  assert.equal(readLedger(dir).at(-1).cost_usd, 0.045);
+});
+
 test("an allowlisted local model meters $0 with default limits, and the token limit still vetoes", async () => {
   delete process.env.OPENAI_API_KEY;
   process.env.KILLSWITCH_FREE_MODELS = "local-model";

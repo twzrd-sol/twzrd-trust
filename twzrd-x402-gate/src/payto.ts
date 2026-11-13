@@ -98,10 +98,41 @@ export const AMOUNT_MALFORMED = "amount_malformed";
  * mpp-hook.ts.
  */
 export const SVM_SPLITS_REFUSED = "svm_splits_refused";
+/**
+ * A recipient, asset or network that is present but is not a string (0.20.2).
+ * The gate used to read these with `String(value)` or skip a non-string, while
+ * the Solana clients read the raw value as a public key: `payTo: []` was
+ * "no recipient" here and the all-zero key there, `payTo: ["<clean>"]` was
+ * scored as the clean seller and paid to the zero key, and an `asset` given
+ * as a 32-number array was "no asset named" here (so priced as USDC) and a
+ * real mint there. A mistyped field is refused on every entry point that
+ * reads the requirement through resolveRequirementFields, before intel and
+ * before any signature. An amount that is not a string or a number is
+ * `amount_malformed`.
+ */
+export const PAYTO_MALFORMED = "payto_malformed";
+export const ASSET_MALFORMED = "asset_malformed";
+export const NETWORK_MALFORMED = "network_malformed";
+/**
+ * The `batch-settlement` scheme is refused. The gate prices, caps and budgets
+ * a payment by the requirement's `amount`. A batch-settlement client signs a
+ * channel deposit instead: the seller's `extra.minDeposit` when it announces
+ * one, otherwise a multiple of `amount` set in the client's own scheme config,
+ * escrowed until the channel closes. Neither figure is visible to a check on
+ * `amount`, so a 0.001 USDC quote could escrow 1 USDC under a 0.01 cap. The
+ * scheme can also answer a refused channel by paying a different accepts[]
+ * entry. Refused on every entry point that reads the requirement through
+ * resolveRequirementFields, before intel and before any signature.
+ */
+export const BATCH_SETTLEMENT_REFUSED = "batch_settlement_refused";
 export type RequirementFieldConflict =
   | typeof AMOUNT_FIELD_CONFLICT
   | typeof PAYTO_FIELD_CONFLICT
   | typeof AMOUNT_MALFORMED
+  | typeof PAYTO_MALFORMED
+  | typeof ASSET_MALFORMED
+  | typeof NETWORK_MALFORMED
+  | typeof BATCH_SETTLEMENT_REFUSED
   | typeof SVM_SPLITS_REFUSED;
 
 /**
@@ -141,6 +172,18 @@ export function hasSvmExactSplits(req: unknown): boolean {
   const splits = (extra as Record<string, unknown>).splits;
   if (!Array.isArray(splits)) return true;
   return splits.length > 0;
+}
+
+/**
+ * True when a requirement names the `batch-settlement` scheme. The name is
+ * compared trimmed and lowercased, and a non-string scheme is read through
+ * String(), so a spelling this function misses is one no client registers.
+ */
+export function isBatchSettlement(req: unknown): boolean {
+  if (req === null || typeof req !== "object") return false;
+  const scheme = (req as Record<string, unknown>).scheme;
+  if (scheme == null) return false;
+  return String(scheme).trim().toLowerCase() === "batch-settlement";
 }
 
 const BASE_UNIT_AMOUNT = /^[0-9]+$/;
@@ -193,9 +236,20 @@ export function resolveRequirementFields(req: unknown): {
   conflict: RequirementFieldConflict | undefined;
 } {
   const r = (req ?? {}) as Record<string, unknown>;
-  const amt = resolvePair(r.amount, r.maxAmountRequired);
-  const pay = resolvePair(r.payTo, r.pay_to, sameRecipient);
-  const malformed = amt.value !== undefined && !isBaseUnitAmount(amt.value);
+  // Type first. String(["1000"]) is "1000" and String([]) is "", so a value
+  // that is not the type the wire format names is never coerced.
+  const named = (v: unknown): boolean => v !== undefined && v !== null;
+  const amountTyped = (v: unknown): boolean =>
+    !named(v) || typeof v === "string" || typeof v === "number";
+  const textTyped = (v: unknown): boolean => !named(v) || typeof v === "string";
+  const amountMistyped = !amountTyped(r.amount) || !amountTyped(r.maxAmountRequired);
+  const payToMistyped = !textTyped(r.payTo) || !textTyped(r.pay_to);
+  const assetMistyped = !textTyped(r.asset);
+  const networkMistyped = !textTyped(r.network);
+  const none: { value?: string; conflict: boolean } = { conflict: false };
+  const amt = amountMistyped ? none : resolvePair(r.amount, r.maxAmountRequired);
+  const pay = payToMistyped ? none : resolvePair(r.payTo, r.pay_to, sameRecipient);
+  const malformed = amountMistyped || (amt.value !== undefined && !isBaseUnitAmount(amt.value));
   return {
     payTo: pay.value,
     amount: malformed ? undefined : amt.value,
@@ -203,11 +257,19 @@ export function resolveRequirementFields(req: unknown): {
       ? AMOUNT_FIELD_CONFLICT
       : malformed
         ? AMOUNT_MALFORMED
-        : pay.conflict
-          ? PAYTO_FIELD_CONFLICT
-          : hasSvmExactSplits(r)
-            ? SVM_SPLITS_REFUSED
-            : undefined,
+        : payToMistyped
+          ? PAYTO_MALFORMED
+          : pay.conflict
+            ? PAYTO_FIELD_CONFLICT
+            : assetMistyped
+              ? ASSET_MALFORMED
+              : networkMistyped
+                ? NETWORK_MALFORMED
+                : isBatchSettlement(r)
+                  ? BATCH_SETTLEMENT_REFUSED
+                  : hasSvmExactSplits(r)
+                    ? SVM_SPLITS_REFUSED
+                    : undefined,
   };
 }
 

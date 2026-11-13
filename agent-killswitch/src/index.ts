@@ -152,11 +152,16 @@ async function handle(
   const now = new Date(nowMs).toISOString();
   const pause = checkPauseSwitch(cfg.pauseFilePath, nowMs);
 
-  // The free allowlist prices an unlisted model at $0 only for an unpaid
-  // call. Keyless mode is also how an MPP/x402 buyer runs the proxy, and a
-  // call that carries a payment credential can cost money, so it keeps the
-  // fail-closed price.
-  const zeroPriceModels: readonly string[] = carriesPaymentCredential(req.headers) ? [] : cfg.freeModels;
+  // $0 pricing (the free allowlist, a built-in $0 row) is for an unpaid call.
+  // Keyless mode is also how an MPP/x402 buyer runs the proxy, and a call
+  // that carries a payment credential can cost money: it passes an empty
+  // list, which prices nothing at $0. An unpaid call with no allowlist
+  // passes no list, so a built-in $0 row keeps its catalog price.
+  const zeroPriceModels: readonly string[] | null = carriesPaymentCredential(req.headers)
+    ? []
+    : cfg.freeModels.length > 0
+      ? cfg.freeModels
+      : null;
 
   const decision = evaluateGate({
     killed: checkKillSwitch(cfg.killFilePath),
@@ -250,7 +255,7 @@ function settleHold(
   ledger: Ledger,
   holdId: number,
   result: ForwardResult | null,
-  ctx: { now: string; model: string; requestId: string; est: { tokens: number; usd: number }; freeModels: readonly string[]; rates: ModelRates },
+  ctx: { now: string; model: string; requestId: string; est: { tokens: number; usd: number }; freeModels: readonly string[] | null; rates: ModelRates },
 ): void {
   const telemetry = { requested_model: ctx.model, served_model: result?.servedModel ?? null, model_mismatch: result?.servedModel != null && result.servedModel !== ctx.model };
   if (result?.usage) {
