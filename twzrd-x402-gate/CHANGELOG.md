@@ -2,6 +2,23 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## Unreleased
+
+Not on npm. The second and third items change allow/refuse results, so this ships in a minor release (0.21.0), not a patch.
+
+- **`routerProfile({ failOpen })` (new export, `src/router-profile.ts`).** One frozen gate config for a router or payment proxy that runs the gate in its own process for its users. Every decision setting is written out, so a later default change does not reach it, and the env variable for a pinned setting does not move it (an option beats its env variable). Pinned: `refuseUnevaluated: false`, `refuseWashUnknown: false`, `refuseWashFlagged: true`, `washMaxUsdc: null`, `refuseUncappedWarn: true`, `preflightMinScore: 40`, `blockDecisions: ["block"]`, `gateOnCanSpend: false`, `unsupportedNetworkMode: "observe"`, `intelTimeoutMs: 2000`. `failOpen` is required and has no default; anything but a boolean throws a `TypeError`. No `attribution` is set.
+  - Missing evidence does not refuse on its own: a seller intel has never evaluated is paid up to the card's `recommended_cap_usdc` (refused above it, or with no cap or no price), and a reachable merchant card without full wash coverage does not refuse. A finding still refuses: `decision: "block"`, a score below 40, a warn with no finite cap or over its cap, and `wash_flagged: true`.
+  - `wash_flagged: true` refuses at any price. The profile pins `washMaxUsdc: null` (third item below), so `TWZRD_WASH_MAX_USDC` on the host does not pay a wash-flagged seller. A soft cap is a code override, `{ ...routerProfile({ failOpen: true }), washMaxUsdc: 0.02 }`, never the env variable.
+  - Not pinned, so an option or env variable still reaches them, and each is off unless set: `intelBase`, `attribution`, the `.kill` / `.pause` sentinels, and `tripPauseOnBlockMs`.
+  - Tested with the profile: `createTwzrdPayKitBeforePaymentHook`, `createTwzrdBeforePaymentHook`, `createTwzrdGate`, `wrapFetchWithTwzrdGate` (pass `resolveConfig(profile)`), `withTwzrdGuard` and `evaluate_x402_resource`. Not tested with it: `createBuyerFetch` (pins its own refusals), the `"mpp"` seat, `twzrd.safeFetch`, the advisory `safeFetch` and `./cloudflare-base`.
+  - A changed value in the profile ships only in a minor release, with an entry here.
+- **`withTwzrdGuard` and `evaluate_x402_resource` pass `refuseUncappedWarn`, `intelTimeoutMs` and `tripPauseOnBlockMs` through.** Both built their config from a hand-picked list of options that missed these three, so the env variable or the default applied instead. `refuseUncappedWarn: false` now pays an evaluated warn with no cap on these two entry points (it refused before), `intelTimeoutMs` now sets the preflight deadline (it was 2000 ms or `TWZRD_INTEL_TIMEOUT_MS`), and `tripPauseOnBlockMs` with `stateDir` now writes `.pause` on a fatal refusal (nothing was written unless `TWZRD_TRIP_PAUSE_ON_BLOCK_MS` was set).
+- **`washMaxUsdc: null` means no soft cap, and `TWZRD_WASH_MAX_USDC` is not read.** An explicit `null` was treated as "not set": the env variable applied, and a wash-flagged payment at or under it was paid (`twzrd_wash_capped_*`) under a config that said wash refuses. `null` now refuses a wash-flagged seller at any price (`twzrd_wash_flagged`). Leaving the option out is unchanged (the env variable applies), and a number is unchanged (it is the cap, and it beats the env variable). `TwzrdGateConfig.washMaxUsdc` is now typed `number | null`.
+  - Both resolvers follow the rule: `resolveConfig`, and the wash-default path's own (`evaluateWashOnlyBeforePayment`, `createTwzrdWashBeforePaymentHook`), whose option already documented `null` as a hard refuse but fell back to the env variable.
+  - Tested with `null` under `TWZRD_WASH_MAX_USDC=1000`: `createTwzrdGate`, `createTwzrdBeforePaymentHook`, `createTwzrdPayKitBeforePaymentHook`, `wrapFetchWithTwzrdGate`, `withTwzrdGuard`, `evaluate_x402_resource`, `evaluateWashOnlyBeforePayment` and `createTwzrdWashBeforePaymentHook`.
+  - `withTwzrdGuard` reads the wash cap once, when it is built, like its other settings. It handed a resolved "no cap" back through `resolveConfig` on every call, which read the env variable again, so a guard built with no cap could start paying wash-flagged sellers when `TWZRD_WASH_MAX_USDC` was set later. It no longer does. A guard built under an env cap keeps that cap, as before.
+  - Not changed: the advisory `safeFetch` does not take the option and still reads the env variable; `createBuyerFetch` already had no soft cap; `wash_max_usdc: null` in a `twzrd.binding_policy.v1` policy is still rejected by `parseBindingPolicy`.
+
 ## 0.20.2 (2026-11-13)
 
 Security fixes, shipped as a patch under the security clause of the versioning

@@ -155,8 +155,15 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
   // Opt out: refuseWashUnknown:false or TWZRD_REFUSE_WASH_UNKNOWN=0|false.
   const refuseWashUnknown = defaultOnFlag(overrides?.refuseWashUnknown, process.env.TWZRD_REFUSE_WASH_UNKNOWN);
 
+  // An explicit null is a decision, not a missing value: no soft cap, and the
+  // env variable is not read. Only an omitted (undefined) option falls back to
+  // TWZRD_WASH_MAX_USDC. Before 0.21.0 null fell through to the env too, so a
+  // value set on the host could pay a wash-flagged seller under a config that
+  // said wash refuses.
   let washMaxUsdc: number | null = null;
-  if (overrides?.washMaxUsdc != null && Number.isFinite(overrides.washMaxUsdc)) {
+  if (overrides?.washMaxUsdc === null) {
+    washMaxUsdc = null;
+  } else if (overrides?.washMaxUsdc != null && Number.isFinite(overrides.washMaxUsdc)) {
     washMaxUsdc = overrides.washMaxUsdc;
   } else if (process.env.TWZRD_WASH_MAX_USDC != null && process.env.TWZRD_WASH_MAX_USDC !== "") {
     const n = Number(process.env.TWZRD_WASH_MAX_USDC);

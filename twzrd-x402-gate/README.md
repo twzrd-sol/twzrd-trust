@@ -16,6 +16,7 @@ cannot answer. Keep the reason in a local JSONL file.
 | Using the `@x402/mcp` client | `twzrdOnPaymentRequested` |
 | Signing with your own code, without this package | [the paste-in check](#refuse-before-you-sign-without-this-package) |
 | Keeping an older integration | `createGuardedX402Fetch`, `withTwzrdGuard`, `wrapFetchWithTwzrdGate`, or `twzrd.safeFetch` |
+| Running a router or payment proxy that gates its users' payments | [`routerProfile({ failOpen })`](#router-profile-routerprofile) on a client hook or fetch wrapper (unreleased) |
 
 `installTwzrdAutoGate` is one function with those adapters. `twzrd.safeFetch` is
 `spendControlSafeFetch`. The other export named `safeFetch` is the advisory CLI
@@ -1106,7 +1107,8 @@ What the guard does on HTTP 402:
 
 Opt out of wash refuse: `withTwzrdGuard(fetch, { refuseWashFlagged: false })` or
 `TWZRD_REFUSE_WASH_FLAGGED=0`. Soft cap instead of hard refuse: `washMaxUsdc` /
-`TWZRD_WASH_MAX_USDC`.
+`TWZRD_WASH_MAX_USDC`. Unreleased: `washMaxUsdc: null` means no soft cap and the
+env variable is not read, and the guard reads the cap once, when it is built.
 
 Non-402 responses pass through unchanged.
 
@@ -1680,9 +1682,87 @@ integrator's own transcript, (2) is observed server-side with a real policy deci
 comes from non-internal lineage. No PII, secret, wallet, or payload is added; both fields must
 be set or nothing is stamped.
 
+## Router profile (`routerProfile`)
+
+Unreleased: on `main`, not yet on npm.
+
+For a router or payment proxy that runs this gate in its own process, on its
+users' payments. `routerProfile({ failOpen })` returns a frozen config with
+every decision setting written out. A later release that changes a default does
+not change your gate, and the env variable for a pinned setting does not move
+it, because an option beats its env variable.
+
+```ts
+import { x402Client } from "@x402/core/client";
+import { createTwzrdPayKitBeforePaymentHook, routerProfile } from "twzrd-x402-gate";
+
+const client = new x402Client();
+// client.register(...) your schemes, then:
+client.onBeforePaymentCreation(
+  createTwzrdPayKitBeforePaymentHook(routerProfile({ failOpen: true })),
+);
+```
+
+`failOpen` has no default: you choose what an intel outage does. To change one
+field, spread it: `{ ...routerProfile({ failOpen: true }), intelTimeoutMs: 800 }`.
+
+| Case | `routerProfile` | Package defaults (0.13.0+) |
+|---|---|---|
+| Seller intel has never evaluated, price at or under the card's `recommended_cap_usdc` | pays | refuses (`twzrd_unevaluated_subject_*`) |
+| Seller never evaluated, price above that cap, or no cap, or no price | refuses (`twzrd_unevaluated_over_cap_*`, `twzrd_unevaluated_no_cap_*`, `twzrd_unevaluated_unknown_price_*`) | refuses |
+| Merchant card reachable, wash coverage missing, partial or stale | pays | refuses (`twzrd_wash_unknown`) |
+| `wash_flagged: true` | refuses (`twzrd_wash_flagged`), whatever `TWZRD_WASH_MAX_USDC` says | refuses, unless `washMaxUsdc` or `TWZRD_WASH_MAX_USDC` sets a soft cap and the price is at or under it |
+| `decision: "block"`, or a score below 40 | refuses | refuses |
+| Evaluated warn with no finite cap, or over its cap | refuses (`twzrd_warn_no_cap`, `twzrd_over_recommended_cap_*`) | refuses |
+| Preflight or merchant card unreachable | your `failOpen` | refuses unless `TWZRD_FAIL_OPEN` is set |
+| Network TWZRD does not score | pays; a wash flag still refuses | same (`observe`) |
+
+The never-evaluated ceiling is the server's. `src/policy.ts` records $0.10 for
+a seller live intel had never seen (2026-09-28), so on this profile such a
+seller is paid up to that ceiling and refused above it.
+
+**What goes to intel.** Two free calls per payment: `POST /v1/intel/preflight`
+(seller, resource URL and name, price, chain, an intent label) and
+`GET /v1/intel/merchant_card/<payTo>`. The preflight carries the constant
+`X-TWZRD-Client` and `X-Twzrd-Caller: twzrd-x402-gate/<version>` headers; the
+merchant card call carries no TWZRD header. The profile sets no `attribution`,
+so no `X-TWZRD-Integration` or `X-TWZRD-Run-Id` is sent, and the client hooks
+do not send the payer's wallet. Leave `x402Fetch` unset unless you want paid hops:
+with one, a warn buys the $0.001 `/quick` and an allowed payment above $2.50
+buys the $0.05 `/trust` receipt, from that fetch's wallet.
+
+**No soft wash cap.** The profile pins `washMaxUsdc: null`. `null` means no
+soft cap: a wash-flagged seller is refused at any price, and
+`TWZRD_WASH_MAX_USDC` is not read, so a value set on the host cannot pay one.
+To allow small wash-flagged payments, say so in code:
+`{ ...routerProfile({ failOpen: true }), washMaxUsdc: 0.02 }`.
+
+**Not pinned.** An option or env variable still reaches these, and each is off
+unless set: `intelBase` (`TWZRD_INTEL_BASE`), `attribution`
+(`TWZRD_ATTRIBUTION_INTEGRATION` + `TWZRD_ATTRIBUTION_RUN_ID`), the `.kill` /
+`.pause` sentinels (`stateDir`, `TWZRD_STATE_DIR`) and `tripPauseOnBlockMs`
+(`TWZRD_TRIP_PAUSE_ON_BLOCK_MS`).
+
+**Seats.** Tested with the profile: `createTwzrdPayKitBeforePaymentHook` (an
+`x402Client`'s `onBeforePaymentCreation`, PayKit's
+`onBeforeX402PaymentCreation`), `createTwzrdBeforePaymentHook` (PayAI
+`beforePayment`), `createTwzrdGate`, `wrapFetchWithTwzrdGate` (pass
+`resolveConfig(profile)`), `withTwzrdGuard` and `evaluate_x402_resource`. Not
+tested with it: `createBuyerFetch` (it pins its own refusals), the `"mpp"` seat,
+`twzrd.safeFetch`, the advisory `safeFetch` and `./cloudflare-base`.
+
+**Version pinning.** Since 0.11.0 an allow/refuse change ships only in a minor
+release ([policy](./CHANGELOG.md#versioning-policy-from-0110)). A patch never
+loosens, but it may add a refusal to close a security defect. Below 1.0, `^0.x.y` already stays inside one minor, so it admits those
+patches; an exact version admits nothing until you change it. A changed value
+in the profile ships only in a minor release, with a CHANGELOG entry.
+
+The profile does not move the gate off the pre-sign path. A router that will
+not run vendor code before its signer needs a different shape.
+
 ## Compatibility note
 
-**Proxied x402 clients** (AgentCash's `.fetch`, ClawRouter `:8402`): these clients handle
+**Proxied x402 clients** (AgentCash's `.fetch`, a router proxy such as `:8402`): these clients handle
 402 internally and return 200. The guard never sees a 402 if it wraps the client's *output* —
 it must wrap the client's *input*. `installTwzrdAutoGate` enforces this composition order by
 construction: it guards the raw fetch first, then hands the guarded fetch to your `payWrap`.
