@@ -60,13 +60,13 @@ where the current state lives.
 
 ## Package mirrors
 
-These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-11: gate 0.20.0, killswitch 0.1.11, mcp-server 0.6.2, eliza-plugin 0.10.1, trustgate 0.3.11 (tree: 0.3.10, see the table), log-verifier 0.5.0, receipt-verifier 1.4.4, x402-solana 3.0.1.
+These READMEs are copies of the published tarball and are re-synced, never edited here. Registry versions read 2026-11-13: gate 0.20.2, killswitch 0.2.1, mcp-server 0.6.3, eliza-plugin 0.10.2, trustgate 0.3.12, log-verifier 0.5.1, receipt-verifier 1.4.4, x402-solana 3.0.1.
 
 | Document | Status | Mirrors |
 |---|---|---|
 | [twzrd-mcp-server/README.md](../twzrd-mcp-server/README.md) | canonical mirror | `twzrd-mcp-server@0.6.3` on npm (identical on 2026-11-13) |
-| [eliza-plugin/README.md](../eliza-plugin/README.md) | canonical mirror | `@wzrd_sol/eliza-plugin@0.10.1` on npm (identical on 2026-10-26) |
-| [plugin-trustgate/README.md](../plugin-trustgate/README.md) | canonical mirror | `@wzrd_sol/plugin-trustgate@0.3.10` in this tree; registry `latest` is **0.3.11** (read 2026-11-09) — resync pending in draft PR #288; do not hand-edit here |
+| [eliza-plugin/README.md](../eliza-plugin/README.md) | canonical mirror | `@wzrd_sol/eliza-plugin@0.10.2` on npm (identical on 2026-11-13) |
+| [plugin-trustgate/README.md](../plugin-trustgate/README.md) | canonical mirror | `@wzrd_sol/plugin-trustgate@0.3.12` on npm (identical on 2026-11-13); do not hand-edit here |
 | [eliza-plugin-source/README.md](../eliza-plugin-source/README.md) | canonical | The TypeScript source the Eliza plugin is published from; `README.publish.md` beside it is the README packed into the tarball |
 
 ## Historical records

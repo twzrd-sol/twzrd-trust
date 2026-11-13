@@ -23,18 +23,17 @@ import { test } from 'node:test';
 import { checkTrust } from '../plugin-trustgate/dist/gate.js';
 
 const GUARD = 'plugin-trustgate';
-const MEASURED_VERSION = '0.3.10';
+const MEASURED_VERSION = '0.3.12';
 const INTEL = 'https://intel.vectors.invalid';
 const FILE = JSON.parse(
   readFileSync(new URL('../docs/vectors/twzrd.payment_decision.v1.guard-vectors.json', import.meta.url), 'utf8'),
 );
 const VERSION = JSON.parse(readFileSync(new URL('../plugin-trustgate/package.json', import.meta.url), 'utf8')).version;
 
-/** What plugin-trustgate 0.3.10 does on each vector it disagrees with, and why. */
+/** What plugin-trustgate 0.3.12 does on each vector it disagrees with, and why. */
 const KNOWN_DIVERGENCE = {
   warn_over_cap: { pays: true, decision: 'warn', reason_code: 'INTEL_WARN', why: 'no cap check: a warn is paid at any price' },
   warn_no_cap: { pays: true, decision: 'warn', reason_code: 'INTEL_WARN', why: 'no cap check: a warn with no cap is paid' },
-  missing_readiness_card: { pays: true, decision: 'warn', reason_code: 'INTEL_WARN', why: 'a card with no decision reads as warn, and a missing trust_score never fails minScore' },
   missing_merchant_card: { pays: true, decision: 'allow', reason_code: 'ALLOW', why: 'never reads the merchant card' },
   unevaluated: { pays: true, decision: 'warn', reason_code: 'INTEL_WARN', why: 'no unevaluated rule: null_reason and score null are ignored' },
   unevaluated_within_cap_opted_in: { pays: true, decision: 'warn', reason_code: 'INTEL_WARN', why: 'pays, as expected, but cannot tell an unknown counterparty from intel\'s warn' },
