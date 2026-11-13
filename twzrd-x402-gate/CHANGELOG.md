@@ -2,9 +2,9 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
-## Unreleased
+## 0.21.0 (2026-11-13)
 
-Not on npm. The second and third items change allow/refuse results, so this ships in a minor release (0.21.0), not a patch.
+The second and third items change allow/refuse results, so this ships in a minor release, not a patch.
 
 - **`routerProfile({ failOpen })` (new export, `src/router-profile.ts`).** One frozen gate config for a router or payment proxy that runs the gate in its own process for its users. Every decision setting is written out, so a later default change does not reach it, and the env variable for a pinned setting does not move it (an option beats its env variable). Pinned: `refuseUnevaluated: false`, `refuseWashUnknown: false`, `refuseWashFlagged: true`, `washMaxUsdc: null`, `refuseUncappedWarn: true`, `preflightMinScore: 40`, `blockDecisions: ["block"]`, `gateOnCanSpend: false`, `unsupportedNetworkMode: "observe"`, `intelTimeoutMs: 2000`. `failOpen` is required and has no default; anything but a boolean throws a `TypeError`. No `attribution` is set.
   - Missing evidence does not refuse on its own: a seller intel has never evaluated is paid up to the card's `recommended_cap_usdc` (refused above it, or with no cap or no price), and a reachable merchant card without full wash coverage does not refuse. A finding still refuses: `decision: "block"`, a score below 40, a warn with no finite cap or over its cap, and `wash_flagged: true`.
