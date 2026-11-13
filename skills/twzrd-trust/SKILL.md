@@ -21,13 +21,12 @@ description: |
   check, counterparty risk, wallet reputation, trust score, verify receipt, before
   paying, solana wallet check, base wallet check, agent trust, readiness card, wash flagged, merchant card,
   resource join, discover x402, facilitator settle, merchant attach, track record,
-  laso, agentX402Pay, managed wallet, product listing check, check_listing,
-  shopping check, before buying a product, listing claims
+  laso, agentX402Pay, managed wallet
 homepage: https://intel.twzrd.xyz
 metadata:
-  version: "1.13.37"
+  version: "1.14.0"
   canonical_url: https://intel.twzrd.xyz/skill.md
-  gate_npm: twzrd-x402-gate@0.16.2
+  gate_npm: twzrd-x402-gate@0.21.0
   x402_solana_npm: x402-solana@3.0.1
   # Floor, not an exact pin: a receipt verifier should track the newest
   # signature-checking code, and an exact pin goes stale on every publish.
@@ -55,6 +54,21 @@ metadata:
 
 > **Paste-ready Path A scores TWZRD.** `GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` is TWZRD's payTo (USDC lands there) and the only example wallet we control. A paste of `/quick|/trust|/merchant/` + that address is an own-wallet smoke, not a check of the seller you are about to pay. Before a real pay, put that seller's `accepts[].payTo` in the path. `expectedPayTo` stays TWZRD.
 
+## Glossary
+
+Ten terms used below, one line each.
+
+- **payTo**: the wallet that receives a payment, read from the seller's 402 (`accepts[].payTo`). It is what TWZRD scores. A seller can list a different payTo on each rail.
+- **readiness card**: the free preflight answer (`POST /v1/intel/preflight`): `decision` (allow, warn or block), `can_spend`, `recommended_cap_usdc` and reason codes. Advice for your policy, never permission to spend.
+- **unknown subject**: TWZRD has no evidence on this wallet (`null_reason: "unknown_subject"`, `score: null`). Not a clean seller. Do not read that card's `trust_score` or `can_spend` as a score or a go-ahead.
+- **wash_flagged**: on the free merchant card. `true` means the seller's inbound payments look like a ring of wallets paying each other: refuse. `null` means never evaluated, not clean.
+- **price_kind**: whether a listed price is a unit price (`exact`), a ceiling (`upto_cap`) or `unknown`. An unlabeled `0.05` is the paid-trust default, not a unit price.
+- **pay-path gate (AutoGate)**: `twzrd-x402-gate` seated on your x402 client's pay path (`installTwzrdAutoGate`, `createTwzrdBeforePaymentHook`). It refuses before your signer runs. Free preflight alone enforces nothing.
+- **Path A / Path B**: Path A is optional paid intel (`/quick` $0.001, `/trust` $0.05). Path B is the free refuse seat, the pay-path gate; it succeeds when a blocked payment shows `signer_invocations: 0`.
+- **V7 receipt**: the Ed25519-signed receipt from a paid `/v1/intel/trust` call. Verify it offline with `twzrd-receipt-verifier` (V5 and V6 still verify). `/quick` returns no receipt.
+- **bind-v1**: ties a Solana x402 payment to the exact 402 offer it settled (the offer's hash rides in the settle transaction's memo), so anyone can check what was paid for from public chain data. It binds the offer, not delivery.
+- **resource join**: `GET /v1/intel/resources`, the catalog of callable x402 URLs with their payTo (`listed` or `live_402`). Preflight resolves a `resource_url` only when the URL is in it.
+
 ## One rule
 
 **Every external payment SHOULD be evaluated before signing.**
@@ -73,7 +87,7 @@ not paid trust. Paid trust is optional Path A (paid intel).
 > Marketplaces and bazaars tell agents what might be buyable.
 > **TWZRD tells agents whether they should pay the seller.**
 >
-> Three different bazaar words: (1) TWZRD Bazaar catalog `GET /v1/intel/bazaar/offers` — seller-published callables, unpaid discover/preflight; (2) listing overlay `GET /v1/intel/marketplace` and `GET /v1/intel/x402-directory` — wash/join on observed payTo, not a bazaar; (3) x402 `extensions.bazaar` on a 402 — routeTemplate metadata, not the catalog.
+> Three different bazaar words: (1) TWZRD Bazaar catalog `GET /v1/intel/bazaar/offers` — TWZRD's own paid routes plus seller-published callables, unpaid discover/preflight; (2) listing overlay `GET /v1/intel/marketplace` and `GET /v1/intel/x402-directory` — wash/join on observed payTo, not a bazaar; (3) x402 `extensions.bazaar` on a 402 — routeTemplate metadata, not the catalog.
 
 ### Refuse / preflight honesty (match live code)
 
@@ -121,22 +135,27 @@ Most agents stop after free discovery and believe the loop is closed. It is not.
 Complete the **protection loop** when you control signing:
 
 ```bash
-# 1) FREE preflight on the seller you might pay (real payTo: Solana base58 or Base 0x)
+# 1) FREE preflight on the service you might pay: send the URL you have.
 curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
   -H 'content-type: application/json' \
-  -d '{"seller_wallet":"46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe","price_usdc":0.002,"agent_intent":"preflight"}'
+  -d '{"resource_url":"https://api.oblique.markets/api/v1/paid/time","price_usdc":0.01,"agent_intent":"preflight"}'
+#    Same check by payTo (accepts[].payTo from the seller's 402: Solana base58 or Base 0x):
+#    -d '{"seller_wallet":"GYyTRmt317JafPHXPnM54Fsvsma5GnS9wm6qGMqaykdS","price_usdc":0.01,"agent_intent":"preflight"}'
+#    resource_url resolves only URLs in the resource join (GET /v1/intel/resources).
+#    readiness_card.seller_wallet null with null_reason "unknown_subject" means it
+#    did not resolve: send seller_wallet from the 402 instead.
 
 # 2) PRIMARY seat — stock PayAI client beforePayment (x402-solana@3.0.1).
 #    Gate runs AFTER requirement selection, BEFORE signTransaction. Do not only
 #    describe the enrollment step — seat the gate on a signer path.
-npm install twzrd-x402-gate@0.16.2 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.21.0 x402-solana@3.0.1
 # createX402Client({ wallet, network: "solana",
 #   beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }) })
 
 # 2b) Prove refuse-before-sign (signer=0). Published tarball has no examples/;
 #     bin/ is the proof path. Optional peers are not auto-installed, so on a
 #     cold machine run the full line first:
-# npm install twzrd-x402-gate@0.16.2 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+# npm install twzrd-x402-gate@0.21.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 # node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 
 # 3) OPTIONAL Path A (paid intel) — start at 0.001 USDC /quick. Does not enforce.
@@ -197,7 +216,7 @@ exist. Correct install is `clawhub install` or `npx clawhub install` above.
 **Primary (stock PayAI `x402-solana@3.0.1`):**
 
 ```bash
-npm install twzrd-x402-gate@0.16.2 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.21.0 x402-solana@3.0.1
 ```
 
 ```ts
@@ -292,7 +311,7 @@ Opt out: `requireReceipt: false` and/or `escalateOnWarn: false`.
 **Fallback CLI only** (agents that only run a script and stop do not clear W1):
 
 ```bash
-npm install twzrd-x402-gate@0.16.2 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
+npm install twzrd-x402-gate@0.21.0 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base
 node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js
 ```
 
@@ -305,7 +324,7 @@ curl -sS "https://intel.twzrd.xyz/v1/intel/resources?limit=10&live_402_only=true
 # Free merchant card (wash_flagged refuse default) — real wallet only
 curl -sS "https://intel.twzrd.xyz/v1/intel/merchant_card/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs"
 
-# TWZRD Bazaar catalog (seller-published callables; not the overlay)
+# TWZRD Bazaar catalog (TWZRD's own paid routes + seller offers; not the overlay)
 curl -sS "https://intel.twzrd.xyz/v1/intel/bazaar/offers"
 
 # Marketplace overlay (flags wash sellers) — not a bazaar
@@ -337,16 +356,28 @@ curl -s "https://intel.twzrd.xyz/v1/intel/x402-directory?limit=20"
 Do **not** start with `get_top_intel_agents` / the payer leaderboard as a shopping list.
 That surface is secondary corpus research only.
 
-### 1) Free preflight on the 402 `payTo`
+### 1) Free preflight: the URL you are about to pay, or its 402 `payTo`
 
-Use the **real** `payTo` base58 from the 402 `accepts[]` entry (example below is a
-known corpus wallet for smoke only — replace with your counterparty):
+Start from the URL you have. Preflight resolves the seller from it when the URL
+is in the resource join (`GET /v1/intel/resources`):
 
 ```bash
 curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
   -H 'content-type: application/json' \
-  -d '{"seller_wallet":"GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
-       "agent_intent":"swap quote"}'
+  -d '{"resource_url":"https://api.oblique.markets/api/v1/paid/time","agent_intent":"time check"}'
+```
+
+If the card comes back with `readiness_card.seller_wallet: null` and
+`null_reason: "unknown_subject"`, the URL did not resolve and the card is about
+no one. Read the real `payTo` from the seller's 402 `accepts[]` entry (a v2
+seller may put the challenge in the base64 `payment-required` header) and send
+it as `seller_wallet`:
+
+```bash
+curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
+  -H 'content-type: application/json' \
+  -d '{"seller_wallet":"GYyTRmt317JafPHXPnM54Fsvsma5GnS9wm6qGMqaykdS",
+       "agent_intent":"time check"}'
 ```
 
 Add `price_usdc` only when the caller supplied a unit price. Listings that
@@ -775,40 +806,6 @@ curl -s -X POST https://intel.twzrd.xyz/v1/receipts/verify \
   -H 'content-type: application/json' \
   -d @receipt.json
 ```
-
-## Product listings (agent shopping): check the product before you buy
-
-The second lane: a product the agent is about to buy from a store, not an x402
-seller. Everything below is free and read-only, and nothing authorizes spending.
-
-- `check_listing(product_url, declared_unit_price?)` (MCP) checks the store URL
-  against TWZRD's published listing-claim cards. Results: `advertised`,
-  `unknown_seller` (no card covers it; not a clean seller), `expired`, and
-  `check_failed` (a price above the advertised one is `phantom_markup_detected`).
-  Pass `declared_unit_price` to have the price checked: a price below the
-  advertised one (an unverified discount, including zero) or a card with no
-  advertised price sets `needs_approval`, meaning a human approves. Without a
-  declared price only the product is checked. `authorizes_spend` is always false.
-- `get_claim` and `get_evidence` return the card and its evidence (excerpts with
-  byte offsets and body digests). It is an observer card, not a merchant
-  attestation. `get_publication` returns the Ed25519-signed publication record
-  and verify key. Pin this publisher key fingerprint rather than taking it from
-  the same response:
-  `sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af`.
-  Verify the signature, then check that the sha256 of the `get_claim` and
-  `get_evidence` text equals the record's digests.
-- `get_shopping_check` returns the Agent Shopping Check report (advertised facts
-  with source and time, unverified gaps, merchant fixes), the same facts as
-  https://twzrd.xyz/shopping-check/vuori-kore/.
-- Paid: `GET /v1/intel/checkout-brief?product=&cart_hash=&declared_unit_price=`
-  (0.001 USDC) binds your cart hash to the card. It refuses an expired card
-  or a markup before any 402 and carries `needs_approval`. It does not pay
-  the merchant, open checkout, or move the goods. `authorizes_spend` is false.
-  The paid body names next_hop for a separate buyer-approved Shop Pay step.
-
-One reference card is published today (Vuori Kore Short, Ink, US).
-`advertised` means a captured page said it; purchase completion and delivery
-are not verified.
 
 ## Optional: native MCP (streamable HTTP)
 

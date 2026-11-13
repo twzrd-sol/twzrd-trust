@@ -31,26 +31,7 @@ the decision to `.twzrd/demo-decisions.jsonl` in the package directory:
 No wallet, network, signup or API key is needed. This is a fixture run, not
 evidence of an outside agent or a live payment.
 
-## 2. Test an unpublished build
-
-To try a change before it reaches npm, pack from this checkout's
-`twzrd-x402-gate/` directory:
-
-```bash
-npm pack --ignore-scripts
-```
-
-In a separate consumer directory, install the resulting tarball and peers:
-
-```bash
-npm install /path/to/twzrd-x402-gate-0.18.0.tgz @x402/core @x402/fetch
-npx twzrd-buyer-demo
-```
-
-For application code use ESM (`.mjs` or `"type": "module"`). The package does
-not silently install the optional payment peers or configure a wallet.
-
-## 3. Wrap your configured client
+## 2. Wrap your configured client
 
 Your agent supplies its existing official `x402Client` with a payment scheme
 and signer registered. Solana clients additionally install `@x402/svm`; Base
@@ -71,7 +52,10 @@ const guardedFetch = createBuyerFetch({
 const response = await guardedFetch(resourceUrl);
 ```
 
-Both cap and allowlist are required. An empty allowlist denies every payment.
+`createBuyerFetch` requires both the cap and the allowlist: it throws a
+`TypeError` without `maxPricePerCall` or `allowedRecipients`. An empty allowlist
+denies every payment. Other entry points keep their own defaults; see
+[Which entry point?](./README.md#which-entry-point).
 Use the selected quote's recipient; do not infer a wallet from a hostname.
 Calls over the cap, unlisted recipients, preflight blocks and check outages
 throw `BuyerFetchBlockedError`; its `reason` is a stable machine-readable code.
@@ -92,8 +76,29 @@ See [the package README](./README.md) for the supported networks, ledger scope,
 client ownership and error details. A packaged demo or download is not outside
 adoption; that needs evidence from an independent installed payment path.
 
+## 3. Test an unpublished build
+
+To try a change before it reaches npm, pack from this checkout's
+`twzrd-x402-gate/` directory:
+
+```bash
+npm pack --ignore-scripts
+```
+
+`npm pack` prints the tarball name (`twzrd-x402-gate-<version>.tgz`, the
+version in this checkout's `package.json`). In a separate consumer directory,
+install that file and the peers:
+
+```bash
+npm install /path/to/twzrd-x402-gate-<version>.tgz @x402/core @x402/fetch
+npx twzrd-buyer-demo
+```
+
+For application code use ESM (`.mjs` or `"type": "module"`). The package does
+not silently install the optional payment peers or configure a wallet.
+
 <details>
-<summary>Existing client hooks and their legacy configuration</summary>
+<summary>Existing client hooks and their legacy configuration (sections 4 to 11)</summary>
 
 Refuses payment to a wash-flagged merchant **before your wallet signs**. Free intel, no
 API key, no signup, no config — these older hooks accept `TWZRD_*` overrides. If intel
@@ -104,7 +109,7 @@ card with no wash signal still proceeds.
 **Pin:** `twzrd-x402-gate@0.21.0` + stock PayAI client `x402-solana@3.0.1` (official
 `beforePayment` seat). `@x402/core` Path E remains supported; refuse script is fallback.
 
-## 1. Stock PayAI client (default seat — copy-paste)
+## 4. Stock PayAI client (default seat — copy-paste)
 
 ```bash
 npm install twzrd-x402-gate@0.21.0 x402-solana@3.0.1
@@ -129,7 +134,7 @@ const client = createX402Client({
 Equivalent: `beforePayment: installTwzrdAutoGate("x402-solana", { refuseWashFlagged: true })`.
 Then: `await client.fetch("https://merchant.example/paid");`
 
-## 1b. Official `@x402/core` client (Path E)
+## 5. Official `@x402/core` client (Path E)
 
 ```bash
 npm install twzrd-x402-gate@0.21.0 @x402/core @x402/fetch @x402/svm
@@ -145,7 +150,7 @@ installTwzrdAutoGate(client, { refuseWashFlagged: true });
 // then register schemes + wrapFetchWithPayment as usual
 ```
 
-## 1c. PayKit (`createPayKitClient`) — Foundation #303
+## 6. PayKit (`createPayKitClient`) — Foundation #303
 
 PayKit callers pass TWZRD as `onBeforeX402PaymentCreation`. No TWZRD branding
 inside pay-kit itself. The option is on `solana-foundation/pay-kit#303` (and the
@@ -174,7 +179,7 @@ reads that kill switch per call and then calls the factory. You cannot
 `installTwzrdAutoGate(client)` after `createPayKitClient` — PayKit only accepts
 the hook at construction.
 
-## 1d. Cold-start a foreign diet (0 USDC)
+## 7. Cold-start a foreign diet (0 USDC)
 
 ```bash
 npx twzrd-cold-start
@@ -190,7 +195,7 @@ payer with
 using that policy as the host allowlist. Live proof (needs egress):
 `npm run cold-start-live`.
 
-## 2. Prove it blocked something (spends nothing)
+## 8. Prove it blocked something (spends nothing)
 
 Refusal check from this package. It spends nothing and does not call the
 signer. Needs a prior **repo-root** `npm ci` and `npm run build`; do not
@@ -231,7 +236,7 @@ abort string is prefixed `[twzrd]` — treat any reason matching
 CLI smoke, but it is **not** the primary install story — agents that only summarize
 `next_action.command` without seating a gate on a signer path never clears W1.
 
-## 3. See your own seat
+## 9. See your own seat
 
 Every preflight is stamped `X-Twzrd-Caller: twzrd-x402-gate/<version>` — your seat
 identity in TWZRD's metrics. To make runs attributable to *you* (recommended):
@@ -243,7 +248,7 @@ createTwzrdBeforePaymentHook({
 });
 ```
 
-## 3b. Turn on Path A (buyer cash, not the rail)
+## 10. Turn on Path A (buyer cash, not the rail)
 
 Refuse stays free until you wire a paying fetch. Then a proceeding `warn`
 settles the first paid hop: `GET /v1/intel/quick/{payTo}` at $0.001. Optional
@@ -264,7 +269,7 @@ createTwzrdBeforePaymentHook({
 `installTwzrdAutoGate((g) => wrapFetchWithPayment(g, wallet))` auto-wires the
 payWrap as `x402Fetch`.
 
-## 4. The only three knobs you need
+## 11. The only three knobs you need
 
 | Knob | Effect |
 |------|--------|

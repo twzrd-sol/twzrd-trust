@@ -1,42 +1,92 @@
 # TWZRD
 
-Pre-spend trust for agents that buy. Before an agent pays an x402 seller or
-buys a product from a store, TWZRD answers one question from public evidence:
-should this payment go ahead? The buyer-side gate turns that answer into a
-refusal before the wallet signs. This repository is the public source for the
-hosted checks, the npm packages, and the receipt and record formats.
+Pre-spend trust for agents that pay x402 sellers. Before an agent pays,
+TWZRD answers one question from public evidence: should this payment go ahead?
+The buyer-side gate turns that answer into a refusal before the wallet signs.
+This repository is the public source for the hosted checks, the npm packages,
+and the receipt and record formats.
 
-Install `twzrd-x402-gate@0.21.0` and start with the
-[buyer quickstart](./twzrd-x402-gate/QUICKSTART.md).
+Two ways in: [with code](#with-code-createbuyerfetch), `createBuyerFetch` from
+`twzrd-x402-gate@0.21.0`; [without code](#without-code-one-free-preflight), one
+free preflight on the URL you are about to pay. Terms used here (payTo,
+readiness card, AutoGate, Path A and Path B, V7 receipt, bind-v1, resource
+join) are defined in the [glossary](./SKILL.md#glossary).
 
-Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
-allowlist, mandatory free preflight, and a local decision record before signing.
-`createBuyerFetch` is the front door. Its `expectedAmount` quote binding needs `twzrd-x402-gate@0.12.4` or later.
-
-- **x402 services:** vet the seller **before** USDC leaves the wallet, cap and ledger every spend, and bind each settled payment to the exact offer it paid for (**bind-v1**, verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** USDC, paid by the buyer over x402 (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable [`twzrd.payment_decision.v1`](./docs/payment-decision-v1-spec.md) record from its own decision, signed locally with your own signer; TWZRD never holds a key.
-- **Product listings:** a free check of a store product URL and its asking price against a card TWZRD published from the store's public pages. The card is an observer card, not a merchant attestation, and a match is never permission to spend ([details](#product-listings-check-the-listing-before-you-buy)).
+- **What it does:** vets the seller **before** USDC leaves the wallet, caps and ledgers every spend, and binds each settled payment to the exact offer it paid for (**bind-v1**, verifiable from public chain data). Advisory preflight is free ($0). The paid `quickCheck` is **$0.001** USDC, paid by the buyer over x402 (seller wash risk, tier and score; no receipt). Separately, the gate can issue a portable [`twzrd.payment_decision.v1`](./docs/payment-decision-v1-spec.md) record from its own decision, signed locally with your own signer; TWZRD never holds a key.
 
 Not a wallet. Not a payment network. The commerce walkthrough lives in [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md).
 
 **Canonical skill (always refresh)** • https://intel.twzrd.xyz/skill.md (skill `twzrd-trust`; the live copy carries its version) · ClawHub skill `twzrd-trust`  
 **Spend-control SDK (npm)** • [`twzrd-x402-gate@0.21.0`](https://www.npmjs.com/package/twzrd-x402-gate) + seat [`x402-solana@3.0.1`](https://www.npmjs.com/package/x402-solana)<br>
-**Live MCP** • https://intel.twzrd.xyz/mcp (streamable HTTP; free tools for x402 service checks and product-listing checks)  
-**Shopping check** • free `check_listing` on the hosted MCP · report: https://twzrd.xyz/shopping-check/vuori-kore/  
+**Live MCP** • https://intel.twzrd.xyz/mcp (streamable HTTP; free tools for x402 seller and resource checks)  
 **Agent contract** • https://intel.twzrd.xyz/llms.txt · https://intel.twzrd.xyz/.well-known/agent.json
 
 ## What ships
 
 - **Hosted checks and the gate.** `https://intel.twzrd.xyz/mcp` and the REST routes below, `twzrd-x402-gate` on npm, the offline `twzrd-receipt-verifier`, and the receipt transparency log (one on-chain anchor per advanced tree head, hourly). A no-spend recorded run is at `/v1/intel/demo-gate`.
 - **Networks.** Free checks score x402 sellers on Solana mainnet and Base mainnet (`eip155:8453`), and the gate runs the scored preflight on both. The paid `/quick` and `/trust` endpoints accept the buyer's payment on either chain and score a Solana seller wallet, so signed V7 receipts cover Solana sellers. Other EVM chains are recognized and not scored. The examples below use the Solana seat. The gate's [network table](./twzrd-x402-gate/README.md#networks-solana-mainnet-and-base-mainnet-scored) covers Base.
-- **Listings.** One published card: Vuori Kore Short, Ink, US. `authorizes_spend` is always false.
+- **Listing evidence (read-only).** A separate endpoint serves TWZRD's signed product-listing evidence; see [Listing evidence](#listing-evidence-read-only-endpoint).
 - **Out of scope.** Identity of a person, company, or agent. Checkout, purchase completion, or delivery. Permission to spend. See [What TWZRD does not claim](#how-the-pieces-fit).
+
+## With code: `createBuyerFetch`
+
+Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
+allowlist, mandatory free preflight, and a local decision record before signing.
+
+```bash
+npm install twzrd-x402-gate@0.21.0 @x402/core @x402/fetch
+```
+
+```js
+import { createBuyerFetch } from "twzrd-x402-gate";
+
+const guardedFetch = createBuyerFetch({
+  client,                           // your configured official x402Client
+  maxPricePerCall: "0.01",          // USDC per call (required)
+  allowedRecipients: [sellerPayTo], // the 402's accepts[].payTo (required)
+  hourlyBudgetCap: "1.00",
+});
+
+const response = await guardedFetch(resourceUrl);
+```
+
+A preflight block, a call over the cap, an unlisted recipient or a check outage
+throws `BuyerFetchBlockedError` before your signer runs. The
+[quickstart](./twzrd-x402-gate/QUICKSTART.md) runs a blocked payment with no
+wallet first. The optional `expectedAmount` quote binding needs `twzrd-x402-gate@0.12.4` or later.
+
+Already on an `x402Client`, PayAI `x402-solana`, PayKit, MPP or `@x402/mcp`?
+Pick your seat from the gate's
+[entry-point table](./twzrd-x402-gate/README.md#which-entry-point); each seat
+keeps its own defaults ([defaults by entry point](./twzrd-x402-gate/README.md#defaults-by-entry-point)).
+
+## Without code: one free preflight
+
+Send the URL you are about to pay. No signup, no wallet, no key.
+
+```bash
+curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight \
+  -H 'content-type: application/json' \
+  -d '{"resource_url":"https://api.oblique.markets/api/v1/paid/time","price_usdc":0.01}'
+# Or by payTo, the accepts[].payTo in the seller's 402 (Solana base58 or Base 0x):
+#   -d '{"seller_wallet":"GYyTRmt317JafPHXPnM54Fsvsma5GnS9wm6qGMqaykdS","price_usdc":0.01}'
+```
+
+Read `readiness_card.decision` (`allow`, `warn` or `block`) and its
+`reason_codes`. A `resource_url` resolves only when the URL is in the resource
+join (`GET /v1/intel/resources`). `readiness_card.seller_wallet: null` with
+`null_reason: "unknown_subject"` means it did not resolve: send the 402's
+`payTo` as `seller_wallet` instead. An unknown subject is not a clean seller.
+Preflight is advice for your own policy; it refuses nothing until a gate sits
+on the pay path.
 
 ## Start here, by what you came to do
 
 | You want to | Do this |
 |---|---|
 | See a refusal with nothing installed | Run the [hosted no-spend check](#hosted-no-spend-check) below: one `curl`, no wallet, no key. |
-| Put the gate on a paying agent | [`twzrd-x402-gate/QUICKSTART.md`](./twzrd-x402-gate/QUICKSTART.md), then the [package README](./twzrd-x402-gate/README.md) for entry points and defaults. |
+| Put the gate on a paying agent | [With code](#with-code-createbuyerfetch) above, then [`twzrd-x402-gate/QUICKSTART.md`](./twzrd-x402-gate/QUICKSTART.md). |
+| Check one seller before paying, without code | [Without code](#without-code-one-free-preflight) above. |
 | Call the checks from an MCP client | Add `https://intel.twzrd.xyz/mcp`; the tool list is live (`tools/list`). Agent contract: [llms.txt](https://intel.twzrd.xyz/llms.txt). |
 | Review the cryptography and the claims | [REVIEW.md](./REVIEW.md) (bind-v1, with mainnet ground truth), [docs/security-assurance.md](./docs/security-assurance.md), [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md), [docs/transparency-log.md](./docs/transparency-log.md), [SECURITY.md](./SECURITY.md). |
 | Know which document is current | [docs/README.md](./docs/README.md): every document in this repository, labeled canonical, historical or internal, with the versions verified on the date shown. |
@@ -108,18 +158,17 @@ Expected output:
 ## How the pieces fit
 
 <!-- twzrd:ecosystem:begin (generated by scripts/render-ecosystem.mjs from docs/ecosystem.json; edit that file) -->
-**Pre-spend trust for AI agents that buy: check x402 services and product listings before paying.**
+**Pre-spend trust for AI agents that pay x402 sellers: check the seller and resource before paying.**
 
 | You are | Free | Paid |
 |---|---|---|
 | an agent about to pay an x402 seller | Readiness card (allow, warn or block), wash flags, seller reputation, offline receipt check. | $0.001 `quickCheck` (seller wash risk, tier and score, no receipt); optional $0.05 trust receipt, a signed V7 receipt when you pay on Solana. |
-| an agent about to buy a product from a store | `check_listing(product_url, declared_unit_price)` against a published listing card, and the Agent Shopping Check report. | Optional $0.001 checkout brief for a human to review before checkout; TWZRD never opens or completes a checkout. |
 
 Each piece below works alone. Plugged into the hosted checks, they form one pre-spend path.
 
 | Piece | On its own | Plugged in | Install |
 |---|---|---|---|
-| [Hosted checks](https://intel.twzrd.xyz/llms.txt) | Free checks with nothing to install: is this x402 seller safe to pay, and does this store listing match a published card. | The pieces below that screen a payment call it; it is where the decisions and the signed receipts come from. The receipt verifier needs no server. | Add `https://intel.twzrd.xyz/mcp` to an MCP client |
+| [Hosted checks](https://intel.twzrd.xyz/llms.txt) | Free checks with nothing to install: is this x402 seller safe to pay, by its payTo or by the resource URL. | The pieces below that screen a payment call it; it is where the decisions and the signed receipts come from. The receipt verifier needs no server. | Add `https://intel.twzrd.xyz/mcp` to an MCP client |
 | [`twzrd-x402-gate`](https://www.npmjs.com/package/twzrd-x402-gate) | Wraps an x402 client's pay path: asks the hosted checks about the seller before your signer runs, refuses a block (the signer is never invoked), enforces a spend cap, and can issue a `twzrd.payment_decision.v1` record from its decision, signed with your own signer. | Decisions come from the hosted checks; pairs with `x402-solana` or `@x402/fetch` as the payer. | `npm install twzrd-x402-gate` |
 | [`twzrd-preflight`](https://github.com/twzrd-sol/twzrd-preflight) | OpenClaw plugin: assign its wrapped fetch to the client and every 402 that passes through it is checked before a signer can attach payment (enforce and fail-closed by default). | Matches the gate's wrapper and adds OpenClaw tool-call gating, against the hosted checks. Payments outside the wrapped fetch (a ClawRouter proxy, unparsed exec or curl) are not covered. | `npm install twzrd-preflight` |
 | [`twzrd-receipt-verifier`](https://github.com/twzrd-sol/twzrd-receipt-verifier) | Verifies a TWZRD receipt offline against a published Ed25519 key: no wallet, no API key, no trust in TWZRD's server. | Checks the signed receipts that the hosted checks issue. | `npx twzrd-receipt-verifier` or `pip install twzrd-receipt-verifier` |
@@ -132,13 +181,11 @@ Each piece below works alone. Plugged into the hosted checks, they form one pre-
 
 - **Refuse before signing:** gate (or preflight) + hosted checks. A blocked seller never reaches your signer. Prove it with no wallet and no spend: `curl -fsS https://intel.twzrd.xyz/v1/intel/demo-gate`.
 - **Keep proof of what you paid for:** paid trust receipt + receipt verifier. A signed receipt you or anyone else can verify offline.
-- **Check a listing before you buy:** `check_listing` + your human approval step. A price above the card is refused; a price below it, or a card with no price, asks a human. Optionally add the paid checkout brief.
 - **Screen every settlement you broker:** plugin-trustgate settle hook + hosted checks. A facilitator aborts a settle to a blocked seller before the transfer.
 
 **What TWZRD does not claim**
 
 - TWZRD scores observed wallet and payment behavior. It does not prove a person, company, or agent identity.
-- A listing card is an observer card, not a merchant attestation. Advertised means a captured page said it; purchase completion and delivery are not verified.
 - `authorizes_spend` is always false: a check is evidence for your own spend policy, never permission to spend.
 - Not a wallet. Not a payment network.
 <!-- twzrd:ecosystem:end -->
@@ -169,88 +216,36 @@ build or demo them locally. Hosted MCP: `https://intel.twzrd.xyz/mcp`.
 
 ---
 
-## Other integration APIs
+## The pre-spend sequence
 
-### 1. Install
+One order, whichever entry point you use. Free preflight advises; the gate on
+the pay path enforces.
 
-```bash
-npm install twzrd-x402-gate@0.21.0 x402-solana@3.0.1
-```
-
-### 2. Wrap paid fetches with spend controls
-
-```ts
-import { twzrd } from "twzrd-x402-gate";
-
-const result = await twzrd.safeFetch("https://merchant.example/paid-endpoint", {
-  maxSpend: "0.10",            // per-call cap AND cumulative budget in USD
-  allowNetworks: ["solana"],   // allowed settlement networks
-  requireOfferBinding: true,   // demand an on-chain verifiable bind-v1 receipt
-  pay: async ({ url, paymentRequired, selected }) => {
-    // Your existing x402 client signs here — e.g. @x402/fetch + your signer
-    return await myWallet.payX402(url, paymentRequired, selected);
-  },
-});
-
-// On block: result.verdict === "block", result.signerInvocations === 0
-```
-
-### 3. Or hook an existing client
-
-```ts
-import { createX402Client } from "x402-solana";
-import { createTwzrdBeforePaymentHook } from "twzrd-x402-gate";
-
-const client = createX402Client({
-  wallet,
-  network: "solana",
-  beforePayment: createTwzrdBeforePaymentHook({ refuseWashFlagged: true }),
-});
-```
-
----
-
-## Commerce loop
-
-One path. Install `twzrd-x402-gate@0.21.0`. Free preflight does not enforce; AutoGate on the pay path does.
-
-1. **Install the gate** — `npm i twzrd-x402-gate@0.21.0` then `installTwzrdAutoGate`
-2. **Cold-start (optional)** — `npx twzrd-cold-start` writes a default-deny `policy.json` from a pinned foreign 402 diet (0 USDC; not a TWZRD bazaar)
-3. **Directory** — `GET /v1/intel/resources` (or `listDirectoryCallables`) — bazaars list; TWZRD sits beside
-4. **Preflight** — free ReadinessCard + merchant_card wash refuse
-5. **Pay only when policy allows** — blocks have `signerInvocations === 0`
-6. **Paid check ($0.001)** — `quickCheck` (tier and score). Separately, the gate can issue a portable `twzrd.payment_decision.v1` record from its decision, signed by your own signer (`npx twzrd-payment-decision --verify`)
-7. **Evidence bundle** — `exportEvidenceBundle` / `npx twzrd-evidence-bundle`
-8. **Optional Path A** — $0.05 V7 intel receipt. Not the primary SKU.
+1. **Discover**: `GET /v1/intel/resources` (or `listDirectoryCallables`), the callable x402 URLs with their `payTo`. Bazaars list; TWZRD sits beside them.
+2. **Cold-start (optional)**: `npx twzrd-cold-start` writes a default-deny `policy.json` from a pinned foreign 402 diet (0 USDC; not a TWZRD bazaar).
+3. **Merchant card**: `GET /v1/intel/merchant_card/{pay_to}`. Refuse on `wash_flagged: true`; `null` means never evaluated, not clean.
+4. **Preflight**: `POST /v1/intel/preflight` returns the readiness card (allow, warn or block). The curl is under [Without code](#without-code-one-free-preflight).
+5. **Pay only when policy allows**: the gate refuses before signing, so a block shows `signerInvocations === 0`.
+6. **Paid intel (Path A, optional)**: `GET /v1/intel/quick/{pay_to}` ($0.001, `quickCheck`: wash risk, tier and score, no receipt) or `/trust` ($0.05, a signed V7 receipt you verify offline with `twzrd-receipt-verifier`).
+7. **Evidence**: the gate can issue a portable `twzrd.payment_decision.v1` record from its decision, signed by your own signer (`npx twzrd-payment-decision --verify`); `exportEvidenceBundle` / `npx twzrd-evidence-bundle` packages the run.
 
 Refuse-first demo (0 USDC): `npx tsx twzrd-x402-gate/examples/commerce-kit.ts`  
-Cold-start diet (0 USDC): `npx twzrd-cold-start`  
 Walkthrough: [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
-
-## Default Protection Sequence
-
-1. **Discover** — `GET /v1/intel/resources` (resource catalog)
-2. **Merchant card** — `GET /v1/intel/merchant_card/{pay_to}` (refuse if `wash_flagged: true`)
-3. **Preflight** — `POST /v1/intel/preflight` → ReadinessCard (allow / warn / block)
-4. **Paid check ($0.001)** — `GET /v1/intel/quick/{pay_to}` (wash risk, tier, score). Separately, the gate can issue a locally signed `twzrd.payment_decision.v1`
-5. **Pay** — sign only when preflight & spend policy allow
-
-```bash
-# Free preflight (no signup, no wallet)
-curl -s -X POST https://intel.twzrd.xyz/v1/intel/preflight \
-  -H 'content-type: application/json' \
-  -d '{"seller_wallet":"46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe","price_usdc":0.01,"agent_intent":"preflight"}'
-```
 
 ---
 
-## Product listings: check the listing before you buy
+## Listing evidence (read-only endpoint)
 
-The second lane is for an agent buying a product from a store, not paying an x402 seller. Before it buys, it calls `check_listing(product_url, declared_unit_price)` on the hosted MCP, which compares the product URL and the asking price with TWZRD's published listing card. The call is free and read-only: it does not fetch the store page, open a checkout, or move money.
+The product-listing check is not part of the pre-spend path above. TWZRD's
+signed listing evidence is served read-only at `https://intel.twzrd.xyz/muse/mcp`
+(`check_listing`, `get_claim`, `get_evidence`, `get_publication`,
+`get_shopping_check`); no tool there places an order, opens a checkout or moves
+money, and `authorizes_spend` is always `false`. One reference card exists
+(Vuori Kore Short, Ink, US). It is an observer card, a capture of the store's
+public pages, not a merchant attestation, and it carries an `expires_at`.
 
 ```bash
-# Declared $79 against a card that advertises $78: refused
-curl -sS https://intel.twzrd.xyz/mcp \
+curl -sS https://intel.twzrd.xyz/muse/mcp \
   -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check_listing","arguments":{"product_url":"https://checkout.vuoriclothing.com/products/kore-short-ink","declared_unit_price":"79"}}}' \
@@ -258,43 +253,30 @@ curl -sS https://intel.twzrd.xyz/mcp \
   | jq '.result.structuredContent | {result, reason, price_check, needs_approval, authorizes_spend}'
 ```
 
-This example assumes the reference card is current. Each published card carries an `expires_at`; once it has lapsed, the same call returns `result: "expired"` with `needs_approval: true` until a fresh card is published. Output while the reference card is current and advertises $78:
-```json
-{
-  "result": "check_failed",
-  "reason": "phantom_markup_detected",
-  "price_check": "above_advertised",
-  "needs_approval": true,
-  "authorizes_spend": false
-}
+The reference card has lapsed, so today this returns `result: "expired"`
+(`reason: "expired_claim"`, `needs_approval: true`). While a card is current, a
+declared price above the advertised one returns `check_failed`
+(`phantom_markup_detected`), a lower price or a card with no price sets
+`needs_approval: true`, and a URL no card covers returns `unknown_seller`
+(unknown is not clean).
+
+**Check that the card is the one TWZRD published.** `get_publication` returns
+the publication record as JSON in its `text` field: `verify_key` (base64),
+`publication` (the digests and a base64 `signature`) and `signed_message` (how
+the signed bytes are built). Base64-decode `verify_key` to its 32 raw bytes and
+compare their sha256 with the fingerprint below. This README is the independent
+pin: a fingerprint taken from the same response as the key proves nothing.
+Never refresh this value from a live surface when re-syncing the mirrors;
+change it only when the key is deliberately rotated. Then verify the Ed25519
+`signature` over the signed bytes with that key, and check that the sha256 of
+the `text` returned by `get_claim` and `get_evidence` equals
+`publication.artifact_digest` and `publication.evidence_digest`. A valid
+signature shows that TWZRD published these bytes; it is not a merchant
+attestation.
+
+```text
+sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
 ```
-
-| You call with | `result` | `price_check` | `needs_approval` |
-|---|---|---|---|
-| The advertised price | `advertised` | `verified` | `false` |
-| A price above it | `check_failed` (`phantom_markup_detected`) | `above_advertised` | `true` |
-| A price below it, including 0 | `advertised` | `discount_unverified` | `true` |
-| No `declared_unit_price` | `advertised` | `null` (the price is not checked) | `false` |
-| A URL no published card covers | `unknown_seller` (unknown is not clean) | `null` | `true` |
-| A card past its `expires_at` | `expired` | `null` | `true` |
-
-- `price_check: verified` means your declared price equals the price on the captured card. It does not mean TWZRD verified the store, the purchase, or delivery.
-- `needs_approval: true` means a human approves before the agent buys; a card that advertises no price also sets it. `needs_approval: false` means this check raised no flag. It is not clearance, and with no `declared_unit_price` the price was not checked at all.
-- `check_failed` also covers a card that cannot be read or verified, and a declared price that is not a valid non-negative number (`price_check: invalid`).
-- `authorizes_spend` is always `false`: a matching card is evidence for your own spend policy, not permission to spend.
-
-What a card is, and what it is not:
-
-- **One reference card today:** Vuori Kore Short, Ink, US. It is an observer card (TWZRD's capture of the store's public pages), not a merchant attestation. Each published card carries an `expires_at`; after it, `check_listing` returns `expired`.
-- **Advertised means a captured page said it.** Purchase completion and delivery are not verified.
-- **Read the card and its evidence:** `get_claim` and `get_evidence`. `get_shopping_check` returns the Agent Shopping Check report, the same one as https://twzrd.xyz/shopping-check/vuori-kore/ and `GET https://intel.twzrd.xyz/v1/shopping-check/vuori-kore`.
-- **Check that the card is the one TWZRD published:** `get_publication` returns the publication record as JSON in its `text` field: `verify_key` (base64), `publication` (the digests and a base64 `signature`) and `signed_message` (how the signed bytes are built). Base64-decode `verify_key` to its 32 raw bytes and compare their sha256 with the fingerprint below. This README is the independent pin: skill.md carries the same value but is served by the same host as the key, and a fingerprint taken from the same response proves nothing. Never refresh this value from the live skill.md when re-syncing the mirrors; change it only when the key is deliberately rotated. Then verify the Ed25519 `signature` over the signed bytes with that key, and check that the sha256 of the `text` returned by `get_claim` and `get_evidence` equals `publication.artifact_digest` and `publication.evidence_digest`. A valid signature shows that TWZRD published these bytes; it is not a merchant attestation.
-
-  ```text
-  sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
-  ```
-
-- **Paid, optional:** `GET https://intel.twzrd.xyz/v1/intel/checkout-brief` ($0.001 USDC via x402) returns a brief tied to the card, with your `cart_hash` copied in, for a human to review before they check out. TWZRD never opens or completes a checkout, and it does not check the hash against any cart. The brief carries `needs_approval` and `authorizes_spend: false`, and it does not pay the merchant. A product URL that does not match the card, or an expired card, returns 404 before any 402; a declared price above the advertised one returns 409 before any 402.
 
 ---
 
@@ -302,7 +284,7 @@ What a card is, and what it is not:
 
 | Package | Pin | Description |
 |---|---|---|
-| `twzrd-x402-gate` | **@0.21.0** | Spend-control SDK (`twzrd.safeFetch`) + pre-sign gate hooks |
+| `twzrd-x402-gate` | **@0.21.0** | Buyer-side gate SDK (`createBuyerFetch`) + pre-sign seat hooks |
 | `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
 | `twzrd-mcp-server` | **@0.6.3** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
