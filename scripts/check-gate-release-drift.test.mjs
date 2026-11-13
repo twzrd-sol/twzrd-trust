@@ -43,3 +43,18 @@ test('registry version drift fails', async () => {
   }) });
   assert.equal(result.verified, false);
 });
+test('a dated "shipped in" changelog line is history, not a pin', async () => {
+  const history = '- 2026-11-10: `.kill`/`.pause` halt payments; shipped in `twzrd-x402-gate@0.12.0`.';
+  const current = await checkGateReleaseDrift({ version, fetch: fixtureFetch({
+    'https://intel.twzrd.xyz/llms.txt': `npm install twzrd-x402-gate@${version}\n${history}`,
+  }) });
+  assert.equal(current.verified, true);
+  assert.deepEqual(current.checks.find(check => check.source === 'llms').pins, [version]);
+  // History alone is not install guidance, and a stale install line beside it still fails.
+  const onlyHistory = await checkGateReleaseDrift({ version, fetch: fixtureFetch({ 'https://intel.twzrd.xyz/llms.txt': history }) });
+  assert.equal(onlyHistory.checks.find(check => check.source === 'llms').ok, false);
+  const stale = await checkGateReleaseDrift({ version, fetch: fixtureFetch({
+    'https://intel.twzrd.xyz/llms.txt': `npm install twzrd-x402-gate@0.12.4\n${history}`,
+  }) });
+  assert.equal(stale.checks.find(check => check.source === 'llms').ok, false);
+});
