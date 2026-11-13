@@ -57,20 +57,9 @@ Trimmed from live responses on 2026-10-01. The warn is the free preflight (`POST
 
 ---
 
-## Product Listings (Agent Shopping)
-
-Before an agent buys a product from a store, the free `check_listing(product_url, declared_unit_price)` tool
-compares the product URL and the asking price with TWZRD's published listing-claim card (one reference card today: Vuori Kore Short, Ink, US;
-an observer card, not a merchant attestation). A price above the advertised one is refused
-(`phantom_markup_detected`); a price below it, or a card with no advertised price, sets `needs_approval`.
-`authorizes_spend` is always `false`, and purchase completion and delivery are not verified.
-Report: https://twzrd.xyz/shopping-check/vuori-kore/
-
----
-
 ## Data Sent & Privacy Disclosure
 
-- **What is sent:** Target seller wallet address, requested resource URL, and proposed spend amount; for a listing check, the product URL, the declared unit price, and any optional subject fields (merchant, product, market, variant).
+- **What is sent:** Target seller wallet address, requested resource URL, and proposed spend amount.
 - **What is NEVER sent:** Private keys, seed phrases, client keystores, or internal agent prompts.
 - **Custody:** Non-custodial. TWZRD never executes transactions on your behalf.
 

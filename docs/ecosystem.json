@@ -1,26 +1,20 @@
 {
   "schema": "twzrd.ecosystem/1",
-  "tagline": "Pre-spend trust for AI agents that buy: check x402 services and product listings before paying.",
-  "summary": "Pre-spend trust for AI agents that buy. Check an x402 service (seller + resource) or a store product listing before paying: free checks, a published listing card you can verify, and approval flags when a price can't be backed. Never authorizes spend.",
+  "tagline": "Pre-spend trust for AI agents that pay x402 sellers: check the seller and resource before paying.",
+  "summary": "Pre-spend trust for AI agents that buy. Check an x402 service (seller + resource) before paying: a free readiness card, wash flags and a buyer-side gate that refuses before the wallet signs. Never authorizes spend.",
   "lanes": [
     {
       "title": "x402 services",
       "you_are": "an agent about to pay an x402 seller",
       "free": "Readiness card (allow, warn or block), wash flags, seller reputation, offline receipt check.",
       "paid": "$0.001 `quickCheck` (seller wash risk, tier and score, no receipt); optional $0.05 trust receipt, a signed V7 receipt when you pay on Solana."
-    },
-    {
-      "title": "Product listings",
-      "you_are": "an agent about to buy a product from a store",
-      "free": "`check_listing(product_url, declared_unit_price)` against a published listing card, and the Agent Shopping Check report.",
-      "paid": "Optional $0.001 checkout brief for a human to review before checkout; TWZRD never opens or completes a checkout."
     }
   ],
   "pieces": [
     {
       "name": "Hosted checks",
       "link": "https://intel.twzrd.xyz/llms.txt",
-      "alone": "Free checks with nothing to install: is this x402 seller safe to pay, and does this store listing match a published card.",
+      "alone": "Free checks with nothing to install: is this x402 seller safe to pay, by its payTo or by the resource URL.",
       "plugged_in": "The pieces below that screen a payment call it; it is where the decisions and the signed receipts come from. The receipt verifier needs no server.",
       "install": "Add `https://intel.twzrd.xyz/mcp` to an MCP client"
     },
@@ -79,11 +73,6 @@
       "result": "A signed receipt you or anyone else can verify offline."
     },
     {
-      "title": "Check a listing before you buy",
-      "uses": "`check_listing` + your human approval step",
-      "result": "A price above the card is refused; a price below it, or a card with no price, asks a human. Optionally add the paid checkout brief."
-    },
-    {
       "title": "Screen every settlement you broker",
       "uses": "plugin-trustgate settle hook + hosted checks",
       "result": "A facilitator aborts a settle to a blocked seller before the transfer."
@@ -91,7 +80,6 @@
   ],
   "limits": [
     "TWZRD scores observed wallet and payment behavior. It does not prove a person, company, or agent identity.",
-    "A listing card is an observer card, not a merchant attestation. Advertised means a captured page said it; purchase completion and delivery are not verified.",
     "`authorizes_spend` is always false: a check is evidence for your own spend policy, never permission to spend.",
     "Not a wallet. Not a payment network."
   ]
