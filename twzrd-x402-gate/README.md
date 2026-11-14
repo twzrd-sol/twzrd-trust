@@ -327,6 +327,28 @@ The gate verifies the composed bytes, then calls `pay()` with that
 `transactionBase64`. The old post-pay check remains as
 `verifyOfferBindingAfterPay` only. This SDK never holds keys.
 
+Unreleased: the hard bind check holds the composed transaction to an instruction
+allowlist. It may carry, and nothing else:
+
+- ComputeBudget `SetComputeUnitLimit` and `SetComputeUnitPrice`, one of each, no accounts;
+- the bind memo and at most one other memo, each with no accounts and non-empty UTF-8 data;
+- one Associated Token Account `Create` or `CreateIdempotent` whose account is the bound
+  recipient's token account for the bound mint, under the transfer's token program;
+- one SPL Token or Token-2022 `TransferChecked` with exactly four accounts.
+
+Any other instruction (a System transfer, a second token transfer, an unknown program),
+an instruction whose program or accounts are not in the static account list, or a
+transaction with address lookup tables is refused with `bind_unexpected_instruction`
+and `pay()` is not called. `detail` names the first violation in instruction order, for
+example `bound tx instruction refused: program_not_allowed:11111111111111111111111111111111`.
+`evaluateResourceBindLegsFromSvmTx` returns that same string as its reason
+(`BOUND_TX_INSTRUCTION_REFUSED` is the prefix). Not bounded by this check: the compute
+unit price, and which account funds the token account create. A transaction to which a
+wallet or a facilitator adds instructions of its own (a Lighthouse assertion, a multisig
+or transfer-hook transfer with more than four accounts) is refused: compose the bound
+transaction without them. The transaction string has to be canonical base64, or it does
+not verify as a hard bind (`bind_mismatch`).
+
 Full walkthrough: [QUICKSTART.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/QUICKSTART.md) ·
 verify receipts yourself: [REVIEW.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/REVIEW.md)
 
@@ -567,23 +589,25 @@ Canonical path for every agent that spends USDC on Solana x402:
 | Step | Call | Cost | What gates pay |
 |------|------|------|----------------|
 | 1 | `POST /v1/intel/preflight` | free | `decision=block` → refuse (`twzrd_decision_block`). Score floor / optional `can_spend` also deny. |
-| 2 | `GET /v1/intel/merchant_card/{payTo}` | free | `wash_flagged: true` → refuse by default (`twzrd_wash_flagged`). **Only tightens** step 1. |
+| 2 | `GET /v1/intel/merchant_card/{payTo}` | free | `wash_flagged: true` → refuse by default (`twzrd_wash_flagged`). A reachable card without full, fresh, ring-evaluated wash coverage → refuse by default (`twzrd_wash_unknown`, from 0.13.0). A card outage → refuse by default (`twzrd_card_unreachable_fail_closed`). **Only tightens** step 1. |
 | 3 | First paid hop `quickCheck` | $0.001 | On an approved `warn` with `x402Fetch` wired: `GET /v1/intel/quick/{payTo}` only. That hop does not request `GET /v1/intel/trust/{payTo}`. `/trust` at $0.05 is a separate allow-path receipt, not the warn hop. |
 | 4 | Pay (or refuse) | resource price | Only if steps 1–2 approved (and any opt-in paid escalate did not block). |
 
-**Fail-open (no invent):**
-- Preflight HTTP/network error → default fail-closed (`TWZRD_FAIL_OPEN=true` restores legacy allow-on-outage).
-- Merchant card **outage** on a reputation-scored path (5xx, 429, thrown fetch, non-JSON 200) → same `failOpen` switch; default refuses with `twzrd_card_unreachable_fail_closed`. This is tighten-only: an already-blocked payment keeps its more specific reason.
-- Merchant card **reachable** with no `wash_flagged` (including 4xx, or 200 + `insufficient_evidence`) → `washFlagged=null` → **do not refuse on wash**.
-- Unscored-network `observe`: a card outage keeps the observe allow; `wash_flagged: true` still refuses.
-- Only a successful card with `wash_flagged: true` triggers wash refuse or soft cap.
+**Outages and unknowns (fail-closed by default):**
+- Preflight HTTP/network error → refuse (`twzrd_fail_closed`). `TWZRD_FAIL_OPEN=true` restores the legacy allow-on-outage on the entry points that read it; `createBuyerFetch` does not read it.
+- Merchant card **outage** on a reputation-scored path (5xx, 429, thrown fetch, non-JSON 200) → refuse with `twzrd_card_unreachable_fail_closed`; the same `failOpen` switch opens it. This is tighten-only: an already-blocked payment keeps its more specific reason.
+- Merchant card **reachable** but without a full wash answer → refuse with `twzrd_wash_unknown` (the default from 0.13.0, `refuseWashUnknown`; 0.12.x allowed this case). That is: no card (including a 4xx), no `wash_flagged` boolean (missing or `null`), wash confidence other than `full`, `ring_evaluated: false`, or `wash_stale: true`. It is intel answering, not an outage, so `failOpen` does not open it. Opt out with `refuseWashUnknown: false` or `TWZRD_REFUSE_WASH_UNKNOWN=0`; `createBuyerFetch` pins it on and does not read that variable.
+- Unscored-network `observe`: a card outage keeps the observe allow, and `twzrd_wash_unknown` is not applied (scored networks only); `wash_flagged: true` still refuses.
+- `wash_flagged: true` on a reachable card triggers the wash refuse or the soft cap. Nothing is invented for a field the card does not carry: a missing `wash_flagged` is reported as `washFlagged=null`, and by default it is refused as unknown, not read as clean.
 
-**Wash policy (exact):**
+**Wash policy (exact, in this order):**
 - Prior preflight deny → unchanged (wash never loosens a block).
-- `refuseWashFlagged=false` or wash not true → keep preflight approval.
+- `refuseWashFlagged=false` → the merchant card is not fetched and neither wash rule applies; keep preflight approval.
 - `wash_flagged=true` + no cap → `approved=false`, `reason=twzrd_wash_flagged`, `verdict=block`.
-- `wash_flagged=true` + `washMaxUsdc` set + `priceUsdc <= cap` → allow, `washCapped=true`, reason `twzrd_wash_capped_{price}_le_{cap}`.
+- `wash_flagged=true` + `washMaxUsdc` set + `priceUsdc <= cap` → allow so far, `washCapped=true`, reason `twzrd_wash_capped_{price}_le_{cap}`.
 - `wash_flagged=true` + price above cap (or price unknown) → refuse with `twzrd_wash_flagged_above_cap_*`.
+- Then coverage, on a scored network with `refuseWashUnknown` on (the default): a reachable card without full, fresh, ring-evaluated coverage → `approved=false`, `reason=twzrd_wash_unknown`, `verdict=block`. A soft-capped allow from the line above is subject to it too.
+- `wash_flagged=false` with full, fresh, ring-evaluated coverage → keep preflight approval. With `refuseWashUnknown=false`, so does any reachable card that is not `wash_flagged=true`.
 
 **Order note:** `onWarnUpsell` (points at first paid hop `GET /v1/intel/quick` $0.001) fires on preflight `warn` **before** the merchant_card wash check. A wash-flagged seller that preflighted as `warn` may still get the upsell hook, then be refused on step 2. Optional V7 `GET /v1/intel/trust` $0.05 stays `autoReceipt` / `requireReceipt` / `escalateOnWarn:false`.
 
@@ -617,6 +641,7 @@ This doc describes **0.18.0**. Check `npm view twzrd-x402-gate version` for the 
 - An approved `warn` with a wired paying fetch requests `/v1/intel/quick` and does not request `/v1/intel/trust`.
 - `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`; those switches apply only to `installTwzrdAutoGate`.
 - `createTwzrdSettleGuard` stays fail-open by default, so an unavailable gate does not abort.
+- Unreleased: base64 is read strictly (RFC 4648 section 4: the standard alphabet, `=` padding to a multiple of four, no whitespace, no other characters, no unused bits set). That covers the `PAYMENT-REQUIRED` header, the `PAYMENT-SIGNATURE` / `X-PAYMENT` header, the transaction inside a payment payload, a held vault-spend copy and decision signatures. Another spelling of the same bytes (base64url, unpadded, with a line break) is unreadable, not a second way to write the payment: `payment_payload_unreadable` where the payment is compared with its approval, a blocked payment for an undecodable `PAYMENT-REQUIRED`, `vault_spend_unreadable` for a held copy, and no hard bind for a bound transaction. Node's `Buffer` decoder read those spellings as the same bytes. `@x402/core` and `x402-solana` write canonical base64, so their headers are unaffected. `createSeededDecisionSigner` still reads its secret as hex, base64 or base64url: that is operator key material, not a payment field.
 - The pay path is not uniformly fail-closed in any release: `createTwzrdSettleGuard` is fail-open by default, `TWZRD_FAIL_OPEN=true` lets a buyer preflight outage sign on entry points that do not force `failOpen`, and those entry points default unscored networks to `observe` (allow, wash check still runs). `createBuyerFetch` is the exception: the outage stays closed, and an unscored network is refused.
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
@@ -1063,13 +1088,35 @@ await evaluate_x402_resource(url, requirements, {
 
 The receipt is returned either way (`result.receipt`) — you paid for it. What changes is
 `approved`: a denial sets `logInclusionDenied: true`, `policyAction: "block"`, and a reason of
-`twzrd_log_inclusion_failed | _pending | _tofu_refused | _error`; `result.logInclusion` carries
-the verdict (`key_id`, `leaf_index`, `tree_size`, `pending`, `tofu`). A verifier that throws
+`twzrd_log_inclusion_failed | _pending | _tofu_refused | _error | _receipt_invalid`; `result.logInclusion` carries
+the verdict (`key_id`, `leaf_index`, `tree_size`, `pending`, `tofu`, and `receipt_bound` / `leaf`
+from the receipt check below). A verifier that throws
 denies under `hard` — a broken or unreachable verifier must not wave receipts through. So does a
 Path A attempt that yields no receipt at all (non-OK response, thrown fetch, `x402Fetch` not
 wired): an outage on the receipt endpoint must never produce a *better* outcome than an empty
 receipt body. Path A that your `requireReceipt` threshold never attempted is out of scope — this
 knob gates receipts, it does not override your threshold.
+
+Unreleased: the log proves a leaf, not the fields printed beside it, so the gate checks the
+receipt itself before it calls your verifier. It recomputes the canonical leaf from
+`receipt.preimage` (V7 and V6 reputation receipts), requires `receipt.leaf` to equal it, and
+requires `receipt.signature` to verify over that leaf under the pinned receipt issuer key
+(`RECEIPT_ISSUER_PUBKEY`, key_id `twzrd-receipt-ed25519-v2`; the key a receipt names for itself
+is never used). A receipt that fails is denied with `twzrd_log_inclusion_receipt_invalid` under
+`hard`, the verifier is not called, and `onPending: "allow"` and `refuseTofu: false` do not
+excuse it. So a valid proof for a logged leaf does not carry a receipt whose score, or any
+other signed field, was changed. The verifier receives the recomputed leaf as `ctx.leaf`, and a
+verdict that names a different `leaf` is refused (`twzrd_log_inclusion_failed`).
+
+- `receiptPubkey` (a base58 key, or a list of them) replaces the pin, for a host that has to
+  accept receipts signed under another issuer key. A value that is not a key refuses every
+  receipt; it never falls back to the default pin.
+- The check needs `js-sha3` (an optional peer) and fails closed without it.
+- `verifyReceiptBinding(receipt, pubkeys?)` is exported for use outside this policy.
+- Not decided by this check: whether the receipt is about the seller being paid
+  (`preimage.agent_id`), how old it is, and fields the leaf does not carry (`settlement_tx`
+  beyond its last 32 bytes; on V6, `recheck_after_unix`, `staleness_days` and
+  `score_decay_model`).
 
 Two things to know today: a leaf is merged within one anchor period, so a receipt paid for
 *just now* may not yet carry `log_inclusion` — the fetch fallback above then reports `pending`,
@@ -1101,14 +1148,18 @@ What the guard does on HTTP 402:
 1. Reads the Solana-network entry from `accepts[]` (falls back to first entry) to get the seller wallet.
 2. Free `POST /v1/intel/preflight` — `decision=block` / score floor deny.
 3. Free `GET /v1/intel/merchant_card/{payTo}` — `wash_flagged:true` **refuses by default**
-   (`reason: twzrd_wash_flagged`). Reachable + no signal fails open (no invent). A card
-   outage on the scored path honours `failOpen` (default fail-closed).
+   (`reason: twzrd_wash_flagged`). A reachable card without full, fresh, ring-evaluated
+   wash coverage refuses with `twzrd_wash_unknown` by default from 0.13.0
+   (`refuseWashUnknown`); `failOpen` does not open it. A card outage on the scored path
+   honours `failOpen` (default fail-closed).
 4. If approved: returns the original 402 for the x402 client to pay.
 
 Opt out of wash refuse: `withTwzrdGuard(fetch, { refuseWashFlagged: false })` or
-`TWZRD_REFUSE_WASH_FLAGGED=0`. Soft cap instead of hard refuse: `washMaxUsdc` /
-`TWZRD_WASH_MAX_USDC`. Unreleased: `washMaxUsdc: null` means no soft cap and the
-env variable is not read, and the guard reads the cap once, when it is built.
+`TWZRD_REFUSE_WASH_FLAGGED=0` (the card is then not fetched, so the unknown-wash refusal
+does not apply either). Opt out of the unknown-wash refusal alone:
+`refuseWashUnknown: false` or `TWZRD_REFUSE_WASH_UNKNOWN=0`. Soft cap instead of hard
+refuse: `washMaxUsdc` / `TWZRD_WASH_MAX_USDC`. From 0.21.0, `washMaxUsdc: null` means no
+soft cap and the env variable is not read, and the guard reads the cap once, when it is built.
 
 Non-402 responses pass through unchanged.
 
@@ -1564,6 +1615,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `intel_block` | The injected preflight answered `block`. |
 | `decision_bind_required` | A signed decision is required and none was bound. |
 | `bind_required_no_compose`, `bind_required_no_settlement`, `bind_required_no_leaf_hash`, `bind_mismatch` | A resource bind was required and could not be built or did not match. |
+| `bind_unexpected_instruction` | A resource bind was required and the composed transaction carries an instruction a bound transfer may not carry (see the allowlist under *Lower-level call*), or uses an address lookup table. `detail` is `bound tx instruction refused: <code>`. Unreleased. |
 | `twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt` | Track 5 `.kill` or `.pause` sentinel is active (or `.pause` is corrupt) in `stateDir` (default `./data`). The MPP entry points refuse on the same sentinel before a credential is created. Read on entry and again right before `pay` is called (before the WAL intent is written), or before an allow or warn is returned when no `pay` is configured. |
 | `wal_unresolved_intent`, `wal_intent_write_failed`, `wal_unconfirmed_payment` | Track 6 SVM write-ahead log (`svmWal` / `svmWalFile` / `TWZRD_SVM_WAL_FILE`) has an earlier `payment_intent` with no `payment_receipt` (loop frozen until `recoverUnresolvedIntents` polls RPC), the pre-sign `fsync` of `payment_intent` failed (`signerInvocations = 0`), or the payer ran and its return does not prove settlement (`signerInvocations = 1`). Proof is a well-formed `txSignature` with a positive integer `slot` and `confirmationStatus` `confirmed` or `finalized`, or with `facilitatorSettlement: { verified: true, facilitator }`. Without it no receipt is written and the intent stays unresolved. |
 
@@ -1580,7 +1632,7 @@ Checked on a transaction the gate already holds, before any socket. A refusal ap
 | `instruction_bytes_differ` | The `spend_with_policy` instruction bytes differ from the bound instruction, including a one-byte change. |
 | `authorization_expired` | The desk signature verifies and `nowTs` is at or past `expiresAtTs`. |
 | `advisory_payment_decision_does_not_move_usdc` | The only credential is an advisory `twzrd.payment_decision.v1` and the desk signature is missing. |
-| `vault_spend_unreadable` | The bytes are not one USDC `spend_with_policy` instruction on the deployed vault program. |
+| `vault_spend_unreadable` | The bytes are not one USDC `spend_with_policy` instruction on the deployed vault program, or (unreleased) `serializedTransaction` is not canonical base64. |
 
 ## Config
 

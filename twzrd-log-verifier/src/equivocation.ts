@@ -18,7 +18,7 @@
  */
 import { verifySth, type SignedTreeHead } from "./sth.js";
 import { verifyConsistency } from "./merkle.js";
-import { hexToBytes } from "./util.js";
+import { hexPathToBytes, hexToBytes } from "./util.js";
 import type { LogKeyDirectory } from "./keydir.js";
 
 export interface EquivocationResult {
@@ -128,7 +128,7 @@ export function checkEquivocation(
       hexToBytes(older.root),
       Number(newer.tree_size),
       hexToBytes(newer.root),
-      consistencyPath.map(hexToBytes),
+      hexPathToBytes(consistencyPath, "consistency path"),
     );
   } catch (e) {
     out.errors.push(`malformed consistency path: ${(e as Error).message}`);

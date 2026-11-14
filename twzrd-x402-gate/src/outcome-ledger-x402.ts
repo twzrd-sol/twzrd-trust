@@ -69,6 +69,7 @@ import {
 } from "./outcome-ledger.js";
 import { isBaseUnitAmount, resolveRequirementFields } from "./payto.js";
 import type { BeforePaymentCreationContext, BeforePaymentCreationResult } from "./x402-client-hook.js";
+import { base64ToUtf8Strict } from "./strict-base64.js";
 
 /** Default validation rule: PAYMENT-RESPONSE success with a transaction, and a 2xx response. */
 export const X402_PAID_RESPONSE_RULE_V1 = "twzrd.x402-paid-response.v1";
@@ -154,7 +155,7 @@ const sha256hex = (b: Uint8Array | string) => createHash("sha256").update(b).dig
 function decodeB64Json(header: string | null): Dict | null {
   if (!header) return null;
   try {
-    return asRecord(JSON.parse(Buffer.from(header, "base64").toString("utf8")));
+    return asRecord(JSON.parse(base64ToUtf8Strict(header)));
   } catch {
     return null;
   }

@@ -129,6 +129,12 @@ export {
   type ResolvedRequireLogInclusionPolicy,
 } from "./log-inclusion.js";
 export {
+  verifyReceiptBinding,
+  RECEIPT_ISSUER_PUBKEY,
+  RECEIPT_ISSUER_KEY_ID,
+  type ReceiptBinding,
+} from "./receipt-binding.js";
+export {
   DEFAULT_BUYER_MATERIAL_USDC,
   DEFAULT_BUYER_REQUIRE_RECEIPT,
   DEFAULT_BUYER_ESCALATE_ON_WARN,
@@ -241,6 +247,7 @@ export {
   normalizeResourceBindScheme,
   transferAmountMatchesLeaf,
   MEMO_PROGRAM_ADDRESS as RESOURCE_BIND_MEMO_PROGRAM,
+  BOUND_TX_INSTRUCTION_REFUSED,
   type ResourceBindAmountScheme,
   type ResourceBindLeafFields,
   type SvmTransferLegs,

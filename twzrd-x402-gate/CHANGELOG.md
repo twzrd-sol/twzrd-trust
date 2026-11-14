@@ -2,6 +2,78 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## Unreleased
+
+Not on npm. Every item adds a refusal or narrows what is read; none loosens one.
+
+- **Instruction allowlist on a bound transaction (`requireOfferBinding`).** The hard
+  bind check verified the memos and the first `TransferChecked`, and said nothing
+  about any other instruction in the same transaction. It now refuses a bound
+  transaction that carries anything but: ComputeBudget `SetComputeUnitLimit` and
+  `SetComputeUnitPrice` (one of each, no accounts); the bind memo and at most one
+  other memo (no accounts, non-empty UTF-8); one Associated Token Account `Create`
+  or `CreateIdempotent` for the bound recipient's token account and the bound mint;
+  and one SPL Token or Token-2022 `TransferChecked` with exactly four accounts.
+  - `twzrd.safeFetch` returns `bind_unexpected_instruction` with
+    `detail: "bound tx instruction refused: <code>"` and does not call `pay()`.
+    `evaluateResourceBindLegsFromSvmTx` returns that string as its reason;
+    `BOUND_TX_INSTRUCTION_REFUSED` (new export) is the prefix. The first violation
+    in instruction order is the one reported.
+  - Also refused: an instruction whose program or accounts are not in the static
+    account list, and any transaction with address lookup tables.
+  - Newly refused shapes a caller may already compose: a transfer with more than
+    four accounts (multisig signers, transfer-hook accounts), a second memo beyond
+    the one extra, and instructions a wallet or facilitator adds to the
+    transaction (a Lighthouse assertion).
+  - Not bounded: the compute unit price, and which account funds the token
+    account create.
+- **`requireLogInclusion` checks the receipt before the log.** A log proof says a
+  leaf is in the log; it does not say the fields beside that leaf are the ones the
+  issuer signed. The gate now recomputes the canonical leaf from `receipt.preimage`
+  (V7 and V6 reputation receipts), requires `receipt.leaf` to equal it, and requires
+  the Ed25519 signature to verify over it under the pinned receipt issuer key
+  (`twzrd-receipt-ed25519-v2`), before the verifier is called.
+  - New reason `twzrd_log_inclusion_receipt_invalid`. The verifier does not run,
+    and `onPending: "allow"` and `refuseTofu: false` do not excuse it.
+  - `result.logInclusion` gains `receipt_bound` and `leaf`. The verifier's context
+    gains `leaf`. A verdict that names a different leaf is
+    `twzrd_log_inclusion_failed`.
+  - New policy option `receiptPubkey` (a key or a list) replaces the pin. New
+    exports: `verifyReceiptBinding`, `RECEIPT_ISSUER_PUBKEY`,
+    `RECEIPT_ISSUER_KEY_ID`, type `ReceiptBinding`.
+  - Newly refused: a receipt signed under any other key (the retired v1 issuer
+    keys included) unless the host pins that key; a V5 or attention-domain
+    receipt; a receipt whose fields only encode to the signed bytes (score
+    `65608` for `72`, `"72"` for `72`); and any receipt when `js-sha3` is not
+    installed (optional peer; the check fails closed).
+  - Not checked here: that the receipt is about the seller being paid, its age,
+    and fields outside the leaf (`settlement_tx` beyond its last 32 bytes; on V6
+    the three freshness fields).
+- **Strict base64.** Payment fields were decoded with Node's `Buffer`, which
+  accepts base64url characters, missing padding, whitespace and stray bytes, so
+  one payment had many spellings. They are now read as RFC 4648 section 4 only:
+  the standard alphabet, `=` padding to a multiple of four, nothing else, and no
+  unused bits set, so each byte string has exactly one accepted text.
+  - Read strictly: the `PAYMENT-REQUIRED` header, the `PAYMENT-SIGNATURE` /
+    `X-PAYMENT` header (approval comparison, attempt echo, fulfillment record,
+    settlement evidence, outcome ledger, payer extraction on the settle guard),
+    the transaction of a bound payment, a held vault-spend copy, and the
+    signatures on a decision token and a `twzrd.payment_decision.v1` record.
+  - Outcomes for another spelling: `payment_payload_unreadable`; a blocked payment
+    for an undecodable `PAYMENT-REQUIRED`; `vault_spend_unreadable`; a signature
+    that does not verify (`bad_signature`); a bound transaction that is not a hard
+    bind (`bind_mismatch`). An unreadable payment header on the outcome ledger's
+    transport is treated as an unpaid leg, as before, so the attempt stays
+    `signing` and keeps blocking.
+  - Unpadded base64, which `atob` accepts, is one of the refused spellings.
+    `@x402/core` and `x402-solana` write canonical base64.
+  - Unchanged: `createSeededDecisionSigner` reads its secret as hex, base64 or
+    base64url (operator key material), and `examples/`.
+- **Docs.** The README buyer-flow section said a reachable merchant card with no
+  wash answer does not refuse. From 0.13.0 it refuses by default
+  (`twzrd_wash_unknown`), and a card outage refuses by default
+  (`twzrd_card_unreachable_fail_closed`). The section now says so.
+
 ## 0.21.0 (2026-11-13)
 
 The second and third items change allow/refuse results, so this ships in a minor release, not a patch.
@@ -170,7 +242,8 @@ Track 5 Binding Plane (`twzrd.binding_policy.v1` + `.kill` / `.pause` sentinels)
   A free merchant-card lookup that returns 5xx/429, a non-JSON body, or throws refuses
   with `twzrd_card_unreachable_fail_closed`. With `failOpen: true` (or
   `TWZRD_FAIL_OPEN=1`) both allow instead. A merchant-card 4xx is intel answering,
-  not an outage, and never refuses on its own.
+  not an outage: `failOpen` does not apply to it. From 0.13.0 it is a card with no
+  wash answer, refused by default as `twzrd_wash_unknown` (`refuseWashUnknown`).
 - **Seller side** (`createTwzrdSettleGuard`): fail-open by default. A screen that throws
   returns without aborting settlement unless `failOpen: false`.
 

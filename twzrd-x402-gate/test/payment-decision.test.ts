@@ -411,6 +411,23 @@ async function run() {
     assert.equal(verify(dearerRec).ok, true);
     assert.ok(has(verify(dearerRec, { challenge: CHALLENGE }), "challenge_hash_mismatch"));
 
+    // The same signature bytes spelled with non-zero unused bits in the last
+    // symbol: it fits the 88-char shape and Node's decoder reads the same 64
+    // bytes, but it is not the canonical text, so it does not verify.
+    {
+      const sig = base.signature.sig;
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      const respelled = sig.slice(0, 85) + alphabet[alphabet.indexOf(sig[85]) + 1] + "==";
+      assert.notEqual(respelled, sig);
+      assert.deepEqual(Buffer.from(respelled, "base64"), Buffer.from(sig, "base64"));
+      const r = verifyPaymentDecisionRecord(
+        { ...base, signature: { ...base.signature, sig: respelled } },
+        { publicKeyPem: VECTOR_PEM, now: NOW },
+      );
+      assert.deepEqual(codes(r), ["bad_signature"]);
+      assert.equal(verifyPaymentDecisionRecord(base, { publicKeyPem: VECTOR_PEM, now: NOW }).ok, true);
+    }
+
     // Wrong key, keyed map, and no key at all.
     const stranger = createLocalDecisionSigner();
     assert.ok(has(verifyPaymentDecisionRecord(base, { publicKeyPem: stranger.publicKeyPem, now: NOW }), "bad_signature"));

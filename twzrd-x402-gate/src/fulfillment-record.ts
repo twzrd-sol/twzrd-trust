@@ -28,6 +28,7 @@ import { mkdirSync } from "node:fs";
 import { appendFile, open, rename, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolveRequirementFields } from "./payto.js";
+import { base64ToUtf8Strict } from "./strict-base64.js";
 
 export const FULFILLMENT_RECORD_SCHEMA = "twzrd.fulfillment.v1";
 
@@ -61,7 +62,7 @@ export type FulfillmentRecord = {
   amount_atomic: string | null;
   /** Settlement transaction from PAYMENT-RESPONSE, else from the seller's body. */
   tx: string | null;
-  /** PAYMENT-RESPONSE success flag; null when the header was absent. */
+  /** PAYMENT-RESPONSE success flag; null when the header was absent or was not canonical base64 JSON. */
   settled: boolean | null;
   /** Who the seller says served: its `provider` label or its `model`. */
   served_by: string | null;
@@ -104,7 +105,7 @@ function str(value: unknown): string | null {
 function decodeB64Json(header: string | null | undefined): Dict | null {
   if (!header) return null;
   try {
-    return asRecord(JSON.parse(Buffer.from(header, "base64").toString("utf8")));
+    return asRecord(JSON.parse(base64ToUtf8Strict(header)));
   } catch {
     return null;
   }

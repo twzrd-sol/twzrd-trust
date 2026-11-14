@@ -51,6 +51,7 @@ import {
 } from "./resource-bind.js";
 import type { TwzrdApprovalResult } from "./types.js";
 import { resolveRequirementFields } from "./payto.js";
+import { decodeBase64Strict } from "./strict-base64.js";
 
 export const PAYMENT_DECISION_SCHEMA = "twzrd.payment_decision.v1" as const;
 /** Domain prefix of the signed preimage. Distinct from DecisionToken's
@@ -781,11 +782,13 @@ export function verifyPaymentDecisionRecord(
     // the decision is incoherent: a relying party must see that a validly
     // signed lie is still a lie (signature: true, ok: false).
     try {
-      signatureOk = edVerify(
+      // The shape check admits any 86 symbols before "=="; only the canonical spelling decodes.
+      const sig = decodeBase64Strict(sigBlock.sig);
+      signatureOk = sig !== null && edVerify(
         null,
         paymentDecisionPreimage(value as PaymentDecisionRecordV1),
         createPublicKey(pem),
-        Buffer.from(sigBlock.sig, "base64"),
+        sig,
       );
     } catch {
       signatureOk = false;

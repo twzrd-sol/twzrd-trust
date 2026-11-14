@@ -36,10 +36,11 @@ import {
   fetchSth,
   fetchConsistencyProof,
   resolveTrust,
+  extractReceiptLeaf,
   verifyLogInclusion,
   type LogDescriptor,
 } from "./client.js";
-import { bytesToHex, hexToBytes, b58encode } from "./util.js";
+import { bytesToHex, hexPathToBytes, hexStringArray, hexToBytes, b58encode } from "./util.js";
 import { DEFAULT_STH_PUBKEY } from "./index.js";
 
 const HELP = `twzrd-log-verifier — offline verifier for the TWZRD Receipt Transparency log
@@ -129,33 +130,20 @@ function describeTrust(trusted: string | LogKeyDirectory): string {
   return String(trusted);
 }
 
-/** Accept a bare receipt or an API response nesting it under twzrd_receipt. */
-function extractLeafHex(receiptDoc: unknown): string {
-  let doc = receiptDoc as Record<string, unknown>;
-  if (
-    doc &&
-    typeof doc === "object" &&
-    !doc.leaf &&
-    typeof doc.twzrd_receipt === "object" &&
-    doc.twzrd_receipt
-  ) {
-    doc = doc.twzrd_receipt as Record<string, unknown>;
-  }
-  // A leaf is a string. Another type (an array, a number) is not converted.
-  const leaf = typeof doc?.leaf === "string" ? doc.leaf.toLowerCase().replace(/^0x/, "") : "";
-  if (!/^[0-9a-f]{64}$/.test(leaf)) {
-    throw new Error("receipt has no 64-hex-char .leaf field (is this a keccak-leaf receipt?)");
-  }
-  return leaf;
-}
-
 function parsePathArray(value: unknown, name: string): Uint8Array[] {
   if (!Array.isArray(value)) throw new Error(`${name} must be an array of 32-byte hex strings`);
-  return value.map((h) => {
-    const b = hexToBytes(String(h));
+  // An entry is a hex string. Another type (an array, a number) is not converted.
+  return hexPathToBytes(value, name).map((b) => {
     if (b.length !== 32) throw new Error(`${name} entries must be 32 bytes`);
     return b;
   });
+}
+
+/** A consistency path file: a bare array, or `{ "path": [...] }`. Entries are hex strings. */
+function readConsistencyPath(file: string): string[] {
+  const doc = readJson(file);
+  const value: unknown = Array.isArray(doc) ? doc : (doc as Record<string, unknown> | null)?.path;
+  return hexStringArray(value, "path");
 }
 
 function requireSthValid(
@@ -213,9 +201,10 @@ function cmdInclusion(args: string[]): number {
     return res.valid ? 0 : 1;
   }
 
+  // Same reader the library uses: one rule for what a receipt's leaf is.
   const leafHex = receiptPath
-    ? extractLeafHex(readJson(receiptPath))
-    : String(leafHexArg).toLowerCase().replace(/^0x/, "");
+    ? extractReceiptLeaf(readJson(receiptPath))
+    : (leafHexArg ?? "").toLowerCase().replace(/^0x/, "");
   if (!/^[0-9a-f]{64}$/.test(leafHex)) {
     console.error("--leaf must be 64 hex chars");
     return 1;
@@ -348,11 +337,7 @@ function cmdEquivocation(args: string[]): number {
   }
   let consistencyPath: string[] | undefined;
   const proofPath = getOpt(args, "--proof");
-  if (proofPath) {
-    const doc = readJson(proofPath);
-    const value = Array.isArray(doc) ? doc : (doc as Record<string, unknown>).path;
-    consistencyPath = (value as unknown[]).map(String);
-  }
+  if (proofPath) consistencyPath = readConsistencyPath(proofPath);
   const res = checkEquivocation(
     readJson(aPath) as SignedTreeHead,
     readJson(bPath) as SignedTreeHead,

@@ -23,6 +23,7 @@ import {
   type InstallX402ClientHookOptions,
   type X402ClientLike,
 } from "./x402-client-hook.js";
+import { decodeBase64Strict } from "./strict-base64.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const guardedClients = new WeakSet<object>();
@@ -262,12 +263,8 @@ export function decideHeldVaultSpend(copy: HeldVaultSpendCopy): HeldVaultSpendVe
     reason,
     rpc_sockets_opened: 0,
   });
-  let raw: Buffer;
-  try {
-    raw = Buffer.from(copy.serializedTransaction, "base64");
-  } catch {
-    return refuse("vault_spend_unreadable");
-  }
+  const raw = decodeBase64Strict(copy.serializedTransaction);
+  if (!raw) return refuse("vault_spend_unreadable");
   const parsed = parseVaultSpend(raw);
   if (!parsed) return refuse("vault_spend_unreadable");
   const bound = copy.boundInstructionHex.trim().toLowerCase();

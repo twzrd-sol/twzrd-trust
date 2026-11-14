@@ -30,6 +30,7 @@ import { isTrueFlag } from "./config.js";
 import { fetchMerchantCardResult, type TwzrdMerchantCard } from "./merchant-card.js";
 import { classifyNetwork } from "./network.js";
 import type { TwzrdDecision } from "./types.js";
+import { isStrictBase64 } from "./strict-base64.js";
 
 /**
  * Minimal structural view of an x402 `BeforeSettleHook`/`BeforeVerifyHook`
@@ -192,9 +193,10 @@ export function payerBodiesAmbiguous(ctx: SettleGuardContext): boolean {
 export async function extractSvmPayerFromTransaction(
   transaction: string,
 ): Promise<string | null> {
-  const tx = transaction.trim();
+  const tx = transaction;
   // Cheap reject before dynamic import / upstream console.error on garbage.
-  if (!tx || tx.length < 32 || !/^[A-Za-z0-9+/]+=*$/.test(tx)) return null;
+  // The exact string the payload carries, canonical base64 only: no trim.
+  if (typeof tx !== "string" || tx.length < 32 || !isStrictBase64(tx)) return null;
   try {
     const svm = await import("@x402/svm");
     const decoded = svm.decodeTransactionFromPayload({ transaction: tx });

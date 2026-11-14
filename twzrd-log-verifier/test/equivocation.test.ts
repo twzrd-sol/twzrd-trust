@@ -112,3 +112,16 @@ test("different log_ids are not equivocation", () => {
   assert.ok(!res.equivocation);
   assert.match(res.reason, /different log_id/);
 });
+
+test("a consistency path entry that is not a string is malformed, never read as the hash it wraps", () => {
+  const path = consistencyProof(entries, 50).map((b) => bytesToHex(b));
+  assert.ok(path.length >= 2);
+  for (const wrap of [(h: string) => [h], (h: string) => ({ toString: () => h }), () => 0, () => false, () => null]) {
+    const bent = path.map((h, i) => (i === 1 ? wrap(h) : h)) as unknown as string[];
+    const res = checkEquivocation(head(80, 300), head(50, 100), pub, bent);
+    assert.equal(res.equivocation, false);
+    assert.notEqual(res.consistency_verified, true);
+    assert.deepEqual(res.errors, ["malformed consistency path: consistency path[1] must be a hex string"]);
+    assert.match(res.reason, /could not be decoded/);
+  }
+});

@@ -21,14 +21,16 @@
  *   3. no raw SyntaxError / TypeError / RangeError escapes a gate function;
  *   4. no promise rejection goes unhandled (checked once, last).
  *
- * Two things the outcomes do not mean. A header in another base64 dialect
- * (URL-safe alphabet, padding missing or doubled) is not refused for its
- * encoding: the gate decodes it with Node's decoder, reads the baseline payment
- * out of it, and refuses it here because no entry pays the approved seller. And
- * the receipt path reads a receipt's `leaf` and nothing else in it: the entries
- * that change another field (a score, a timestamp, the signature) are denied
- * because every receipt here sits beside a proof for a different leaf, not
- * because the gate looked at that field.
+ * What the outcomes mean. A header in another base64 dialect (URL-safe
+ * alphabet, padding missing or doubled) is refused for its encoding: the gate
+ * decodes canonical RFC 4648 standard base64 only, so it reads no payment out
+ * of a value Node's own decoder would read the baseline out of. And the receipt
+ * path checks the receipt itself before it asks the log: it recomputes the leaf
+ * from the receipt's preimage, requires `leaf` to equal it, and requires the
+ * issuer's signature over it under the pinned key. Every receipt entry sits
+ * beside a log proof that verifies for the baseline's leaf, and the unmodified
+ * baseline beside that proof is approved, so an entry that changes a score, a
+ * timestamp or the signature is denied for that change and nothing else.
  *
  * Entry points, by fixture target:
  *   header  (X-PAYMENT / PAYMENT-SIGNATURE value)
@@ -43,9 +45,10 @@
  *       from, so there is nobody to screen
  *   receipt (raw paid /trust receipt)
  *     - evaluate_x402_resource() Path A with requireLogInclusion wired to the
- *       real offline verifier and the real served genesis block, the same wiring
- *       as log-inclusion-offline.test.ts; the receipt bytes are spliced into the
- *       paid response unparsed, so truncated JSON reaches the gate as bytes.
+ *       real offline verifier, the same wiring as log-inclusion-offline.test.ts,
+ *       and a proof for the baseline's leaf from a test log whose key the
+ *       verifier is pinned to; the receipt bytes are spliced into the paid
+ *       response unparsed, so truncated JSON reaches the gate as bytes.
  *
  * Each entry point also has one well-formed control that must be approved, and
  * the header and facilitator baselines pass the checks their entries fail.
@@ -64,11 +67,20 @@ import {
   PAYMENT_PAYLOAD_UNREADABLE,
   paymentBindingRefusal,
 } from "../src/payment-binding.js";
+import { verifyReceiptBinding } from "../src/receipt-binding.js";
 import { createTwzrdSettleGuard, type SettleGuardContext } from "../src/seller-hook.js";
+import { decodeBase64Strict } from "../src/strict-base64.js";
 import type { X402PaymentRequirements } from "../src/types.js";
 import { wrapFetchWithTwzrdGate } from "../src/wrap-fetch.js";
 import { verifyLogInclusion } from "../../twzrd-log-verifier/src/client.js";
 import { DEFAULT_STH_PUBKEY } from "../../twzrd-log-verifier/src/index.js";
+import {
+  REAL_LEAF,
+  REAL_LOG_INCLUSION,
+  REAL_RECEIPT,
+  TEST_LOG_PUBKEY,
+  testLogProofFor,
+} from "./helpers/receipts.js";
 
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
 
@@ -222,28 +234,11 @@ function parseOrUndefined(raw: string): Record<string, unknown> | undefined {
   }
 }
 
-// Live genesis block, verbatim from log-inclusion-offline.test.ts (served by
-// https://intel.twzrd.xyz/v1/log/sth on 2026-09-04). Real data, offline.
-const LIVE_LEAF = "0xf7e88f2666a0590d8cf7d426d4842e29a23b66607f2c0a691bf6fc7d0d63ba8f";
-const LIVE_BLOCK = {
-  log_id: "intel.twzrd.xyz/v6",
-  leaf: LIVE_LEAF,
-  leaf_index: 0,
-  tree_size: 1,
-  audit_path: [] as string[],
-  sth: {
-    domain: "TWZRD:RECEIPT_LOG_STH_V1",
-    log_id: "intel.twzrd.xyz/v6",
-    tree_size: 1,
-    timestamp_unix: 1788450541,
-    root: "0x811e1fee65f06c5cfcfee8f338e933c1d3dd261c4c09b8f2793b62bea7ea6db4",
-    signature: "5tgH6Y9x1pcE5eDWjaNb8reUpuy88A5xNanSsJu1A5hEgKbH2kwZtAev6ifE9RWTspkvkvhvuLEGtPbpEN5yVete",
-    signing_pubkey: DEFAULT_STH_PUBKEY,
-  },
-  anchor: null,
-  verify: `/v1/log/proof/inclusion?leaf=${LIVE_LEAF}`,
-};
-const LIVE_RECEIPT = { leaf: LIVE_LEAF, preimage: { settlement_tx: "TX_LIVE" } };
+// The receipt baseline (the repository's V7 example receipt, signed by the
+// receipt issuer key) and a log proof that verifies for its leaf: a test log
+// the offline verifier is pinned to. Every receipt entry is checked beside it.
+const BASELINE_RECEIPT = JSON.parse(FILE.baselines.v7_receipt) as { leaf: string };
+const BASELINE_BLOCK = testLogProofFor(BASELINE_RECEIPT.leaf);
 const RECEIPT_REQS = {
   payTo: SELLER,
   maxAmountRequired: "50000",
@@ -251,18 +246,24 @@ const RECEIPT_REQS = {
   network: "solana",
 } as X402PaymentRequirements;
 
-const offlineVerifier = async (_receipt: unknown, ctx: { response: unknown }) =>
-  verifyLogInclusion(ctx.response, DEFAULT_STH_PUBKEY);
-
-/** Path A with the receipt bytes spliced into the paid /trust response, unparsed, beside `block`. */
-function evaluateWithReceiptBytes(receiptRaw: string, block: unknown = LIVE_BLOCK) {
+/**
+ * Path A with the receipt bytes spliced into the paid /trust response, unparsed, beside `block`.
+ * `logKey` is the log key the offline verifier is pinned to.
+ */
+function evaluateWithReceiptBytes(receiptRaw: string, block: unknown = BASELINE_BLOCK, logKey = TEST_LOG_PUBKEY) {
   const body = `{"tx":"TX_FUZZ","twzrd_receipt":${receiptRaw},"log_inclusion":${JSON.stringify(block)}}`;
+  let verifierCalls = 0;
   return evaluate_x402_resource(RESOURCE, RECEIPT_REQS, {
     fetch: preflight(WARN),
     autoReceipt: true,
     x402Fetch: (async () => json(body)) as unknown as typeof fetch,
-    requireLogInclusion: { verifier: offlineVerifier },
-  });
+    requireLogInclusion: {
+      verifier: async (_receipt: unknown, ctx: { response: unknown }) => {
+        verifierCalls += 1;
+        return verifyLogInclusion(ctx.response, logKey);
+      },
+    },
+  }).then((r) => Object.assign(r, { verifierCalls }));
 }
 
 // ---------------------------------------------------------------------------
@@ -307,8 +308,12 @@ test("every entry is its baseline with the one malformation it declares", () => 
         // The dialect has to show in the bytes: URL-safe and standard base64 are
         // the same text unless the input produces a '+' or a '/'.
         assert.notEqual(h.value, b64(text), `${f.id}: ${encoding} is byte-identical to standard base64 here`);
-        // What the description says of it: the decoder the gate uses reads the baseline back.
+        // What the description says of it: Node's own decoder reads the baseline
+        // back out of the value, and the decoder the gate uses reads nothing.
         assert.equal(Buffer.from(h.value, "base64").toString("utf8"), text, `${f.id}: Node decodes it differently`);
+        assert.equal(decodeBase64Strict(h.value), null, `${f.id}: the gate's decoder accepts it`);
+      } else {
+        assert.equal(decodeBase64Strict(h.value)?.toString("utf8"), text, `${f.id}: standard base64 the gate does not read`);
       }
       assert.equal(f.raw_body, null, `${f.id}: a header entry carries no body`);
       wire = h.value;
@@ -345,12 +350,18 @@ test("baselines are well-formed: a baseline payment matches its own requirement"
   for (const name of ["x402_v1_payment", "x402_v2_payment"]) {
     assert.equal(paymentBindingRefusal(ownRequirement(name), b64(FILE.baselines[name])), undefined, name);
   }
-  // A base64 dialect is not a refusal by itself: the gate reads the baseline
-  // payment out of each of these.
+  // A base64 dialect is a refusal by itself: against the requirement the
+  // baseline names, where the standard encoding of the same payment passes,
+  // each of these is unreadable.
   const dialects = byTarget("header").filter((f) => "encoding" in f.malformation);
   assert.equal(dialects.length, 4);
   for (const f of dialects) {
-    assert.equal(paymentBindingRefusal(ownRequirement(f.baseline), f.headers[0].value), undefined, f.id);
+    assert.equal(
+      paymentBindingRefusal(ownRequirement(f.baseline), f.headers[0].value),
+      PAYMENT_PAYLOAD_UNREADABLE,
+      f.id,
+    );
+    assert.equal(paymentBindingRefusal(ownRequirement(f.baseline), b64(f.headers[0].plaintext)), undefined, f.id);
   }
   // The facilitator request: its requirement is approved and its payload pays it.
   const fac = JSON.parse(FILE.baselines.facilitator_request) as Record<string, unknown>;
@@ -379,10 +390,30 @@ test("control: a well-formed requirement is approved by evaluate_x402_resource u
   assert.equal(r.approved, true, r.reason);
 });
 
-test("control: the live receipt with its own proof is approved through Path A", async () => {
-  const r = await evaluateWithReceiptBytes(JSON.stringify(LIVE_RECEIPT));
+test("control: an issued receipt with the proof the log served for it is approved through Path A", async () => {
+  const r = await evaluateWithReceiptBytes(JSON.stringify(REAL_RECEIPT), REAL_LOG_INCLUSION, DEFAULT_STH_PUBKEY);
   assert.equal(r.approved, true, r.reason);
+  assert.equal(r.logInclusion?.receipt_bound, true);
   assert.equal(r.logInclusion?.valid, true);
+  assert.equal(r.logInclusion?.leaf, REAL_LEAF);
+});
+
+// The control the receipt entries are read against: the baseline they are all
+// made from, beside the proof they all sit beside, is approved. What an entry
+// changes is then the only thing that can deny it.
+test("control: the receipt baseline with the test log's proof for its leaf is approved through Path A", async () => {
+  assert.equal(verifyReceiptBinding(BASELINE_RECEIPT).ok, true, "the baseline is signed by the issuer key");
+  const r = await evaluateWithReceiptBytes(FILE.baselines.v7_receipt);
+  assert.equal(r.approved, true, r.reason);
+  assert.equal(r.logInclusion?.receipt_bound, true);
+  assert.equal(r.logInclusion?.valid, true);
+  assert.equal(r.logInclusion?.leaf_index, 5);
+  assert.equal(r.logInclusion?.tree_size, 12);
+  assert.equal(r.verifierCalls, 1);
+  // The proof is not one the production log key signed.
+  const underProdPin = await evaluateWithReceiptBytes(FILE.baselines.v7_receipt, BASELINE_BLOCK, DEFAULT_STH_PUBKEY);
+  assert.equal(underProdPin.approved, false);
+  assert.match(underProdPin.reason, /^twzrd_log_inclusion_failed \(/);
 });
 
 // ---------------------------------------------------------------------------
@@ -475,60 +506,121 @@ for (const f of byTarget("verify_body", "settle_body")) {
 }
 
 // ---------------------------------------------------------------------------
-// Receipts. Every paid response below carries the genuine genesis block, a
-// proof for a leaf none of these receipts names. The gate reads a receipt's
-// leaf and nothing else in it, so there are three ways to be denied here, and
-// `expected_outcome` says which:
-//   no_receipt_captured      the paid response is not JSON (the cut-off receipt)
-//   leaf_not_named           the receipt names no leaf as a string (the array)
-//   leaf_differs_from_proof  the receipt names the V7 example's leaf; the proof
-//                            is for the genesis leaf. Nine entries, each with
-//                            another field changed that this path does not read.
+// Receipts. Every paid response below carries a log proof that verifies for
+// the baseline's leaf (the control above), so the log has nothing to object
+// to. The gate checks the receipt first: preimage, field types and ranges,
+// leaf, signature. `expected_outcome` says which of those an entry fails:
+//   no_receipt_captured              the paid response is not JSON (the cut-off receipt)
+//   receipt_no_preimage              the preimage is not an object
+//   receipt_freshness_inconsistent   recheck_after_unix is not timestamp_unix + staleness_days * 86400
+//   receipt_field_out_of_range       a signed integer field is outside what the leaf can encode
+//   receipt_settlement_inconsistent  settlement_anchor is not the anchor of settlement_tx
+//   receipt_leaf_mismatch            the fields no longer hash to the leaf the receipt names
+//   receipt_leaf_not_a_string        the leaf is not a string (the array)
+//   receipt_signature_unreadable     the signature is absent or not base58 for 64 bytes
+const INVALID = "^twzrd_log_inclusion_receipt_invalid \\(";
 const RECEIPT_DENIALS: Record<string, RegExp> = {
   no_receipt_captured: /^twzrd_log_inclusion_failed \(no receipt captured: /,
-  leaf_not_named: /^twzrd_log_inclusion_failed \(receipt has no 64-hex-char \.leaf field/,
-  leaf_differs_from_proof: /^twzrd_log_inclusion_failed \(leaf mismatch: /,
+  receipt_no_preimage: new RegExp(`${INVALID}receipt has no preimage object`),
+  receipt_freshness_inconsistent: new RegExp(
+    `${INVALID}preimage\\.recheck_after_unix must equal timestamp_unix \\+ staleness_days \\* 86400`,
+  ),
+  receipt_field_out_of_range: new RegExp(`${INVALID}preimage\\.[a-z_]+ must be an integer in \\d+\\.\\.\\d+`),
+  receipt_settlement_inconsistent: new RegExp(
+    `${INVALID}preimage\\.settlement_anchor does not match preimage\\.settlement_tx`,
+  ),
+  receipt_leaf_mismatch: new RegExp(`${INVALID}receipt\\.leaf does not match the leaf recomputed from the receipt's fields`),
+  receipt_leaf_not_a_string: new RegExp(`${INVALID}receipt\\.leaf must be a string of 64 hex chars`),
+  receipt_signature_unreadable: new RegExp(`${INVALID}receipt\\.signature must be a base58 64-byte Ed25519 signature`),
 };
+
+test("every receipt outcome is one the harness knows, and every one it knows is used", () => {
+  const used = new Set(byTarget("receipt").map((f) => f.expected_outcome));
+  assert.deepEqual([...used].sort(), Object.keys(RECEIPT_DENIALS).sort());
+});
+
 for (const f of byTarget("receipt")) {
   test(`receipt ${f.id}: Path A with offline log inclusion denies, no throw`, async () => {
     const r = await evaluateWithReceiptBytes(f.raw_body as string);
     assert.equal(r.approved, false, `${f.id}: approved (${r.reason})`);
     assert.equal(r.logInclusionDenied, true, `${f.id}: denied for another reason: ${r.reason}`);
-    assert.match(r.reason, /^twzrd_log_inclusion_(failed|error|pending|tofu_refused)/);
+    assert.match(r.reason, /^twzrd_log_inclusion_(failed|error|pending|tofu_refused|receipt_invalid)/);
     const expected = RECEIPT_DENIALS[f.expected_outcome];
     assert.ok(expected, `${f.id}: unknown expected_outcome ${f.expected_outcome}`);
     assert.match(r.reason, expected, `${f.id}: expected_outcome`);
+    // Denied before the log was asked: the proof beside it verifies, and would have passed.
+    assert.equal(r.verifierCalls, 0, `${f.id}: the log verifier ran`);
+    if (f.parses) {
+      // What the log verifier alone says of the same paid response.
+      const logOnly = verifyLogInclusion(
+        { twzrd_receipt: JSON.parse(f.raw_body as string), log_inclusion: BASELINE_BLOCK },
+        TEST_LOG_PUBKEY,
+      );
+      assert.equal(
+        logOnly.valid,
+        f.expected_outcome !== "receipt_leaf_not_a_string",
+        `${f.id}: the log proof alone ${logOnly.valid ? "passes" : "fails"} (${logOnly.errors.join("; ")})`,
+      );
+    }
   });
 }
 
-// The fixtures cannot show this one: their leaf is not the proven leaf. A leaf
-// that is not a string is not converted to one. `String([leaf])` prints the
-// leaf, so a conversion would read these receipts as naming the proven leaf.
+// A leaf that is not a string is not converted to one. `String([leaf])` prints
+// the leaf, so a conversion would read these receipts as naming the proven
+// leaf. The gate refuses them before the log is asked, and the log verifier
+// refuses them by itself.
 test("a receipt whose leaf is an array holding the proven leaf is denied", async () => {
-  for (const leaf of [[LIVE_LEAF], [[LIVE_LEAF]], [LIVE_LEAF.slice(2).toUpperCase()]]) {
-    const r = await evaluateWithReceiptBytes(JSON.stringify({ ...LIVE_RECEIPT, leaf }));
+  for (const leaf of [[REAL_RECEIPT.leaf], [[REAL_RECEIPT.leaf]], [REAL_LEAF.toUpperCase()]]) {
+    const receipt = { ...REAL_RECEIPT, leaf };
+    const r = await evaluateWithReceiptBytes(JSON.stringify(receipt), REAL_LOG_INCLUSION, DEFAULT_STH_PUBKEY);
     assert.equal(r.approved, false, `approved (${r.reason}) with leaf ${JSON.stringify(leaf)}`);
     assert.equal(r.logInclusionDenied, true);
-    assert.match((r.logInclusion?.errors ?? []).join(" "), /no 64-hex-char \.leaf/);
+    assert.match(r.reason, RECEIPT_DENIALS.receipt_leaf_not_a_string);
+    assert.equal(r.verifierCalls, 0);
+    const logOnly = verifyLogInclusion({ twzrd_receipt: receipt, log_inclusion: REAL_LOG_INCLUSION }, DEFAULT_STH_PUBKEY);
+    assert.equal(logOnly.valid, false);
+    assert.deepEqual(logOnly.errors, ["twzrd_receipt.leaf: leaf must be a string of 64 hex chars"]);
   }
 });
 
 test("a proof whose leaf is an array holding the receipt's leaf is denied", async () => {
-  const r = await evaluateWithReceiptBytes(JSON.stringify(LIVE_RECEIPT), { ...LIVE_BLOCK, leaf: [LIVE_LEAF] });
+  const r = await evaluateWithReceiptBytes(
+    JSON.stringify(REAL_RECEIPT),
+    { ...REAL_LOG_INCLUSION, leaf: [REAL_RECEIPT.leaf] },
+    DEFAULT_STH_PUBKEY,
+  );
   assert.equal(r.approved, false, `approved (${r.reason})`);
   assert.equal(r.logInclusionDenied, true);
+  assert.equal(r.logInclusion?.receipt_bound, true, "the receipt itself is genuine; the proof is what fails");
   assert.match((r.logInclusion?.errors ?? []).join(" "), /log_inclusion\.leaf: leaf must be a string/);
 });
 
-test("receipt with no leaf beside a valid proof for another leaf is denied", async () => {
-  const r = await evaluateWithReceiptBytes(JSON.stringify({ preimage: { settlement_tx: "TX_NO_LEAF" } }));
+// Same rule for the proof's path: an entry is a hex string. An array holding
+// the hash prints as that hash, so a verifier that converts entries accepts it.
+test("a proof whose audit_path entry is an array holding the hash is denied", async () => {
+  const path = BASELINE_BLOCK.audit_path as string[];
+  assert.ok(path.length >= 2);
+  for (const wrap of [(h: string) => [h], (h: string) => [[h]], () => 0, () => false, () => null]) {
+    const audit_path = path.map((h, i) => (i === 1 ? wrap(h) : h));
+    const r = await evaluateWithReceiptBytes(FILE.baselines.v7_receipt, { ...BASELINE_BLOCK, audit_path });
+    assert.equal(r.approved, false, `approved (${r.reason}) with entry ${JSON.stringify(audit_path[1])}`);
+    assert.equal(r.logInclusionDenied, true);
+    assert.equal(r.logInclusion?.receipt_bound, true, "the receipt itself is genuine; the proof is what fails");
+    assert.deepEqual(r.logInclusion?.errors, ["audit path: audit_path[1] must be a hex string"]);
+  }
+});
+
+test("a receipt with no leaf beside a valid proof is denied", async () => {
+  const { leaf: _leaf, ...noLeaf } = REAL_RECEIPT;
+  const r = await evaluateWithReceiptBytes(JSON.stringify(noLeaf), REAL_LOG_INCLUSION, DEFAULT_STH_PUBKEY);
   assert.equal(r.approved, false, `approved (${r.reason}); logInclusion.valid=${String(r.logInclusion?.valid)}`);
-  assert.match((r.logInclusion?.errors ?? []).join(" "), /no 64-hex-char \.leaf/);
+  assert.match(r.reason, RECEIPT_DENIALS.receipt_leaf_not_a_string);
+  assert.equal(r.verifierCalls, 0);
 });
 
 test("offline and network verifiers agree: a receipt with no leaf is refused by both", async () => {
   const { extractReceiptLeaf } = await import("../../twzrd-log-verifier/src/client.js");
-  const doc = { twzrd_receipt: { preimage: { settlement_tx: "TX_NO_LEAF" } }, log_inclusion: LIVE_BLOCK };
+  const doc = { twzrd_receipt: { preimage: { settlement_tx: "TX_NO_LEAF" } }, log_inclusion: REAL_LOG_INCLUSION };
   assert.throws(() => extractReceiptLeaf(doc), /no 64-hex-char \.leaf/);
   const offline = verifyLogInclusion(doc, DEFAULT_STH_PUBKEY);
   assert.equal(offline.valid, false);

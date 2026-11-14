@@ -116,6 +116,40 @@ compare. Anchor transactions use static account keys; a versioned transaction
 that references an address-table account, or one whose message version is not
 legacy or 0, is reported as an error, not a verdict.
 
+### Unreleased (after 0.5.3)
+
+Not on npm.
+
+- A proof path entry is a hex string. `verifyLogInclusion` refuses an `audit_path`
+  entry of any other type (`audit path: audit_path[i] must be a hex string`), and
+  `fetchConsistencyProof`, `verifyHeadsConsistent` and `checkEquivocation` refuse a
+  consistency path entry the same way (`consistency path[i] must be a hex string`).
+  In 0.5.3 and earlier an entry was read through `String()`, so an array holding the
+  hash, or an object with its own `toString`, was read as that hash.
+- `audit_path` itself is an array when it is present. A missing or `null` path is
+  still the empty path (a one-leaf tree); `0`, `false`, `""` or any other non-array
+  value was read as the empty path and is now
+  `audit path: audit_path must be an array of hex strings`.
+- A leaf that is named and is not a string is a type error everywhere, `0` and
+  `false` included: `<where>: leaf must be a string of 64 hex chars`, with `<where>`
+  one of `opts.leaf`, `twzrd_receipt.leaf`, `log_inclusion.leaf` or `leaf`. Only a
+  missing, `null` or empty leaf names nothing.
+  - `extractReceiptLeaf`, and so `verifyReceiptInLog` and CLI `inclusion --receipt`,
+    read a wrapper's `leaf` of `0` or `false` as "no leaf here" and returned the
+    nested `twzrd_receipt.leaf`. They now throw `leaf: leaf must be a string of 64
+    hex chars`.
+  - One message changes: in `verifyLogInclusion` and `extractReceiptLeaf`, a receipt
+    leaf that is not a string was `receipt has no 64-hex-char .leaf field` and is now
+    the type error. A receipt leaf that is missing, `null`, empty, too short or not
+    hex keeps that message.
+  - `verifyLogInclusion` reports every wrong-typed leaf in the document, in the
+    order above, before the missing-leaf check and before any signature check.
+- CLI: `inclusion`, `consistency` and `equivocation` exit 1 on a path entry that is
+  not a string. `equivocation --proof` read entries through `String()` and reported
+  such a path as verifying.
+- Unchanged: hex in either case, with or without `0x`; a string that is not hex is
+  still `invalid hex string`; STH fields are read as before.
+
 ### Changed in 0.5.3
 
 - A leaf is a string wherever one is named: 64 hex characters, with or without `0x`,

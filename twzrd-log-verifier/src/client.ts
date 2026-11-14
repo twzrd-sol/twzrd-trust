@@ -10,7 +10,7 @@
  */
 import { verifySth, type SignedTreeHead } from "./sth.js";
 import { verifyInclusion, verifyConsistency } from "./merkle.js";
-import { hexToBytes, type FetchLike } from "./util.js";
+import { hexPathToBytes, hexStringArray, hexToBytes, type FetchLike } from "./util.js";
 import {
   validateLogKeyDirectory,
   type LogKeyDirectory,
@@ -196,6 +196,16 @@ function leafString(v: unknown): string | undefined {
   return typeof v === "string" ? v.toLowerCase().replace(/^0x/, "") : undefined;
 }
 
+/**
+ * Does a document name a leaf here at all? A missing, `null` or empty leaf
+ * names nothing. Every other value is a leaf someone wrote down, `0` and
+ * `false` included, and has to be a string: testing it for truth instead would
+ * read those two as "not named" and let another leaf in the document stand in.
+ */
+function namesLeaf(v: unknown): boolean {
+  return v !== undefined && v !== null && v !== "";
+}
+
 export async function fetchInclusionProof(
   baseUrl: string,
   leafHex: string,
@@ -220,22 +230,32 @@ export async function fetchConsistencyProof(
   const doc = (await getJson(url, fetchImpl)) as { path?: unknown } | unknown[];
   const path = Array.isArray(doc) ? doc : (doc as { path?: unknown }).path;
   if (!Array.isArray(path)) throw new Error("consistency response has no `path` array");
-  return path.map(String);
+  // A hash is a hex string. An entry of another type is refused, not printed into one.
+  return hexStringArray(path, "consistency path");
 }
 
-/** Pull the 32-byte hex leaf out of a receipt, or an API response wrapping one. */
+/**
+ * Pull the 32-byte hex leaf out of a receipt, or an API response wrapping one.
+ * The wrapper's own `leaf` wins when it names one; the nested `twzrd_receipt`
+ * is read only when the wrapper's leaf is missing, `null` or empty. A leaf that
+ * is named and is not a string throws a type error and nothing else is read.
+ */
 export function extractReceiptLeaf(receiptDoc: unknown): string {
   let doc = receiptDoc as Record<string, unknown>;
+  let where = "leaf";
   if (
     doc &&
     typeof doc === "object" &&
-    !doc.leaf &&
+    !namesLeaf(doc.leaf) &&
     typeof doc.twzrd_receipt === "object" &&
     doc.twzrd_receipt
   ) {
     doc = doc.twzrd_receipt as Record<string, unknown>;
+    where = "twzrd_receipt.leaf";
   }
-  const leaf = leafString(doc?.leaf) ?? "";
+  const raw: unknown = doc?.leaf;
+  if (namesLeaf(raw) && typeof raw !== "string") throw new Error(`${where}: ${LEAF_NOT_A_STRING}`);
+  const leaf = leafString(raw) ?? "";
   if (!/^[0-9a-f]{64}$/.test(leaf)) {
     throw new Error("receipt has no 64-hex-char .leaf field (is this a keccak-leaf receipt?)");
   }
@@ -353,9 +373,10 @@ export async function verifyReceiptInLog(opts: {
  * `twzrd_receipt` must have that receipt name its own 64-hex leaf, as
  * `extractReceiptLeaf` (and so `verifyReceiptInLog`) requires: the block's leaf
  * alone says nothing about the receipt beside it. A leaf is a string: a leaf of
- * any other type (an array, a number, an object) is refused wherever it is
- * named, not converted. Same result shape as `verifyReceiptInLog`, minus the
- * fetch.
+ * any other type (an array, a number, an object, `0`, `false`) is refused
+ * wherever it is named, not converted, and reported as a type error that says
+ * where it was found. So is an `audit_path` entry. Same result shape as
+ * `verifyReceiptInLog`, minus the fetch.
  */
 export function verifyLogInclusion(
   doc: unknown,
@@ -370,14 +391,17 @@ export function verifyLogInclusion(
     top.twzrd_receipt && typeof top.twzrd_receipt === "object" && !Array.isArray(top.twzrd_receipt)
       ? (top.twzrd_receipt as Record<string, unknown>)
       : undefined;
-  const receiptLeaf = receipt?.leaf ? leafString(receipt.leaf) : undefined;
-  // The caller's and the block's leaf are optional. One that is given has to be
-  // a string; a block's missing, null or empty leaf names nothing, as before.
+  // A leaf that is given has to be a string, wherever it is given. The caller's
+  // and the block's are optional; a missing, null or empty one names nothing.
   const notStrings: string[] = [];
   const callerLeaf = opts.leaf !== undefined ? leafString(opts.leaf) : undefined;
   if (opts.leaf !== undefined && callerLeaf === undefined) notStrings.push("opts.leaf");
+  const receiptRaw: unknown = receipt?.leaf;
+  const receiptNames = namesLeaf(receiptRaw);
+  const receiptLeaf = receiptNames ? leafString(receiptRaw) : undefined;
+  if (receiptNames && receiptLeaf === undefined) notStrings.push("twzrd_receipt.leaf");
   const blockRaw: unknown = block.leaf;
-  const blockNames = blockRaw !== undefined && blockRaw !== null && blockRaw !== "";
+  const blockNames = namesLeaf(blockRaw);
   const blockLeaf = blockNames ? leafString(blockRaw) : undefined;
   if (blockNames && blockLeaf === undefined) notStrings.push(inner && typeof inner === "object" ? "log_inclusion.leaf" : "leaf");
   const named = [callerLeaf, receiptLeaf, blockLeaf].filter((l): l is string => l !== undefined);
@@ -390,12 +414,12 @@ export function verifyLogInclusion(
     sth_valid: false,
     inclusion_valid: false,
   };
-  if (hasReceipt && (receiptLeaf === undefined || !/^[0-9a-f]{64}$/.test(receiptLeaf))) {
-    out.errors.push("receipt has no 64-hex-char .leaf field: twzrd_receipt must name the leaf the proof is for");
-    return out;
-  }
   if (notStrings.length > 0) {
     out.errors.push(...notStrings.map((where) => `${where}: ${LEAF_NOT_A_STRING}`));
+    return out;
+  }
+  if (hasReceipt && (receiptLeaf === undefined || !/^[0-9a-f]{64}$/.test(receiptLeaf))) {
+    out.errors.push("receipt has no 64-hex-char .leaf field: twzrd_receipt must name the leaf the proof is for");
     return out;
   }
   if (distinct.length === 0) {
@@ -442,7 +466,8 @@ export function verifyLogInclusion(
       hexToBytes(leaf),
       out.leaf_index,
       out.tree_size,
-      (block.audit_path || []).map((h) => hexToBytes(String(h))),
+      // Missing or null is the empty path; anything else has to be an array of hex strings.
+      hexPathToBytes((block.audit_path as unknown) ?? [], "audit_path"),
       hexToBytes(String(sth.root)),
     );
   } catch (e) {
@@ -473,7 +498,7 @@ export async function verifyHeadsConsistent(
     hexToBytes(String(older.root)),
     Number(newer.tree_size),
     hexToBytes(String(newer.root)),
-    path.map((h) => hexToBytes(String(h))),
+    hexPathToBytes(path, "consistency path"),
   );
   return { consistent, path };
 }

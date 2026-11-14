@@ -377,6 +377,25 @@ async function heldVaultSpendProof() {
     advisory.advisoryPaymentDecision = { schema: PAYMENT_DECISION_SCHEMA, decision: "allow" };
     await check("advisory_payment_decision", advisory, "advisory_payment_decision_does_not_move_usdc");
 
+    // The held copy is read as canonical base64 only. Each of these is the
+    // allowed transaction in a spelling Node's decoder reads as the same bytes.
+    const good = base().serializedTransaction;
+    const respelled: Record<string, string> = {
+      trailing_newline: `${good}\n`,
+      space_inside: `${good.slice(0, 40)} ${good.slice(40)}`,
+      extra_padding: `${good}=`,
+      url_safe: good.replace(/\+/g, "-").replace(/\//g, "_"),
+      ...(good.endsWith("=") ? { padding_removed: good.replace(/=+$/, "") } : {}),
+    };
+    assert.match(good, /[+/]/, "the URL-safe spelling differs");
+    for (const [name, text] of Object.entries(respelled)) {
+      assert.notEqual(text, good, name);
+      assert.deepEqual(Buffer.from(text, "base64"), Buffer.from(good, "base64"), name);
+      const copy = base();
+      copy.serializedTransaction = text;
+      await check(`respelled_${name}`, copy, "vault_spend_unreadable");
+    }
+
     const before = rpc_sockets_opened;
     const allowed = decideHeldVaultSpend(base());
     assert.equal(allowed.refused, false);

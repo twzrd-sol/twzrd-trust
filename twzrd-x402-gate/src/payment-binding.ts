@@ -18,6 +18,7 @@
  *    scheme. Anything else is refused before the request is made.
  */
 import { resolveRequirementFields } from "./payto.js";
+import { base64ToUtf8Strict } from "./strict-base64.js";
 
 /** The outgoing payment names something other than the approved requirement. */
 export const PAYMENT_DIFFERS_FROM_APPROVAL = "payment_differs_from_approval";
@@ -92,7 +93,7 @@ export function requestHeadersOf(input: Parameters<typeof fetch>[0], init?: Requ
 export function paymentBindingRefusal(approved: ApprovedRequirement, header: string): string | undefined {
   let payload: Record<string, unknown> | undefined;
   try {
-    payload = asRecord(JSON.parse(Buffer.from(header, "base64").toString("utf8")));
+    payload = asRecord(JSON.parse(base64ToUtf8Strict(header)));
   } catch {
     payload = undefined;
   }
