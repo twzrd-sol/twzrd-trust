@@ -62,6 +62,10 @@ A valid result proves:
 - Ed25519 signature is cryptographically valid for the pinned key (`Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`).
 - Mutating any signed field causes verification to fail.
 
+The sample receipt has no settlement behind it. [verify-intel-receipt.md](./verify-intel-receipt.md)
+runs the same checks, plus log inclusion and the settlement transaction, on a receipt from a
+real mainnet payment.
+
 ---
 
 ## Trust Boundaries & Freshness
