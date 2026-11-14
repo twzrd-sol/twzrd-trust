@@ -42,6 +42,7 @@ where the current state lives.
 | [ACCESS_AND_RECOVERY.md](./ACCESS_AND_RECOVERY.md) | canonical | Accountability register for repositories, registries, hosting and DNS; no credentials |
 | [MILESTONE.md](../MILESTONE.md) | canonical | How a seven-day external integration is measured |
 | [server/agent-card.md](../server/agent-card.md) | canonical | Human-readable agent card for the hosted MCP |
+| [integrations/hermes-plugin/README.md](../integrations/hermes-plugin/README.md) | canonical, unpublished | Hermes Agent plugin `twzrd-intel`: free preflight and merchant-card lookups and pinned receipt verification as three tools and one skill; Python standard library only, installed by commit SHA |
 | [SKILL.md](../SKILL.md) | canonical mirror | Byte copy of the live `https://intel.twzrd.xyz/skill.md`; re-synced from live, never edited here (the listing-key fingerprint in the README is the independent pin) |
 
 ## Specifications and review
