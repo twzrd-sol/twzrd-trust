@@ -52,6 +52,34 @@ test("a proof for a different leaf attached to your receipt is rejected before a
   assert.equal(res.sth_valid, false);
 });
 
+test("a receipt that names no valid leaf is rejected even beside a block that verifies", () => {
+  const cases: Array<[string, unknown]> = [
+    ["no leaf", { preimage: { settlement_tx: "TX" } }],
+    ["empty leaf", { leaf: "" }],
+    ["short leaf", { leaf: "0xabcd" }],
+    ["non-hex leaf", { leaf: "0x" + "zz".repeat(32) }],
+    ["null receipt", null],
+    ["string receipt", LIVE_LEAF],
+    ["array receipt", [{ leaf: LIVE_LEAF }]],
+  ];
+  for (const [label, twzrd_receipt] of cases) {
+    const res = verifyLogInclusion({ twzrd_receipt, log_inclusion: LIVE_BLOCK }, DEFAULT_STH_PUBKEY);
+    assert.equal(res.valid, false, label);
+    assert.match(res.errors.join("\n"), /receipt has no 64-hex-char \.leaf/, label);
+    assert.equal(res.sth_valid, false, `${label}: rejected before any signature work`);
+    const withCallerLeaf = verifyLogInclusion({ twzrd_receipt, log_inclusion: LIVE_BLOCK }, DEFAULT_STH_PUBKEY, {
+      leaf: LIVE_LEAF,
+    });
+    assert.equal(withCallerLeaf.valid, false, `${label}: opts.leaf does not stand in for the receipt's own leaf`);
+  }
+  // Unchanged: an uppercase or 0x-less leaf still names the same leaf.
+  const upper = verifyLogInclusion(
+    { twzrd_receipt: { leaf: LIVE_LEAF.slice(2).toUpperCase() }, log_inclusion: LIVE_BLOCK },
+    DEFAULT_STH_PUBKEY,
+  );
+  assert.equal(upper.valid, true, upper.errors.join("; "));
+});
+
 test("tampered root, wrong pin, missing head, missing leaf, missing index each fail by name", () => {
   const root = LIVE_BLOCK.sth.root;
   const tampered = { ...LIVE_BLOCK, sth: { ...LIVE_BLOCK.sth, root: root.slice(0, -1) + (root.endsWith("0") ? "1" : "0") } };

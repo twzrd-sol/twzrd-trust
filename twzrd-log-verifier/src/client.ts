@@ -337,7 +337,10 @@ function normLeaf(v: unknown): string {
  * the whole paid response (`{ twzrd_receipt, log_inclusion }`), a bare block,
  * or a bare proof with `opts.leaf`. Every leaf named — the receipt's, the
  * block's, the caller's — must agree: a proof for some other leaf, attached to
- * your receipt, proves nothing about it. Same result shape as
+ * your receipt, proves nothing about it. A document that carries a
+ * `twzrd_receipt` must have that receipt name its own 64-hex leaf, as
+ * `extractReceiptLeaf` (and so `verifyReceiptInLog`) requires: the block's leaf
+ * alone says nothing about the receipt beside it. Same result shape as
  * `verifyReceiptInLog`, minus the fetch.
  */
 export function verifyLogInclusion(
@@ -348,10 +351,15 @@ export function verifyLogInclusion(
   const top = (doc && typeof doc === "object" ? doc : {}) as Record<string, unknown>;
   const inner = top.log_inclusion;
   const block = (inner && typeof inner === "object" ? inner : top) as Partial<LogInclusionBlock>;
-  const receipt = top.twzrd_receipt as Record<string, unknown> | undefined;
+  const hasReceipt = top.twzrd_receipt !== undefined;
+  const receipt =
+    top.twzrd_receipt && typeof top.twzrd_receipt === "object" && !Array.isArray(top.twzrd_receipt)
+      ? (top.twzrd_receipt as Record<string, unknown>)
+      : undefined;
+  const receiptLeaf = receipt?.leaf ? normLeaf(receipt.leaf) : undefined;
   const named = [
     opts.leaf !== undefined ? normLeaf(opts.leaf) : undefined,
-    receipt && typeof receipt === "object" && receipt.leaf ? normLeaf(receipt.leaf) : undefined,
+    receiptLeaf,
     block.leaf ? normLeaf(block.leaf) : undefined,
   ].filter((l): l is string => l !== undefined);
   const distinct = [...new Set(named)];
@@ -363,6 +371,10 @@ export function verifyLogInclusion(
     sth_valid: false,
     inclusion_valid: false,
   };
+  if (hasReceipt && (receiptLeaf === undefined || !/^[0-9a-f]{64}$/.test(receiptLeaf))) {
+    out.errors.push("receipt has no 64-hex-char .leaf field: twzrd_receipt must name the leaf the proof is for");
+    return out;
+  }
   if (distinct.length === 0) {
     out.errors.push("no leaf: pass opts.leaf or a document that names one (twzrd_receipt.leaf / log_inclusion.leaf)");
     return out;
