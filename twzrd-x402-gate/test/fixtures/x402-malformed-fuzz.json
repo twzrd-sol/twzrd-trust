@@ -1,121 +1,47 @@
 {
-  "schemaVersion": 1,
-  "generatedAt": "2026-11-14T03:01:35Z",
-  "generator": "local Gemma 4 12B (Q8_0) via Ollama, seed 402, from well-formed x402 v1/v2 baselines; base64 applied in Python",
-  "note": "Synthetic negative inputs. No keys, no network. <tx> and <sig> are placeholders. description and expected_outcome are the generator's labels and are not asserted; several do not match the bytes. The receipt entries predate the V7 baseline (they use a guessed shape, not twzrd_reputation_receipt_v7).",
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-14",
+  "generator": "deterministic: one declared malformation applied to a well-formed baseline; no model, no network, no keys",
+  "note": "Synthetic negative inputs. <tx> is a placeholder. Every entry is one of the baselines below with exactly one malformation: replace (find occurs once in the baseline), truncate_to (a prefix of the baseline, that many characters) or, for a header, encoding (the unmodified baseline in another base64 dialect). test/x402-malformed-fuzz.test.ts re-derives every entry from its baseline and its malformation and asserts parses and expected_outcome, so an entry cannot describe one input and carry another. The v7_receipt baseline is eliza-plugin-source/test/fixtures/receipt-v7.example.json in compact form. category is the surface the entry belongs to. expected_outcome is what the gate does at the entry point the test drives. header: the payment-binding refusal against an approval no entry pays (payment_payload_unreadable: the gate could not read a payment out of the value; payment_differs_from_approval: it read one, and it is not the approved one). verify_body and settle_body: not_json, requirement_refused (the pre-sign check refuses paymentRequirements) or payload_differs_from_requirement (the requirement is approved and paymentPayload does not match it). receipt: no_receipt_captured (the paid response is not JSON), leaf_not_named (the receipt names no leaf as a string) or leaf_differs_from_proof. The gate's receipt path reads a receipt's leaf and nothing else in it, and every receipt here is checked beside a proof for a different leaf: an entry that changes another field is denied for its leaf, not for that field.",
+  "baselines": {
+    "x402_v1_payment": "{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}}",
+    "x402_v2_payment": "{\"x402Version\":2,\"resource\":{\"url\":\"https://example.com/report?id=10\"},\"accepted\":{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
+    "facilitator_request": "{\"x402Version\":1,\"paymentPayload\":{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}},\"paymentRequirements\":{\"scheme\":\"exact\",\"network\":\"solana\",\"maxAmountRequired\":\"1000\",\"resource\":\"https://example.com/data\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"maxTimeoutSeconds\":60}}",
+    "v7_receipt": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}"
+  },
   "fixtureCount": 26,
   "fixtures": [
     {
       "id": "seed-hdr-truncated-base64",
       "category": "malformed_headers",
-      "description": "X-PAYMENT header with truncated, unpadded base64 JSON",
       "target": "header",
+      "description": "X-PAYMENT: the v1 payment JSON cut off inside the network string, before its closing quote. The value is a 68-character prefix of the well-formed header and needs no padding.",
+      "baseline": "x402_v1_payment",
+      "malformation": {
+        "truncate_to": 51
+      },
+      "parses": false,
       "headers": [
         {
           "name": "X-PAYMENT",
-          "value": "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5h"
-        }
-      ],
-      "raw_body": null,
-      "expected_outcome": "reject_400_parse_error"
-    },
-    {
-      "id": "seed-body-negative-amount",
-      "category": "verify_settle_bodies",
-      "description": "/verify body with a negative atomic amount string",
-      "target": "verify_body",
-      "headers": [
-        {
-          "name": "Content-Type",
-          "value": "application/json"
-        }
-      ],
-      "raw_body": "{\"x402Version\": 1, \"paymentPayload\": {\"scheme\": \"exact\", \"network\": \"solana:mainnet\", \"payload\": {\"transaction\": \"AQ==\"}}, \"paymentRequirements\": {\"scheme\": \"exact\", \"network\": \"solana:mainnet\", \"maxAmountRequired\": \"-1000\", \"payTo\": \"11111111111111111111111111111111\"}}",
-      "expected_outcome": "reject_400_invalid_amount"
-    },
-    {
-      "id": "seed-body-truncated-json",
-      "category": "verify_settle_bodies",
-      "description": "/settle body cut off mid-object",
-      "target": "settle_body",
-      "headers": [
-        {
-          "name": "Content-Type",
-          "value": "application/json"
-        }
-      ],
-      "raw_body": "{\"x402Version\":2,\"paymentPayload\":{\"accepted\":{\"scheme\":\"exact\",\"network\":\"sol",
-      "expected_outcome": "reject_400_malformed_json"
-    },
-    {
-      "id": "malformed-base64-padding",
-      "category": "malformed_headers",
-      "description": "X-PAYMENT header with invalid base64 padding (missing trailing '=').",
-      "target": "header",
-      "headers": [
-        {
-          "name": "X-PAYMENT",
-          "value": "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hIiwicGF5bG9hZCI6eyJ0cmFuc2FjdGlvbiI6Ijx0eD4ifX0",
-          "plaintext": "{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}}",
-          "encoding": "base64_no_padding"
-        }
-      ],
-      "raw_body": null,
-      "expected_outcome": "reject_invalid_base64_format"
-    },
-    {
-      "id": "url-safe-vs-standard-mixup",
-      "category": "malformed_headers",
-      "description": "PAYMENT-SIGNATURE header using URL-safe base64 characters in a standard expected field.",
-      "target": "header",
-      "headers": [
-        {
-          "name": "PAYMENT-SIGNATURE",
-          "value": "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMCIsImFzc2V0IjoiRVBqRldkZDVBdWZxU1NxZU0ycU4xeHp5YmFwQzhHNHdFR0drWnd5VER0MXYiLCJwYXlUbyI6IkZha2VQYXlUbzExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjB9LCJwYXlsb2FkIjp7InRyYW5zYWN0aW9uIjoiPHR4PiJ9fQ==",
-          "plaintext": "{\"x402Version\":2,\"accepted\":{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
-          "encoding": "base64url"
-        }
-      ],
-      "raw_body": null,
-      "expected_outcome": "reject_incorrect_encoding_type"
-    },
-    {
-      "id": "control-characters-in-json",
-      "category": "malformed_headers",
-      "description": "X-PAYMENT header containing a non-printable control character inside the JSON string.",
-      "target": "header",
-      "headers": [
-        {
-          "name": "X-PAYMENT",
-          "value": "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hACIsInBheWxvYWQiOnsidHJhbnNhY3Rpb24iOiI8dHg+In19",
-          "plaintext": "{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\u0000\",\"payload\":{\"transaction\":\"<tx>\"}}",
+          "value": "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5h",
+          "plaintext": "{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana",
           "encoding": "base64"
         }
       ],
       "raw_body": null,
-      "expected_outcome": "reject_invalid_json_content"
-    },
-    {
-      "id": "duplicate-keys-in-payload",
-      "category": "malformed_headers",
-      "description": "PAYMENT-SIGNATURE header containing duplicate 'scheme' keys in the accepted object.",
-      "target": "header",
-      "headers": [
-        {
-          "name": "PAYMENT-SIGNATURE",
-          "value": "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJzY2hlbWUiOiJwYXJ0aWFsIiwibmV0d29yayI6InNvbGFuYTo1ZXlrdDRVc0Z2OFA4TkpkVFJFcFkxdnpxS3FaS3ZkcCIsImFtb3VudCI6IjEwMDAiLCJhc3NldCI6IkVQakZXZGQ1QXVmcVNTcWVNMnFOMXh6eWJhcEM4RzR3RUdHa1p3eVREdDF2IiwicGF5VG8iOiJGYWtlUGF5VG8xMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExIiwibWF4VGltZW91dFNlY29uZHMiOjYwfSwicGF5bG9hZCI6eyJ0cmFuc2FjdGlvbiI6Ijx0eD4ifX0=",
-          "plaintext": "{\"x402Version\":2,\"accepted\":{\"scheme\":\"exact\",\"scheme\":\"partial\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
-          "encoding": "base64"
-        }
-      ],
-      "raw_body": null,
-      "expected_outcome": "reject_duplicate_keys"
+      "expected_outcome": "payment_payload_unreadable"
     },
     {
       "id": "truncated-envelope-header",
       "category": "malformed_headers",
-      "description": "X-PAYMENT header with a truncated JSON string at the end of the payload.",
       "target": "header",
+      "description": "X-PAYMENT: the v1 payment JSON with its last two characters, both closing braces, missing.",
+      "baseline": "x402_v1_payment",
+      "malformation": {
+        "truncate_to": 84
+      },
+      "parses": false,
       "headers": [
         {
           "name": "X-PAYMENT",
@@ -125,190 +51,443 @@
         }
       ],
       "raw_body": null,
-      "expected_outcome": "reject_malformed_json_structure"
+      "expected_outcome": "payment_payload_unreadable"
+    },
+    {
+      "id": "control-characters-in-json",
+      "category": "malformed_headers",
+      "target": "header",
+      "description": "X-PAYMENT: a raw NUL byte (U+0000, not escaped) at the end of the network string. JSON does not allow it.",
+      "baseline": "x402_v1_payment",
+      "malformation": {
+        "replace": {
+          "find": "\"network\":\"solana\"",
+          "with": "\"network\":\"solana\u0000\""
+        }
+      },
+      "parses": false,
+      "headers": [
+        {
+          "name": "X-PAYMENT",
+          "value": "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hACIsInBheWxvYWQiOnsidHJhbnNhY3Rpb24iOiI8dHg+In19",
+          "plaintext": "{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\u0000\",\"payload\":{\"transaction\":\"<tx>\"}}",
+          "encoding": "base64"
+        }
+      ],
+      "raw_body": null,
+      "expected_outcome": "payment_payload_unreadable"
+    },
+    {
+      "id": "malformed-base64-padding",
+      "category": "malformed_headers",
+      "target": "header",
+      "description": "X-PAYMENT: the well-formed v1 payment in standard base64 with its one trailing '=' removed. Node's decoder reads it the same as the padded value.",
+      "baseline": "x402_v1_payment",
+      "malformation": {
+        "encoding": "base64_padding_removed"
+      },
+      "parses": true,
+      "headers": [
+        {
+          "name": "X-PAYMENT",
+          "value": "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hIiwicGF5bG9hZCI6eyJ0cmFuc2FjdGlvbiI6Ijx0eD4ifX0",
+          "plaintext": "{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}}",
+          "encoding": "base64_padding_removed"
+        }
+      ],
+      "raw_body": null,
+      "expected_outcome": "payment_differs_from_approval"
     },
     {
       "id": "malformed-base64-padding-2",
       "category": "malformed_headers",
-      "description": "X-PAYMENT header contains base64 string with missing trailing padding characters.",
       "target": "header",
+      "description": "X-PAYMENT: the well-formed v1 payment in standard base64 with one '=' more than the encoding needs ('==' where one belongs). Node's decoder reads it the same as the correct value.",
+      "baseline": "x402_v1_payment",
+      "malformation": {
+        "encoding": "base64_extra_padding"
+      },
+      "parses": true,
       "headers": [
         {
           "name": "X-PAYMENT",
-          "value": "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hIiwicGF5bG9hZCI6eyJ0cmFuc2FjdGlvbiI6Ijx0eD4ifX0=",
+          "value": "eyJ4NDAyVmVyc2lvbiI6MSwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hIiwicGF5bG9hZCI6eyJ0cmFuc2FjdGlvbiI6Ijx0eD4ifX0==",
           "plaintext": "{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}}",
-          "encoding": "base64"
+          "encoding": "base64_extra_padding"
         }
       ],
       "raw_body": null,
-      "expected_outcome": "reject_invalid_base64_padding"
+      "expected_outcome": "payment_differs_from_approval"
+    },
+    {
+      "id": "url-safe-vs-standard-mixup",
+      "category": "malformed_headers",
+      "target": "header",
+      "description": "PAYMENT-SIGNATURE: the well-formed v2 payment in the URL-safe base64 alphabet, padding kept: '_' where standard base64 has '/'. Node's decoder reads it the same as the standard value.",
+      "baseline": "x402_v2_payment",
+      "malformation": {
+        "encoding": "base64url"
+      },
+      "parses": true,
+      "headers": [
+        {
+          "name": "PAYMENT-SIGNATURE",
+          "value": "eyJ4NDAyVmVyc2lvbiI6MiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9leGFtcGxlLmNvbS9yZXBvcnQ_aWQ9MTAifSwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMCIsImFzc2V0IjoiRVBqRldkZDVBdWZxU1NxZU0ycU4xeHp5YmFwQzhHNHdFR0drWnd5VER0MXYiLCJwYXlUbyI6IkZha2VQYXlUbzExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjB9LCJwYXlsb2FkIjp7InRyYW5zYWN0aW9uIjoiPHR4PiJ9fQ==",
+          "plaintext": "{\"x402Version\":2,\"resource\":{\"url\":\"https://example.com/report?id=10\"},\"accepted\":{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
+          "encoding": "base64url"
+        }
+      ],
+      "raw_body": null,
+      "expected_outcome": "payment_differs_from_approval"
     },
     {
       "id": "url-safe-vs-standard-mixup-2",
       "category": "malformed_headers",
-      "description": "PAYMENT-SIGNATURE header uses URL-safe base64 characters instead of standard base64.",
       "target": "header",
+      "description": "PAYMENT-SIGNATURE: the well-formed v2 payment in the URL-safe base64 alphabet without padding, the JWT convention: '_' where standard base64 has '/', and no trailing '=='. Node's decoder reads it the same as the standard value.",
+      "baseline": "x402_v2_payment",
+      "malformation": {
+        "encoding": "base64url_padding_removed"
+      },
+      "parses": true,
       "headers": [
         {
           "name": "PAYMENT-SIGNATURE",
-          "value": "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMCIsImFzc2V0IjoiRVBqRldkZDVBdWZxU1NxZU0ycU4xeHp5YmFwQzhHNHdFR0drWnd5VER0MXYiLCJwYXlUbyI6IkZha2VQYXlUbzExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjB9LCJwYXlsb2FkIjp7InRyYW5zYWN0aW9uIjoiPHR4PiJ9fQ==",
-          "plaintext": "{\"x402Version\":2,\"accepted\":{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
+          "value": "eyJ4NDAyVmVyc2lvbiI6MiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9leGFtcGxlLmNvbS9yZXBvcnQ_aWQ9MTAifSwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMCIsImFzc2V0IjoiRVBqRldkZDVBdWZxU1NxZU0ycU4xeHp5YmFwQzhHNHdFR0drWnd5VER0MXYiLCJwYXlUbyI6IkZha2VQYXlUbzExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjB9LCJwYXlsb2FkIjp7InRyYW5zYWN0aW9uIjoiPHR4PiJ9fQ",
+          "plaintext": "{\"x402Version\":2,\"resource\":{\"url\":\"https://example.com/report?id=10\"},\"accepted\":{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
+          "encoding": "base64url_padding_removed"
+        }
+      ],
+      "raw_body": null,
+      "expected_outcome": "payment_differs_from_approval"
+    },
+    {
+      "id": "duplicate-keys-in-payload",
+      "category": "malformed_headers",
+      "target": "header",
+      "description": "PAYMENT-SIGNATURE: two scheme keys in accepted, \"exact\" then \"partial\". JSON.parse keeps the last one.",
+      "baseline": "x402_v2_payment",
+      "malformation": {
+        "replace": {
+          "find": "\"scheme\":\"exact\",",
+          "with": "\"scheme\":\"exact\",\"scheme\":\"partial\","
+        }
+      },
+      "parses": true,
+      "headers": [
+        {
+          "name": "PAYMENT-SIGNATURE",
+          "value": "eyJ4NDAyVmVyc2lvbiI6MiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9leGFtcGxlLmNvbS9yZXBvcnQ/aWQ9MTAifSwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJzY2hlbWUiOiJwYXJ0aWFsIiwibmV0d29yayI6InNvbGFuYTo1ZXlrdDRVc0Z2OFA4TkpkVFJFcFkxdnpxS3FaS3ZkcCIsImFtb3VudCI6IjEwMDAiLCJhc3NldCI6IkVQakZXZGQ1QXVmcVNTcWVNMnFOMXh6eWJhcEM4RzR3RUdHa1p3eVREdDF2IiwicGF5VG8iOiJGYWtlUGF5VG8xMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExIiwibWF4VGltZW91dFNlY29uZHMiOjYwfSwicGF5bG9hZCI6eyJ0cmFuc2FjdGlvbiI6Ijx0eD4ifX0=",
+          "plaintext": "{\"x402Version\":2,\"resource\":{\"url\":\"https://example.com/report?id=10\"},\"accepted\":{\"scheme\":\"exact\",\"scheme\":\"partial\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
           "encoding": "base64"
         }
       ],
       "raw_body": null,
-      "expected_outcome": "reject_url_safe_base64_mixup"
+      "expected_outcome": "payment_differs_from_approval"
     },
     {
       "id": "duplicate-keys-in-payload-2",
       "category": "malformed_headers",
-      "description": "PAYMENT-SIGNATURE header contains duplicate 'scheme' keys in the accepted object.",
       "target": "header",
+      "description": "PAYMENT-SIGNATURE: two payTo keys in accepted naming different addresses. JSON.parse keeps the last one; a parser that keeps the first would read another recipient.",
+      "baseline": "x402_v2_payment",
+      "malformation": {
+        "replace": {
+          "find": "\"payTo\":\"FakePayTo1111111111111111111111111111111111\",",
+          "with": "\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"payTo\":\"OtherPayTo222222222222222222222222222222222\","
+        }
+      },
+      "parses": true,
       "headers": [
         {
           "name": "PAYMENT-SIGNATURE",
-          "value": "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJzY2hlbWUiOiJsb29zZSIsIm5ldHdvcmsiOiJzb2xhbmE6NWV5a3Q0VXNGdjhQOE5KZFRSRXBZMXZ6cUtxWkt2ZHAiLCJhbW91bnQiOiIxMDAwIiwiYXNzZXQiOiJFUGpGV2RkNUF1ZnFTU3FlTTJxTjF4enliYXBDOEc0d0VHR2tad3lURHQxdiIsInBheVRvIjoiRmFrZVBheVRvMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMSIsIm1heFRpbWVvdXRTZWNvbmRzIjo2MH0sInBheWxvYWQiOnsidHJhbnNhY3Rpb24iOiI8dHg+In19",
-          "plaintext": "{\"x402Version\":2,\"accepted\":{\"scheme\":\"exact\",\"scheme\":\"loose\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
+          "value": "eyJ4NDAyVmVyc2lvbiI6MiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9leGFtcGxlLmNvbS9yZXBvcnQ/aWQ9MTAifSwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoic29sYW5hOjVleWt0NFVzRnY4UDhOSmRUUkVwWTF2enFLcVpLdmRwIiwiYW1vdW50IjoiMTAwMCIsImFzc2V0IjoiRVBqRldkZDVBdWZxU1NxZU0ycU4xeHp5YmFwQzhHNHdFR0drWnd5VER0MXYiLCJwYXlUbyI6IkZha2VQYXlUbzExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJwYXlUbyI6Ik90aGVyUGF5VG8yMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjB9LCJwYXlsb2FkIjp7InRyYW5zYWN0aW9uIjoiPHR4PiJ9fQ==",
+          "plaintext": "{\"x402Version\":2,\"resource\":{\"url\":\"https://example.com/report?id=10\"},\"accepted\":{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"payTo\":\"OtherPayTo222222222222222222222222222222222\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
           "encoding": "base64"
         }
       ],
       "raw_body": null,
-      "expected_outcome": "reject_duplicate_keys"
+      "expected_outcome": "payment_differs_from_approval"
     },
     {
-      "id": "truncated-json-verify",
+      "id": "seed-body-negative-amount",
       "category": "verify_settle_bodies",
-      "description": "Verify request body with truncated JSON string ending mid-token.",
       "target": "verify_body",
-      "headers": [],
-      "raw_body": "{\"x402Version\":1,\"paymentPayload\":{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}},\"paymentRequirements\":{\"scheme\":\"exact\",\"network\":\"solana\",\"maxAmountRequired\":\"-500\"",
-      "expected_outcome": "reject_malformed_json"
-    },
-    {
-      "id": "negative-amount-settle",
-      "category": "verify_settle_bodies",
-      "description": "Settle request with a negative number in the maxAmountRequired field.",
-      "target": "settle_body",
+      "description": "/verify body: paymentRequirements.maxAmountRequired is the string \"-1000\".",
+      "baseline": "facilitator_request",
+      "malformation": {
+        "replace": {
+          "find": "\"maxAmountRequired\":\"1000\"",
+          "with": "\"maxAmountRequired\":\"-1000\""
+        }
+      },
+      "parses": true,
       "headers": [],
       "raw_body": "{\"x402Version\":1,\"paymentPayload\":{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}},\"paymentRequirements\":{\"scheme\":\"exact\",\"network\":\"solana\",\"maxAmountRequired\":\"-1000\",\"resource\":\"https://example.com/data\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"maxTimeoutSeconds\":60}}",
-      "expected_outcome": "reject_negative_amount"
+      "expected_outcome": "requirement_refused"
     },
     {
       "id": "nan-amount-verify",
       "category": "verify_settle_bodies",
-      "description": "Verify request body with NaN value in the amount field.",
       "target": "verify_body",
+      "description": "/verify body: paymentRequirements.maxAmountRequired is the string \"NaN\". The body is valid JSON; a bare NaN would not be.",
+      "baseline": "facilitator_request",
+      "malformation": {
+        "replace": {
+          "find": "\"maxAmountRequired\":\"1000\"",
+          "with": "\"maxAmountRequired\":\"NaN\""
+        }
+      },
+      "parses": true,
       "headers": [],
       "raw_body": "{\"x402Version\":1,\"paymentPayload\":{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}},\"paymentRequirements\":{\"scheme\":\"exact\",\"network\":\"solana\",\"maxAmountRequired\":\"NaN\",\"resource\":\"https://example.com/data\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"maxTimeoutSeconds\":60}}",
-      "expected_outcome": "reject_non_numeric_amount"
+      "expected_outcome": "requirement_refused"
+    },
+    {
+      "id": "truncated-json-verify",
+      "category": "verify_settle_bodies",
+      "target": "verify_body",
+      "description": "/verify body cut off after the maxAmountRequired key and its colon, before the value.",
+      "baseline": "facilitator_request",
+      "malformation": {
+        "truncate_to": 200
+      },
+      "parses": false,
+      "headers": [],
+      "raw_body": "{\"x402Version\":1,\"paymentPayload\":{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}},\"paymentRequirements\":{\"scheme\":\"exact\",\"network\":\"solana\",\"maxAmountRequired\":",
+      "expected_outcome": "not_json"
+    },
+    {
+      "id": "seed-body-truncated-json",
+      "category": "verify_settle_bodies",
+      "target": "settle_body",
+      "description": "/settle body cut off inside paymentPayload's network string.",
+      "baseline": "facilitator_request",
+      "malformation": {
+        "truncate_to": 82
+      },
+      "parses": false,
+      "headers": [],
+      "raw_body": "{\"x402Version\":1,\"paymentPayload\":{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"sol",
+      "expected_outcome": "not_json"
+    },
+    {
+      "id": "negative-amount-settle",
+      "category": "verify_settle_bodies",
+      "target": "settle_body",
+      "description": "/settle body: paymentRequirements.maxAmountRequired is the JSON number -1000, not a string.",
+      "baseline": "facilitator_request",
+      "malformation": {
+        "replace": {
+          "find": "\"maxAmountRequired\":\"1000\"",
+          "with": "\"maxAmountRequired\":-1000"
+        }
+      },
+      "parses": true,
+      "headers": [],
+      "raw_body": "{\"x402Version\":1,\"paymentPayload\":{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}},\"paymentRequirements\":{\"scheme\":\"exact\",\"network\":\"solana\",\"maxAmountRequired\":-1000,\"resource\":\"https://example.com/data\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"maxTimeoutSeconds\":60}}",
+      "expected_outcome": "requirement_refused"
     },
     {
       "id": "mismatched-network-ids",
       "category": "verify_settle_bodies",
-      "description": "Settle request with network ID mismatch between solana:mainnet and CAIP-2 genesis hash.",
       "target": "settle_body",
+      "description": "/settle body: paymentPayload names the network by its CAIP-2 id (solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp) while paymentRequirements says \"solana\".",
+      "baseline": "facilitator_request",
+      "malformation": {
+        "replace": {
+          "find": "\"network\":\"solana\",\"payload\"",
+          "with": "\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"payload\""
+        }
+      },
+      "parses": true,
       "headers": [],
       "raw_body": "{\"x402Version\":1,\"paymentPayload\":{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"payload\":{\"transaction\":\"<tx>\"}},\"paymentRequirements\":{\"scheme\":\"exact\",\"network\":\"solana\",\"maxAmountRequired\":\"1000\",\"resource\":\"https://example.com/data\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"maxTimeoutSeconds\":60}}",
-      "expected_outcome": "reject_network_mismatch"
+      "expected_outcome": "payload_differs_from_requirement"
     },
     {
       "id": "wrong-container-type-receipt",
-      "category": "verify_settle_bodies",
-      "description": "Receipt body where the preimage is a string instead of an object.",
+      "category": "receipt_replay_tamper",
       "target": "receipt",
+      "description": "preimage is a string (the domain tag) where the object belongs. Leaf and signature are unchanged.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"}",
+          "with": "\"preimage\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\""
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":\"FakePayer1111111111111111111111111111111111\",\"seller\":\"FakePayTo1111111111111111111111111111111111\",\"amount_micro\":\"1000\",\"nonce\":\"0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1767830400,\"signature\":\"<sig>\",\"signer\":\"FakeSigner1111111111111111111111111111111111\"}",
-      "expected_outcome": "reject_wrong_container_type"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
     },
     {
-      "id": "expired-validuntil",
+      "id": "recheck-after-before-timestamp",
       "category": "receipt_replay_tamper",
-      "description": "Receipt with a validUntil timestamp that is in the past.",
       "target": "receipt",
+      "description": "preimage.recheck_after_unix (1600000000) is earlier than preimage.timestamp_unix: the receipt was due for a re-check before it was issued. Leaf and signature are unchanged.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"recheck_after_unix\":1748995200",
+          "with": "\"recheck_after_unix\":1600000000"
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"FakePayTo111111111111111111111111111111111\",\"amount_micro\":\"1000\",\"nonce\":\"0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1600000000},\"signature\":\"<sig>\",\"signer\":\"FakeSigner1111111111111111111111111111111111",
-      "expected_outcome": "reject_expired_receipt"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1600000000,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
     },
     {
-      "id": "far-future-iat",
+      "id": "far-future-timestamp",
       "category": "receipt_replay_tamper",
-      "description": "Receipt with a timestamp significantly in the future.",
       "target": "receipt",
+      "description": "preimage.timestamp_unix is 2540185600 (the year 2050). Leaf and signature are unchanged.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"timestamp_unix\":1748736000",
+          "with": "\"timestamp_unix\":2540185600"
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"FakePayTo111111111111111111111111111111111\",\"amount_micro\":\"1000\",\"nonce\":\"0f3a9c\",\"timestamp_unix\":2540185600, \"recheck_after_unix\":1767830400},\"signature\":\"<sig>\",\"signer\":\"FakeSigner11111111111111111111111111111111111",
-      "expected_outcome": "reject_future_timestamp"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":2540185600,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
     },
     {
-      "id": "overflowing-atomic-amount",
+      "id": "integer-beyond-64-bit",
       "category": "receipt_replay_tamper",
-      "description": "Receipt with an amount exceeding 64-bit integer limits.",
       "target": "receipt",
+      "description": "preimage.confidence_bps is 18446744073709551616 (2^64), one past the largest unsigned 64-bit integer; JSON.parse rounds it. Leaf and signature are unchanged.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"confidence_bps\":8000",
+          "with": "\"confidence_bps\":18446744073709551616"
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"FakePayTo111111111111111111111111111111111\",\"amount_micro\":\"9223372036854775808\", \"nonce\":\"0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1767830400},\"signature\":\"<sig>\",\"signer\":\"FakeSigner11111111111111111111111111111111111",
-      "expected_outcome": "reject_overflowing_amount"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":18446744073709551616,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
+    },
+    {
+      "id": "score-above-range",
+      "category": "receipt_replay_tamper",
+      "target": "receipt",
+      "description": "preimage.score is 101, above the 0 to 100 range. Leaf and signature are unchanged.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"score\":72",
+          "with": "\"score\":101"
+        }
+      },
+      "parses": true,
+      "headers": [],
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":101,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
     },
     {
       "id": "wrong-signature-alphabet",
       "category": "receipt_replay_tamper",
-      "description": "Receipt signature containing non-hexadecimal characters.",
       "target": "receipt",
+      "description": "The signature's first four characters are 0, O, I and l. None of them is in the base58 alphabet. The leaf is unchanged.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"signature\":\"tBxN",
+          "with": "\"signature\":\"0OIl"
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"FakePayTo11111111111111111111111111111111111\",\"amount_micro\":\"1000\",\"nonce\":\"0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1767830400},\"signature\":\"<sig-with-Z>\",\"signer\":\"FakeSigner11111111111111111111111111111111111",
-      "expected_outcome": "reject_invalid_signature_format"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"0OIlHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
     },
     {
-      "id": "recipient-substitution",
+      "id": "subject-substitution",
       "category": "receipt_replay_tamper",
-      "description": "Receipt where the seller address is swapped with a different one.",
       "target": "receipt",
+      "description": "preimage.agent_id, the wallet the receipt scores, names another wallet. Leaf and signature are unchanged.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"agent_id\":\"11111111111111111111111111111111\"",
+          "with": "\"agent_id\":\"OtherAgent2222222222222222222222222222222222\""
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"AttackerAddress9999999999999999999999999999999999\",\"amount_micro\":\"1000\",\"nonce\":\"0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1767830400},\"signature\":\"<sig>\",\"signer\":\"FakeSigner11111111111111111111111111111111111",
-      "expected_outcome": "reject_recipient_mismatch"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"OtherAgent2222222222222222222222222222222222\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
     },
     {
-      "id": "receipt-zero-atomic-amount",
+      "id": "settlement-tx-swapped",
       "category": "receipt_replay_tamper",
-      "description": "Receipt with an amount of zero in the atomic micro value.",
       "target": "receipt",
+      "description": "preimage.settlement_tx names another transaction (it ends in 0002) while preimage.settlement_anchor still encodes the last 32 characters of the original (0001): the receipt presented for a payment it was not issued for. Leaf and signature are unchanged.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"",
+          "with": "\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0002\""
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"FakePayTo1111111111111111111111111111111111\",\"amount_micro\":\"0\",\"nonce\":\"0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1767830400},\"signature\":\"<sig>\",\"signer\":\"FakeSigner1111111111111111111111111111111111\"}",
-      "expected_outcome": "reject_zero_amount"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0002\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
     },
     {
-      "id": "receipt-overflowing-atomic-amount",
+      "id": "leaf-array-wrapped",
       "category": "receipt_replay_tamper",
-      "description": "Receipt with an amount exceeding 64-bit integer limits.",
       "target": "receipt",
+      "description": "leaf is an array holding the baseline's leaf string, not a string.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\"",
+          "with": "\"leaf\":[\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\"]"
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"FakePayTo11111111111111111111111111111111111\",\"amount_micro\":\"9223372036854775808\",\"nonce\":\"0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1767830400},\"signature\":\"<sig>\",\"signer\":\"FakeSigner11111111111111111111111111111111111\"}",
-      "expected_outcome": "reject_overflowing_amount"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":[\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\"],\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_not_named"
     },
     {
-      "id": "receipt-reused-nonce",
+      "id": "receipt-missing-signature",
       "category": "receipt_replay_tamper",
-      "description": "Receipt with a nonce that has been previously processed.",
       "target": "receipt",
+      "description": "The signature field is absent. Everything else is the baseline.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "replace": {
+          "find": "\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",",
+          "with": ""
+        }
+      },
+      "parses": true,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"FakePayTo11111111111111111111111111111111111\",\"amount_micro\":\"1000\",\"nonce\":\"reused-nonce-0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1767830400},\"signature\":\"<sig>\",\"signer\":\"FakeSigner1111111111111111111111111111111111111111111\"}",
-      "expected_outcome": "reject_reused_nonce"
-    },
-    {
-      "id": "receipt-missing-fields",
-      "category": "receipt_replay_tamper",
-      "description": "Receipt missing the mandatory signature field.",
-      "target": "receipt",
-      "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer1111111111111111111111111111111111\",\"seller\":\"FakePayTo1111111111111111111111111111111111\",\"amount_micro\":\"1000\",\"nonce\":\"0f3a9c\",\"timestamp_unix\":1767225600,\"recheck_after_unix\":1767830400},\"signer\":\"FakeSigner1111111111111111111111111111111111\"}",
-      "expected_outcome": "reject_missing_signature"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
+      "expected_outcome": "leaf_differs_from_proof"
     },
     {
       "id": "receipt-truncated-json",
       "category": "receipt_replay_tamper",
-      "description": "Receipt body is truncated mid-token during transmission.",
       "target": "receipt",
+      "description": "The receipt cut off inside preimage.score_decay_model.",
+      "baseline": "v7_receipt",
+      "malformation": {
+        "truncate_to": 723
+      },
+      "parses": false,
       "headers": [],
-      "raw_body": "{\"version\":\"V7\",\"preimage\":{\"payer\":\"FakePayer111111111111111111111111111111111\",\"seller\":\"FakePayTo11111111111111111111111111111111111\",\"amount_micro\":\"1000\",\"nonce\":\"0f3a9c\",",
-      "expected_outcome": "reject_malformed_json"
+      "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d",
+      "expected_outcome": "no_receipt_captured"
     }
   ]
 }

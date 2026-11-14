@@ -1,19 +1,34 @@
 /**
  * Parser-resilience fuzz: malformed x402 inputs through the gate's real parse points.
  *
- * Fixtures: test/fixtures/x402-malformed-fuzz.json (26 entries, generated offline
- * by a local model from well-formed baselines; no keys, no network; `<tx>` and
- * `<sig>` are placeholders). The file's `description` and `expected_outcome`
- * are the generator's labels. Neither is asserted here, and several do not
- * match the bytes: the two url-safe entries carry the same standard-base64
- * value, one padding entry is correctly padded, and six of the eleven receipts
- * are cut-off JSON whatever their label says. What is asserted, for every entry:
+ * Fixtures: test/fixtures/x402-malformed-fuzz.json (26 entries; no keys, no
+ * network; `<tx>` is a placeholder). Every entry is one of the file's
+ * well-formed baselines with exactly one malformation, which the entry
+ * declares: `replace` (a text that occurs once in the baseline, and what stands
+ * in its place), `truncate_to` (a prefix of the baseline) or, for a header,
+ * `encoding` (the unmodified baseline in another base64 dialect). The first
+ * test below rebuilds every entry from its baseline and its malformation and
+ * compares the result with the bytes the entry carries, so a label cannot say
+ * one thing while the bytes are another. The receipt baseline is the
+ * repository's V7 example receipt.
+ *
+ * What is asserted, for every entry:
  *
  *   1. it ends in a structured refusal: a refusal code, `approved: false`, a
  *      settle-guard abort, or an Error the gate authored ("[twzrd] payment
  *      blocked: ..."), never an approval;
- *   2. no raw SyntaxError / TypeError / RangeError escapes a gate function;
- *   3. no promise rejection goes unhandled (checked once, last).
+ *   2. the refusal is the one the entry's `expected_outcome` names;
+ *   3. no raw SyntaxError / TypeError / RangeError escapes a gate function;
+ *   4. no promise rejection goes unhandled (checked once, last).
+ *
+ * Two things the outcomes do not mean. A header in another base64 dialect
+ * (URL-safe alphabet, padding missing or doubled) is not refused for its
+ * encoding: the gate decodes it with Node's decoder, reads the baseline payment
+ * out of it, and refuses it here because no entry pays the approved seller. And
+ * the receipt path reads a receipt's `leaf` and nothing else in it: the entries
+ * that change another field (a score, a timestamp, the signature) are denied
+ * because every receipt here sits beside a proof for a different leaf, not
+ * because the gate looked at that field.
  *
  * Entry points, by fixture target:
  *   header  (X-PAYMENT / PAYMENT-SIGNATURE value)
@@ -32,13 +47,13 @@
  *       as log-inclusion-offline.test.ts; the receipt bytes are spliced into the
  *       paid response unparsed, so truncated JSON reaches the gate as bytes.
  *
- * Each entry point also has one well-formed control that must be approved, so a
- * refusal below is the input's doing, not the harness's.
+ * Each entry point also has one well-formed control that must be approved, and
+ * the header and facilitator baselines pass the checks their entries fail.
  *
  * Run: npx tsx --test test/x402-malformed-fuzz.test.ts
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { resolveConfig } from "../src/config.js";
@@ -55,12 +70,34 @@ import { wrapFetchWithTwzrdGate } from "../src/wrap-fetch.js";
 import { verifyLogInclusion } from "../../twzrd-log-verifier/src/client.js";
 import { DEFAULT_STH_PUBKEY } from "../../twzrd-log-verifier/src/index.js";
 
-type FuzzHeader = { name: string; value: string; plaintext?: string; encoding?: string };
+const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
+
+/** How a header value is made from its text. Only `base64` is what x402 specifies. */
+const ENCODERS = {
+  base64: b64,
+  base64_padding_removed: (s: string) => b64(s).replace(/=+$/, ""),
+  base64_extra_padding: (s: string) => `${b64(s)}=`,
+  base64url: (s: string) => b64(s).replace(/\+/g, "-").replace(/\//g, "_"),
+  base64url_padding_removed: (s: string) => Buffer.from(s, "utf8").toString("base64url"),
+} as const;
+type Encoding = keyof typeof ENCODERS;
+
+/** The one thing an entry changes about its baseline. */
+type Malformation =
+  | { replace: { find: string; with: string } }
+  | { truncate_to: number }
+  | { encoding: Exclude<Encoding, "base64"> };
+
+type FuzzHeader = { name: string; value: string; plaintext: string; encoding: Encoding };
 type Fixture = {
   id: string;
   category: string;
   description: string;
   target: "header" | "verify_body" | "settle_body" | "receipt";
+  baseline: string;
+  malformation: Malformation;
+  /** Whether the malformed text is still JSON. */
+  parses: boolean;
   headers: FuzzHeader[];
   raw_body: string | null;
   expected_outcome: string;
@@ -68,8 +105,42 @@ type Fixture = {
 
 const FILE = JSON.parse(
   readFileSync(new URL("./fixtures/x402-malformed-fuzz.json", import.meta.url), "utf8"),
-) as { fixtureCount: number; fixtures: Fixture[] };
+) as { fixtureCount: number; baselines: Record<string, string>; fixtures: Fixture[] };
 const FIXTURES = FILE.fixtures;
+
+/** The text an entry's baseline becomes under the malformation the entry declares, and how a header encodes it. */
+function derive(f: Fixture): { text: string; encoding: Encoding } {
+  const base = FILE.baselines[f.baseline];
+  assert.equal(typeof base, "string", `${f.id}: no baseline named ${f.baseline}`);
+  const m = f.malformation;
+  assert.equal(Object.keys(m).length, 1, `${f.id}: one malformation, not ${Object.keys(m).join(" + ")}`);
+  if ("replace" in m) {
+    assert.ok(m.replace.find.length > 0 && m.replace.find !== m.replace.with, `${f.id}: replace changes nothing`);
+    const parts = base.split(m.replace.find);
+    assert.equal(parts.length, 2, `${f.id}: find occurs ${parts.length - 1} times in ${f.baseline}, not once`);
+    return { text: parts.join(m.replace.with), encoding: "base64" };
+  }
+  if ("truncate_to" in m) {
+    assert.ok(
+      Number.isInteger(m.truncate_to) && m.truncate_to > 0 && m.truncate_to < base.length,
+      `${f.id}: truncate_to ${m.truncate_to} is not a proper prefix of ${f.baseline}`,
+    );
+    return { text: base.slice(0, m.truncate_to), encoding: "base64" };
+  }
+  // The file is data: check the name it gives before using it as a key.
+  const named: string = m.encoding;
+  assert.ok(named !== "base64" && Object.hasOwn(ENCODERS, named), `${f.id}: encoding ${named} is not a dialect`);
+  return { text: base, encoding: m.encoding };
+}
+
+function isJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const PAYMENT_HEADER_NAMES = new Set(["x-payment", "payment-signature"]);
 const byTarget = (...targets: Fixture["target"][]) => FIXTURES.filter((f) => targets.includes(f.target));
@@ -108,8 +179,6 @@ const preflight = (card: Record<string, unknown>): typeof fetch =>
 
 const ALLOW = { decision: "allow", trust_score: 90, can_spend: true, recommended_cap_usdc: 1000 };
 const WARN = { decision: "warn", trust_score: 45, can_spend: false, recommended_cap_usdc: 1000 };
-
-const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
 
 /** Errors a parser or a property access throws by itself, as opposed to a refusal the gate wrote. */
 function isRawJsError(e: unknown): boolean {
@@ -185,9 +254,9 @@ const RECEIPT_REQS = {
 const offlineVerifier = async (_receipt: unknown, ctx: { response: unknown }) =>
   verifyLogInclusion(ctx.response, DEFAULT_STH_PUBKEY);
 
-/** Path A with the receipt bytes spliced into the paid /trust response, unparsed. */
-function evaluateWithReceiptBytes(receiptRaw: string) {
-  const body = `{"tx":"TX_FUZZ","twzrd_receipt":${receiptRaw},"log_inclusion":${JSON.stringify(LIVE_BLOCK)}}`;
+/** Path A with the receipt bytes spliced into the paid /trust response, unparsed, beside `block`. */
+function evaluateWithReceiptBytes(receiptRaw: string, block: unknown = LIVE_BLOCK) {
+  const body = `{"tx":"TX_FUZZ","twzrd_receipt":${receiptRaw},"log_inclusion":${JSON.stringify(block)}}`;
   return evaluate_x402_resource(RESOURCE, RECEIPT_REQS, {
     fetch: preflight(WARN),
     autoReceipt: true,
@@ -220,6 +289,75 @@ test("fixture file: 26 entries, every target has a harness", () => {
     },
     { header: 9, verify_body: 3, settle_body: 3, receipt: 11 },
   );
+});
+
+test("every entry is its baseline with the one malformation it declares", () => {
+  const carriedBy = new Map<string, string>();
+  for (const f of FIXTURES) {
+    const { text, encoding } = derive(f);
+    assert.equal(f.parses, isJson(text), `${f.id}: parses`);
+    let wire: string;
+    if (f.target === "header") {
+      assert.equal(f.headers.length, 1, `${f.id}: one header`);
+      const h = f.headers[0];
+      assert.equal(h.plaintext, text, `${f.id}: plaintext is not the baseline with the declared malformation`);
+      assert.equal(h.encoding, encoding, `${f.id}: encoding`);
+      assert.equal(h.value, ENCODERS[encoding](text), `${f.id}: value is not ${encoding} of the plaintext`);
+      if (encoding !== "base64") {
+        // The dialect has to show in the bytes: URL-safe and standard base64 are
+        // the same text unless the input produces a '+' or a '/'.
+        assert.notEqual(h.value, b64(text), `${f.id}: ${encoding} is byte-identical to standard base64 here`);
+        // What the description says of it: the decoder the gate uses reads the baseline back.
+        assert.equal(Buffer.from(h.value, "base64").toString("utf8"), text, `${f.id}: Node decodes it differently`);
+      }
+      assert.equal(f.raw_body, null, `${f.id}: a header entry carries no body`);
+      wire = h.value;
+    } else {
+      assert.deepEqual(f.headers, [], `${f.id}: a body entry carries no header`);
+      assert.equal(f.raw_body, text, `${f.id}: raw_body is not the baseline with the declared malformation`);
+      wire = text;
+    }
+    assert.equal(carriedBy.get(wire), undefined, `${f.id} carries the same bytes as ${carriedBy.get(wire)}`);
+    carriedBy.set(wire, f.id);
+  }
+});
+
+const V7_EXAMPLE = new URL("../../eliza-plugin-source/test/fixtures/receipt-v7.example.json", import.meta.url);
+
+test(
+  "the receipt baseline is the repository's V7 example receipt",
+  { skip: existsSync(V7_EXAMPLE) ? false : "eliza-plugin-source is not in this checkout" },
+  () => {
+    assert.deepEqual(JSON.parse(FILE.baselines.v7_receipt), JSON.parse(readFileSync(V7_EXAMPLE, "utf8")));
+  },
+);
+
+test("baselines are well-formed: a baseline payment matches its own requirement", async () => {
+  for (const [name, text] of Object.entries(FILE.baselines)) {
+    assert.ok(isJson(text), `${name} is not JSON`);
+  }
+  // Payment headers. The fixture tests compare against an approval no entry
+  // pays; here each baseline is compared with the requirement it names itself.
+  const ownRequirement = (name: string) => {
+    const p = JSON.parse(FILE.baselines[name]) as Record<string, unknown>;
+    return approvedRequirementOf(p.accepted ?? { scheme: p.scheme, network: p.network });
+  };
+  for (const name of ["x402_v1_payment", "x402_v2_payment"]) {
+    assert.equal(paymentBindingRefusal(ownRequirement(name), b64(FILE.baselines[name])), undefined, name);
+  }
+  // A base64 dialect is not a refusal by itself: the gate reads the baseline
+  // payment out of each of these.
+  const dialects = byTarget("header").filter((f) => "encoding" in f.malformation);
+  assert.equal(dialects.length, 4);
+  for (const f of dialects) {
+    assert.equal(paymentBindingRefusal(ownRequirement(f.baseline), f.headers[0].value), undefined, f.id);
+  }
+  // The facilitator request: its requirement is approved and its payload pays it.
+  const fac = JSON.parse(FILE.baselines.facilitator_request) as Record<string, unknown>;
+  const reqs = fac.paymentRequirements as X402PaymentRequirements;
+  const r = await evaluate_x402_resource(RESOURCE, reqs, { fetch: preflight(ALLOW) });
+  assert.equal(r.approved, true, r.reason);
+  assert.equal(paymentBindingRefusal(approvedRequirementOf(reqs), b64(JSON.stringify(fac.paymentPayload))), undefined);
 });
 
 // Controls: each harness can say yes.
@@ -260,6 +398,7 @@ for (const f of byTarget("header")) {
         refusal === PAYMENT_PAYLOAD_UNREADABLE || refusal === PAYMENT_DIFFERS_FROM_APPROVAL,
         `${f.id}: expected a refusal code, got ${String(refusal)}`,
       );
+      assert.equal(refusal, f.expected_outcome, `${f.id}: expected_outcome`);
     });
 
     test(`header ${f.id} (${h.name}): as a 402 PAYMENT-REQUIRED header, the gate refuses`, async () => {
@@ -289,6 +428,7 @@ for (const f of byTarget("verify_body", "settle_body")) {
 
   if (!body) {
     test(`body ${f.id}: does not parse, so no gate function receives it as an object`, () => {
+      assert.equal(f.expected_outcome, "not_json");
       assert.throws(() => JSON.parse(raw), SyntaxError);
     });
     continue;
@@ -300,6 +440,7 @@ for (const f of byTarget("verify_body", "settle_body")) {
     assert.equal(typeof r.approved, "boolean");
     if (!r.approved) {
       assert.equal(typeof r.reason, "string");
+      assert.equal(f.expected_outcome, "requirement_refused", `${f.id}: refused pre-sign (${r.reason})`);
       return;
     }
     const payload = JSON.stringify(body.paymentPayload ?? null);
@@ -311,6 +452,7 @@ for (const f of byTarget("verify_body", "settle_body")) {
       refusal !== undefined,
       `${f.id}: evaluate approved (${r.reason}) and the payload matches that approval`,
     );
+    assert.equal(f.expected_outcome, "payload_differs_from_requirement", `${f.id}: approved, then ${refusal}`);
   });
 
   test(`body ${f.id}: fail-closed settle guard aborts, never throws`, async () => {
@@ -333,18 +475,50 @@ for (const f of byTarget("verify_body", "settle_body")) {
 }
 
 // ---------------------------------------------------------------------------
-// Receipts. Every paid response below carries the genuine genesis block, so a
-// denial comes from the receipt itself. Six of the eleven are cut-off JSON:
-// the paid response does not parse and no receipt is captured. The other five
-// parse and name no leaf.
+// Receipts. Every paid response below carries the genuine genesis block, a
+// proof for a leaf none of these receipts names. The gate reads a receipt's
+// leaf and nothing else in it, so there are three ways to be denied here, and
+// `expected_outcome` says which:
+//   no_receipt_captured      the paid response is not JSON (the cut-off receipt)
+//   leaf_not_named           the receipt names no leaf as a string (the array)
+//   leaf_differs_from_proof  the receipt names the V7 example's leaf; the proof
+//                            is for the genesis leaf. Nine entries, each with
+//                            another field changed that this path does not read.
+const RECEIPT_DENIALS: Record<string, RegExp> = {
+  no_receipt_captured: /^twzrd_log_inclusion_failed \(no receipt captured: /,
+  leaf_not_named: /^twzrd_log_inclusion_failed \(receipt has no 64-hex-char \.leaf field/,
+  leaf_differs_from_proof: /^twzrd_log_inclusion_failed \(leaf mismatch: /,
+};
 for (const f of byTarget("receipt")) {
   test(`receipt ${f.id}: Path A with offline log inclusion denies, no throw`, async () => {
     const r = await evaluateWithReceiptBytes(f.raw_body as string);
     assert.equal(r.approved, false, `${f.id}: approved (${r.reason})`);
     assert.equal(r.logInclusionDenied, true, `${f.id}: denied for another reason: ${r.reason}`);
     assert.match(r.reason, /^twzrd_log_inclusion_(failed|error|pending|tofu_refused)/);
+    const expected = RECEIPT_DENIALS[f.expected_outcome];
+    assert.ok(expected, `${f.id}: unknown expected_outcome ${f.expected_outcome}`);
+    assert.match(r.reason, expected, `${f.id}: expected_outcome`);
   });
 }
+
+// The fixtures cannot show this one: their leaf is not the proven leaf. A leaf
+// that is not a string is not converted to one. `String([leaf])` prints the
+// leaf, so a conversion would read these receipts as naming the proven leaf.
+test("a receipt whose leaf is an array holding the proven leaf is denied", async () => {
+  for (const leaf of [[LIVE_LEAF], [[LIVE_LEAF]], [LIVE_LEAF.slice(2).toUpperCase()]]) {
+    const r = await evaluateWithReceiptBytes(JSON.stringify({ ...LIVE_RECEIPT, leaf }));
+    assert.equal(r.approved, false, `approved (${r.reason}) with leaf ${JSON.stringify(leaf)}`);
+    assert.equal(r.logInclusionDenied, true);
+    assert.match((r.logInclusion?.errors ?? []).join(" "), /no 64-hex-char \.leaf/);
+  }
+});
+
+test("a proof whose leaf is an array holding the receipt's leaf is denied", async () => {
+  const r = await evaluateWithReceiptBytes(JSON.stringify(LIVE_RECEIPT), { ...LIVE_BLOCK, leaf: [LIVE_LEAF] });
+  assert.equal(r.approved, false, `approved (${r.reason})`);
+  assert.equal(r.logInclusionDenied, true);
+  assert.match((r.logInclusion?.errors ?? []).join(" "), /log_inclusion\.leaf: leaf must be a string/);
+});
 
 test("receipt with no leaf beside a valid proof for another leaf is denied", async () => {
   const r = await evaluateWithReceiptBytes(JSON.stringify({ preimage: { settlement_tx: "TX_NO_LEAF" } }));

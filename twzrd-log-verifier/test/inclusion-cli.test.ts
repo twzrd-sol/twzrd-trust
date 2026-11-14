@@ -84,3 +84,35 @@ test("CLI: legacy --receipt/--proof/--sth invocation still works unchanged (no r
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("CLI: a receipt whose leaf is an array holding the proven leaf is refused on both invocations", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "twzrd-cli-"));
+  try {
+    const arrayLeaf = { leaf: [LIVE_LEAF] };
+    const paidFile = join(dir, "paid.json");
+    writeFileSync(paidFile, JSON.stringify({ ...PAID_RESPONSE, twzrd_receipt: arrayLeaf }));
+    let stdout = "";
+    await assert.rejects(
+      run(process.execPath, [CLI, "inclusion", "--proof", paidFile]).catch((e) => { stdout = e.stdout; throw e; }),
+    );
+    assert.match(stdout, /receipt has no 64-hex-char \.leaf/);
+    assert.doesNotMatch(stdout, /RESULT\s*: VALID/);
+
+    const receiptFile = join(dir, "receipt.json");
+    const proofFile = join(dir, "proof.json");
+    const sthFile = join(dir, "sth.json");
+    writeFileSync(receiptFile, JSON.stringify(arrayLeaf));
+    writeFileSync(proofFile, JSON.stringify({ leaf_index: 0, tree_size: 1, audit_path: [] }));
+    writeFileSync(sthFile, JSON.stringify(PAID_RESPONSE.log_inclusion.sth));
+    let legacyOut = "";
+    await assert.rejects(
+      run(process.execPath, [CLI, "inclusion", "--receipt", receiptFile, "--proof", proofFile, "--sth", sthFile]).catch(
+        (e) => { legacyOut = `${e.stdout}${e.stderr}`; throw e; },
+      ),
+    );
+    assert.match(legacyOut, /no 64-hex-char \.leaf/);
+    assert.doesNotMatch(legacyOut, /RESULT\s*: VALID/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
