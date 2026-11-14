@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace=twzrd-x402-gate",
-    "test": "npm run build && npm run test --workspace=twzrd-x402-gate && npm run test --workspace=twzrd-log-verifier && npm run test:merkle-bridge && npm run test:agent-killswitch && npm run test --workspace=@wzrd_sol/eliza-plugin-source && npm run test:eliza-pack && npm run test:artifacts && npm run test:ecosystem && npm run test:guard-vectors && npm run test:mirror-sync && npm run test:house-caller && npm run test:plugin-layout && npm run test:npm-verify && npm run test:killswitch-workflows && npm run test:publish-ref-guard",
+    "test": "npm run build && npm run test --workspace=twzrd-x402-gate && npm run test --workspace=twzrd-log-verifier && npm run test:merkle-bridge && npm run test:agent-killswitch && npm run test --workspace=@wzrd_sol/eliza-plugin-source && npm run test:eliza-pack && npm run test:artifacts && npm run test:ecosystem && npm run test:guard-vectors && npm run test:mirror-sync && npm run test:house-caller && npm run test:plugin-layout && npm run test:npm-verify && npm run test:killswitch-workflows && npm run test:publish-ref-guard && npm run test:intel-receipt-doc",
     "test:eliza-pack": "node scripts/assert-eliza-publish-pack.mjs",
     "pack:eliza": "node scripts/pack-eliza-plugin.mjs",
     "resync:eliza": "node scripts/resync-eliza-plugin.mjs",
@@ -36,6 +36,7 @@
     "test:npm-verify": "node --test scripts/verify-live-npm-version.test.mjs",
     "test:killswitch-workflows": "node --test scripts/killswitch-workflows-build-gate.test.mjs",
     "test:publish-ref-guard": "node --test scripts/publish-workflows-ref-guard.test.mjs",
+    "test:intel-receipt-doc": "node --test scripts/verify-intel-receipt-doc.test.mjs",
     "test:agent-killswitch": "npm ci --prefix agent-killswitch && npm run ci --prefix agent-killswitch",
     "test:merkle-bridge": "tsx --test merkle-bridge/merkle-bridge.test.ts",
     "typecheck:merkle-bridge": "tsc --noEmit -p merkle-bridge/tsconfig.json"
