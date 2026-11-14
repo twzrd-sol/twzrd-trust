@@ -91,12 +91,15 @@ test("a leaf that is not a string is refused wherever it is named, never convert
     ["number", 12345],
     ["zero", 0],
     ["boolean", true],
+    ["false", false],
   ];
   const bareProof = { ...LIVE_BLOCK, leaf: undefined };
   for (const [label, leaf] of notStrings) {
+    // A type error that says where, in all four places: `0` and `false` are
+    // leaves someone wrote down, not a missing leaf.
     const asReceipt = verifyLogInclusion({ twzrd_receipt: { leaf }, log_inclusion: LIVE_BLOCK }, DEFAULT_STH_PUBKEY);
     assert.equal(asReceipt.valid, false, `receipt leaf, ${label}`);
-    assert.match(asReceipt.errors.join("\n"), /receipt has no 64-hex-char \.leaf/, `receipt leaf, ${label}`);
+    assert.deepEqual(asReceipt.errors, ["twzrd_receipt.leaf: leaf must be a string of 64 hex chars"], `receipt leaf, ${label}`);
     assert.equal(asReceipt.sth_valid, false, `receipt leaf, ${label}: rejected before any signature work`);
 
     const asBareBlock = verifyLogInclusion({ ...LIVE_BLOCK, leaf }, DEFAULT_STH_PUBKEY);
@@ -140,6 +143,23 @@ test("a leaf that is not a string is refused wherever it is named, never convert
     const res = verifyLogInclusion({ ...LIVE_BLOCK, leaf: blank }, DEFAULT_STH_PUBKEY, { leaf: LIVE_LEAF });
     assert.equal(res.valid, true, `block leaf ${JSON.stringify(blank)} + opts.leaf: ${res.errors.join("; ")}`);
   }
+  // Unchanged: a receipt whose leaf is missing, null or empty is the missing-leaf error.
+  for (const blank of [undefined, null, ""]) {
+    const res = verifyLogInclusion({ twzrd_receipt: { leaf: blank }, log_inclusion: LIVE_BLOCK }, DEFAULT_STH_PUBKEY);
+    assert.equal(res.valid, false, `receipt leaf ${JSON.stringify(blank)}`);
+    assert.match(res.errors.join("\n"), /^receipt has no 64-hex-char \.leaf/, `receipt leaf ${JSON.stringify(blank)}`);
+  }
+  // Every wrong-typed leaf in a document is reported, in a fixed order.
+  const three = verifyLogInclusion(
+    { twzrd_receipt: { leaf: 0 }, log_inclusion: { ...LIVE_BLOCK, leaf: false } },
+    DEFAULT_STH_PUBKEY,
+    { leaf: [LIVE_LEAF] as unknown as string },
+  );
+  assert.deepEqual(three.errors, [
+    "opts.leaf: leaf must be a string of 64 hex chars",
+    "twzrd_receipt.leaf: leaf must be a string of 64 hex chars",
+    "log_inclusion.leaf: leaf must be a string of 64 hex chars",
+  ]);
 });
 
 test("tampered root, wrong pin, missing head, missing leaf, missing index each fail by name", () => {
@@ -176,4 +196,76 @@ test("non-degenerate path: a V2 head over 40 leaves at index 17 goes through the
   assert.equal(swapped.sth_valid, true);
   assert.equal(swapped.inclusion_valid, false);
   assert.match(verifyLogInclusion({ ...block, tree_size: 39 }, pin).errors.join("\n"), /proof targets tree_size 39/);
+});
+
+test("an audit_path entry that is not a string is refused, never converted", () => {
+  const kp = nacl.sign.keyPair();
+  const pin = b58encode(kp.publicKey);
+  const entries = Array.from({ length: 40 }, (_, i) =>
+    Uint8Array.from({ length: 32 }, (_, j) => (i * 17 + j * 5 + 2) & 0xff),
+  );
+  const sth = signSth(
+    { domain: STH_DOMAIN_V2, log_id: "t", key_id: "k1", tree_size: 40, timestamp_unix: 1, root: bytesToHex(merkleRoot(entries)) },
+    kp.secretKey,
+  );
+  const path = inclusionProof(entries, 17).map(bytesToHex);
+  const block = { leaf: bytesToHex(entries[17]), leaf_index: 17, tree_size: 40, audit_path: path as unknown[], sth };
+  assert.equal(verifyLogInclusion(block, pin).valid, true, "the proof itself verifies");
+  assert.ok(path.length >= 5);
+
+  // While entries were read through String(), the first three shapes verified:
+  // each prints as the hash it wraps.
+  const wraps: Array<[string, (h: string) => unknown]> = [
+    ["array holding the hash", (h) => [h]],
+    ["nested array holding the hash", (h) => [[h]]],
+    ["object that prints as the hash", (h) => ({ toString: () => h })],
+    ["plain object", (h) => ({ hex: h })],
+    ["number", () => 12345],
+    ["zero", () => 0],
+    ["false", () => false],
+    ["true", () => true],
+    ["null", () => null],
+  ];
+  for (const [label, wrap] of wraps) {
+    for (const i of [0, 2, path.length - 1]) {
+      const audit_path = path.map((h, j) => (j === i ? wrap(h) : h));
+      const res = verifyLogInclusion({ ...block, audit_path }, pin);
+      assert.equal(res.valid, false, `${label} at ${i}`);
+      assert.equal(res.inclusion_valid, false, `${label} at ${i}`);
+      assert.deepEqual(res.errors, [`audit path: audit_path[${i}] must be a hex string`], `${label} at ${i}`);
+      // Same refusal inside a whole paid response.
+      const paidDoc = { twzrd_receipt: { leaf: block.leaf }, log_inclusion: { ...block, audit_path } };
+      assert.deepEqual(verifyLogInclusion(paidDoc, pin).errors, [`audit path: audit_path[${i}] must be a hex string`], label);
+    }
+  }
+
+  // The path itself is an array. A value of another type is refused, an
+  // explicit 0, false or "" included; only a missing or null path is empty.
+  const notArrays: Array<[string, unknown]> = [
+    ["one string of all the hashes", path.join("")],
+    ["array-like object", { ...path, length: path.length }],
+    ["zero", 0],
+    ["false", false],
+    ["empty string", ""],
+  ];
+  for (const [label, audit_path] of notArrays) {
+    const res = verifyLogInclusion({ ...block, audit_path }, pin);
+    assert.equal(res.valid, false, label);
+    assert.deepEqual(res.errors, ["audit path: audit_path must be an array of hex strings"], label);
+    const onGenesis = verifyLogInclusion({ ...LIVE_BLOCK, audit_path }, DEFAULT_STH_PUBKEY);
+    assert.equal(onGenesis.valid, false, `${label}: not read as the empty path of a one-leaf tree`);
+  }
+
+  // Unchanged: a missing or null path is the empty path (a one-leaf tree), and
+  // an entry is hex in either case, with or without 0x.
+  for (const blank of [undefined, null]) {
+    const res = verifyLogInclusion({ ...LIVE_BLOCK, audit_path: blank }, DEFAULT_STH_PUBKEY);
+    assert.equal(res.valid, true, `audit_path ${JSON.stringify(blank)}: ${res.errors.join("; ")}`);
+    assert.equal(verifyLogInclusion({ ...block, audit_path: blank }, pin).valid, false, "an empty path proves nothing in a 40-leaf tree");
+  }
+  const respelled = path.map((h, j) => (j % 2 === 0 ? "0x" + h.toUpperCase() : h.toUpperCase()));
+  assert.equal(verifyLogInclusion({ ...block, audit_path: respelled }, pin).valid, true);
+  // Unchanged: a string that is not hex is still the hex error.
+  const notHex = verifyLogInclusion({ ...block, audit_path: ["zz", ...path.slice(1)] }, pin);
+  assert.match(notHex.errors.join("\n"), /^audit path: invalid hex string/);
 });

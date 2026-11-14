@@ -134,6 +134,28 @@ async function run() {
     );
     assert.equal(refusalRecord.decisionId, token.decisionId);
 
+    // One text per signature: the same 64 bytes in another base64 spelling
+    // (Node's decoder reads every one of these as the signature) do not verify.
+    {
+      const sig = token.signature;
+      assert.match(sig, /^[A-Za-z0-9+/]{86}==$/);
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      const respelled: Record<string, string> = {
+        "padding removed": sig.slice(0, 86),
+        "one '=' too many": `${sig}=`,
+        "trailing newline": `${sig}\n`,
+        "a space inside": `${sig.slice(0, 10)} ${sig.slice(10)}`,
+        "URL-safe alphabet": Buffer.from(sig, "base64").toString("base64url") + "==",
+        "non-zero unused bits": sig.slice(0, 85) + alphabet[alphabet.indexOf(sig[85]) + 1] + "==",
+      };
+      for (const [name, text] of Object.entries(respelled)) {
+        if (text === sig) continue; // a signature with no '+' or '/' has no URL-safe spelling
+        assert.deepEqual(Buffer.from(text, "base64"), Buffer.from(sig, "base64"), name);
+        assert.equal(verifyDecisionSignature({ ...token, signature: text }, signer.publicKeyPem), false, name);
+      }
+      assert.equal(verifyDecisionSignature({ ...token, signature: 7 as never }, signer.publicKeyPem), false);
+    }
+
     // The UNTAMPERED intent still passes binding — and consumes the token once.
     assertIntentApproved(intent, token, { registry, publicKeyPem: signer.publicKeyPem });
   }

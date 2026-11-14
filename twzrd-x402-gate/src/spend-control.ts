@@ -44,7 +44,7 @@ import {
   type ResourceBindReq,
   type ResourceBindSchema,
 } from "./resource-bind.js";
-import { evaluateResourceBindLegsFromSvmTx } from "./resource-bind-tx.js";
+import { BOUND_TX_INSTRUCTION_REFUSED, evaluateResourceBindLegsFromSvmTx } from "./resource-bind-tx.js";
 import {
   isWellFormedTxSignature,
   sharedFileSvmWal,
@@ -196,6 +196,11 @@ export type SpendControlOptions = {
 export type SpendControlResult = {
   verdict: "allow" | "warn" | "block";
   reason?: string;
+  /**
+   * On `bind_unexpected_instruction`: `bound tx instruction refused: <code>`,
+   * naming the first instruction the composed transaction may not carry.
+   */
+  detail?: string;
   response?: Response;
   receipt?: { strength: string; leaf_hash: string | null; fact_type: "resource_bound" };
   signerInvocations: number;
@@ -210,6 +215,11 @@ export type SpendControlResult = {
 export type OfferBindingCheck = {
   verdict: "allow" | "block";
   reason?: string;
+  /**
+   * On `bind_unexpected_instruction`: the allowlist code the transaction failed
+   * on, as `evaluateResourceBindLegsFromSvmTx` reported it.
+   */
+  detail?: string;
   receipt: { strength: string; leaf_hash: string | null; fact_type: "resource_bound" };
 };
 
@@ -261,6 +271,10 @@ export async function verifyOfferBindingAfterPay(args: {
     leaf_hash: d.leaf_hash,
     fact_type: "resource_bound",
   };
+  if (d.reason.startsWith(BOUND_TX_INSTRUCTION_REFUSED)) {
+    // The transaction carries an instruction a bound transfer may not carry.
+    return { verdict: "block", reason: "bind_unexpected_instruction", detail: d.reason, receipt };
+  }
   if (d.strength !== "hard") {
     return { verdict: "block", reason: "bind_mismatch", receipt };
   }
@@ -738,7 +752,11 @@ export async function spendControlSafeFetch(
       const receipt = checked.receipt;
       if (checked.verdict === "block") {
         return blockResult(
-          { verdict: "block", reason: checked.reason ?? "bind_mismatch", receipt, signerInvocations: 0 },
+          {
+            verdict: "block", reason: checked.reason ?? "bind_mismatch",
+            ...(checked.detail ? { detail: checked.detail } : {}),
+            receipt, signerInvocations: 0,
+          },
           decisionId,
         );
       }

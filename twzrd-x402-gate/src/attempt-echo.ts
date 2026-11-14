@@ -10,6 +10,7 @@
  */
 
 import { paymentRequiredFromResponse } from "./payto.js";
+import { base64ToUtf8Strict } from "./strict-base64.js";
 
 export const ATTEMPT_EXTENSION = "twzrd_attempt";
 export const ATTEMPT_EXTENSION_SCHEMA = "twzrd.attempt.v1";
@@ -71,7 +72,7 @@ export function stampTwzrdAttemptOnPaymentPayload(
 
 function decodeB64Json(header: string): unknown | null {
   try {
-    return JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+    return JSON.parse(base64ToUtf8Strict(header));
   } catch {
     return null;
   }

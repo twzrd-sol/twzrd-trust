@@ -16,6 +16,7 @@ import { twzrdApprovePayment, twzrdSentinelRefusal } from "./policy.js";
 import type { SpendLedger } from "./policy-runtime.js";
 import { sharedFileSpendLedger } from "./spend-ledger-file.js";
 import type { X402ClientLike } from "./x402-client-hook.js";
+import { base64ToUtf8Strict } from "./strict-base64.js";
 
 type ExpectedAmountInput = { resource: string; payTo: string; network?: string; signal?: AbortSignal };
 
@@ -123,7 +124,7 @@ function paymentResponseOf(response: Response): { success: boolean; transaction?
   const header = response.headers.get("PAYMENT-RESPONSE") || response.headers.get("X-PAYMENT-RESPONSE");
   if (!header) return null;
   try {
-    const value: unknown = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+    const value: unknown = JSON.parse(base64ToUtf8Strict(header));
     if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
     const settle = value as Record<string, unknown>;
     if (typeof settle.success !== "boolean") return null;

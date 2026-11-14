@@ -23,6 +23,7 @@ import {
 } from "node:crypto";
 
 import { canonicalJson, intentHash, type PaymentIntent } from "./intent.js";
+import { decodeBase64Strict } from "./strict-base64.js";
 
 const DECISION_DOMAIN = "twzrd-decision-v1\n";
 
@@ -269,12 +270,15 @@ export function verifyDecisionSignature(
   publicKeyPem: string,
 ): boolean {
   const { signature, ...payload } = token;
+  // One text per signature: a re-spelled copy of a good signature is refused.
+  const sig = decodeBase64Strict(signature);
+  if (!sig) return false;
   try {
     return edVerify(
       null,
       decisionPreimage(payload),
       createPublicKey(publicKeyPem),
-      Buffer.from(signature, "base64"),
+      sig,
     );
   } catch {
     return false;

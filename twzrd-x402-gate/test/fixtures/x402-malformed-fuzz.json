@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "generatedAt": "2026-11-14",
   "generator": "deterministic: one declared malformation applied to a well-formed baseline; no model, no network, no keys",
-  "note": "Synthetic negative inputs. <tx> is a placeholder. Every entry is one of the baselines below with exactly one malformation: replace (find occurs once in the baseline), truncate_to (a prefix of the baseline, that many characters) or, for a header, encoding (the unmodified baseline in another base64 dialect). test/x402-malformed-fuzz.test.ts re-derives every entry from its baseline and its malformation and asserts parses and expected_outcome, so an entry cannot describe one input and carry another. The v7_receipt baseline is eliza-plugin-source/test/fixtures/receipt-v7.example.json in compact form. category is the surface the entry belongs to. expected_outcome is what the gate does at the entry point the test drives. header: the payment-binding refusal against an approval no entry pays (payment_payload_unreadable: the gate could not read a payment out of the value; payment_differs_from_approval: it read one, and it is not the approved one). verify_body and settle_body: not_json, requirement_refused (the pre-sign check refuses paymentRequirements) or payload_differs_from_requirement (the requirement is approved and paymentPayload does not match it). receipt: no_receipt_captured (the paid response is not JSON), leaf_not_named (the receipt names no leaf as a string) or leaf_differs_from_proof. The gate's receipt path reads a receipt's leaf and nothing else in it, and every receipt here is checked beside a proof for a different leaf: an entry that changes another field is denied for its leaf, not for that field.",
+  "note": "Synthetic negative inputs. <tx> is a placeholder. Every entry is one of the baselines below with exactly one malformation: replace (find occurs once in the baseline), truncate_to (a prefix of the baseline, that many characters) or, for a header, encoding (the unmodified baseline in another base64 dialect). test/x402-malformed-fuzz.test.ts re-derives every entry from its baseline and its malformation and asserts parses and expected_outcome, so an entry cannot describe one input and carry another. The v7_receipt baseline is eliza-plugin-source/test/fixtures/receipt-v7.example.json in compact form. category is the surface the entry belongs to. expected_outcome is what the gate does at the entry point the test drives. header: the payment-binding refusal against an approval no entry pays (payment_payload_unreadable: the gate could not read a payment out of the value; payment_differs_from_approval: it read one, and it is not the approved one). verify_body and settle_body: not_json, requirement_refused (the pre-sign check refuses paymentRequirements) or payload_differs_from_requirement (the requirement is approved and paymentPayload does not match it). A header in another base64 dialect is refused for its encoding: the gate decodes canonical RFC 4648 standard base64 only. receipt: the gate checks the receipt itself before it asks the log. It recomputes the leaf from the receipt's preimage, requires receipt.leaf to equal it, and requires the issuer's Ed25519 signature over it under the pinned key. Every receipt in the test sits beside a log proof that verifies for the baseline's leaf, and the unmodified baseline beside that proof is approved, so each entry is denied for the one thing it changes: no_receipt_captured (the paid response is not JSON), receipt_no_preimage, receipt_freshness_inconsistent (recheck_after_unix is not timestamp_unix + staleness_days * 86400), receipt_field_out_of_range, receipt_settlement_inconsistent (settlement_anchor is not the anchor of settlement_tx), receipt_leaf_mismatch (the fields no longer hash to receipt.leaf), receipt_leaf_not_a_string or receipt_signature_unreadable.",
   "baselines": {
     "x402_v1_payment": "{\"x402Version\":1,\"scheme\":\"exact\",\"network\":\"solana\",\"payload\":{\"transaction\":\"<tx>\"}}",
     "x402_v2_payment": "{\"x402Version\":2,\"resource\":{\"url\":\"https://example.com/report?id=10\"},\"accepted\":{\"scheme\":\"exact\",\"network\":\"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp\",\"amount\":\"1000\",\"asset\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"payTo\":\"FakePayTo1111111111111111111111111111111111\",\"maxTimeoutSeconds\":60},\"payload\":{\"transaction\":\"<tx>\"}}",
@@ -81,7 +81,7 @@
       "id": "malformed-base64-padding",
       "category": "malformed_headers",
       "target": "header",
-      "description": "X-PAYMENT: the well-formed v1 payment in standard base64 with its one trailing '=' removed. Node's decoder reads it the same as the padded value.",
+      "description": "X-PAYMENT: the well-formed v1 payment in standard base64 with its one trailing '=' removed. Node's decoder reads it the same as the padded value; the gate's strict decoder refuses it.",
       "baseline": "x402_v1_payment",
       "malformation": {
         "encoding": "base64_padding_removed"
@@ -96,13 +96,13 @@
         }
       ],
       "raw_body": null,
-      "expected_outcome": "payment_differs_from_approval"
+      "expected_outcome": "payment_payload_unreadable"
     },
     {
       "id": "malformed-base64-padding-2",
       "category": "malformed_headers",
       "target": "header",
-      "description": "X-PAYMENT: the well-formed v1 payment in standard base64 with one '=' more than the encoding needs ('==' where one belongs). Node's decoder reads it the same as the correct value.",
+      "description": "X-PAYMENT: the well-formed v1 payment in standard base64 with one '=' more than the encoding needs ('==' where one belongs). Node's decoder reads it the same as the correct value; the gate's strict decoder refuses it.",
       "baseline": "x402_v1_payment",
       "malformation": {
         "encoding": "base64_extra_padding"
@@ -117,13 +117,13 @@
         }
       ],
       "raw_body": null,
-      "expected_outcome": "payment_differs_from_approval"
+      "expected_outcome": "payment_payload_unreadable"
     },
     {
       "id": "url-safe-vs-standard-mixup",
       "category": "malformed_headers",
       "target": "header",
-      "description": "PAYMENT-SIGNATURE: the well-formed v2 payment in the URL-safe base64 alphabet, padding kept: '_' where standard base64 has '/'. Node's decoder reads it the same as the standard value.",
+      "description": "PAYMENT-SIGNATURE: the well-formed v2 payment in the URL-safe base64 alphabet, padding kept: '_' where standard base64 has '/'. Node's decoder reads it the same as the standard value; the gate's strict decoder refuses it.",
       "baseline": "x402_v2_payment",
       "malformation": {
         "encoding": "base64url"
@@ -138,13 +138,13 @@
         }
       ],
       "raw_body": null,
-      "expected_outcome": "payment_differs_from_approval"
+      "expected_outcome": "payment_payload_unreadable"
     },
     {
       "id": "url-safe-vs-standard-mixup-2",
       "category": "malformed_headers",
       "target": "header",
-      "description": "PAYMENT-SIGNATURE: the well-formed v2 payment in the URL-safe base64 alphabet without padding, the JWT convention: '_' where standard base64 has '/', and no trailing '=='. Node's decoder reads it the same as the standard value.",
+      "description": "PAYMENT-SIGNATURE: the well-formed v2 payment in the URL-safe base64 alphabet without padding, the JWT convention: '_' where standard base64 has '/', and no trailing '=='. Node's decoder reads it the same as the standard value; the gate's strict decoder refuses it.",
       "baseline": "x402_v2_payment",
       "malformation": {
         "encoding": "base64url_padding_removed"
@@ -159,7 +159,7 @@
         }
       ],
       "raw_body": null,
-      "expected_outcome": "payment_differs_from_approval"
+      "expected_outcome": "payment_payload_unreadable"
     },
     {
       "id": "duplicate-keys-in-payload",
@@ -320,7 +320,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_no_preimage"
     },
     {
       "id": "recheck-after-before-timestamp",
@@ -337,7 +337,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1600000000,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_freshness_inconsistent"
     },
     {
       "id": "far-future-timestamp",
@@ -354,7 +354,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":2540185600,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_freshness_inconsistent"
     },
     {
       "id": "integer-beyond-64-bit",
@@ -371,7 +371,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":18446744073709551616,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_field_out_of_range"
     },
     {
       "id": "score-above-range",
@@ -388,7 +388,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":101,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_leaf_mismatch"
     },
     {
       "id": "wrong-signature-alphabet",
@@ -405,7 +405,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"0OIlHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_signature_unreadable"
     },
     {
       "id": "subject-substitution",
@@ -422,7 +422,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"OtherAgent2222222222222222222222222222222222\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_leaf_mismatch"
     },
     {
       "id": "settlement-tx-swapped",
@@ -439,7 +439,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0002\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_settlement_inconsistent"
     },
     {
       "id": "leaf-array-wrapped",
@@ -456,7 +456,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":[\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\"],\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signature\":\"tBxNHLYcqrXkTemhAaEGnUoGiTEZCEqXMCYPtx3iZoL5hEgAwJnNwoZRcyH5X6cJhMCTE8reebSsN5XtsHK1Eqn\",\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_not_named"
+      "expected_outcome": "receipt_leaf_not_a_string"
     },
     {
       "id": "receipt-missing-signature",
@@ -473,7 +473,7 @@
       "parses": true,
       "headers": [],
       "raw_body": "{\"version\":\"v7\",\"kind\":\"twzrd_reputation_receipt_v7\",\"leaf\":\"0xc801861f2c4a44e1af29f098cbaeb78ed5ba3a67393309402a2145b8b72e0688\",\"preimage\":{\"domain\":\"TWZRD:AO_REPUTATION_RECEIPT_V7\",\"agent_id\":\"11111111111111111111111111111111\",\"score\":72,\"attention_score\":null,\"confidence_bps\":8000,\"timestamp_unix\":1748736000,\"payer\":\"11111111111111111111111111111111\",\"settlement_anchor\":\"63656970742d6e6f2d7265616c2d736574746c656d656e742d74782d30303031\",\"version\":\"v7\",\"reputation_score\":null,\"reputation_confidence_bps\":null,\"reputation_score_version\":\"intel_renorm_v1_1\",\"reputation_feature_window_start_unix\":null,\"reputation_data_quality\":\"example\",\"recheck_after_unix\":1748995200,\"staleness_days\":3,\"score_decay_model\":\"step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25\",\"settlement_tx\":\"EXAMPLE-sample-receipt-no-real-settlement-tx-0001\"},\"signing_pubkey\":\"Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS\",\"key_id\":\"twzrd-receipt-ed25519-v2\",\"signing_alg\":\"ed25519\"}",
-      "expected_outcome": "leaf_differs_from_proof"
+      "expected_outcome": "receipt_signature_unreadable"
     },
     {
       "id": "receipt-truncated-json",

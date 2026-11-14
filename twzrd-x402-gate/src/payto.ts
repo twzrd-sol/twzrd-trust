@@ -1,5 +1,6 @@
 import { solanaCluster, type SolanaCluster } from "./network.js";
 import type { X402PaymentRequiredBody, X402PaymentRequirements } from "./types.js";
+import { base64ToUtf8Strict } from "./strict-base64.js";
 
 /**
  * Pick the best payment requirements from an x402 accepts[] array.
@@ -394,7 +395,7 @@ export async function paymentRequiredFromResponse(
   if (header) {
     let decoded: unknown;
     try {
-      decoded = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+      decoded = JSON.parse(base64ToUtf8Strict(header));
     } catch {
       throw new Error("[twzrd] payment blocked: undecodable PAYMENT-REQUIRED header");
     }

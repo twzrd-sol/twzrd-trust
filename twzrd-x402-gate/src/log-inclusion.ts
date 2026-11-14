@@ -1,5 +1,5 @@
 /**
- * requireLogInclusion — a paid V6 receipt does not satisfy `requireReceipt`
+ * requireLogInclusion — a paid receipt does not satisfy `requireReceipt`
  * until its leaf is proven included in the Receipt Transparency log under a
  * head the buyer's PINNED key signed.
  *
@@ -7,6 +7,17 @@
  * the issuer showed everyone the same answer (non-equivocation) or that the
  * receipt existed when it claims to. The log closes that gap; this policy makes
  * the gate refuse to treat an unproven receipt as trust.
+ *
+ * The log proves a leaf, not the fields printed beside it. So before the
+ * verifier runs, the gate itself checks the receipt (receipt-binding.ts): it
+ * recomputes the canonical leaf from the receipt's preimage, requires
+ * `receipt.leaf` to equal it, and requires the receipt's Ed25519 signature to
+ * verify over that leaf under the pinned receipt issuer key
+ * (`twzrd-receipt-ed25519-v2` by default; `receiptPubkey` overrides the pin).
+ * A receipt that fails is denied with `twzrd_log_inclusion_receipt_invalid`
+ * and the verifier is never called, so a proof for a logged leaf cannot carry
+ * a receipt whose score or other signed field was changed. A verdict that
+ * names the leaf it proved has to name that same leaf.
  *
  * Injection, not dependency. `twzrd-log-verifier` is a separate npm package
  * (published since 0.3.0; install the latest) and this package takes no
@@ -40,6 +51,8 @@
  *     is circular; requireLogInclusion exists to demand a pin.
  */
 
+import { verifyReceiptBinding } from "./receipt-binding.js";
+
 export type LogInclusionVerdict = {
   valid: boolean;
   errors: string[];
@@ -50,6 +63,12 @@ export type LogInclusionVerdict = {
   key_id?: string;
   leaf_index?: number;
   tree_size?: number;
+  /**
+   * The leaf the verifier proved (hex, 0x optional). `twzrd-log-verifier`
+   * results carry it. When present it must be the receipt's leaf as the gate
+   * recomputed it, or the verdict is refused.
+   */
+  leaf?: string;
 };
 
 /**
@@ -65,6 +84,12 @@ export type LogInclusionContext = {
   response: unknown;
   /** `response.log_inclusion`, when the server attached one. */
   logInclusion?: unknown;
+  /**
+   * The receipt's leaf, 64 lowercase hex chars, as the gate recomputed it from
+   * the receipt's fields and checked the issuer signature over. Set on every
+   * verifier call.
+   */
+  leaf?: string;
 };
 
 /**
@@ -91,6 +116,13 @@ export type RequireLogInclusionPolicy = {
   onPending?: "deny" | "allow";
   /** Default true: refuse a verdict whose keys were taken from the log itself. */
   refuseTofu?: boolean;
+  /**
+   * Receipt issuer key or keys (base58 Ed25519) the receipt signature must
+   * verify under. Default: the pinned issuer key, `RECEIPT_ISSUER_PUBKEY`
+   * (key_id `twzrd-receipt-ed25519-v2`). The key a receipt names for itself is
+   * never used.
+   */
+  receiptPubkey?: string | readonly string[];
 };
 
 export type ResolvedRequireLogInclusionPolicy = {
@@ -98,17 +130,32 @@ export type ResolvedRequireLogInclusionPolicy = {
   hard: boolean;
   onPending: "deny" | "allow";
   refuseTofu: boolean;
+  /**
+   * Pinned receipt issuer keys. Absent means the default pin. An empty list
+   * (the host set `receiptPubkey` to something that is not a key) verifies
+   * nothing, so every receipt is refused.
+   */
+  receiptPubkeys?: readonly string[];
 };
 
 export type LogInclusionDenyReason =
   | "twzrd_log_inclusion_failed"
   | "twzrd_log_inclusion_pending"
   | "twzrd_log_inclusion_tofu_refused"
-  | "twzrd_log_inclusion_error";
+  | "twzrd_log_inclusion_error"
+  | "twzrd_log_inclusion_receipt_invalid";
 
 export type LogInclusionOutcome = {
   /** true when a verifier actually ran against a receipt */
   checked: boolean;
+  /**
+   * true when the receipt's leaf recomputed from its fields and its issuer
+   * signature verified under the pinned key. false when that check refused the
+   * receipt (the verifier did not run). Absent when no receipt was checked.
+   */
+  receipt_bound?: boolean;
+  /** The receipt's recomputed leaf (64 lowercase hex), when `receipt_bound`. */
+  leaf?: string;
   /**
    * true when the verifier proved inclusion and the policy accepted the
    * verdict. Under the default `refuseTofu` that implies a caller-pinned key;
@@ -158,7 +205,19 @@ export function resolveRequireLogInclusionPolicy(
     hard: r.hard !== false,
     onPending: r.onPending === "allow" ? "allow" : "deny",
     refuseTofu: r.refuseTofu !== false,
+    ...(r.receiptPubkey === undefined ? {} : { receiptPubkeys: pinnedReceiptKeys(r.receiptPubkey) }),
   };
+}
+
+/**
+ * A host-supplied pin as a list. Anything that is not a non-empty string, or a
+ * non-empty array of them, resolves to no keys at all: the host asked for its
+ * own pin, so falling back to the default one would verify under a key it did
+ * not choose.
+ */
+function pinnedReceiptKeys(raw: unknown): readonly string[] {
+  const list = typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw : [];
+  return list.every((k) => typeof k === "string" && k !== "") ? (list as string[]) : [];
 }
 
 function deny(
@@ -199,20 +258,52 @@ export async function evaluateLogInclusion(
     );
   }
 
+  // The receipt first: its fields must hash to its leaf, and the issuer must
+  // have signed that leaf. Until that holds there is nothing worth looking up,
+  // and a pending or TOFU answer about the leaf would say nothing about the
+  // fields either.
+  const bound = verifyReceiptBinding(receipt, policy.receiptPubkeys);
+  if (!bound.ok) {
+    return deny(
+      { checked: false, receipt_bound: false, valid: false, errors: [bound.error] },
+      policy,
+      "twzrd_log_inclusion_receipt_invalid",
+    );
+  }
+
   let verdict: LogInclusionVerdict;
   try {
-    verdict = await policy.verifier(receipt, ctx);
+    verdict = await policy.verifier(receipt, { ...ctx, leaf: bound.leaf });
   } catch (e) {
     return deny(
-      { checked: true, valid: false, errors: [(e as Error)?.message ?? String(e)] },
+      {
+        checked: true, receipt_bound: true, leaf: bound.leaf, valid: false,
+        errors: [(e as Error)?.message ?? String(e)],
+      },
       policy,
       "twzrd_log_inclusion_error",
+    );
+  }
+
+  // A verdict about some other leaf is not a verdict about this receipt.
+  const proved = verdict?.leaf;
+  if (proved !== undefined && proved !== null
+    && (typeof proved !== "string" || proved.replace(/^0x/, "").toLowerCase() !== bound.leaf)) {
+    return deny(
+      {
+        checked: true, receipt_bound: true, leaf: bound.leaf, valid: false,
+        errors: ["the verifier's verdict names a different leaf than the receipt's"],
+      },
+      policy,
+      "twzrd_log_inclusion_failed",
     );
   }
 
   const errors = Array.isArray(verdict?.errors) ? verdict.errors : [];
   const outcome: LogInclusionOutcome = {
     checked: true,
+    receipt_bound: true,
+    leaf: bound.leaf,
     valid: verdict?.valid === true,
     ...(verdict?.tofu ? { tofu: true } : {}),
     ...(verdict?.key_id ? { key_id: verdict.key_id } : {}),

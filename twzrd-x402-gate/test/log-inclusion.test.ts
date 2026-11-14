@@ -6,6 +6,11 @@
  * included in the Receipt Transparency log under a caller-pinned key. Mocks the
  * free preflight, the paid x402Fetch, and the injected log verifier — nothing
  * settles on-chain and nothing talks to a log.
+ *
+ * The receipt is one the issuer signed (test/helpers/receipts.ts): the gate
+ * checks the receipt's own signature and leaf before it asks the verifier, so
+ * a stand-in object would be denied before any case here reached the log
+ * policy. What that check refuses is covered in receipt-binding.test.ts.
  */
 import assert from "node:assert/strict";
 
@@ -16,6 +21,7 @@ import {
   type LogInclusionVerdict,
 } from "../src/log-inclusion.js";
 import type { X402PaymentRequirements } from "../src/types.js";
+import { REAL_LEAF, REAL_RECEIPT } from "./helpers/receipts.js";
 
 const SELLER = "SeLLeRWa11et1111111111111111111111111111111";
 const REQS: X402PaymentRequirements = {
@@ -58,7 +64,7 @@ function verifierMock(result: LogInclusionVerdict | Error) {
   return Object.assign(fn, { calls, contexts });
 }
 
-const RECEIPT = { leaf: "0x" + "ab".repeat(32), preimage: { settlement_tx: "TX_PRE" } };
+const RECEIPT = REAL_RECEIPT;
 const WARN = { decision: "warn", trust_score: 45, can_spend: false, recommended_cap_usdc: 1000 };
 const PROVEN: LogInclusionVerdict = {
   valid: true,
@@ -141,6 +147,8 @@ async function run() {
     assert.equal(r.logInclusionDenied, undefined);
     assert.deepEqual(r.logInclusion, {
       checked: true,
+      receipt_bound: true,
+      leaf: REAL_LEAF,
       valid: true,
       key_id: "twzrd-log-ed25519-v1",
       leaf_index: 17,
@@ -398,6 +406,7 @@ async function run() {
     const ctx = v.contexts[0] as { response: Record<string, unknown>; logInclusion: unknown };
     assert.equal(ctx.logInclusion, undefined, "no block → undefined, not a guess");
     assert.deepEqual(ctx.response.twzrd_receipt, RECEIPT);
+    assert.equal((ctx as { leaf?: string }).leaf, REAL_LEAF, "ctx.leaf is the leaf the gate recomputed and checked");
   }
 
   // 18. A legacy one-argument verifier keeps working (the second arg is additive).

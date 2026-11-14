@@ -594,6 +594,7 @@ export function isFatalGateRefusal(reason: string | undefined): boolean {
     r === "WASH_FLAGGED" ||
     r === "svm_splits_refused" ||
     r === "bind_mismatch" ||
+    r === "bind_unexpected_instruction" ||
     r === "MANDATE_MONTHLY_CEILING" ||
     r === "MANDATE_MAX_PER_TX" ||
     r === "MANDATE_PAYEE_BLOCKED" ||

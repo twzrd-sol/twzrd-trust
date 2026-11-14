@@ -8,12 +8,13 @@ import {
   fetchLogDescriptor,
   fetchConsistencyProof,
   fetchInclusionProof,
+  verifyHeadsConsistent,
   verifyReceiptInLog,
   type LogDescriptor,
 } from "../src/client.js";
 import { STH_DOMAIN_V2, signSth } from "../src/sth.js";
 import { KEY_MODE_SIGN, type LogKeyDirectory } from "../src/keydir.js";
-import { merkleRoot, inclusionProof } from "../src/merkle.js";
+import { merkleRoot, inclusionProof, consistencyProof } from "../src/merkle.js";
 import { b58encode, bytesToHex, type FetchLike } from "../src/util.js";
 
 const kp = nacl.sign.keyPair();
@@ -140,13 +141,23 @@ test("extractReceiptLeaf handles bare receipts and API envelopes", () => {
 
 test("extractReceiptLeaf refuses a leaf that is not a string", () => {
   const leaf = "ab".repeat(32);
-  const notStrings: unknown[] = [[leaf], [["0x" + leaf]], { toString: () => leaf }, { hex: leaf }, 12345, true];
+  const notStrings: unknown[] = [[leaf], [["0x" + leaf]], { toString: () => leaf }, { hex: leaf }, 12345, true, 0, false];
+  const TYPE = "leaf must be a string of 64 hex chars";
   for (const bad of notStrings) {
-    assert.throws(() => extractReceiptLeaf({ leaf: bad }), /no 64-hex-char/, JSON.stringify(bad));
-    assert.throws(() => extractReceiptLeaf({ twzrd_receipt: { leaf: bad } }), /no 64-hex-char/, JSON.stringify(bad));
+    const label = JSON.stringify(bad) ?? String(bad);
+    assert.throws(() => extractReceiptLeaf({ leaf: bad }), { message: `leaf: ${TYPE}` }, label);
+    assert.throws(() => extractReceiptLeaf({ twzrd_receipt: { leaf: bad } }), { message: `twzrd_receipt.leaf: ${TYPE}` }, label);
+    // A string leaf in the envelope does not rescue a non-string leaf beside
+    // it. `0` and `false` used to be read as "no leaf here", so the nested
+    // receipt's leaf was returned for a document whose own leaf was a number.
+    assert.throws(() => extractReceiptLeaf({ leaf: bad, twzrd_receipt: { leaf } }), { message: `leaf: ${TYPE}` }, label);
   }
-  // A string leaf in the envelope does not rescue a non-string leaf beside it.
-  assert.throws(() => extractReceiptLeaf({ leaf: [leaf], twzrd_receipt: { leaf } }), /no 64-hex-char/);
+  // Unchanged: a wrapper whose leaf is missing, null or empty names nothing, so the nested receipt names it.
+  for (const blank of [undefined, null, ""]) {
+    assert.equal(extractReceiptLeaf({ leaf: blank, twzrd_receipt: { leaf } }), leaf, JSON.stringify(blank));
+    assert.throws(() => extractReceiptLeaf({ leaf: blank }), /no 64-hex-char/, JSON.stringify(blank));
+    assert.throws(() => extractReceiptLeaf({ twzrd_receipt: { leaf: blank } }), /no 64-hex-char/, JSON.stringify(blank));
+  }
   // Unchanged: upper case, with or without 0x.
   assert.equal(extractReceiptLeaf({ leaf: "0x" + leaf.toUpperCase() }), leaf);
   assert.equal(extractReceiptLeaf({ leaf: leaf.toUpperCase() }), leaf);
@@ -160,7 +171,7 @@ test("a leaf that is not a string never reaches the log: no request is made for 
     requests++;
     return server(url, init);
   };
-  for (const bad of [[leaf], { toString: () => leaf }, 12345] as unknown[]) {
+  for (const bad of [[leaf], { toString: () => leaf }, 12345, 0, false] as unknown[]) {
     const res = await verifyReceiptInLog({
       baseUrl: BASE,
       leaf: bad as string,
@@ -175,7 +186,17 @@ test("a leaf that is not a string never reaches the log: no request is made for 
     );
     await assert.rejects(
       verifyReceiptInLog({ baseUrl: BASE, receipt: { leaf: bad }, trusted: pinnedDir, fetchImpl: counting }),
-      /no 64-hex-char/,
+      { message: "leaf: leaf must be a string of 64 hex chars" },
+    );
+    // The nested receipt's string leaf is in the log. It does not stand in.
+    await assert.rejects(
+      verifyReceiptInLog({
+        baseUrl: BASE,
+        receipt: { leaf: bad, twzrd_receipt: { leaf } },
+        trusted: pinnedDir,
+        fetchImpl: counting,
+      }),
+      { message: "leaf: leaf must be a string of 64 hex chars" },
     );
   }
   assert.equal(requests, 0);
@@ -207,6 +228,43 @@ test("fetchConsistencyProof accepts both a bare array and a { path } object", as
     fetchImpl: async () => ({ ok: true, status: 200, json: async () => ["0xaa"] }),
   });
   assert.deepEqual(asArray, ["0xaa"]);
+});
+
+test("a consistency path entry that is not a string is refused, never converted", async () => {
+  const oldSize = 25;
+  const real = consistencyProof(entries, oldSize).map((b) => "0x" + bytesToHex(b));
+  assert.ok(real.length >= 3);
+  const serve = (path: unknown): FetchLike => async () => ({ ok: true, status: 200, json: async () => ({ path }) });
+  const older = sth(kp.secretKey, oldSize);
+  const newer = sth();
+  const ok = await verifyHeadsConsistent(BASE, older, newer, { fetchImpl: serve(real) });
+  assert.equal(ok.consistent, true, "the path itself verifies");
+
+  // Each of the first three prints as the hash it wraps, so String() read it as that hash.
+  const wraps: Array<[string, (h: string) => unknown]> = [
+    ["array holding the hash", (h) => [h]],
+    ["nested array holding the hash", (h) => [[h]]],
+    ["object that prints as the hash", (h) => ({ toString: () => h })],
+    ["number", () => 12345],
+    ["zero", () => 0],
+    ["false", () => false],
+    ["null", () => null],
+  ];
+  for (const [label, wrap] of wraps) {
+    for (const i of [0, real.length - 1]) {
+      const path = real.map((h, j) => (j === i ? wrap(h) : h));
+      const refusal = { message: `consistency path[${i}] must be a hex string` };
+      await assert.rejects(fetchConsistencyProof(BASE, oldSize, entries.length, { fetchImpl: serve(path) }), refusal, label);
+      await assert.rejects(verifyHeadsConsistent(BASE, older, newer, { fetchImpl: serve(path) }), refusal, label);
+      await assert.rejects(
+        fetchConsistencyProof(BASE, oldSize, entries.length, {
+          fetchImpl: async () => ({ ok: true, status: 200, json: async () => path }),
+        }),
+        refusal,
+        `${label}, bare array`,
+      );
+    }
+  }
 });
 
 test("verifyReceiptInLog: happy path with an explicit pin", async () => {

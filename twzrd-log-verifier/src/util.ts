@@ -16,6 +16,7 @@ export type FetchLike = (
 ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 export function hexToBytes(hex: string): Uint8Array {
+  if (typeof hex !== "string") throw new Error("hex value must be a string");
   const clean = hex.toLowerCase().replace(/^0x/, "");
   if (!/^[0-9a-f]*$/.test(clean) || clean.length % 2 !== 0) {
     throw new Error(`invalid hex string: ${JSON.stringify(hex)}`);
@@ -25,6 +26,25 @@ export function hexToBytes(hex: string): Uint8Array {
     out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
+}
+
+/**
+ * A proof path as a document carries it: an array of hex strings. An entry of
+ * any other type is refused and is never converted: `String(["ab…"])` prints
+ * the array's one element, so a conversion would let an array, or an object
+ * with its own `toString`, stand in for a hash.
+ */
+export function hexStringArray(path: unknown, name: string): string[] {
+  if (!Array.isArray(path)) throw new Error(`${name} must be an array of hex strings`);
+  path.forEach((h: unknown, i) => {
+    if (typeof h !== "string") throw new Error(`${name}[${i}] must be a hex string`);
+  });
+  return path as string[];
+}
+
+/** The bytes of a proof path, entry by entry. Same type rule as `hexStringArray`. */
+export function hexPathToBytes(path: unknown, name: string): Uint8Array[] {
+  return hexStringArray(path, name).map((h) => hexToBytes(h));
 }
 
 export function bytesToHex(bytes: Uint8Array): string {
