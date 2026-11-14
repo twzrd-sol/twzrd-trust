@@ -106,7 +106,7 @@ Registry `latest` as read on 2026-11-11; killswitch container pin also rechecked
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.12 | 0.3.12 (`dist/` mirror) | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.5.1 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
-| `twzrd-log-verifier` | npm 0.5.2 | 0.5.2 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. 0.5.2 requires a receipt checked beside an inclusion proof to name its own leaf; 0.5.1 and later do not follow redirects from the log. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
+| `twzrd-log-verifier` | npm 0.5.3 | 0.5.3 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. 0.5.3 refuses a leaf that is not a string; 0.5.2 and later require a receipt checked beside an inclusion proof to name its own leaf; 0.5.1 and later do not follow redirects from the log. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
 | `@twzrd1111/agent-killswitch` | npm **0.2.1**; `ghcr.io/twzrd-sol/agent-killswitch:0.2.1` | 0.2.1 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
 
 ---

@@ -31,10 +31,11 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
-On npm; 0.5.2 is the current version. It requires a receipt checked beside an
-inclusion proof to name its own leaf (see "Changed in 0.5.2") and is otherwise 0.5.1
-(published 2026-11-13), which refuses redirects from the log (below) and is otherwise
-0.5.0 (published 2026-10-30). It fetches the
+On npm; 0.5.3 is the current version. It refuses a leaf that is not a string (see
+"Changed in 0.5.3") and is otherwise 0.5.2 (published 2026-11-14), which requires a
+receipt checked beside an inclusion proof to name its own leaf (see "Changed in
+0.5.2"). That is otherwise 0.5.1 (published 2026-11-13), which refuses redirects from
+the log (below) and is otherwise 0.5.0 (published 2026-10-30). It fetches the
 transaction bytes and verifies the transaction identity and the authority's signature
 locally (see the anchor trust table below). Upgrade from earlier versions: 0.4.0's
 anchor check still trusts the RPC's `jsonParsed` fields for the transaction's signers
@@ -114,6 +115,31 @@ RPC that reported it: use one you trust, or run the check against several and
 compare. Anchor transactions use static account keys; a versioned transaction
 that references an address-table account, or one whose message version is not
 legacy or 0, is reported as an error, not a verdict.
+
+### Changed in 0.5.3
+
+- A leaf is a string wherever one is named: 64 hex characters, with or without `0x`,
+  in either case. A value of any other type (an array, an object, a number, a
+  boolean) is refused and is never converted. In 0.5.2 and earlier the value was read
+  through `String()`, so an array holding the leaf, or an object with its own
+  `toString`, verified as if it had named that leaf.
+- `verifyLogInclusion`: a `twzrd_receipt.leaf` that is not a string is
+  `receipt has no 64-hex-char .leaf field`; a block leaf or an `opts.leaf` that is not
+  a string is `leaf must be a string of 64 hex chars`, prefixed with where it was
+  found (`leaf`, `log_inclusion.leaf` or `opts.leaf`). Both are returned before any
+  signature check.
+- `extractReceiptLeaf` throws, and `verifyReceiptInLog` and `fetchInclusionProof`
+  refuse before any request reaches the log.
+- CLI: `inclusion --receipt FILE`, and `inclusion --proof FILE` on a whole paid
+  response, exit 1.
+- Unchanged: a bare `log_inclusion` block, a bare proof with `opts.leaf`, upper-case
+  hex with or without `0x`, and a block whose leaf is missing, `null` or empty (it
+  names nothing, so `opts.leaf` or the receipt names the leaf).
+- One edge changes: a block leaf of `0` or `false` was read as "not named" and is now
+  an error.
+- Not in this release: `audit_path` entries are still read through `String()`. An
+  entry that is not a string but prints as hex is accepted; the path still has to
+  hash to the signed root.
 
 ### Changed in 0.5.2
 
