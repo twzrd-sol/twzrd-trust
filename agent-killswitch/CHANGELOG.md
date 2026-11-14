@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- MPP session management passes through. mppx sends a session `close` and
+  `topUp` as a POST with no body to the last paid URL; the proxy answered
+  400 "body must be JSON". It now forwards them upstream with no body and no
+  budget hold, returns the seller's status and receipt, and ledgers one
+  cost-0 line with `session_action`. A request with no body and no credential
+  is forwarded the same way. A request with no body that carries any other
+  credential (a voucher, an open, an x402 header) is refused with 400 before
+  upstream. The kill file refuses all of them; a pause refuses a `topUp`.
+- Flat per-request pricing: `model_rates` / `KILLSWITCH_MODEL_RATES` entries
+  accept an optional `per_request` (USD), and `createBudgetGate` rows accept
+  `perRequestUsd`. It is added to the pre-call hold and the ledger cost. A
+  row with `in: 0, out: 0, per_request: 0.00075` holds and ledgers exactly
+  $0.00075 per request (750 base units of a 6-decimal stablecoin), the
+  amount an MPP session seller takes per voucher. Rows without it are
+  unchanged.
+
 ## 0.2.1 (2026-11-13)
 
 ### Fixed
