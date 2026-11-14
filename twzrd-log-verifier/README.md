@@ -31,8 +31,10 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
-On npm; 0.5.1 is the current version (published 2026-11-13). It refuses redirects
-from the log (below) and is otherwise 0.5.0 (published 2026-10-30). It fetches the
+On npm; 0.5.2 is the current version. It requires a receipt checked beside an
+inclusion proof to name its own leaf (see "Changed in 0.5.2") and is otherwise 0.5.1
+(published 2026-11-13), which refuses redirects from the log (below) and is otherwise
+0.5.0 (published 2026-10-30). It fetches the
 transaction bytes and verifies the transaction identity and the authority's signature
 locally (see the anchor trust table below). Upgrade from earlier versions: 0.4.0's
 anchor check still trusts the RPC's `jsonParsed` fields for the transaction's signers
@@ -112,6 +114,21 @@ RPC that reported it: use one you trust, or run the check against several and
 compare. Anchor transactions use static account keys; a versioned transaction
 that references an address-table account, or one whose message version is not
 legacy or 0, is reported as an error, not a verdict.
+
+### Changed in 0.5.2
+
+- `verifyLogInclusion`, and `inclusion --proof FILE` on a whole paid response,
+  require a `twzrd_receipt` in the document to name its own leaf: 64 hex characters,
+  with or without `0x`, in either case. A receipt whose leaf is missing, empty, too
+  short or not hex, or a `twzrd_receipt` that is not an object (null, a string, an
+  array), is an error (`receipt has no 64-hex-char .leaf field`) returned before any
+  signature check. In 0.5.1 and earlier the leaf of the attached `log_inclusion`
+  block, or `opts.leaf`, stood in for it, so a proof for that leaf verified beside a
+  receipt it says nothing about.
+- Unchanged: a bare `log_inclusion` block, a bare proof with `opts.leaf`, and
+  `verifyReceiptInLog`, which already applied this rule.
+- Not in this release: the leaf value is still read through `String()`, so a value
+  that is not a string but prints as 64 hex characters is accepted.
 
 ### Changed in 0.5.1
 
