@@ -30,7 +30,7 @@ pip install twzrd-mcp          # Python
 
 | Surface | Tool set | Wallet | Use when |
 |---------|-------|--------|----------|
-| `https://intel.twzrd.xyz/mcp` (hosted) | Full hosted set (live `tools/list`) | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, product-listing checks (`check_listing`), and observed-market research. |
+| `https://intel.twzrd.xyz/mcp` (hosted) | Full hosted set (live `tools/list`) | No | Default. Seller preflight, resource evaluation, reputation, receipts, watches, and observed-market research. |
 | `twzrd-mcp-server` / `twzrd-mcp` (this local package) | 6 local tools | Only for paid | You want `quick_trust` / `full_trust` auto-paid locally with caps. |
 
 Start with hosted `twzrd_demo_gate` for a zero-setup, zero-spend transcript of
@@ -67,7 +67,7 @@ both — the server runs read-only and never signs. Spend is bounded by per-call
 session caps.
 
 Before any Solana signature the Node server runs `twzrd-x402-gate@0.20.2` wash
-default (Python `twzrd-mcp` 0.2.2 does the same `merchant_card` check on the 402
+default (Python `twzrd-mcp` 0.2.3 does the same `merchant_card` check on the 402
 `payTo`): abort iff `wash_flagged===true`, and fail closed if intel cannot answer
 (timeout, 5xx/429, unreadable body): an outage is never read as clean. That is
 the paying-client brake, not a Path A shop.
