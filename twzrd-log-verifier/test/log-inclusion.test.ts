@@ -80,6 +80,68 @@ test("a receipt that names no valid leaf is rejected even beside a block that ve
   assert.equal(upper.valid, true, upper.errors.join("; "));
 });
 
+test("a leaf that is not a string is refused wherever it is named, never converted", () => {
+  // String(["0x.."]) prints the array's one element. While leaves were read
+  // through String(), the first three of these verified as the proven leaf.
+  const notStrings: Array<[string, unknown]> = [
+    ["array holding the leaf", [LIVE_LEAF]],
+    ["nested array holding the leaf", [[LIVE_LEAF]]],
+    ["object that prints as the leaf", { toString: () => LIVE_LEAF }],
+    ["plain object", { hex: LIVE_LEAF }],
+    ["number", 12345],
+    ["zero", 0],
+    ["boolean", true],
+  ];
+  const bareProof = { ...LIVE_BLOCK, leaf: undefined };
+  for (const [label, leaf] of notStrings) {
+    const asReceipt = verifyLogInclusion({ twzrd_receipt: { leaf }, log_inclusion: LIVE_BLOCK }, DEFAULT_STH_PUBKEY);
+    assert.equal(asReceipt.valid, false, `receipt leaf, ${label}`);
+    assert.match(asReceipt.errors.join("\n"), /receipt has no 64-hex-char \.leaf/, `receipt leaf, ${label}`);
+    assert.equal(asReceipt.sth_valid, false, `receipt leaf, ${label}: rejected before any signature work`);
+
+    const asBareBlock = verifyLogInclusion({ ...LIVE_BLOCK, leaf }, DEFAULT_STH_PUBKEY);
+    assert.equal(asBareBlock.valid, false, `bare block leaf, ${label}`);
+    assert.deepEqual(asBareBlock.errors, ["leaf: leaf must be a string of 64 hex chars"], `bare block leaf, ${label}`);
+    assert.equal(asBareBlock.sth_valid, false, `bare block leaf, ${label}: rejected before any signature work`);
+
+    const asInnerBlock = verifyLogInclusion(
+      { twzrd_receipt: { leaf: LIVE_LEAF }, log_inclusion: { ...LIVE_BLOCK, leaf } },
+      DEFAULT_STH_PUBKEY,
+    );
+    assert.equal(asInnerBlock.valid, false, `log_inclusion.leaf, ${label}`);
+    assert.deepEqual(asInnerBlock.errors, ["log_inclusion.leaf: leaf must be a string of 64 hex chars"], label);
+
+    const asCaller = verifyLogInclusion(bareProof, DEFAULT_STH_PUBKEY, { leaf: leaf as string });
+    assert.equal(asCaller.valid, false, `opts.leaf, ${label}`);
+    assert.deepEqual(asCaller.errors, ["opts.leaf: leaf must be a string of 64 hex chars"], `opts.leaf, ${label}`);
+
+    // A string leaf named somewhere else does not make up for it.
+    assert.equal(
+      verifyLogInclusion({ ...LIVE_BLOCK, leaf }, DEFAULT_STH_PUBKEY, { leaf: LIVE_LEAF }).valid,
+      false,
+      `bare block leaf, ${label}: opts.leaf does not stand in for it`,
+    );
+  }
+
+  // Unchanged: a bare block, a bare proof with opts.leaf, and a leaf written in
+  // upper case or without 0x, in each of the three places a leaf is named.
+  const upper = LIVE_LEAF.slice(2).toUpperCase();
+  assert.equal(verifyLogInclusion(LIVE_BLOCK, DEFAULT_STH_PUBKEY).valid, true, "bare block");
+  assert.equal(verifyLogInclusion({ ...LIVE_BLOCK, leaf: upper }, DEFAULT_STH_PUBKEY).valid, true, "bare block, upper case");
+  assert.equal(verifyLogInclusion(bareProof, DEFAULT_STH_PUBKEY, { leaf: LIVE_LEAF }).valid, true, "bare proof + opts.leaf");
+  assert.equal(verifyLogInclusion(bareProof, DEFAULT_STH_PUBKEY, { leaf: upper }).valid, true, "bare proof + upper-case opts.leaf");
+  assert.equal(
+    verifyLogInclusion({ twzrd_receipt: { leaf: upper }, log_inclusion: { ...LIVE_BLOCK, leaf: upper } }, DEFAULT_STH_PUBKEY).valid,
+    true,
+    "paid response, upper case, no 0x",
+  );
+  // Unchanged: a block whose leaf is null or empty names nothing; opts.leaf names it.
+  for (const blank of [null, ""]) {
+    const res = verifyLogInclusion({ ...LIVE_BLOCK, leaf: blank }, DEFAULT_STH_PUBKEY, { leaf: LIVE_LEAF });
+    assert.equal(res.valid, true, `block leaf ${JSON.stringify(blank)} + opts.leaf: ${res.errors.join("; ")}`);
+  }
+});
+
 test("tampered root, wrong pin, missing head, missing leaf, missing index each fail by name", () => {
   const root = LIVE_BLOCK.sth.root;
   const tampered = { ...LIVE_BLOCK, sth: { ...LIVE_BLOCK.sth, root: root.slice(0, -1) + (root.endsWith("0") ? "1" : "0") } };

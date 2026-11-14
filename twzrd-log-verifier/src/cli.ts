@@ -141,7 +141,8 @@ function extractLeafHex(receiptDoc: unknown): string {
   ) {
     doc = doc.twzrd_receipt as Record<string, unknown>;
   }
-  const leaf = String(doc?.leaf || "").toLowerCase().replace(/^0x/, "");
+  // A leaf is a string. Another type (an array, a number) is not converted.
+  const leaf = typeof doc?.leaf === "string" ? doc.leaf.toLowerCase().replace(/^0x/, "") : "";
   if (!/^[0-9a-f]{64}$/.test(leaf)) {
     throw new Error("receipt has no 64-hex-char .leaf field (is this a keccak-leaf receipt?)");
   }

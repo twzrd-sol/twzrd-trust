@@ -7,6 +7,7 @@ import {
   extractReceiptLeaf,
   fetchLogDescriptor,
   fetchConsistencyProof,
+  fetchInclusionProof,
   verifyReceiptInLog,
   type LogDescriptor,
 } from "../src/client.js";
@@ -135,6 +136,59 @@ test("extractReceiptLeaf handles bare receipts and API envelopes", () => {
   assert.equal(extractReceiptLeaf({ leaf: "0x" + leaf }), leaf);
   assert.equal(extractReceiptLeaf({ twzrd_receipt: { leaf } }), leaf);
   assert.throws(() => extractReceiptLeaf({ nope: 1 }), /no 64-hex-char/);
+});
+
+test("extractReceiptLeaf refuses a leaf that is not a string", () => {
+  const leaf = "ab".repeat(32);
+  const notStrings: unknown[] = [[leaf], [["0x" + leaf]], { toString: () => leaf }, { hex: leaf }, 12345, true];
+  for (const bad of notStrings) {
+    assert.throws(() => extractReceiptLeaf({ leaf: bad }), /no 64-hex-char/, JSON.stringify(bad));
+    assert.throws(() => extractReceiptLeaf({ twzrd_receipt: { leaf: bad } }), /no 64-hex-char/, JSON.stringify(bad));
+  }
+  // A string leaf in the envelope does not rescue a non-string leaf beside it.
+  assert.throws(() => extractReceiptLeaf({ leaf: [leaf], twzrd_receipt: { leaf } }), /no 64-hex-char/);
+  // Unchanged: upper case, with or without 0x.
+  assert.equal(extractReceiptLeaf({ leaf: "0x" + leaf.toUpperCase() }), leaf);
+  assert.equal(extractReceiptLeaf({ leaf: leaf.toUpperCase() }), leaf);
+});
+
+test("a leaf that is not a string never reaches the log: no request is made for it", async () => {
+  const leaf = bytesToHex(entries[12]);
+  let requests = 0;
+  const server = mockServer();
+  const counting: FetchLike = async (url, init) => {
+    requests++;
+    return server(url, init);
+  };
+  for (const bad of [[leaf], { toString: () => leaf }, 12345] as unknown[]) {
+    const res = await verifyReceiptInLog({
+      baseUrl: BASE,
+      leaf: bad as string,
+      trusted: pinnedDir,
+      fetchImpl: counting,
+    });
+    assert.equal(res.valid, false);
+    assert.deepEqual(res.errors, ["leaf must be a string of 64 hex chars"]);
+    await assert.rejects(
+      fetchInclusionProof(BASE, bad as string, { fetchImpl: counting }),
+      /leaf must be a string of 64 hex chars/,
+    );
+    await assert.rejects(
+      verifyReceiptInLog({ baseUrl: BASE, receipt: { leaf: bad }, trusted: pinnedDir, fetchImpl: counting }),
+      /no 64-hex-char/,
+    );
+  }
+  assert.equal(requests, 0);
+  // Unchanged: the same leaf as an upper-case string verifies.
+  const ok = await verifyReceiptInLog({
+    baseUrl: BASE,
+    leaf: "0x" + leaf.toUpperCase(),
+    trusted: pinnedDir,
+    fetchImpl: counting,
+  });
+  assert.deepEqual(ok.errors, []);
+  assert.ok(ok.valid);
+  assert.ok(requests > 0);
 });
 
 test("fetchLogDescriptor validates the document", async () => {

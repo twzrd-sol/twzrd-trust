@@ -183,13 +183,27 @@ export async function fetchSth(
   return doc as SignedTreeHead;
 }
 
+const LEAF_NOT_A_STRING = "leaf must be a string of 64 hex chars";
+
+/**
+ * A leaf as a caller or a document names it: a string, `0x` optional, either
+ * case. A value of any other type is not a leaf and is never converted to one:
+ * `String(["0xab…"])` prints the array's one element, so a conversion would let
+ * an array, or an object with its own `toString`, stand in for the string a
+ * receipt or a proof has to carry.
+ */
+function leafString(v: unknown): string | undefined {
+  return typeof v === "string" ? v.toLowerCase().replace(/^0x/, "") : undefined;
+}
+
 export async function fetchInclusionProof(
   baseUrl: string,
   leafHex: string,
   opts: { descriptor?: LogDescriptor; fetchImpl?: FetchLike } = {},
 ): Promise<InclusionProofResponse> {
   const fetchImpl = opts.fetchImpl ?? (fetch as unknown as FetchLike);
-  const leaf = String(leafHex).toLowerCase().replace(/^0x/, "");
+  const leaf = leafString(leafHex);
+  if (leaf === undefined) throw new Error(LEAF_NOT_A_STRING);
   const url = `${joinUrl(baseUrl, endpoint(opts.descriptor, "inclusion"))}?leaf=${encodeURIComponent(leaf)}`;
   return (await getJson(url, fetchImpl)) as InclusionProofResponse;
 }
@@ -221,7 +235,7 @@ export function extractReceiptLeaf(receiptDoc: unknown): string {
   ) {
     doc = doc.twzrd_receipt as Record<string, unknown>;
   }
-  const leaf = String(doc?.leaf || "").toLowerCase().replace(/^0x/, "");
+  const leaf = leafString(doc?.leaf) ?? "";
   if (!/^[0-9a-f]{64}$/.test(leaf)) {
     throw new Error("receipt has no 64-hex-char .leaf field (is this a keccak-leaf receipt?)");
   }
@@ -264,10 +278,8 @@ export async function verifyReceiptInLog(opts: {
   fetchImpl?: FetchLike;
 }): Promise<ReceiptInLogResult> {
   const fetchImpl = opts.fetchImpl ?? (fetch as unknown as FetchLike);
-  const leaf =
-    opts.leaf !== undefined
-      ? String(opts.leaf).toLowerCase().replace(/^0x/, "")
-      : extractReceiptLeaf(opts.receipt);
+  const named = opts.leaf !== undefined ? leafString(opts.leaf) : extractReceiptLeaf(opts.receipt);
+  const leaf = named ?? "";
 
   const out: ReceiptInLogResult = {
     valid: false,
@@ -277,6 +289,10 @@ export async function verifyReceiptInLog(opts: {
     sth_valid: false,
     inclusion_valid: false,
   };
+  if (named === undefined) {
+    out.errors.push(LEAF_NOT_A_STRING);
+    return out;
+  }
   if (!/^[0-9a-f]{64}$/.test(leaf)) {
     out.errors.push("leaf must be 64 hex chars");
     return out;
@@ -327,10 +343,6 @@ export async function verifyReceiptInLog(opts: {
   return { ...verifyLogInclusion({ ...proof, sth }, trust.trusted, { leaf }), tofu: trust.tofu };
 }
 
-function normLeaf(v: unknown): string {
-  return String(v ?? "").toLowerCase().replace(/^0x/, "");
-}
-
 /**
  * Offline: verify the `log_inclusion` block a paid response already carries —
  * no round-trip to the log, nothing to trust but the pinned key. `doc` may be
@@ -340,8 +352,10 @@ function normLeaf(v: unknown): string {
  * your receipt, proves nothing about it. A document that carries a
  * `twzrd_receipt` must have that receipt name its own 64-hex leaf, as
  * `extractReceiptLeaf` (and so `verifyReceiptInLog`) requires: the block's leaf
- * alone says nothing about the receipt beside it. Same result shape as
- * `verifyReceiptInLog`, minus the fetch.
+ * alone says nothing about the receipt beside it. A leaf is a string: a leaf of
+ * any other type (an array, a number, an object) is refused wherever it is
+ * named, not converted. Same result shape as `verifyReceiptInLog`, minus the
+ * fetch.
  */
 export function verifyLogInclusion(
   doc: unknown,
@@ -356,12 +370,17 @@ export function verifyLogInclusion(
     top.twzrd_receipt && typeof top.twzrd_receipt === "object" && !Array.isArray(top.twzrd_receipt)
       ? (top.twzrd_receipt as Record<string, unknown>)
       : undefined;
-  const receiptLeaf = receipt?.leaf ? normLeaf(receipt.leaf) : undefined;
-  const named = [
-    opts.leaf !== undefined ? normLeaf(opts.leaf) : undefined,
-    receiptLeaf,
-    block.leaf ? normLeaf(block.leaf) : undefined,
-  ].filter((l): l is string => l !== undefined);
+  const receiptLeaf = receipt?.leaf ? leafString(receipt.leaf) : undefined;
+  // The caller's and the block's leaf are optional. One that is given has to be
+  // a string; a block's missing, null or empty leaf names nothing, as before.
+  const notStrings: string[] = [];
+  const callerLeaf = opts.leaf !== undefined ? leafString(opts.leaf) : undefined;
+  if (opts.leaf !== undefined && callerLeaf === undefined) notStrings.push("opts.leaf");
+  const blockRaw: unknown = block.leaf;
+  const blockNames = blockRaw !== undefined && blockRaw !== null && blockRaw !== "";
+  const blockLeaf = blockNames ? leafString(blockRaw) : undefined;
+  if (blockNames && blockLeaf === undefined) notStrings.push(inner && typeof inner === "object" ? "log_inclusion.leaf" : "leaf");
+  const named = [callerLeaf, receiptLeaf, blockLeaf].filter((l): l is string => l !== undefined);
   const distinct = [...new Set(named)];
   const out: ReceiptInLogResult = {
     valid: false,
@@ -373,6 +392,10 @@ export function verifyLogInclusion(
   };
   if (hasReceipt && (receiptLeaf === undefined || !/^[0-9a-f]{64}$/.test(receiptLeaf))) {
     out.errors.push("receipt has no 64-hex-char .leaf field: twzrd_receipt must name the leaf the proof is for");
+    return out;
+  }
+  if (notStrings.length > 0) {
+    out.errors.push(...notStrings.map((where) => `${where}: ${LEAF_NOT_A_STRING}`));
     return out;
   }
   if (distinct.length === 0) {
