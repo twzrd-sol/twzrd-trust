@@ -2,9 +2,10 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
-## Unreleased
+## 0.22.0 (2026-11-14)
 
-Not on npm. Every item adds a refusal or narrows what is read; none loosens one.
+Every item adds a refusal or narrows what is read; none loosens one. The first three change
+allow/refuse results, so this ships in a minor release, not a patch.
 
 - **Instruction allowlist on a bound transaction (`requireOfferBinding`).** The hard
   bind check verified the memos and the first `TransferChecked`, and said nothing

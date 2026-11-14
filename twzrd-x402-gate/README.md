@@ -16,7 +16,7 @@ cannot answer. Keep the reason in a local JSONL file.
 | Using the `@x402/mcp` client | `twzrdOnPaymentRequested` |
 | Signing with your own code, without this package | [the paste-in check](#refuse-before-you-sign-without-this-package) |
 | Keeping an older integration | `createGuardedX402Fetch`, `withTwzrdGuard`, `wrapFetchWithTwzrdGate`, or `twzrd.safeFetch` |
-| Running a router or payment proxy that gates its users' payments | [`routerProfile({ failOpen })`](#router-profile-routerprofile) on a client hook or fetch wrapper (unreleased) |
+| Running a router or payment proxy that gates its users' payments | [`routerProfile({ failOpen })`](#router-profile-routerprofile) on a client hook or fetch wrapper (from 0.21.0) |
 
 `installTwzrdAutoGate` is one function with those adapters. `twzrd.safeFetch` is
 `spendControlSafeFetch`. The other export named `safeFetch` is the advisory CLI
@@ -78,7 +78,7 @@ sentinels: an install with evaluation off still refuses while one is in force.
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.21.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.22.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -327,7 +327,7 @@ The gate verifies the composed bytes, then calls `pay()` with that
 `transactionBase64`. The old post-pay check remains as
 `verifyOfferBindingAfterPay` only. This SDK never holds keys.
 
-Unreleased: the hard bind check holds the composed transaction to an instruction
+From 0.22.0, the hard bind check holds the composed transaction to an instruction
 allowlist. It may carry, and nothing else:
 
 - ComputeBudget `SetComputeUnitLimit` and `SetComputeUnitPrice`, one of each, no accounts;
@@ -360,7 +360,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.21.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.22.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -399,7 +399,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.21.0
+npm install twzrd-x402-gate@0.22.0
 ```
 
 ```typescript
@@ -444,7 +444,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.21.0
+npm install twzrd-x402-gate@0.22.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -464,7 +464,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.21.0 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.22.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -641,7 +641,7 @@ This doc describes **0.18.0**. Check `npm view twzrd-x402-gate version` for the 
 - An approved `warn` with a wired paying fetch requests `/v1/intel/quick` and does not request `/v1/intel/trust`.
 - `createTwzrdBeforePaymentHook` does not read `TWZRD_AUTO_GATE` or `TWZRD_GATE_ENABLED`; those switches apply only to `installTwzrdAutoGate`.
 - `createTwzrdSettleGuard` stays fail-open by default, so an unavailable gate does not abort.
-- Unreleased: base64 is read strictly (RFC 4648 section 4: the standard alphabet, `=` padding to a multiple of four, no whitespace, no other characters, no unused bits set). That covers the `PAYMENT-REQUIRED` header, the `PAYMENT-SIGNATURE` / `X-PAYMENT` header, the transaction inside a payment payload, a held vault-spend copy and decision signatures. Another spelling of the same bytes (base64url, unpadded, with a line break) is unreadable, not a second way to write the payment: `payment_payload_unreadable` where the payment is compared with its approval, a blocked payment for an undecodable `PAYMENT-REQUIRED`, `vault_spend_unreadable` for a held copy, and no hard bind for a bound transaction. Node's `Buffer` decoder read those spellings as the same bytes. `@x402/core` and `x402-solana` write canonical base64, so their headers are unaffected. `createSeededDecisionSigner` still reads its secret as hex, base64 or base64url: that is operator key material, not a payment field.
+- From 0.22.0, base64 is read strictly (RFC 4648 section 4: the standard alphabet, `=` padding to a multiple of four, no whitespace, no other characters, no unused bits set). That covers the `PAYMENT-REQUIRED` header, the `PAYMENT-SIGNATURE` / `X-PAYMENT` header, the transaction inside a payment payload, a held vault-spend copy and decision signatures. Another spelling of the same bytes (base64url, unpadded, with a line break) is unreadable, not a second way to write the payment: `payment_payload_unreadable` where the payment is compared with its approval, a blocked payment for an undecodable `PAYMENT-REQUIRED`, `vault_spend_unreadable` for a held copy, and no hard bind for a bound transaction. Node's `Buffer` decoder read those spellings as the same bytes. `@x402/core` and `x402-solana` write canonical base64, so their headers are unaffected. `createSeededDecisionSigner` still reads its secret as hex, base64 or base64url: that is operator key material, not a payment field.
 - The pay path is not uniformly fail-closed in any release: `createTwzrdSettleGuard` is fail-open by default, `TWZRD_FAIL_OPEN=true` lets a buyer preflight outage sign on entry points that do not force `failOpen`, and those entry points default unscored networks to `observe` (allow, wash check still runs). `createBuyerFetch` is the exception: the outage stays closed, and an unscored network is refused.
 
 Optional settle guard (resource-server **payer** policy): see **Seller settle guard
@@ -1097,7 +1097,7 @@ wired): an outage on the receipt endpoint must never produce a *better* outcome 
 receipt body. Path A that your `requireReceipt` threshold never attempted is out of scope — this
 knob gates receipts, it does not override your threshold.
 
-Unreleased: the log proves a leaf, not the fields printed beside it, so the gate checks the
+The log proves a leaf, not the fields printed beside it, so from 0.22.0 the gate checks the
 receipt itself before it calls your verifier. It recomputes the canonical leaf from
 `receipt.preimage` (V7 and V6 reputation receipts), requires `receipt.leaf` to equal it, and
 requires `receipt.signature` to verify over that leaf under the pinned receipt issuer key
@@ -1615,7 +1615,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `intel_block` | The injected preflight answered `block`. |
 | `decision_bind_required` | A signed decision is required and none was bound. |
 | `bind_required_no_compose`, `bind_required_no_settlement`, `bind_required_no_leaf_hash`, `bind_mismatch` | A resource bind was required and could not be built or did not match. |
-| `bind_unexpected_instruction` | A resource bind was required and the composed transaction carries an instruction a bound transfer may not carry (see the allowlist under *Lower-level call*), or uses an address lookup table. `detail` is `bound tx instruction refused: <code>`. Unreleased. |
+| `bind_unexpected_instruction` | A resource bind was required and the composed transaction carries an instruction a bound transfer may not carry (see the allowlist under *Lower-level call*), or uses an address lookup table. `detail` is `bound tx instruction refused: <code>`. From 0.22.0. |
 | `twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt` | Track 5 `.kill` or `.pause` sentinel is active (or `.pause` is corrupt) in `stateDir` (default `./data`). The MPP entry points refuse on the same sentinel before a credential is created. Read on entry and again right before `pay` is called (before the WAL intent is written), or before an allow or warn is returned when no `pay` is configured. |
 | `wal_unresolved_intent`, `wal_intent_write_failed`, `wal_unconfirmed_payment` | Track 6 SVM write-ahead log (`svmWal` / `svmWalFile` / `TWZRD_SVM_WAL_FILE`) has an earlier `payment_intent` with no `payment_receipt` (loop frozen until `recoverUnresolvedIntents` polls RPC), the pre-sign `fsync` of `payment_intent` failed (`signerInvocations = 0`), or the payer ran and its return does not prove settlement (`signerInvocations = 1`). Proof is a well-formed `txSignature` with a positive integer `slot` and `confirmationStatus` `confirmed` or `finalized`, or with `facilitatorSettlement: { verified: true, facilitator }`. Without it no receipt is written and the intent stays unresolved. |
 
@@ -1632,7 +1632,7 @@ Checked on a transaction the gate already holds, before any socket. A refusal ap
 | `instruction_bytes_differ` | The `spend_with_policy` instruction bytes differ from the bound instruction, including a one-byte change. |
 | `authorization_expired` | The desk signature verifies and `nowTs` is at or past `expiresAtTs`. |
 | `advisory_payment_decision_does_not_move_usdc` | The only credential is an advisory `twzrd.payment_decision.v1` and the desk signature is missing. |
-| `vault_spend_unreadable` | The bytes are not one USDC `spend_with_policy` instruction on the deployed vault program, or (unreleased) `serializedTransaction` is not canonical base64. |
+| `vault_spend_unreadable` | The bytes are not one USDC `spend_with_policy` instruction on the deployed vault program, or (from 0.22.0) `serializedTransaction` is not canonical base64. |
 
 ## Config
 
@@ -1736,7 +1736,7 @@ be set or nothing is stamped.
 
 ## Router profile (`routerProfile`)
 
-Unreleased: on `main`, not yet on npm.
+From 0.21.0.
 
 For a router or payment proxy that runs this gate in its own process, on its
 users' payments. `routerProfile({ failOpen })` returns a frozen config with
