@@ -31,11 +31,14 @@ Solana, and any relying party can hold the log to its own history.
 
 ## Usage
 
-On npm; 0.5.3 is the current version. It refuses a leaf that is not a string (see
-"Changed in 0.5.3") and is otherwise 0.5.2 (published 2026-11-14), which requires a
-receipt checked beside an inclusion proof to name its own leaf (see "Changed in
-0.5.2"). That is otherwise 0.5.1 (published 2026-11-13), which refuses redirects from
-the log (below) and is otherwise 0.5.0 (published 2026-10-30). It fetches the
+On npm; 0.5.4 is the current version. It refuses a proof path entry that is not a
+string and an `audit_path` that is not an array, and reports a leaf of `0` or `false`
+as a type error wherever one is named (see "Changed in 0.5.4"). It is otherwise 0.5.3
+(published 2026-11-14), which refuses a leaf that is not a string (see "Changed in
+0.5.3"). That is otherwise 0.5.2 (published 2026-11-14), which requires a receipt
+checked beside an inclusion proof to name its own leaf (see "Changed in 0.5.2"). That
+is otherwise 0.5.1 (published 2026-11-13), which refuses redirects from the log
+(below) and is otherwise 0.5.0 (published 2026-10-30). It fetches the
 transaction bytes and verifies the transaction identity and the authority's signature
 locally (see the anchor trust table below). Upgrade from earlier versions: 0.4.0's
 anchor check still trusts the RPC's `jsonParsed` fields for the transaction's signers
@@ -116,9 +119,7 @@ compare. Anchor transactions use static account keys; a versioned transaction
 that references an address-table account, or one whose message version is not
 legacy or 0, is reported as an error, not a verdict.
 
-### Unreleased (after 0.5.3)
-
-Not on npm.
+### Changed in 0.5.4
 
 - A proof path entry is a hex string. `verifyLogInclusion` refuses an `audit_path`
   entry of any other type (`audit path: audit_path[i] must be a hex string`), and
