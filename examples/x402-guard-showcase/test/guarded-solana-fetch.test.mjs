@@ -3,22 +3,27 @@
 // client reads the chain from the loopback RPC stub (lib/solana-rpc.mjs), so
 // these tests open loopback sockets; the last test checks that none went
 // anywhere else.
+//
+// The x402-solana seat is opt-in. Without its packages (npm run
+// setup:x402-solana) every test here is skipped, and the skip says why.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 
-import { PublicKey, VersionedTransaction } from "@solana/web3.js";
-import { createX402Client } from "x402-solana/client";
-
-import { createDemoSolanaWallet, readTransfer } from "../lib/agent.mjs";
+import { X402_SOLANA_SETUP, createDemoSolanaWallet, loadX402Solana, readTransfer } from "../lib/agent.mjs";
 import { createGuardedX402SolanaFetch } from "../lib/guarded-fetch.mjs";
 import { installNetGuard } from "../lib/net-guard.mjs";
 import { RAILS, demoAddress, demoKey } from "../lib/rails.mjs";
 import { loadReceipt } from "../lib/receipt.mjs";
 import { paymentRequired } from "../lib/seller.mjs";
-import { DEMO_BLOCKHASH, startSolanaRpc, tokenAccountOf } from "../lib/solana-rpc.mjs";
+
+const seat = await loadX402Solana();
+const skip = seat.available ? false : `x402-solana seat not installed (${seat.missing.join(", ")}); ${X402_SOLANA_SETUP} adds it`;
+const { createX402Client } = seat;
+const { PublicKey, VersionedTransaction } = seat.available ? await import("@solana/web3.js") : {};
+const { DEMO_BLOCKHASH, startSolanaRpc, tokenAccountOf } = seat.available ? await import("../lib/solana-rpc.mjs") : {};
 
 const guard = installNetGuard();
 const scratchDirs = [];
@@ -104,7 +109,7 @@ const hookRefusal = (reason) => (error) => error.message === `Payment aborted by
 const reach = (reached, call) =>
   Promise.race([reached, call.then(() => Promise.reject(new Error("the call settled before reaching its hold")))]);
 
-test("allow: the client builds a USDC transfer for the approved offer, the wallet is asked once, and the receipt verifies", async () => {
+test("allow: the client builds a USDC transfer for the approved offer, the wallet is asked once, and the receipt verifies", { skip }, async () => {
   const stub = await rpcStub();
   const seller = fakeSeller({ path: "/receipt", body: { twzrd_receipt: loadReceipt() } });
   const { pay, events, signer } = wire({ seller, stub, receipt: true });
@@ -160,7 +165,7 @@ test("allow: the client builds a USDC transfer for the approved offer, the walle
   assert.equal(events.receipts[0].valid, true);
 });
 
-test("block: a recipient off the allowlist, a price over the cap and a token that is not USDC are refused in the hook, before any chain read or wallet call", async () => {
+test("block: a recipient off the allowlist, a price over the cap and a token that is not USDC are refused in the hook, before any chain read or wallet call", { skip }, async () => {
   const stub = await rpcStub();
   const cases = [
     { path: "/flagged", reason: "unauthorized_recipient" },
@@ -184,7 +189,7 @@ test("block: a recipient off the allowlist, a price over the cap and a token tha
   assert.equal(reads(stub), 0, "no refusal read the chain");
 });
 
-test("network: the stock client takes the first Solana offer on any cluster; one off the configured cluster is refused", async () => {
+test("network: the stock client takes the first Solana offer on any cluster; one off the configured cluster is refused", { skip }, async () => {
   const stub = await rpcStub();
   const mainnet = paymentRequired("/good", ORIGIN);
   const offer = mainnet.accepts.find((o) => o.network === SOL.network);
@@ -205,7 +210,7 @@ test("network: the stock client takes the first Solana offer on any cluster; one
   });
 });
 
-test("a malformed amount is the client's own error, before the hook: recorded as an error, nothing read or signed", async () => {
+test("a malformed amount is the client's own error, before the hook: recorded as an error, nothing read or signed", { skip }, async () => {
   const stub = await rpcStub();
   const required = paymentRequired("/good", ORIGIN);
   required.accepts = required.accepts.map((o) => (o.network === SOL.network ? { ...o, amount: "0.01" } : o));
@@ -220,7 +225,7 @@ test("a malformed amount is the client's own error, before the hook: recorded as
   assert.equal(events.decisions[0].chain, null, "the hook never saw the offer");
 });
 
-test("halt: with .kill or an active .pause nothing is sent or read from the chain, and onKill fires", async () => {
+test("halt: with .kill or an active .pause nothing is sent or read from the chain, and onKill fires", { skip }, async () => {
   const stub = await rpcStub();
   const cases = [
     { write: (f) => writeFileSync(f.killFilePath, "halt\n"), reason: "twzrd_kill_switch" },
@@ -250,7 +255,7 @@ test("halt: with .kill or an active .pause nothing is sent or read from the chai
   assert.equal(reads(stub), 0);
 });
 
-test("kill after the hook approved: a .kill written while the client reads the chain is found in the wallet, before the signer, and the reservation is released", { timeout: 15_000 }, async () => {
+test("kill after the hook approved: a .kill written while the client reads the chain is found in the wallet, before the signer, and the reservation is released", { skip, timeout: 15_000 }, async () => {
   const stub = await rpcStub();
   const seller = fakeSeller();
   const { pay, events, signer, files } = wire({ seller, stub, hourlyBudgetCap: "0.01" });
@@ -284,7 +289,7 @@ test("kill after the hook approved: a .kill written while the client reads the c
   assert.equal(signer.calls, 1);
 });
 
-test("concurrent calls: an approved amount stays reserved while the client reads the chain, so a second call cannot overspend the hourly cap", { timeout: 15_000 }, async () => {
+test("concurrent calls: an approved amount stays reserved while the client reads the chain, so a second call cannot overspend the hourly cap", { skip, timeout: 15_000 }, async () => {
   const stub = await rpcStub();
   const seller = fakeSeller();
   const { pay, events, signer } = wire({ seller, stub, hourlyBudgetCap: "0.01" });
@@ -307,7 +312,7 @@ test("concurrent calls: an approved amount stays reserved while the client reads
   );
 });
 
-test("refuses what it would not enforce: an unknown option, x402-solana's own amount and beforePayment, an unknown network, a bad limit", () => {
+test("refuses what it would not enforce: an unknown option, x402-solana's own amount and beforePayment, an unknown network, a bad limit", { skip }, () => {
   const { wallet } = createDemoSolanaWallet(SOL.buyer);
   const base = { createX402Client, wallet };
   const refused = (options, message) => assert.throws(() => createGuardedX402SolanaFetch(options), { name: "TypeError", message });
@@ -322,7 +327,7 @@ test("refuses what it would not enforce: an unknown option, x402-solana's own am
   refused({ createX402Client, wallet: { address: SOL.buyer } }, /needs a wallet with signTransaction/);
 });
 
-test("demo keys derive from public labels, and every wallet address is on the curve, as token account derivation needs", () => {
+test("demo keys derive from public labels, and every wallet address is on the curve, as token account derivation needs", { skip }, () => {
   assert.equal(demoKey("buyer/solana"), SOL.buyer);
   assert.equal(demoKey("fee-payer/solana"), SOL.feePayer);
   assert.equal(demoKey("blockhash/solana"), DEMO_BLOCKHASH);
@@ -332,7 +337,7 @@ test("demo keys derive from public labels, and every wallet address is on the cu
   }
 });
 
-test("every connection this file opened was loopback (the RPC stub)", () => {
+test("every connection this file opened was loopback (the RPC stub)", { skip }, () => {
   assert.ok(guard.stats.connections > 0);
   assert.equal(guard.stats.refused, 0, guard.stats.refused_targets.join(", "));
 });

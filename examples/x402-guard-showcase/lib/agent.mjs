@@ -12,14 +12,16 @@
 //                a real USDC transfer from the loopback RPC stub's answers
 //                and hands it to a demo wallet that holds no key: the wallet
 //                reads the transfer, counts the call and signs nothing.
+//                Opt-in: its packages are not in the lockfile, and
+//                npm run setup:x402-solana installs them (loadX402Solana).
 import { AsyncLocalStorage } from "node:async_hooks";
-import { join } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { join, sep } from "node:path";
 import { performance } from "node:perf_hooks";
+import { fileURLToPath } from "node:url";
 
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { x402Client } from "@x402/fetch";
 import { twzrd } from "twzrd-x402-gate";
-import { createX402Client } from "x402-solana/client";
 
 import {
   createGuardedX402FetchWithEvents,
@@ -43,6 +45,47 @@ export const SEAT_RAILS = Object.freeze({
 });
 /** Demo instrumentation: each agent names itself so the seller can count per agent. A real agent sends no such header. */
 export const AGENT_HEADER = "x-showcase-agent";
+
+/** The packages the x402-solana seat needs. They are not in the lockfile. */
+export const X402_SOLANA_PACKAGES = Object.freeze(["x402-solana", "@solana/web3.js", "@solana/spl-token"]);
+/** Installs them at pinned versions without changing package.json or package-lock.json. */
+export const X402_SOLANA_SETUP = "npm run setup:x402-solana";
+/** The SPL Token program, whose TransferChecked instruction readTransfer reads. */
+const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+
+/**
+ * This example's own node_modules. The x402-solana seat loads only from here:
+ * a copy in a parent directory (in this repository, the root's) is ignored,
+ * so the seat runs on what the setup installed or not at all.
+ */
+const OWN_MODULES = (() => {
+  const dir = fileURLToPath(new URL("../node_modules", import.meta.url));
+  return (existsSync(dir) ? realpathSync(dir) : dir) + sep;
+})();
+
+/** True when `specifier` resolves inside OWN_MODULES. Any resolution error but a missing package is thrown. */
+function installedHere(specifier) {
+  let url;
+  try {
+    url = import.meta.resolve(specifier);
+  } catch (error) {
+    if (error?.code === "ERR_MODULE_NOT_FOUND") return false;
+    throw error;
+  }
+  return fileURLToPath(url).startsWith(OWN_MODULES);
+}
+
+/**
+ * The x402-solana seat, if its packages are installed in this example:
+ * { available: true, createX402Client } with the stock client's factory, or
+ * { available: false, missing } naming the packages that are not.
+ */
+export async function loadX402Solana() {
+  const missing = X402_SOLANA_PACKAGES.filter((name) => !installedHere(name === "x402-solana" ? "x402-solana/client" : name));
+  if (missing.length > 0) return { available: false, missing };
+  const { createX402Client } = await import("x402-solana/client");
+  return { available: true, createX402Client };
+}
 
 const sentinelFiles = (dataDir) => ({
   // Sentinel files live in this example's data dir only. Explicit paths win
@@ -219,9 +262,8 @@ function buyer(pay, events) {
 export function readTransfer(transaction) {
   const message = transaction?.message;
   const keys = (message?.staticAccountKeys ?? []).map((key) => key.toBase58());
-  const token = TOKEN_PROGRAM_ID.toBase58();
   const found = (message?.compiledInstructions ?? []).filter(
-    (ix) => keys[ix.programIdIndex] === token && ix.data.length === 10 && ix.data[0] === 12,
+    (ix) => keys[ix.programIdIndex] === TOKEN_PROGRAM && ix.data.length === 10 && ix.data[0] === 12,
   );
   const base = { transfers: found.length, feePayer: keys[0] ?? null, blockhash: message?.recentBlockhash ?? null };
   if (found.length !== 1) return base;
@@ -249,7 +291,8 @@ export function createDemoSolanaWallet(address) {
   return { wallet, signer };
 }
 
-export function createX402SolanaAgent({ rail, dataDir, sellerOrigin, rpcUrl }) {
+/** `createX402Client` is x402-solana's own factory, from loadX402Solana. */
+export function createX402SolanaAgent({ rail, dataDir, sellerOrigin, rpcUrl, createX402Client }) {
   const seat = "x402-solana";
   const tag = `${seat}/${rail.id}`;
   const { wallet, signer } = createDemoSolanaWallet(rail.buyer);

@@ -1,7 +1,9 @@
 // The three acts, on three seats (lib/agent.mjs):
 //   safe-fetch   twzrd.safeFetch, Base and Solana
 //   x402-fetch   the gate's createGuardedX402Fetch on an @x402/fetch client, Base and Solana
-//   x402-solana  createGuardedX402SolanaFetch on the stock x402-solana client, Solana
+//   x402-solana  createGuardedX402SolanaFetch on the stock x402-solana client, Solana;
+//                opt-in, and skipped (listed in skippedSeats) when its packages
+//                are not installed
 // What each seat reports is checked against what its demo signer, the
 // loopback seller and (x402-solana) the loopback RPC stub saw. Every purchase
 // is also one decision record in the trace (TRACE_SCHEMA), handed to onEvent
@@ -12,7 +14,17 @@ import { fileURLToPath } from "node:url";
 
 import { createMemorySpendLedger } from "twzrd-x402-gate";
 
-import { AGENT_ID, MAX_SPEND, SEATS, SEAT_RAILS, createSafeFetchAgent, createX402Agent, createX402SolanaAgent } from "./agent.mjs";
+import {
+  AGENT_ID,
+  MAX_SPEND,
+  SEATS,
+  SEAT_RAILS,
+  X402_SOLANA_SETUP,
+  createSafeFetchAgent,
+  createX402Agent,
+  createX402SolanaAgent,
+  loadX402Solana,
+} from "./agent.mjs";
 import { isHaltReason, roundMs, usdcFromBaseUnits } from "./guarded-fetch.mjs";
 import { createKillSwitch, prepareDataDir } from "./kill-switch.mjs";
 import { installNetGuard } from "./net-guard.mjs";
@@ -20,7 +32,6 @@ import { checkReceiptOffline } from "./receipt.mjs";
 import { RAIL_IDS, RAILS } from "./rails.mjs";
 import { createSellerCheck } from "./seller-check.mjs";
 import { startSeller } from "./seller.mjs";
-import { DEMO_BLOCKHASH, startSolanaRpc, tokenAccountOf } from "./solana-rpc.mjs";
 
 export { ShowcaseRefusal } from "./kill-switch.mjs";
 export { SEATS, SEAT_RAILS } from "./agent.mjs";
@@ -35,9 +46,16 @@ const YEAR_MS = 365 * 24 * 3600 * 1000;
 const toMs = (ns) => roundMs(Number(ns) / 1e6);
 const usdc = (micro) => usdcFromBaseUnits(String(micro));
 
-/** A dependency's version, read from its package.json (some packages do not export it). */
+/** A dependency's version, read from its package.json (some packages do not export it); null if it is not installed. */
 function versionOf(name) {
-  let dir = dirname(fileURLToPath(import.meta.resolve(name)));
+  let entry;
+  try {
+    entry = import.meta.resolve(name);
+  } catch (error) {
+    if (error?.code === "ERR_MODULE_NOT_FOUND") return null;
+    throw error;
+  }
+  let dir = dirname(fileURLToPath(entry));
   for (;;) {
     const file = join(dir, "package.json");
     if (existsSync(file)) {
@@ -113,9 +131,9 @@ const rpcTotal = (c) => c.getAccountInfo + c.getLatestBlockhash + c.other;
  * True when the transfer x402-solana handed the wallet pays the offer the
  * hook approved, from the buyer's token account: the offer's mint, amount
  * (6 decimals) and recipient's token account, the offer's fee payer, and the
- * RPC stub's blockhash.
+ * RPC stub's blockhash. `stub` is lib/solana-rpc.mjs.
  */
-function transferMatchesOffer(t, p) {
+function transferMatchesOffer(t, p, stub) {
   const { buyer, feePayer } = RAILS.solana;
   return (
     t.transfers === 1 &&
@@ -123,11 +141,31 @@ function transferMatchesOffer(t, p) {
     t.amount === p.amount &&
     t.decimals === 6 &&
     t.owner === buyer &&
-    t.source === tokenAccountOf(buyer, p.assetAddress) &&
-    t.destination === tokenAccountOf(p.payTo, p.assetAddress) &&
+    t.source === stub.tokenAccountOf(buyer, p.assetAddress) &&
+    t.destination === stub.tokenAccountOf(p.payTo, p.assetAddress) &&
     t.feePayer === feePayer &&
-    t.blockhash === DEMO_BLOCKHASH
+    t.blockhash === stub.DEMO_BLOCKHASH
   );
+}
+
+/**
+ * The seats this run can use. Every seat runs except x402-solana when its
+ * packages are not installed: that one is listed in `skippedSeats`, with the
+ * missing packages and the command that installs them. `x402Solana` holds the
+ * stock client's factory and the RPC stub module when the seat runs.
+ */
+async function loadSeats() {
+  const loaded = await loadX402Solana();
+  if (!loaded.available) {
+    return {
+      seats: SEATS.filter((seat) => seat !== "x402-solana"),
+      skippedSeats: [{ seat: "x402-solana", reason: "not_installed", missing: loaded.missing, setup: X402_SOLANA_SETUP }],
+      x402Solana: null,
+    };
+  }
+  // The RPC stub imports @solana/web3.js and @solana/spl-token, so it loads only here.
+  const stub = await import("./solana-rpc.mjs");
+  return { seats: [...SEATS], skippedSeats: [], x402Solana: { createX402Client: loaded.createX402Client, stub } };
 }
 
 function withTimeout(promise, ms, what) {
@@ -158,9 +196,12 @@ export async function runShowcase({ dataDir, acts = ACTS, beforeAct, afterAct, o
   let seller;
   let rpc;
   try {
+    const { seats, skippedSeats, x402Solana } = await loadSeats();
     seller = await startSeller();
-    rpc = await startSolanaRpc({ mint: RAILS.solana.usdc, holders: [RAILS.solana.buyer, RAILS.solana.sellers.good] });
-    return await play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeAct, afterAct, onEvent });
+    rpc = x402Solana
+      ? await x402Solana.stub.startSolanaRpc({ mint: RAILS.solana.usdc, holders: [RAILS.solana.buyer, RAILS.solana.sellers.good] })
+      : null;
+    return await play({ dataDir, selected, guard, killSwitch, seller, rpc, seats, skippedSeats, x402Solana, beforeAct, afterAct, onEvent });
   } finally {
     killSwitch.disengageIfOurs();
     await rpc?.close();
@@ -169,18 +210,21 @@ export async function runShowcase({ dataDir, acts = ACTS, beforeAct, afterAct, o
   }
 }
 
-async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeAct, afterAct, onEvent }) {
+async function play({ dataDir, selected, guard, killSwitch, seller, rpc, seats, skippedSeats, x402Solana, beforeAct, afterAct, onEvent }) {
   const ledger = createMemorySpendLedger();
   const sellerCheck = createSellerCheck();
   const create = {
     "safe-fetch": (rail) => createSafeFetchAgent({ rail, dataDir, sellerOrigin: seller.origin, sellerCheck, ledger }),
     "x402-fetch": (rail) => createX402Agent({ rail, dataDir, sellerOrigin: seller.origin }),
-    "x402-solana": (rail) => createX402SolanaAgent({ rail, dataDir, sellerOrigin: seller.origin, rpcUrl: rpc.url }),
+    "x402-solana": (rail) =>
+      createX402SolanaAgent({ rail, dataDir, sellerOrigin: seller.origin, rpcUrl: rpc.url, createX402Client: x402Solana.createX402Client }),
   };
   const agents = Object.fromEntries(
-    SEATS.map((seat) => [seat, Object.fromEntries(SEAT_RAILS[seat].map((id) => [id, create[seat](RAILS[id])]))]),
+    seats.map((seat) => [seat, Object.fromEntries(SEAT_RAILS[seat].map((id) => [id, create[seat](RAILS[id])]))]),
   );
-  const eachAgent = (fn) => SEATS.flatMap((seat) => SEAT_RAILS[seat].map((id) => fn(seat, id, agents[seat][id])));
+  const eachAgent = (fn) => seats.flatMap((seat) => SEAT_RAILS[seat].map((id) => fn(seat, id, agents[seat][id])));
+  // Chain reads so far. Only the x402-solana seat reads the RPC stub, and the stub runs only when that seat does.
+  const rpcReads = () => (rpc ? rpcTotal(rpc.calls()) : 0);
 
   const trace = [];
   const emit = (record) => {
@@ -204,7 +248,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
       signer: agent.signer.calls,
       consulted: sellerCheck.calls.length,
       receipts: agent.events.receipts.length,
-      rpc: rpcTotal(rpc.calls()),
+      rpc: rpcReads(),
     };
     const { record, body, emitted } = await agent.buy(url(path));
     const settledAt = process.hrtime.bigint();
@@ -222,8 +266,9 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
       sellerUnpaid: after.unpaid - before.seller.unpaid,
       sellerPaid: after.paid - before.seller.paid,
       sellerCheckConsulted: seat === "safe-fetch" ? sellerCheck.calls.length > before.consulted : null,
-      rpcCalls: solana ? rpcTotal(rpc.calls()) - before.rpc : null,
-      signedTransferMatchesOffer: handed.length === 0 ? null : handed.length === 1 && transferMatchesOffer(handed[0], record),
+      rpcCalls: solana ? rpcReads() - before.rpc : null,
+      signedTransferMatchesOffer:
+        handed.length === 0 ? null : handed.length === 1 && transferMatchesOffer(handed[0], record, x402Solana.stub),
       decisionsEmitted: emitted ?? 1,
       killLatencyMs: null,
     };
@@ -247,7 +292,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
     // then the receipt is checked offline, as issued and with one field changed.
     async allow() {
       const section = { purchases: [] };
-      for (const seat of SEATS) {
+      for (const seat of seats) {
         for (const id of SEAT_RAILS[seat]) {
           for (const path of ["/good", "/receipt"]) {
             const p = await purchase(seat, id, path, "allow", path.slice(1));
@@ -279,7 +324,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
     async block() {
       const section = { purchases: [] };
       const budgetBefore = budgetUsed();
-      for (const seat of SEATS) {
+      for (const seat of seats) {
         for (const id of SEAT_RAILS[seat]) {
           for (const path of ["/flagged", "/pricey", "/wrong-asset"]) {
             const p = await purchase(seat, id, path, "block", path.slice(1));
@@ -310,10 +355,10 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
       // wrapper's), which finds it.
       const heldChecks = sellerCheck.hold(SEAT_RAILS["safe-fetch"].length);
       const held402s = seller.hold402(SEAT_RAILS["x402-fetch"].map((id) => agents["x402-fetch"][id].tag));
-      const heldBlockhash = rpc.holdNextBlockhash();
+      const heldBlockhash = rpc?.holdNextBlockhash();
       const inFlight = eachAgent((seat, id) => attempt(seat, id, "/good", "kill", "in_flight"));
       await withTimeout(
-        Promise.all([heldChecks.reached, held402s.reached, heldBlockhash.reached]),
+        Promise.all([heldChecks.reached, held402s.reached, heldBlockhash?.reached]),
         5000,
         "every purchase reaching its hold",
       );
@@ -321,7 +366,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
       const killedAt = process.hrtime.bigint();
       heldChecks.release();
       held402s.release();
-      heldBlockhash.release();
+      heldBlockhash?.release();
       emit({ type: "kill_switch", act: "kill", action: "engaged", file: killSwitch.file });
       for (const result of await Promise.all(inFlight)) {
         const p = emitPurchase({ ...result, p: Object.assign(result.p, { killLatencyMs: toMs(result.settledAt - killedAt) }) });
@@ -340,7 +385,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
           describe(p),
         );
       }
-      for (const seat of SEATS) {
+      for (const seat of seats) {
         const answered = section.inFlight.filter((p) => p.seat === seat).reduce((n, p) => n + p.sellerUnpaid, 0);
         check(
           `kill.in_flight.${seat}.were_in_flight`,
@@ -351,10 +396,10 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
 
       // 3b. With .kill present, every purchase is refused on entry: no request
       // reaches the seller or the RPC stub, and the signer is never called.
-      for (const seat of SEATS) {
+      for (const seat of seats) {
         for (const id of SEAT_RAILS[seat]) {
           const agent = agents[seat][id];
-          const before = { seller: seller.countsFor(agent.tag), signer: agent.signer.calls, rpc: rpcTotal(rpc.calls()) };
+          const before = { seller: seller.countsFor(agent.tag), signer: agent.signer.calls, rpc: rpcReads() };
           const times = [];
           let refused = 0;
           for (let i = 0; i < HALTED_CALLS_PER_RAIL; i += 1) {
@@ -373,7 +418,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
             refusedOnEntry: refused,
             demoSignerCalls: agent.signer.calls - before.signer,
             sellerRequests: after.requests - before.seller.requests,
-            rpcCalls: seat === "x402-solana" ? rpcTotal(rpc.calls()) - before.rpc : null,
+            rpcCalls: seat === "x402-solana" ? rpcReads() - before.rpc : null,
             refusalMs: { p50: times[Math.floor(times.length / 2)], max: times.at(-1) },
           };
           section.halted.push(entry);
@@ -389,7 +434,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
         }
       }
       section.subMillisecond = Object.fromEntries(
-        SEATS.map((seat) => [
+        seats.map((seat) => [
           seat,
           section.inFlight.filter((p) => p.seat === seat).every((p) => p.killLatencyMs < 1) &&
             section.halted.filter((h) => h.seat === seat).every((h) => h.refusalMs.p50 < 1),
@@ -400,7 +445,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
       section.killRemoved = killSwitch.disengage();
       emit({ type: "kill_switch", act: "kill", action: "removed", file: killSwitch.file });
       check("kill.removed_own_file", section.killRemoved, `removed=${section.killRemoved}`);
-      for (const seat of SEATS) {
+      for (const seat of seats) {
         for (const id of SEAT_RAILS[seat]) {
           const p = await purchase(seat, id, "/good", "kill", "resumed");
           section.resumed.push(p);
@@ -421,13 +466,15 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
       "twzrd-receipt-verifier": versionOf("twzrd-receipt-verifier"),
       "@x402/core": versionOf("@x402/core"),
       "@x402/fetch": versionOf("@x402/fetch"),
-      "x402-solana": versionOf("x402-solana"),
-      "@solana/web3.js": versionOf("@solana/web3.js"),
+      // null when the x402-solana seat is skipped, even if a parent directory has a copy.
+      "x402-solana": x402Solana ? versionOf("x402-solana") : null,
+      "@solana/web3.js": x402Solana ? versionOf("@solana/web3.js") : null,
     },
     seller: seller.origin,
-    rpc: rpc.url,
-    seats: [...SEATS],
-    seatRails: Object.fromEntries(SEATS.map((seat) => [seat, [...SEAT_RAILS[seat]]])),
+    rpc: rpc?.url ?? null,
+    seats: [...seats],
+    skippedSeats,
+    seatRails: Object.fromEntries(seats.map((seat) => [seat, [...SEAT_RAILS[seat]]])),
     rails: RAIL_IDS.map((id) => ({ chain: id, network: RAILS[id].network, usdc: RAILS[id].usdc })),
     acts: [...selected],
     budget: { maxSpendUsdc: MAX_SPEND, agentId: AGENT_ID },
@@ -453,7 +500,7 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
   // seller's paid count agree, and the typed events match the purchases.
   // x402-solana: every transfer its wallet was handed paid the offer approved.
   const totals = { seats: {} };
-  for (const seat of SEATS) {
+  for (const seat of seats) {
     const mine = SEAT_RAILS[seat].map((id) => ({ id, agent: agents[seat][id], list: made.get(agents[seat][id].tag) }));
     const counts = mine.map(({ agent }) => seller.countsFor(agent.tag));
     const all = mine.flatMap((m) => m.list);
@@ -506,13 +553,15 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
   }
   // Every read the x402-solana client made, by method: the stub answers the
   // two it needs, and any other method would be counted under `other`.
-  const reads = rpc.calls();
-  totals.solanaRpc = { getAccountInfo: reads.getAccountInfo, getLatestBlockhash: reads.getLatestBlockhash, other: reads.other };
-  check(
-    "totals.solana_rpc.known_methods",
-    reads.other === 0,
-    `getAccountInfo=${reads.getAccountInfo} getLatestBlockhash=${reads.getLatestBlockhash} other=${reads.other}`,
-  );
+  if (rpc) {
+    const reads = rpc.calls();
+    totals.solanaRpc = { getAccountInfo: reads.getAccountInfo, getLatestBlockhash: reads.getLatestBlockhash, other: reads.other };
+    check(
+      "totals.solana_rpc.known_methods",
+      reads.other === 0,
+      `getAccountInfo=${reads.getAccountInfo} getLatestBlockhash=${reads.getLatestBlockhash} other=${reads.other}`,
+    );
+  }
   totals.tcpConnections = guard.stats.connections;
   totals.nonLoopbackConnectionsRefused = guard.stats.refused;
   totals.nonLoopbackTargets = guard.stats.refused_targets;
@@ -536,8 +585,9 @@ async function play({ dataDir, selected, guard, killSwitch, seller, rpc, beforeA
     node: start.node,
     packages: start.packages,
     seller: { origin: seller.origin },
-    rpc: { url: rpc.url },
-    seats: [...SEATS],
+    rpc: rpc ? { url: rpc.url } : null,
+    seats: [...seats],
+    skippedSeats,
     seatRails: start.seatRails,
     budget: start.budget,
     killFile: killSwitch.file,

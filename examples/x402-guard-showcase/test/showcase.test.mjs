@@ -8,9 +8,17 @@ import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { ACTS, HALTED_CALLS_PER_RAIL, SCHEMA, SEATS, SEAT_RAILS, ShowcaseRefusal, TRACE_SCHEMA, runShowcase } from "../lib/acts.mjs";
+import { X402_SOLANA_PACKAGES, X402_SOLANA_SETUP, loadX402Solana } from "../lib/agent.mjs";
 import { createKillSwitch } from "../lib/kill-switch.mjs";
 import { installNetGuard } from "../lib/net-guard.mjs";
 import { RAIL_IDS, RAILS, demoAddress } from "../lib/rails.mjs";
+
+// The x402-solana seat is opt-in (npm run setup:x402-solana). These tests run
+// either way and check the seats that ran, and the skipped one when it is.
+const SOLANA_INSTALLED = (await loadX402Solana()).available;
+const RUN_SEATS = SOLANA_INSTALLED ? [...SEATS] : SEATS.filter((seat) => seat !== "x402-solana");
+/** Checks in a full run: 58 with all three seats, 45 without x402-solana. */
+const FULL_RUN_CHECKS = SOLANA_INSTALLED ? 58 : 45;
 
 const SHOWCASE = fileURLToPath(new URL("../showcase.mjs", import.meta.url));
 const runCli = (args, input) =>
@@ -28,7 +36,7 @@ after(() => {
 
 const row = (p, keys) => keys.map((k) => p[k]);
 
-test("all three acts pass on every seat and rail, loopback only", async () => {
+test("all three acts pass on every seat that runs and each of its rails, loopback only", async () => {
   const dir = scratch();
   const t = await runShowcase({ dataDir: dir });
   const failed = t.checks.filter((c) => !c.pass);
@@ -36,15 +44,29 @@ test("all three acts pass on every seat and rail, loopback only", async () => {
   assert.equal(t.result, "pass");
   assert.equal(t.schema, SCHEMA);
   assert.deepEqual(t.actsRun, [...ACTS]);
+  assert.equal(t.checks.length, FULL_RUN_CHECKS);
   assert.deepEqual(SEATS, ["safe-fetch", "x402-fetch", "x402-solana"]);
-  assert.deepEqual(t.seatRails, { "safe-fetch": RAIL_IDS, "x402-fetch": RAIL_IDS, "x402-solana": ["solana"] });
+  assert.deepEqual(SEAT_RAILS, { "safe-fetch": RAIL_IDS, "x402-fetch": RAIL_IDS, "x402-solana": ["solana"] });
+  assert.deepEqual(t.seats, RUN_SEATS);
+  assert.deepEqual(t.seatRails, Object.fromEntries(RUN_SEATS.map((seat) => [seat, [...SEAT_RAILS[seat]]])));
+  if (SOLANA_INSTALLED) {
+    assert.deepEqual(t.skippedSeats, []);
+    assert.match(t.rpc.url, /^http:\/\/127\.0\.0\.1:\d+$/);
+  } else {
+    assert.deepEqual(
+      t.skippedSeats.map((s) => [s.seat, s.reason, s.setup]),
+      [["x402-solana", "not_installed", X402_SOLANA_SETUP]],
+    );
+    assert.ok(t.skippedSeats[0].missing.length > 0 && t.skippedSeats[0].missing.every((name) => X402_SOLANA_PACKAGES.includes(name)));
+    assert.equal(t.rpc, null);
+  }
   const solana = (p) => p.seat === "x402-solana";
 
   const { allow, block, kill } = t.acts;
   const KEYS = ["seat", "rail", "shop", "decision", "stage", "signerInvocations", "sellerPaid", "status", "receiptVerified"];
   assert.deepEqual(
     allow.purchases.map((p) => row(p, KEYS)),
-    SEATS.flatMap((seat) =>
+    RUN_SEATS.flatMap((seat) =>
       SEAT_RAILS[seat].flatMap((id) => [
         [seat, id, "/good", "allow", "pre_sign", 1, 1, 200, null],
         [seat, id, "/receipt", "allow", "pre_sign", 1, 1, 200, true],
@@ -82,7 +104,7 @@ test("all three acts pass on every seat and rail, loopback only", async () => {
   };
   assert.deepEqual(
     block.purchases.map((p) => row(p, ["seat", "rail", "shop", "reason"])),
-    SEATS.flatMap((seat) =>
+    RUN_SEATS.flatMap((seat) =>
       SEAT_RAILS[seat].flatMap((id) => ["/flagged", "/pricey", "/wrong-asset"].map((shop, i) => [seat, id, shop, reasons[seat][i]])),
     ),
   );
@@ -100,11 +122,11 @@ test("all three acts pass on every seat and rail, loopback only", async () => {
   }
   assert.deepEqual(
     block.purchases.filter((p) => p.shop === "/wrong-asset").map((p) => [p.asset, p.amountUsdc]),
-    SEATS.flatMap((seat) => SEAT_RAILS[seat].map(() => ["non-USDC", null])),
+    RUN_SEATS.flatMap((seat) => SEAT_RAILS[seat].map(() => ["non-USDC", null])),
   );
   assert.equal(block.safeFetchBudgetSpentByRefusalsUsdc, "0.00");
 
-  assert.equal(kill.inFlight.length, SEATS.reduce((n, seat) => n + SEAT_RAILS[seat].length, 0));
+  assert.equal(kill.inFlight.length, RUN_SEATS.reduce((n, seat) => n + SEAT_RAILS[seat].length, 0));
   for (const p of kill.inFlight) {
     assert.deepEqual(row(p, ["decision", "reason", "stage", "signerInvocations", "sellerPaid", "sellerUnpaid"]), [
       "block",
@@ -127,7 +149,8 @@ test("all three acts pass on every seat and rail, loopback only", async () => {
   assert.equal(kill.killRemoved, true);
   assert.ok(kill.resumed.every((p) => p.decision === "allow" && p.signerInvocations === 1 && p.sellerPaid === 1));
 
-  for (const seat of SEATS) {
+  assert.deepEqual(Object.keys(t.totals.seats), RUN_SEATS);
+  for (const seat of RUN_SEATS) {
     const s = t.totals.seats[seat];
     const rails = SEAT_RAILS[seat];
     const purchases = rails.length * (2 + 3 + 1 + HALTED_CALLS_PER_RAIL + 1);
@@ -143,12 +166,17 @@ test("all three acts pass on every seat and rail, loopback only", async () => {
   }
   assert.equal(t.totals.seats["safe-fetch"].ledgerBudgetUsedUsdc, "0.06");
   assert.deepEqual(t.totals.seats["x402-fetch"].budgetUsedUsdc, { base: "0.03", solana: "0.03" });
-  assert.deepEqual(t.totals.seats["x402-solana"].budgetUsedUsdc, { solana: "0.03" });
-  assert.deepEqual(t.totals.seats["x402-solana"].signedTransfers, { handed: 3, matchingOffer: 3 });
-  // One blockhash read per transaction built (three paid, one refused in its
-  // wallet during the kill act), with the mint twice and two token accounts.
-  const r = t.totals.solanaRpc;
-  assert.deepEqual([r.getLatestBlockhash, r.getAccountInfo, r.other], [4, 16, 0]);
+  if (SOLANA_INSTALLED) {
+    assert.deepEqual(t.totals.seats["x402-solana"].budgetUsedUsdc, { solana: "0.03" });
+    assert.deepEqual(t.totals.seats["x402-solana"].signedTransfers, { handed: 3, matchingOffer: 3 });
+    // One blockhash read per transaction built (three paid, one refused in its
+    // wallet during the kill act), with the mint twice and two token accounts.
+    const r = t.totals.solanaRpc;
+    assert.deepEqual([r.getLatestBlockhash, r.getAccountInfo, r.other], [4, 16, 0]);
+  } else {
+    assert.equal(t.totals.solanaRpc, undefined, "no RPC stub runs without the x402-solana seat");
+    assert.ok(t.checks.every((c) => !c.id.includes("x402-solana") && !c.id.includes("solana_rpc")));
+  }
   assert.equal(t.totals.nonLoopbackConnectionsRefused, 0);
   assert.ok(t.totals.tcpConnections > 0, "the guard saw the loopback connections");
   assert.equal(existsSync(join(dir, ".kill")), false, "the run removed the .kill it wrote");
@@ -163,6 +191,9 @@ test("the trace has one decision record per purchase, in order, with the fields 
   assert.equal(seen[0].type, "start");
   assert.equal(seen[0].schema, TRACE_SCHEMA);
   assert.deepEqual(seen[0].acts, ["block"]);
+  assert.deepEqual(seen[0].seats, RUN_SEATS);
+  assert.deepEqual(seen[0].skippedSeats, t.skippedSeats);
+  assert.equal(seen[0].packages["x402-solana"] !== null, SOLANA_INSTALLED);
   assert.deepEqual(seen.at(-1), { type: "result", result: "pass", passed: t.checks.length, total: t.checks.length, failed: [], actsRun: ["block"] });
   const decisions = seen.filter((r) => r.type === "decision");
   assert.equal(decisions.length, t.acts.block.purchases.length);
@@ -294,7 +325,16 @@ test("the CLI exits 0 and writes the transcript, and exits 2 when it refuses to 
   assert.equal(run.status, 0, run.stderr);
   assert.match(run.stdout, /^ACT 1 {2}ALLOW$/m);
   assert.match(run.stdout, /^ACT 3 {2}KILL /m);
-  assert.match(run.stdout, /RESULT {2}PASS {2}(\d+)\/\1 checks/);
+  assert.match(run.stdout, new RegExp(`RESULT {2}PASS {2}${FULL_RUN_CHECKS}/${FULL_RUN_CHECKS} checks`));
+  if (SOLANA_INSTALLED) {
+    assert.match(run.stdout, /^rpc {5}http:\/\/127\.0\.0\.1:\d+ /m);
+    assert.match(run.stdout, /^ {8}x402-solana {2}createGuardedX402SolanaFetch /m);
+  } else {
+    // The header and the result each name the skipped seat and the command that adds it.
+    const skipped = /^ {2}(?: {6})?x402-solana {2}not installed: npm run setup:x402-solana adds this seat$/gm;
+    assert.equal(run.stdout.match(skipped)?.length, 2, run.stdout);
+    assert.doesNotMatch(run.stdout, /^rpc /m);
+  }
   const t = JSON.parse(readFileSync(join(dir, "showcase-transcript.json"), "utf8"));
   assert.equal(t.schema, SCHEMA);
   assert.equal(t.result, "pass");

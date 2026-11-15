@@ -2,6 +2,8 @@
 // x402 guard showcase: three acts on Base USDC and Solana USDC, on three seats
 // (twzrd.safeFetch; createGuardedX402Fetch on an @x402/fetch client;
 // createGuardedX402SolanaFetch on the stock x402-solana client, Solana only).
+// The x402-solana seat is opt-in: without its packages (npm run
+// setup:x402-solana) it is skipped, and the header and result say so.
 //
 //   node showcase.mjs [--scenario allow|block|kill|all] [--json] [--interactive] [--data-dir <dir>]
 //
@@ -17,7 +19,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { ACTS, HALTED_CALLS_PER_RAIL, SEATS, ShowcaseRefusal, runShowcase } from "./lib/acts.mjs";
+import { ACTS, HALTED_CALLS_PER_RAIL, ShowcaseRefusal, runShowcase } from "./lib/acts.mjs";
 import { RAILS } from "./lib/rails.mjs";
 
 const USAGE = "usage: node showcase.mjs [--scenario allow|block|kill|all] [--json] [--interactive] [--data-dir <dir>]";
@@ -41,18 +43,34 @@ const sellerSaw = (p) => (p.sellerPaid ? `402, then ${p.sellerPaid} paid request
 const receiptCell = (p) => (p.receiptVerified === null ? "-" : p.receiptVerified ? "verified" : "FAILED");
 const checksLine = (checks) => `  checks ${checks.filter((c) => c.pass).length}/${checks.length}`;
 
+const SEAT_LINE = {
+  "safe-fetch": "twzrd.safeFetch with the recorded seller check",
+  "x402-fetch": "createGuardedX402Fetch on an @x402/fetch client; TWZRD evaluator off (offline)",
+  "x402-solana": "createGuardedX402SolanaFetch on the stock x402-solana client, Solana only; TWZRD evaluator off (offline)",
+};
+/** Seat names padded to one width, skipped seats included. */
+const seatWidth = (t) => Math.max(...[...t.seats, ...t.skippedSeats.map((s) => s.seat)].map((seat) => seat.length));
+const skippedLine = (s) => `not installed: ${s.setup} adds this seat`;
+
 function renderHeader(start) {
   const p = start.packages;
   const max = start.budget.maxSpendUsdc;
+  const solana = start.seats.includes("x402-solana");
+  const versions = ["twzrd-x402-gate", "twzrd-receipt-verifier", "@x402/fetch", "x402-solana"]
+    .filter((name) => p[name])
+    .map((name) => `${name} ${p[name]}`);
+  const width = seatWidth(start);
+  const seats = [
+    ...start.seats.map((seat) => `${seat.padEnd(width)}  ${SEAT_LINE[seat]}`),
+    ...start.skippedSeats.map((s) => `${s.seat.padEnd(width)}  ${skippedLine(s)}`),
+  ];
   return [
-    `x402 guard showcase   twzrd-x402-gate ${p["twzrd-x402-gate"]}   twzrd-receipt-verifier ${p["twzrd-receipt-verifier"]}   @x402/fetch ${p["@x402/fetch"]}   x402-solana ${p["x402-solana"]}   node ${start.node}`,
+    `x402 guard showcase   ${versions.join("   ")}   node ${start.node}`,
     `seller  ${start.seller} (loopback, settles nothing)`,
-    `rpc     ${start.rpc} (loopback Solana RPC stub for x402-solana: the mint, two token accounts, a blockhash)`,
-    "seats   safe-fetch   twzrd.safeFetch with the recorded seller check",
-    "        x402-fetch   createGuardedX402Fetch on an @x402/fetch client; TWZRD evaluator off (offline)",
-    "        x402-solana  createGuardedX402SolanaFetch on the stock x402-solana client, Solana only; TWZRD evaluator off (offline)",
-    "signer  demo signer (safe-fetch), demo exact scheme (x402-fetch), demo wallet (x402-solana): no key, nothing signed",
-    `budget  ${max} USDC per call; safe-fetch ${max} in total, x402-fetch ${max} per hour per rail, x402-solana ${max} per hour`,
+    ...(start.rpc ? [`rpc     ${start.rpc} (loopback Solana RPC stub for x402-solana: the mint, two token accounts, a blockhash)`] : []),
+    ...seats.map((line, i) => `${i === 0 ? "seats" : ""}`.padEnd(8) + line),
+    `signer  demo signer (safe-fetch), demo exact scheme (x402-fetch)${solana ? ", demo wallet (x402-solana)" : ""}: no key, nothing signed`,
+    `budget  ${max} USDC per call; safe-fetch ${max} in total, x402-fetch ${max} per hour per rail${solana ? `, x402-solana ${max} per hour` : ""}`,
     `kill    ${shown(start.killFile)}`,
     `acts    ${start.acts.join(", ")}`,
   ].join("\n");
@@ -102,10 +120,12 @@ function renderAct(act, section, checks) {
     if (sol.length > 0) out.push(`  x402-solana chain reads during its refusals: ${sol.reduce((n, p) => n + p.rpcCalls, 0)}`);
     out.push(`  safe-fetch budget spent by refusals: ${section.safeFetchBudgetSpentByRefusalsUsdc} USDC`);
   } else {
+    const solana = section.inFlight.some((p) => p.seat === "x402-solana");
     out.push(
       "  in flight: one purchase per seat and rail, held when .kill was written",
-      "  (safe-fetch on the seller check after its 402, x402-fetch on its 402,",
-      "  x402-solana on its blockhash read, after its hook approved)",
+      ...(solana
+        ? ["  (safe-fetch on the seller check after its 402, x402-fetch on its 402,", "  x402-solana on its blockhash read, after its hook approved)"]
+        : ["  (safe-fetch on the seller check after its 402, x402-fetch on its 402)"]),
       table(
         section.inFlight.map((p) => [
           p.seat,
@@ -132,8 +152,12 @@ function renderAct(act, section, checks) {
           chainCell(h.rpcCalls),
         ]),
       ),
-      `  sub-millisecond halt: ${SEATS.map((s) => `${s} ${section.subMillisecond[s] ? "yes" : "no"}`).join(", ")} (a measurement, not a check;`,
-      "  once released, the in-flight x402-solana purchase finishes a chain read and builds its transaction before its wallet refuses)",
+      `  sub-millisecond halt: ${Object.entries(section.subMillisecond)
+        .map(([s, yes]) => `${s} ${yes ? "yes" : "no"}`)
+        .join(", ")} (a measurement, not a check${solana ? ";" : ")"}`,
+      ...(solana
+        ? ["  once released, the in-flight x402-solana purchase finishes a chain read and builds its transaction before its wallet refuses)"]
+        : []),
       `  resumed: .kill ${section.killRemoved ? "removed (this run wrote it)" : "not removed"}`,
       table(
         section.resumed.map((p) => [
@@ -161,8 +185,8 @@ function renderResult(t, file) {
       .map(([rail, n]) => `${title(rail)} ${n}`)
       .join(", ");
   const SIGNER = { "safe-fetch": "demo signer calls", "x402-fetch": "demo scheme calls", "x402-solana": "demo wallet calls" };
-  const width = Math.max(...SEATS.map((seat) => seat.length));
-  for (const seat of SEATS) {
+  const width = seatWidth(t);
+  for (const seat of t.seats) {
     const s = t.totals.seats[seat];
     out.push(
       `  ${seat.padEnd(width)}  ${SIGNER[seat]} ${s.demoSignerCalls}, signerInvocations ${s.signerInvocations}, seller paid requests ${s.sellerPaid} (${byRail(s.sellerPaidByRail)})`,
@@ -176,10 +200,13 @@ function renderResult(t, file) {
       );
     }
   }
+  for (const s of t.skippedSeats) out.push(`  ${s.seat.padEnd(width)}  ${skippedLine(s)}`);
   const sf = t.totals.seats["safe-fetch"];
+  const sol = t.totals.seats["x402-solana"];
   out.push(
     `  budget used: safe-fetch ${sf.ledgerBudgetUsedUsdc} of ${t.budget.maxSpendUsdc} USDC (one ledger, both rails); ` +
-      `x402-fetch ${byRail(t.totals.seats["x402-fetch"].budgetUsedUsdc)}; x402-solana ${byRail(t.totals.seats["x402-solana"].budgetUsedUsdc)} USDC (demo; no USDC moved)`,
+      `x402-fetch ${byRail(t.totals.seats["x402-fetch"].budgetUsedUsdc)}` +
+      `${sol ? `; x402-solana ${byRail(sol.budgetUsedUsdc)}` : ""} USDC (demo; no USDC moved)`,
     `  TCP connections ${t.totals.tcpConnections}, all loopback; non-loopback refused ${t.totals.nonLoopbackConnectionsRefused}`,
     `  transcript ${shown(file)}`,
   );
