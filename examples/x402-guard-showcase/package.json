@@ -14,8 +14,8 @@
   "dependencies": {
     "@solana/spl-token": "0.4.15",
     "@solana/web3.js": "1.99.0",
-    "@x402/core": "2.27.0",
-    "@x402/fetch": "2.27.0",
+    "@x402/core": "2.31.0",
+    "@x402/fetch": "2.31.0",
     "twzrd-receipt-verifier": "1.4.4",
     "twzrd-x402-gate": "0.22.0",
     "x402-solana": "3.0.1"

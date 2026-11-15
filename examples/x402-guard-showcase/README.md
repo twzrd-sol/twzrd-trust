@@ -189,14 +189,14 @@ Exit codes:
 - `1`: a check failed (listed under `RESULT`), or the run hit an unexpected error.
 - `2`: the run refused to start and changed nothing, or a flag was wrong.
 
-`npm ci` installs 83 packages pinned by `package-lock.json`: `twzrd-x402-gate`
-0.22.0, `twzrd-receipt-verifier` 1.4.4, `@x402/core` 2.27.0, `@x402/fetch`
-2.27.0, `x402-solana` 3.0.1, `@solana/web3.js` 1.99.0, `@solana/spl-token`
-0.4.15, and their dependencies. Without the x402-solana seat it was 10. Three
-of them have install scripts, each for a native add-on with a JavaScript
-fallback: `bigint-buffer`, `bufferutil` and `utf-8-validate`.
-`--ignore-scripts` skips them, and everything here passes without them.
-`bigint-buffer` then prints this line on stderr when it loads:
+`npm ci` installs 82 packages pinned by `package-lock.json`: `twzrd-x402-gate`
+0.22.0, `twzrd-receipt-verifier` 1.4.4, `@x402/core` 2.31.0, `@x402/fetch`
+2.31.0, `x402-solana` 3.0.1, `@solana/web3.js` 1.99.0, `@solana/spl-token`
+0.4.15, and their dependencies. Most of them come with the x402-solana seat;
+before it, the example installed 10. Three have install scripts, each for a
+native add-on with a JavaScript fallback: `bigint-buffer`, `bufferutil` and
+`utf-8-validate`. `--ignore-scripts` skips them, and everything here passes
+without them. `bigint-buffer` then prints this line on stderr when it loads:
 
 ```text
 bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
@@ -204,6 +204,23 @@ bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
 
 npm also warns that `uuid@8.3.2` is deprecated. After the install nothing here
 uses the network.
+
+On 2026-11-15 `npm audit` reported six advisories, all in x402-solana 3.0.1's
+dependency tree. None has a fixed version that tree accepts, and 3.0.1 is the
+latest x402-solana:
+
+| Package | Advisory | Comes in through |
+|---|---|---|
+| `bigint-buffer` 1.1.5 | [GHSA-3gc7-fjrx-p6mg](https://github.com/advisories/GHSA-3gc7-fjrx-p6mg), high: a buffer overflow in `toBigIntLE()` that can crash the process. No fixed version exists. | `@solana/spl-token` 0.4.15, through `@solana/buffer-layout-utils` |
+| `zod` 3.25.76 | [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), high: memory exhaustion while validating oversized constrained collections. Fixed in 4.6.6. | the `@x402/core` 2.21.0 that x402-solana 3.0.1 pins for itself |
+| `stream-json` 1.9.1 | [GHSA-528h-pc64-c93x](https://github.com/advisories/GHSA-528h-pc64-c93x), [GHSA-hqr4-qq8f-hg3x](https://github.com/advisories/GHSA-hqr4-qq8f-hg3x), [GHSA-mjw6-4jj6-33hc](https://github.com/advisories/GHSA-mjw6-4jj6-33hc), moderate | `@solana/web3.js` 1.99.0, through `jayson` |
+| `uuid` 8.3.2 | [GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq), moderate | `@solana/web3.js` 1.99.0, through `jayson` |
+
+npm's own count is 13 packages, because it also flags the packages that depend
+on these. The example's own `@x402/core` and `@x402/fetch` are 2.31.0, whose
+`zod` (4.6.7) is not affected. In this run these packages only handle data from
+the loopback seller and the RPC stub in the same process. An agent that deploys
+x402-solana takes on the same tree: run `npm audit` on the versions you deploy.
 
 On 2026-11-15, from a clean `npm ci --ignore-scripts`, the tests (38/38) and
 the showcase (PASS 58/58) passed on Node 24.22.1. They passed again on Node
@@ -217,9 +234,9 @@ This is the stdout of one run on Node 24.22.1. The ports and the timings change
 from run to run and from machine to machine.
 
 ```text
-x402 guard showcase   twzrd-x402-gate 0.22.0   twzrd-receipt-verifier 1.4.4   @x402/fetch 2.27.0   x402-solana 3.0.1   node v24.22.1
-seller  http://127.0.0.1:26763 (loopback, settles nothing)
-rpc     http://127.0.0.1:36815 (loopback Solana RPC stub for x402-solana: the mint, two token accounts, a blockhash)
+x402 guard showcase   twzrd-x402-gate 0.22.0   twzrd-receipt-verifier 1.4.4   @x402/fetch 2.31.0   x402-solana 3.0.1   node v24.22.1
+seller  http://127.0.0.1:29473 (loopback, settles nothing)
+rpc     http://127.0.0.1:40913 (loopback Solana RPC stub for x402-solana: the mint, two token accounts, a blockhash)
 seats   safe-fetch   twzrd.safeFetch with the recorded seller check
         x402-fetch   createGuardedX402Fetch on an @x402/fetch client; TWZRD evaluator off (offline)
         x402-solana  createGuardedX402SolanaFetch on the stock x402-solana client, Solana only; TWZRD evaluator off (offline)
@@ -274,17 +291,17 @@ ACT 3  KILL  ./data/.kill
   in flight: one purchase per seat and rail, held when .kill was written
   (safe-fetch on the seller check after its 402, x402-fetch on its 402,
   x402-solana on its blockhash read, after its hook approved)
-  safe-fetch   Base USDC    block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.277 ms after .kill
-  safe-fetch   Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.288 ms after .kill
-  x402-fetch   Base USDC    block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.559 ms after .kill
-  x402-fetch   Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.754 ms after .kill
-  x402-solana  Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 1.089 ms after .kill  chain reads 5
+  safe-fetch   Base USDC    block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.271 ms after .kill
+  safe-fetch   Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.282 ms after .kill
+  x402-fetch   Base USDC    block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.550 ms after .kill
+  x402-fetch   Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.742 ms after .kill
+  x402-solana  Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 1.100 ms after .kill  chain reads 5
   halted: 50 more purchases per seat and rail with .kill present
-  safe-fetch   Base USDC    50/50 refused on entry  signer calls 0  seller requests 0  p50 0.004 ms  max 0.022 ms
-  safe-fetch   Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.004 ms  max 0.007 ms
-  x402-fetch   Base USDC    50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.005 ms
-  x402-fetch   Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.003 ms
-  x402-solana  Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.008 ms  chain reads 0
+  safe-fetch   Base USDC    50/50 refused on entry  signer calls 0  seller requests 0  p50 0.004 ms  max 0.024 ms
+  safe-fetch   Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.004 ms  max 0.008 ms
+  x402-fetch   Base USDC    50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.006 ms
+  x402-fetch   Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.003 ms  max 0.004 ms
+  x402-solana  Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.003 ms  max 0.009 ms  chain reads 0
   sub-millisecond halt: safe-fetch yes, x402-fetch yes, x402-solana no (a measurement, not a check;
   once released, the in-flight x402-solana purchase finishes a chain read and builds its transaction before its wallet refuses)
   resumed: .kill removed (this run wrote it)
@@ -355,7 +372,7 @@ x402-solana purchase in flight when `.kill` was written:
   "signerInvocations": 0,
   "status": null,
   "receiptVerified": null,
-  "elapsedMs": 6.148,
+  "elapsedMs": 6.23,
   "demoSignerCalls": 0,
   "sellerUnpaid": 1,
   "sellerPaid": 0,
@@ -363,7 +380,7 @@ x402-solana purchase in flight when `.kill` was written:
   "rpcCalls": 5,
   "signedTransferMatchesOffer": null,
   "decisionsEmitted": 1,
-  "killLatencyMs": 1.081
+  "killLatencyMs": 1.08
 }
 ```
 
@@ -377,7 +394,7 @@ no transfer was handed over (`signedTransferMatchesOffer: null`).
 | Part | In this showcase |
 |---|---|
 | The gate | `twzrd-x402-gate` 0.22.0 from npm, unmodified. The safe-fetch seat calls `twzrd.safeFetch`. The x402-fetch seat calls `createGuardedX402Fetch` through `lib/guarded-fetch.mjs`. The x402-solana seat calls the gate's x402-solana seat (`installTwzrdAutoGate`), its offer readers (`resolveRequirementFields`, `isUsdcRequirement`) and its sentinel reader (`twzrdSentinelRefusal`) through the same file. |
-| The x402 clients | x402-fetch: a real `x402Client` from `@x402/fetch` 2.27.0, one per rail, so each pays only its own rail's offer. Its scheme is a stand-in (below). Core's own spend controls are off. x402-solana: the stock `x402-solana` 3.0.1 client, unmodified, from `createX402Client`. It reads the 402, selects the offer, reads the chain from the RPC stub, builds a v0 transaction with one SPL `TransferChecked`, hands it to the wallet, and sends what the wallet returns in its `PAYMENT-SIGNATURE`. |
+| The x402 clients | x402-fetch: a real `x402Client` from `@x402/fetch` 2.31.0, one per rail, so each pays only its own rail's offer. Its scheme is a stand-in (below). Core's own spend controls are off. x402-solana: the stock `x402-solana` 3.0.1 client, unmodified, from `createX402Client`. It reads the 402, selects the offer, reads the chain from the RPC stub, builds a v0 transaction with one SPL `TransferChecked`, hands it to the wallet, and sends what the wallet returns in its `PAYMENT-SIGNATURE`. |
 | The seller | A loopback HTTP server in the same process. It answers an unpaid request with an x402 v2 `402` that offers both rails; each Solana offer names a fee payer in `extra.feePayer`, which x402-solana requires. It accepts a payment only if the payment names one of its own offers, and it counts what it saw. It settles nothing on any chain, and it does not read the x402-solana transaction. |
 | The Solana RPC stub | A loopback JSON-RPC server in the same process (`lib/solana-rpc.mjs`). It answers `getAccountInfo` for the USDC mint and for the buyer's and the good seller's token accounts, and `getLatestBlockhash` with a fixed demo blockhash. Any other account reads as missing, and any other method gets an error; the run checks that no other method was called. It is not a chain: the accounts and balances are made up, and nothing is submitted. |
 | The signers | None holds a key or signs anything, and each counts its own calls. safe-fetch: a `pay` function that sends a demo `PAYMENT-SIGNATURE` naming the offer the gate approved, so the seller can count a paid request. x402-fetch: a demo `exact` scheme in the place `@x402/evm` or `@x402/svm` takes; `@x402/fetch` builds the `PAYMENT-SIGNATURE` from its demo payload. x402-solana: a demo wallet in the place a wallet adapter or keypair signer takes. It reads the transfer it was handed and returns the transaction unsigned. The run checks every transfer against the offer the gate approved: one `TransferChecked`, with its mint, amount, decimals, owner, source and destination token accounts, fee payer and blockhash. |
@@ -412,7 +429,7 @@ x402-solana one by its wallet. The in-flight time runs from the moment the
 halted time is the whole purchase with `.kill` present. The run prints both and
 says whether they were under a millisecond. That line is a measurement, not a
 check, so a slower machine does not fail the run. In the output above the
-x402-solana purchase took 1.089 ms: once released, it finishes the blockhash
+x402-solana purchase took 1.100 ms: once released, it finishes the blockhash
 read and builds its transaction before its wallet refuses.
 
 The gate never reads what is in `.kill`. It halts while the file exists, and also
