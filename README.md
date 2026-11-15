@@ -380,6 +380,7 @@ the pay path enforces.
 7. **Evidence**: the gate can issue a portable `twzrd.payment_decision.v1` record from its decision, signed by your own signer (`npx twzrd-payment-decision --verify`); `exportEvidenceBundle` / `npx twzrd-evidence-bundle` packages the run.
 
 Refuse-first demo (0 USDC): `npx tsx twzrd-x402-gate/examples/commerce-kit.ts`  
+Three-act showcase on Base USDC and Solana USDC (0 USDC, no keys, loopback only): [examples/x402-guard-showcase](./examples/x402-guard-showcase/)  
 Walkthrough: [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 
 ---
