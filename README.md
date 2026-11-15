@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./assets/twzrd-receipt-mark.svg" alt="TWZRD" width="88" />
+
 <h1>TWZRD</h1>
 
 <p><strong>A bound. A spend. A record.</strong></p>
