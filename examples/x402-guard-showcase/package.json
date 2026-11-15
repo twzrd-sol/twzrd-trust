@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Three acts on Base USDC and Solana USDC: allow with an offline-verified V7 receipt, block before the signer, and a ./data/.kill halt. Loopback seller, counting demo signer, no keys, no spend.",
+  "description": "Three acts on Base USDC and Solana USDC, on twzrd.safeFetch and on createGuardedX402Fetch with typed events: allow with a verified V7 receipt, block before the signer, and a .kill halt. JSON trace, one act at a time, or step through. Loopback seller, demo signers, no keys, no spend.",
   "engines": {
     "node": ">=22"
   },
@@ -12,6 +12,8 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
+    "@x402/core": "2.27.0",
+    "@x402/fetch": "2.27.0",
     "twzrd-receipt-verifier": "1.4.4",
     "twzrd-x402-gate": "0.22.0"
   }
