@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" fill="none">
+  <rect width="120" height="120" rx="20" fill="#080A0D"/>
+  <path d="M32 22h56a4 4 0 0 1 4 4v30a6 6 0 0 0 0 12v0H28v0a6 6 0 0 0 0-12V26a4 4 0 0 1 4-4Z" fill="#F3EBDD"/>
+  <line x1="38" y1="34" x2="64" y2="34" stroke="#060B19" stroke-opacity="0.22" stroke-width="2"/>
+  <line x1="38" y1="42" x2="72" y2="42" stroke="#060B19" stroke-opacity="0.22" stroke-width="2"/>
+  <line x1="38" y1="50" x2="58" y2="50" stroke="#060B19" stroke-opacity="0.22" stroke-width="2"/>
+  <circle cx="80" cy="36" r="7" fill="#00FF88" fill-opacity="0.18" stroke="#00FF88" stroke-width="1.5"/>
+  <path d="M77 36l2 2 4-4" stroke="#00FF88" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M28 62h64v32a4 4 0 0 1-4 4H32a4 4 0 0 1-4-4V62Z" fill="#060B19" stroke="#F3EBDD" stroke-opacity="0.18"/>
+  <line x1="32" y1="62" x2="88" y2="62" stroke="#00FF88" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <line x1="38" y1="74" x2="82" y2="74" stroke="#00FF88" stroke-opacity="0.65" stroke-width="2"/>
+  <line x1="38" y1="83" x2="68" y2="83" stroke="#F3EBDD" stroke-opacity="0.35" stroke-width="2"/>
+</svg>
