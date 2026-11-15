@@ -1,25 +1,46 @@
-// The buying agents, one per seat and rail. Both buy from the loopback seller
-// through the published gate, and both report each purchase as the same
+// The buying agents, one per seat and rail. All buy from the loopback seller
+// through the published gate, and all report each purchase as the same
 // decision record (lib/guarded-fetch.mjs describes its fields).
 //
-//   safe-fetch  twzrd.safeFetch with a spend cap, the recorded seller check
-//               and a demo signer that counts its own calls.
-//   x402-fetch  the gate's createGuardedX402Fetch on an @x402/fetch client,
-//               through createGuardedX402FetchWithEvents, with a demo "exact"
-//               scheme that counts its own calls.
+//   safe-fetch   twzrd.safeFetch with a spend cap, the recorded seller check
+//                and a demo signer that counts its own calls.
+//   x402-fetch   the gate's createGuardedX402Fetch on an @x402/fetch client,
+//                through createGuardedX402FetchWithEvents, with a demo "exact"
+//                scheme that counts its own calls.
+//   x402-solana  the stock x402-solana client through
+//                createGuardedX402SolanaFetch, Solana only. The client builds
+//                a real USDC transfer from the loopback RPC stub's answers
+//                and hands it to a demo wallet that holds no key: the wallet
+//                reads the transfer, counts the call and signs nothing.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { x402Client } from "@x402/fetch";
 import { twzrd } from "twzrd-x402-gate";
+import { createX402Client } from "x402-solana/client";
 
-import { createGuardedX402FetchWithEvents, describeOffer, isHaltReason, roundMs, verifyReceipt } from "./guarded-fetch.mjs";
+import {
+  createGuardedX402FetchWithEvents,
+  createGuardedX402SolanaFetch,
+  describeOffer,
+  isHaltReason,
+  roundMs,
+  verifyReceipt,
+} from "./guarded-fetch.mjs";
+import { RAIL_IDS } from "./rails.mjs";
 
 /** Per-call cap and budget, in USDC. */
 export const MAX_SPEND = "0.10";
 export const AGENT_ID = "showcase-agent";
-export const SEATS = Object.freeze(["safe-fetch", "x402-fetch"]);
+export const SEATS = Object.freeze(["safe-fetch", "x402-fetch", "x402-solana"]);
+/** The rails each seat buys on. x402-solana is a Solana client. */
+export const SEAT_RAILS = Object.freeze({
+  "safe-fetch": RAIL_IDS,
+  "x402-fetch": RAIL_IDS,
+  "x402-solana": Object.freeze(["solana"]),
+});
 /** Demo instrumentation: each agent names itself so the seller can count per agent. A real agent sends no such header. */
 export const AGENT_HEADER = "x-showcase-agent";
 
@@ -169,7 +190,12 @@ export function createX402Agent({ rail, dataDir, sellerOrigin }) {
     onReceiptVerified: (event) => events.receipts.push(event),
   });
 
-  async function buy(url) {
+  return { seat, rail, tag, signer, events, buy: buyer(pay, events) };
+}
+
+/** A buy() for a guarded fetch that reports through events: the call's one decision record, and the paid body. */
+function buyer(pay, events) {
+  return async function buy(url) {
     const before = events.decisions.length;
     let response = null;
     try {
@@ -181,7 +207,73 @@ export function createX402Agent({ rail, dataDir, sellerOrigin }) {
     const record = events.decisions[before] ?? { ...describeOffer(null), decision: "error", reason: "no decision record" };
     const body = response?.ok ? await response.json().catch(() => null) : null;
     return { record, body, emitted };
-  }
+  };
+}
 
-  return { seat, rail, tag, signer, events, buy };
+/**
+ * The token transfer in a transaction x402-solana built: its one SPL
+ * TransferChecked (instruction 12: amount u64 and decimals u8; accounts
+ * source, mint, destination, owner), the fee payer and the blockhash.
+ * `transfers` counts the TransferChecked instructions found.
+ */
+export function readTransfer(transaction) {
+  const message = transaction?.message;
+  const keys = (message?.staticAccountKeys ?? []).map((key) => key.toBase58());
+  const token = TOKEN_PROGRAM_ID.toBase58();
+  const found = (message?.compiledInstructions ?? []).filter(
+    (ix) => keys[ix.programIdIndex] === token && ix.data.length === 10 && ix.data[0] === 12,
+  );
+  const base = { transfers: found.length, feePayer: keys[0] ?? null, blockhash: message?.recentBlockhash ?? null };
+  if (found.length !== 1) return base;
+  const data = Buffer.from(found[0].data);
+  const [source, mint, destination, owner] = found[0].accountKeyIndexes.map((i) => keys[i] ?? null);
+  return { ...base, source, mint, destination, owner, amount: data.readBigUInt64LE(1).toString(), decimals: data[9] };
+}
+
+/**
+ * A demo Solana wallet at `address`, in the place a wallet adapter or keypair
+ * signer takes. It holds no key: signTransaction records the transfer it was
+ * handed (readTransfer), counts the call, and returns the transaction as it
+ * came, unsigned.
+ */
+export function createDemoSolanaWallet(address) {
+  const signer = { calls: 0, transfers: [] };
+  const wallet = {
+    address,
+    async signTransaction(transaction) {
+      signer.calls += 1;
+      signer.transfers.push(readTransfer(transaction));
+      return transaction;
+    },
+  };
+  return { wallet, signer };
+}
+
+export function createX402SolanaAgent({ rail, dataDir, sellerOrigin, rpcUrl }) {
+  const seat = "x402-solana";
+  const tag = `${seat}/${rail.id}`;
+  const { wallet, signer } = createDemoSolanaWallet(rail.buyer);
+
+  const events = newEvents();
+  const pay = createGuardedX402SolanaFetch({
+    createX402Client,
+    wallet,
+    network: "solana",
+    // The loopback RPC stub (lib/solana-rpc.mjs): x402-solana reads the mint,
+    // both token accounts and a blockhash from it.
+    rpcUrl,
+    customFetch: sellerTransport(sellerOrigin, tag),
+    maxPricePerCall: MAX_SPEND,
+    hourlyBudgetCap: MAX_SPEND,
+    allowedRecipients: [rail.sellers.good],
+    // As on the x402-fetch seat: the TWZRD evaluator is off in this offline
+    // run, and .kill and .pause stay on.
+    twzrd: { disabled: true, ...sentinelFiles(dataDir) },
+    receipt: true,
+    onDecision: (record) => events.decisions.push(record),
+    onKill: (record) => events.kills.push(record),
+    onReceiptVerified: (event) => events.receipts.push(event),
+  });
+
+  return { seat, rail, tag, signer, events, buy: buyer(pay, events) };
 }

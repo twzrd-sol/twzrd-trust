@@ -1,3 +1,5 @@
+// Two guarded paying fetches with the same decision records:
+//
 // createGuardedX402FetchWithEvents: the gate's createGuardedX402Fetch on an
 // @x402/fetch client, with three things a caller would otherwise wire by hand:
 //
@@ -11,10 +13,24 @@
 // Apart from that entry check, every allow and every refusal is the gate's (or
 // another hook's on the same client). This file reads what was decided and
 // reports it, and a callback that throws or rejects is ignored.
+//
+// createGuardedX402SolanaFetch: the same on the stock x402-solana client. The
+// gate has no guarded fetch for that client, so this one applies
+// createGuardedX402Fetch's local checks itself, with the same reasons, in the
+// client's beforePayment hook, then the gate's own x402-solana seat
+// (installTwzrdAutoGate). It reads .kill / .pause on entry, in the hook, and
+// in the wallet right before the real signer.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { performance } from "node:perf_hooks";
 
-import { createGuardedX402Fetch, isUsdcRequirement, twzrdSentinelRefusal } from "twzrd-x402-gate";
+import {
+  createGuardedX402Fetch,
+  installTwzrdAutoGate,
+  isUsdcRequirement,
+  resolveRequirementFields,
+  toMicroUsd,
+  twzrdSentinelRefusal,
+} from "twzrd-x402-gate";
 import verifier from "twzrd-receipt-verifier";
 
 const { verify, CURRENT_RECEIPT_PUBKEY } = verifier;
@@ -134,6 +150,40 @@ async function receiptInBody(response) {
   return body !== null && typeof body === "object" ? (body.twzrd_receipt ?? null) : null;
 }
 
+/** receiptVerified for a paid 2xx response: true or false when a receipt was found and checked, else null. */
+async function receiptVerdict(receiptOptions, response, onReceiptVerified) {
+  let found = null;
+  try {
+    found = await (receiptOptions.extract ?? receiptInBody)(response.clone());
+  } catch {
+    found = null;
+  }
+  if (found === null || found === undefined) return null;
+  return verifyReceipt(found, { ...receiptOptions, onReceiptVerified }).valid;
+}
+
+/** One decision record per call to onDecision, and to onKill when .kill or .pause refused it. */
+function reporter(onDecision, onKill) {
+  return (record) => {
+    safely(onDecision, record);
+    if (record.decision === "block" && isHaltReason(record.reason)) safely(onKill, record);
+  };
+}
+
+/** Builds a call's decision record from what the call saw. */
+function recorder(call, started) {
+  return ({ decision, reason = null, stage = null, status = null, receiptVerified = null }) => ({
+    ...describeOffer(call.offer),
+    decision,
+    reason,
+    stage,
+    signerInvocations: call.signerInvocations,
+    status,
+    receiptVerified,
+    elapsedMs: roundMs(performance.now() - started),
+  });
+}
+
 /**
  * A paying fetch for a configured @x402/core x402Client: the gate's
  * createGuardedX402Fetch, with typed events.
@@ -184,25 +234,11 @@ export function createGuardedX402FetchWithEvents(options) {
   });
   const guarded = createGuardedX402Fetch(gateOptions);
   wired.add(client);
-
-  const report = (record) => {
-    safely(onDecision, record);
-    if (record.decision === "block" && isHaltReason(record.reason)) safely(onKill, record);
-  };
+  const report = reporter(onDecision, onKill);
 
   return function guardedFetch(input, init) {
-    const started = performance.now();
     const call = { offer: null, signerInvocations: 0 };
-    const record = ({ decision, reason = null, stage = null, status = null, receiptVerified = null }) => ({
-      ...describeOffer(call.offer),
-      decision,
-      reason,
-      stage,
-      signerInvocations: call.signerInvocations,
-      status,
-      receiptVerified,
-      elapsedMs: roundMs(performance.now() - started),
-    });
+    const record = recorder(call, performance.now());
     return calls.run(call, async () => {
       // Halted: refuse before any request is made.
       const halted = twzrdSentinelRefusal(gateOptions.twzrd);
@@ -224,18 +260,245 @@ export function createGuardedX402FetchWithEvents(options) {
         throw error;
       }
       const paid = call.signerInvocations > 0;
-      let receiptVerified = null;
-      if (receiptOptions && paid && response.ok) {
-        let found = null;
-        try {
-          found = await (receiptOptions.extract ?? receiptInBody)(response.clone());
-        } catch {
-          found = null;
+      const receiptVerified =
+        receiptOptions && paid && response.ok ? await receiptVerdict(receiptOptions, response, onReceiptVerified) : null;
+      report(record({ decision: "allow", stage: paid ? "pre_sign" : null, status: response.status, receiptVerified }));
+      return response;
+    });
+  };
+}
+
+const HOUR_MS = 3_600_000;
+// The networks each x402-solana `network` setting may pay on, in the v1 and
+// v2 (CAIP-2) spellings. The stock client takes the first "exact" offer on
+// any Solana network; this keeps it on the cluster it was configured for.
+const SOLANA_CLUSTERS = Object.freeze({
+  solana: new Set(["solana", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"]),
+  "solana-devnet": new Set(["solana-devnet", "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"]),
+});
+const SOLANA_FETCH_OPTIONS = new Set([
+  "createX402Client",
+  "wallet",
+  "network",
+  "rpcUrl",
+  "customFetch",
+  "verbose",
+  "maxPricePerCall",
+  "hourlyBudgetCap",
+  "allowedRecipients",
+  "twzrd",
+  "onDecision",
+  "onKill",
+  "onReceiptVerified",
+  "receipt",
+]);
+
+/** A USDC limit in micro-units, read as createGuardedX402Fetch reads it. */
+function parseUsdcLimit(value, label) {
+  if (value === undefined) return undefined;
+  try {
+    return toMicroUsd(typeof value === "number" ? String(value) : value);
+  } catch {
+    throw new TypeError(`createGuardedX402SolanaFetch: ${label} must be a non-negative USDC decimal with at most 6 fractional digits`);
+  }
+}
+
+/** A refusal reason as a record carries it: the first line, without a leading [tag]. */
+const plainReason = (reason) =>
+  String(reason ?? "")
+    .split("\n")[0]
+    .trim()
+    .replace(/^\[[^\]]*\]\s*/, "");
+
+/**
+ * A paying fetch on the stock x402-solana client (createX402Client from
+ * "x402-solana/client"), with the same checks, halts and decision records as
+ * createGuardedX402FetchWithEvents:
+ *
+ *   import { createX402Client } from "x402-solana/client";
+ *   const pay = createGuardedX402SolanaFetch({ createX402Client, wallet, rpcUrl, maxPricePerCall: "0.10", onDecision: console.log });
+ *   const res = await pay(url);
+ *
+ * It builds the client with its own beforePayment hook and a wrapper around
+ * the wallet. Before any request, .kill and .pause. In beforePayment, on the
+ * one offer x402-solana selected, with nothing awaited between the checks and
+ * the budget reservation:
+ *   .kill / .pause                        twzrd_kill_switch, twzrd_pause_corrupt, twzrd_payment_paused
+ *   the offer is on the configured cluster network_not_allowed
+ *   the gate's field checks               (resolveRequirementFields' reasons)
+ *   allowedRecipients                     recipient_missing, unauthorized_recipient
+ *   with a spend rule: USDC only           unsupported_or_non_usdc_asset
+ *   with a spend rule: a base-unit amount  amount_missing_or_malformed
+ *   maxPricePerCall                       price_cap_exceeded
+ *   hourlyBudgetCap                       hourly_budget_exceeded
+ * then the gate's x402-solana seat (installTwzrdAutoGate), which runs the TWZRD
+ * evaluator unless twzrd.disabled and reads .kill / .pause either way. In the
+ * wallet, right before the real signTransaction: .kill / .pause once more.
+ * x402-solana reads the chain between its hook and the signer (the mint, both
+ * token accounts, a blockhash), so a halt written during those reads is seen
+ * there, not missed.
+ *
+ * The hourly budget counts each payment the wallet was asked to sign. An
+ * approved amount stays reserved while the client builds the transaction, so
+ * concurrent calls cannot overspend; it is released if the call ends unsigned.
+ *
+ * Options: createX402Client and wallet (required), network ("solana", the
+ * default, or "solana-devnet"), rpcUrl, customFetch and verbose (passed to
+ * x402-solana), maxPricePerCall, hourlyBudgetCap, allowedRecipients, twzrd
+ * (the seat's options: sentinel paths, disabled, ...), onDecision, onKill,
+ * onReceiptVerified and receipt, as createGuardedX402FetchWithEvents takes
+ * them. Any other option is refused rather than ignored, x402-solana's own
+ * `amount` and `beforePayment` included: maxPricePerCall and this hook govern.
+ * A refusal throws; the record says why.
+ */
+export function createGuardedX402SolanaFetch(options) {
+  const opts = options ?? {};
+  const unsupported = Object.keys(opts).filter((key) => !SOLANA_FETCH_OPTIONS.has(key));
+  if (unsupported.length > 0) {
+    throw new TypeError(`createGuardedX402SolanaFetch does not take ${unsupported.join(", ")}: an option it would not enforce is refused, not ignored`);
+  }
+  const { createX402Client, wallet, network = "solana", rpcUrl, customFetch, verbose, allowedRecipients, twzrd = {} } = opts;
+  const { onDecision, onKill, onReceiptVerified, receipt } = opts;
+  if (typeof createX402Client !== "function") {
+    throw new TypeError("createGuardedX402SolanaFetch needs createX402Client from x402-solana/client");
+  }
+  if (typeof wallet?.signTransaction !== "function") {
+    throw new TypeError("createGuardedX402SolanaFetch needs a wallet with signTransaction");
+  }
+  const cluster = SOLANA_CLUSTERS[network];
+  if (!cluster) throw new TypeError(`createGuardedX402SolanaFetch: network must be "solana" or "solana-devnet"`);
+  const maxPerCall = parseUsdcLimit(opts.maxPricePerCall, "maxPricePerCall");
+  const hourlyCap = parseUsdcLimit(opts.hourlyBudgetCap, "hourlyBudgetCap");
+  if (allowedRecipients !== undefined && !(Array.isArray(allowedRecipients) && allowedRecipients.every((a) => typeof a === "string"))) {
+    throw new TypeError("createGuardedX402SolanaFetch: allowedRecipients must be an array of addresses");
+  }
+  // Base58 addresses are case-sensitive: an exact match, as the gate does for Solana.
+  const recipients = allowedRecipients === undefined ? undefined : new Set(allowedRecipients);
+  const receiptOptions = receipt === true ? {} : receipt || null;
+  const seat = installTwzrdAutoGate("x402-solana", twzrd);
+
+  const calls = new AsyncLocalStorage();
+  const entries = []; // { at, micro }: payments the wallet was asked to sign, for the hourly budget
+  let pendingMicro = 0n; // approved, not yet signed
+  const release = (call) => {
+    if (call.reservedMicro > 0n) pendingMicro -= call.reservedMicro;
+    call.reservedMicro = 0n;
+  };
+  const refuse = (call, reason) => {
+    call.refusal = plainReason(reason);
+    return { abort: true, reason };
+  };
+  const refuseLocally = (call, reason) => refuse(call, `${TAG}${reason}`);
+
+  async function beforePayment(requirements, context) {
+    const call = calls.getStore() ?? { offer: null, signerInvocations: 0, refusal: null, reservedMicro: 0n };
+    call.offer = requirements ?? null;
+    const halted = twzrdSentinelRefusal(twzrd);
+    if (halted !== undefined) return refuseLocally(call, halted);
+    const selected = requirements ?? {};
+    if (!cluster.has(selected.network)) return refuseLocally(call, "network_not_allowed");
+    const fields = resolveRequirementFields(selected);
+    if (fields.conflict) return refuseLocally(call, fields.conflict);
+    if (recipients !== undefined) {
+      if (!fields.payTo) return refuseLocally(call, "recipient_missing");
+      if (!recipients.has(fields.payTo)) return refuseLocally(call, "unauthorized_recipient");
+    }
+    let amountMicro;
+    if (maxPerCall !== undefined || hourlyCap !== undefined) {
+      if (!isUsdcRequirement(selected)) return refuseLocally(call, "unsupported_or_non_usdc_asset");
+      if (fields.amount === undefined || !/^\d+$/.test(fields.amount)) return refuseLocally(call, "amount_missing_or_malformed");
+      amountMicro = BigInt(fields.amount);
+      if (maxPerCall !== undefined && amountMicro > maxPerCall) return refuseLocally(call, "price_cap_exceeded");
+    }
+    if (hourlyCap !== undefined) {
+      const cutoff = Date.now() - HOUR_MS;
+      while (entries.length > 0 && entries[0].at <= cutoff) entries.shift();
+      const spent = entries.reduce((sum, entry) => sum + entry.micro, 0n);
+      if (spent + pendingMicro + amountMicro > hourlyCap) return refuseLocally(call, "hourly_budget_exceeded");
+      // No await between the check and the reservation.
+      pendingMicro += amountMicro;
+      call.reservedMicro = amountMicro;
+    }
+    let decision;
+    try {
+      decision = await seat(requirements, context);
+    } catch (error) {
+      release(call);
+      throw error;
+    }
+    if (decision?.abort) {
+      release(call);
+      return refuse(call, decision.reason ?? "beforePayment hook aborted payment");
+    }
+    return undefined;
+  }
+
+  // The wallet x402-solana signs with: the caller's, behind one more look at
+  // .kill and .pause. Nothing is awaited between that look and the signer.
+  const guardedWallet = {
+    get publicKey() {
+      return wallet.publicKey;
+    },
+    get address() {
+      return wallet.address;
+    },
+    signTransaction(transaction) {
+      const call = calls.getStore();
+      const halted = twzrdSentinelRefusal(twzrd);
+      if (halted !== undefined) {
+        if (call) {
+          release(call);
+          call.refusal = halted;
         }
-        if (found !== null && found !== undefined) {
-          receiptVerified = verifyReceipt(found, { ...receiptOptions, onReceiptVerified }).valid;
-        }
+        return Promise.reject(new Error(`${TAG}${halted}`));
       }
+      if (call) {
+        if (call.reservedMicro > 0n) {
+          entries.push({ at: Date.now(), micro: call.reservedMicro });
+          release(call);
+        }
+        call.signerInvocations += 1;
+      }
+      return wallet.signTransaction(transaction);
+    },
+  };
+
+  const client = createX402Client({
+    wallet: guardedWallet,
+    network,
+    ...(rpcUrl === undefined ? {} : { rpcUrl }),
+    ...(customFetch === undefined ? {} : { customFetch }),
+    ...(verbose === undefined ? {} : { verbose }),
+    beforePayment,
+  });
+  if (typeof client?.fetch !== "function") {
+    throw new TypeError("createGuardedX402SolanaFetch: createX402Client did not return a client with fetch");
+  }
+  const report = reporter(onDecision, onKill);
+
+  return function guardedSolanaFetch(input, init) {
+    const call = { offer: null, signerInvocations: 0, refusal: null, reservedMicro: 0n };
+    const record = recorder(call, performance.now());
+    return calls.run(call, async () => {
+      // Halted: refuse before any request is made.
+      const halted = twzrdSentinelRefusal(twzrd);
+      if (halted !== undefined) {
+        report(record({ decision: "block", reason: halted, stage: "entry" }));
+        throw new Error(`${TAG}${halted}`);
+      }
+      let response;
+      try {
+        response = await client.fetch(input, init);
+      } catch (error) {
+        if (call.refusal !== null) report(record({ decision: "block", reason: call.refusal, stage: "pre_sign" }));
+        else report(record({ decision: "error", reason: String(error?.message ?? error).slice(0, 300) }));
+        throw error;
+      } finally {
+        release(call);
+      }
+      const paid = call.signerInvocations > 0;
+      const receiptVerified =
+        receiptOptions && paid && response.ok ? await receiptVerdict(receiptOptions, response, onReceiptVerified) : null;
       report(record({ decision: "allow", stage: paid ? "pre_sign" : null, status: response.status, receiptVerified }));
       return response;
     });

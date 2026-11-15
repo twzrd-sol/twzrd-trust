@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { ACTS, HALTED_CALLS_PER_RAIL, SCHEMA, SEATS, ShowcaseRefusal, TRACE_SCHEMA, runShowcase } from "../lib/acts.mjs";
+import { ACTS, HALTED_CALLS_PER_RAIL, SCHEMA, SEATS, SEAT_RAILS, ShowcaseRefusal, TRACE_SCHEMA, runShowcase } from "../lib/acts.mjs";
 import { createKillSwitch } from "../lib/kill-switch.mjs";
 import { installNetGuard } from "../lib/net-guard.mjs";
 import { RAIL_IDS, RAILS, demoAddress } from "../lib/rails.mjs";
@@ -28,7 +28,7 @@ after(() => {
 
 const row = (p, keys) => keys.map((k) => p[k]);
 
-test("all three acts pass on both seats and both rails, loopback only", async () => {
+test("all three acts pass on every seat and rail, loopback only", async () => {
   const dir = scratch();
   const t = await runShowcase({ dataDir: dir });
   const failed = t.checks.filter((c) => !c.pass);
@@ -36,13 +36,16 @@ test("all three acts pass on both seats and both rails, loopback only", async ()
   assert.equal(t.result, "pass");
   assert.equal(t.schema, SCHEMA);
   assert.deepEqual(t.actsRun, [...ACTS]);
+  assert.deepEqual(SEATS, ["safe-fetch", "x402-fetch", "x402-solana"]);
+  assert.deepEqual(t.seatRails, { "safe-fetch": RAIL_IDS, "x402-fetch": RAIL_IDS, "x402-solana": ["solana"] });
+  const solana = (p) => p.seat === "x402-solana";
 
   const { allow, block, kill } = t.acts;
   const KEYS = ["seat", "rail", "shop", "decision", "stage", "signerInvocations", "sellerPaid", "status", "receiptVerified"];
   assert.deepEqual(
     allow.purchases.map((p) => row(p, KEYS)),
     SEATS.flatMap((seat) =>
-      RAIL_IDS.flatMap((id) => [
+      SEAT_RAILS[seat].flatMap((id) => [
         [seat, id, "/good", "allow", "pre_sign", 1, 1, 200, null],
         [seat, id, "/receipt", "allow", "pre_sign", 1, 1, 200, true],
       ]),
@@ -51,6 +54,12 @@ test("all three acts pass on both seats and both rails, loopback only", async ()
   for (const p of allow.purchases) {
     assert.deepEqual(row(p, ["chain", "asset", "amountUsdc"]), [p.rail, "USDC", "0.01"]);
     assert.equal(p.payTo, RAILS[p.rail].sellers.good);
+    // x402-solana read the chain and handed its wallet a transfer that pays the offer; no other seat reads the chain.
+    assert.deepEqual(
+      [p.rpcCalls > 0, p.signedTransferMatchesOffer],
+      solana(p) ? [true, true] : [false, null],
+      `${p.seat} ${p.rail} ${p.shop}`,
+    );
   }
   assert.deepEqual(
     allow.receipt.cases.map((c) => [c.name, c.valid]),
@@ -65,14 +74,16 @@ test("all three acts pass on both seats and both rails, loopback only", async ()
   }
   assert.equal(allow.receipt.connectionsDuringCheck, 0);
 
+  const gateReasons = ["unauthorized_recipient", "price_cap_exceeded", "unsupported_or_non_usdc_asset"];
   const reasons = {
     "safe-fetch": ["intel_block", "over_max_spend", "non_usdc_asset"],
-    "x402-fetch": ["unauthorized_recipient", "price_cap_exceeded", "unsupported_or_non_usdc_asset"],
+    "x402-fetch": gateReasons,
+    "x402-solana": gateReasons,
   };
   assert.deepEqual(
     block.purchases.map((p) => row(p, ["seat", "rail", "shop", "reason"])),
     SEATS.flatMap((seat) =>
-      RAIL_IDS.flatMap((id) => ["/flagged", "/pricey", "/wrong-asset"].map((shop, i) => [seat, id, shop, reasons[seat][i]])),
+      SEAT_RAILS[seat].flatMap((id) => ["/flagged", "/pricey", "/wrong-asset"].map((shop, i) => [seat, id, shop, reasons[seat][i]])),
     ),
   );
   for (const p of block.purchases) {
@@ -84,14 +95,16 @@ test("all three acts pass on both seats and both rails, loopback only", async ()
       0,
       1,
     ]);
+    // x402-solana refused before it read the chain.
+    assert.equal(p.rpcCalls, solana(p) ? 0 : null);
   }
   assert.deepEqual(
     block.purchases.filter((p) => p.shop === "/wrong-asset").map((p) => [p.asset, p.amountUsdc]),
-    SEATS.flatMap(() => RAIL_IDS.map(() => ["non-USDC", null])),
+    SEATS.flatMap((seat) => SEAT_RAILS[seat].map(() => ["non-USDC", null])),
   );
   assert.equal(block.safeFetchBudgetSpentByRefusalsUsdc, "0.00");
 
-  assert.equal(kill.inFlight.length, SEATS.length * RAIL_IDS.length);
+  assert.equal(kill.inFlight.length, SEATS.reduce((n, seat) => n + SEAT_RAILS[seat].length, 0));
   for (const p of kill.inFlight) {
     assert.deepEqual(row(p, ["decision", "reason", "stage", "signerInvocations", "sellerPaid", "sellerUnpaid"]), [
       "block",
@@ -102,25 +115,40 @@ test("all three acts pass on both seats and both rails, loopback only", async ()
       1,
     ]);
     assert.equal(typeof p.killLatencyMs, "number");
+    // The x402-solana purchase was past its hook (it had read the chain) when .kill was written.
+    if (solana(p)) assert.ok(p.rpcCalls > 0, `rpcCalls ${p.rpcCalls}`);
   }
   for (const h of kill.halted) {
     assert.equal(h.refusedOnEntry, HALTED_CALLS_PER_RAIL);
     assert.equal(h.sellerRequests, 0);
     assert.equal(h.demoSignerCalls, 0);
+    assert.equal(h.rpcCalls, h.seat === "x402-solana" ? 0 : null);
   }
   assert.equal(kill.killRemoved, true);
   assert.ok(kill.resumed.every((p) => p.decision === "allow" && p.signerInvocations === 1 && p.sellerPaid === 1));
 
   for (const seat of SEATS) {
     const s = t.totals.seats[seat];
-    const purchases = RAIL_IDS.length * (2 + 3 + 1 + HALTED_CALLS_PER_RAIL + 1);
+    const rails = SEAT_RAILS[seat];
+    const purchases = rails.length * (2 + 3 + 1 + HALTED_CALLS_PER_RAIL + 1);
     assert.equal(s.purchases, purchases);
-    assert.deepEqual([s.demoSignerCalls, s.signerInvocations, s.sellerPaid], [6, 6, 6], seat);
-    assert.deepEqual(s.sellerPaidByRail, Object.fromEntries(RAIL_IDS.map((id) => [id, 3])));
-    assert.deepEqual(s.events, { onDecision: purchases, onKill: RAIL_IDS.length * (1 + HALTED_CALLS_PER_RAIL), onReceiptVerified: 2 });
+    const paid = rails.length * 3;
+    assert.deepEqual([s.demoSignerCalls, s.signerInvocations, s.sellerPaid], [paid, paid, paid], seat);
+    assert.deepEqual(s.sellerPaidByRail, Object.fromEntries(rails.map((id) => [id, 3])));
+    assert.deepEqual(s.events, {
+      onDecision: purchases,
+      onKill: rails.length * (1 + HALTED_CALLS_PER_RAIL),
+      onReceiptVerified: rails.length,
+    });
   }
   assert.equal(t.totals.seats["safe-fetch"].ledgerBudgetUsedUsdc, "0.06");
   assert.deepEqual(t.totals.seats["x402-fetch"].budgetUsedUsdc, { base: "0.03", solana: "0.03" });
+  assert.deepEqual(t.totals.seats["x402-solana"].budgetUsedUsdc, { solana: "0.03" });
+  assert.deepEqual(t.totals.seats["x402-solana"].signedTransfers, { handed: 3, matchingOffer: 3 });
+  // One blockhash read per transaction built (three paid, one refused in its
+  // wallet during the kill act), with the mint twice and two token accounts.
+  const r = t.totals.solanaRpc;
+  assert.deepEqual([r.getLatestBlockhash, r.getAccountInfo, r.other], [4, 16, 0]);
   assert.equal(t.totals.nonLoopbackConnectionsRefused, 0);
   assert.ok(t.totals.tcpConnections > 0, "the guard saw the loopback connections");
   assert.equal(existsSync(join(dir, ".kill")), false, "the run removed the .kill it wrote");
@@ -139,7 +167,18 @@ test("the trace has one decision record per purchase, in order, with the fields 
   const decisions = seen.filter((r) => r.type === "decision");
   assert.equal(decisions.length, t.acts.block.purchases.length);
   for (const d of decisions) {
-    for (const key of ["decision", "reason", "chain", "asset", "amountUsdc", "signerInvocations", "killLatencyMs", "receiptVerified"]) {
+    for (const key of [
+      "decision",
+      "reason",
+      "chain",
+      "asset",
+      "amountUsdc",
+      "signerInvocations",
+      "killLatencyMs",
+      "receiptVerified",
+      "rpcCalls",
+      "signedTransferMatchesOffer",
+    ]) {
       assert.ok(Object.hasOwn(d, key), `${key} in ${JSON.stringify(d)}`);
     }
   }

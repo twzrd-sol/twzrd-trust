@@ -1,9 +1,10 @@
 // A loopback x402 seller. Each shop answers an unpaid GET with an x402 v2
 // 402 that offers the same terms on Base and on Solana, in the
-// PAYMENT-REQUIRED header and in the body. A request whose PAYMENT-SIGNATURE
-// names one of those offers gets a 200. It listens on 127.0.0.1 only, settles
-// nothing, and counts what reached it, per agent (the x-showcase-agent header
-// the demo agents send).
+// PAYMENT-REQUIRED header and in the body; each Solana offer names a fee payer
+// in extra.feePayer. A request whose PAYMENT-SIGNATURE names one of those
+// offers gets a 200. It listens on 127.0.0.1 only, settles nothing (it does
+// not read the transaction an x402-solana payment carries), and counts what
+// reached it, per agent (the x-showcase-agent header the demo agents send).
 import http from "node:http";
 
 import { AGENT_HEADER } from "./agent.mjs";
@@ -50,6 +51,7 @@ export function paymentRequired(path, origin) {
       asset: shop.asset === "usdc" ? RAILS[id].usdc : RAILS[id].nonUsdc,
       payTo: RAILS[id].sellers[shop.seller],
       maxTimeoutSeconds: 60,
+      ...(RAILS[id].feePayer ? { extra: { feePayer: RAILS[id].feePayer } } : {}),
     })),
   };
 }
