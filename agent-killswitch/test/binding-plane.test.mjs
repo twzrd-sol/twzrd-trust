@@ -10,13 +10,19 @@ import { checkPauseSwitch } from "../dist/gate.js";
 
 const ORIGINAL_CWD = process.cwd();
 
+/** Stub upstream: 200 with usage, or `state.status` with an error body. `state.headers` go on every answer. */
 function startUpstream() {
-  const state = { hits: 0 };
+  const state = { hits: 0, status: 200, headers: {} };
   const server = http.createServer((req, res) => {
     req.resume();
     req.on("end", () => {
       state.hits++;
-      res.writeHead(200, { "content-type": "application/json" });
+      if (state.status !== 200) {
+        res.writeHead(state.status, { "content-type": "application/json", ...state.headers });
+        res.end(JSON.stringify({ error: { message: `stub ${state.status}` } }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json", ...state.headers });
       res.end(
         JSON.stringify({
           id: "chatcmpl-stub",
@@ -322,4 +328,202 @@ test("Hole 5: hitting the cap in agent-killswitch writes .pause for the cap wind
   assert.equal(approval.approved, false);
   assert.match(approval.reason, /^twzrd_payment_paused/);
   assert.equal(intelHits, 0, "payment gate must halt on killswitch-written .pause before hitting intel");
+});
+
+// --- the opt-in breakers write the same .pause the gate reads ---------------
+
+const SELLER = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
+const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+/**
+ * Stub x402 seller and fallback board on 127.0.0.1. `/paid` and `/route`
+ * answer an unpaid request 402 with an invoice and a paid one (any
+ * x-payment header) 200; a paid `/route` names `/paid` as the url to call.
+ * `/top` is the free peek. `hits` lists every request in order.
+ */
+function startSeller() {
+  const hits = [];
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      const { pathname } = new URL(req.url ?? "/", "http://127.0.0.1");
+      const paid = typeof req.headers["x-payment"] === "string";
+      hits.push(paid ? `${pathname} (paid)` : pathname);
+      const json = (status, body) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (pathname === "/top") return json(200, { top: [] });
+      if (pathname !== "/paid" && pathname !== "/route") return json(404, {});
+      if (!paid) return json(402, { accepts: [{ payTo: SELLER, amount: "10000", network: "solana", asset: USDC }] });
+      if (pathname === "/route") return json(200, { url: `http://127.0.0.1:${server.address().port}/paid` });
+      return json(200, { ok: true });
+    });
+  });
+  return new Promise((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve({ server, hits, base: `http://127.0.0.1:${server.address().port}` })),
+  );
+}
+
+/** A loopback URL nothing listens on: calling it fails the way a dead origin does. */
+async function deadOrigin() {
+  const s = http.createServer();
+  const port = await listen(s);
+  await close(s);
+  return `http://127.0.0.1:${port}/paid`;
+}
+
+/** A payer that pays any 402 it is handed (by retrying with x-payment) and counts it. */
+function countingPayWrap(paid) {
+  return (guarded) => async (input, init) => {
+    const r = await guarded(input, init);
+    if (r.status !== 402) return r;
+    paid.n += 1;
+    return guarded(input, { ...init, headers: { ...(init?.headers ?? {}), "x-payment": "stub-signed-payment" } });
+  };
+}
+
+/** Intel stub: a clean, fully covered merchant card and an allowing preflight. */
+function intelStub(calls) {
+  return async (input) => {
+    calls.n += 1;
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/merchant_card/")) return Response.json({ wash_flagged: false, wash_confidence: "full" });
+    return Response.json({ readiness_card: { decision: "allow", trust_score: 90, can_spend: true, seller_wallet: SELLER } });
+  };
+}
+
+/** Run `fn` with a global fetch that refuses anything but 127.0.0.1: these tests use no network. */
+async function loopbackOnly(fn) {
+  const real = globalThis.fetch;
+  const strays = [];
+  globalThis.fetch = (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (url.hostname !== "127.0.0.1") {
+      strays.push(url.origin);
+      return Promise.reject(new Error(`no network in this test: ${url.origin}`));
+    }
+    return real(input, init);
+  };
+  let result;
+  try {
+    result = await fn();
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.deepEqual(strays, [], "a call left 127.0.0.1");
+  return result;
+}
+
+for (const breaker of [
+  {
+    name: "upstream-failure breaker",
+    reason: "upstream_failure_breaker",
+    env: { KILLSWITCH_UPSTREAM_FAILURE_THRESHOLD: "2" },
+    async trip(port) {
+      upstream.state.status = 503;
+      assert.equal((await chat(port)).status, 503);
+      assert.equal((await chat(port)).status, 503);
+    },
+  },
+  {
+    name: "request-rate limit",
+    reason: "request_rate_limit",
+    env: { KILLSWITCH_MAX_REQUESTS_MINUTE: "1" },
+    async trip(port) {
+      assert.equal((await chat(port)).status, 200);
+      assert.equal((await chat(port)).json.error.code, "request_rate_limit");
+    },
+  },
+]) {
+  test(`cross-reader: the .pause the ${breaker.name} writes in a shared TWZRD_STATE_DIR halts twzrd-x402-gate payments, the board fallback included`, async () => {
+    const { createTwzrdPayingFetch, TwzrdWashAbortError, twzrdApprovePayment, resolveConfig } = await import(
+      "../../twzrd-x402-gate/dist/index.js"
+    );
+    const stateDir = path.join(dir, "shared-state");
+    process.env.TWZRD_STATE_DIR = stateDir;
+    Object.assign(process.env, breaker.env);
+    const seller = await startSeller();
+    servers.push(seller.server);
+    const dead = await deadOrigin();
+
+    await loopbackOnly(async () => {
+      const paid = { n: 0 };
+      const intelCalls = { n: 0 };
+      const pay = createTwzrdPayingFetch({
+        fetch: intelStub(intelCalls),
+        rawFetch: (input, init) => globalThis.fetch(input, init),
+        wrapPay: countingPayWrap(paid),
+        topUrl: `${seller.base}/top`,
+        routeUrl: `${seller.base}/route`,
+        deliveryCapture: false,
+      });
+
+      // Controls, before any trip: the seller is paid, and a dead origin falls back to the board.
+      assert.equal((await pay(`${seller.base}/paid`)).status, 200);
+      assert.equal(paid.n, 1);
+      assert.equal((await pay(dead)).status, 200);
+      assert.equal(paid.n, 3, "the fallback paid the board's invoice, then the seller it named");
+      assert.deepEqual(seller.hits, ["/paid", "/paid (paid)", "/top", "/route", "/route (paid)", "/paid", "/paid (paid)"]);
+
+      const port = await startKillswitch();
+      await breaker.trip(port);
+      const pause = checkPauseSwitch(path.join(stateDir, ".pause"));
+      assert.equal(pause.paused, true);
+      assert.equal(pause.reason, breaker.reason);
+
+      const halted = (e) =>
+        e instanceof TwzrdWashAbortError && e.message === `[twzrd] twzrd_payment_paused (${breaker.reason})`;
+      seller.hits.length = 0;
+      const lookups = intelCalls.n;
+      await assert.rejects(() => pay(`${seller.base}/paid`), halted);
+      await assert.rejects(() => pay(dead), halted);
+      assert.equal(paid.n, 3, "nothing is paid after the trip");
+      assert.deepEqual(seller.hits, ["/paid", "/top", "/route"], "the fallback reached the board's 402 and stopped there");
+      assert.equal(intelCalls.n, lookups, "no wash lookup for a payment that cannot happen");
+
+      const approval = await twzrdApprovePayment(
+        { sellerWallet: SELLER, priceUsdc: 0.01, chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", asset: USDC },
+        resolveConfig({ fetch: intelStub(intelCalls) }),
+      );
+      assert.equal(approval.approved, false);
+      assert.match(approval.reason, new RegExp(`^twzrd_payment_paused \\(${breaker.reason}\\)$`));
+      assert.equal(intelCalls.n, lookups, "Seat 1 halts before it asks intel");
+    });
+  });
+}
+
+test("receipts pass through: a V7 receipt in Payment-Receipt reaches the client byte for byte and still verifies; a changed one is refused by the verifier, not the proxy", async () => {
+  const { verifyReceiptBinding } = await import("../../twzrd-x402-gate/dist/index.js");
+  const fixture = new URL("../../twzrd-x402-gate/test/fixtures/intel-receipt-v7.json", import.meta.url);
+  const receipt = JSON.parse(fs.readFileSync(fixture, "utf8"));
+  const control = verifyReceiptBinding(receipt);
+  assert.equal(control.ok, true, "control: the fixture verifies under the pinned issuer key");
+  assert.equal(control.version, "v7");
+  const changed = structuredClone(receipt);
+  changed.preimage.score += 1;
+
+  // Both breakers on: the pass-through does not depend on them.
+  process.env.KILLSWITCH_UPSTREAM_FAILURE_THRESHOLD = "3";
+  process.env.KILLSWITCH_MAX_REQUESTS_MINUTE = "10";
+  const port = await startKillswitch();
+  const throughProxy = async (r) => {
+    const sent = Buffer.from(JSON.stringify(r)).toString("base64url");
+    upstream.state.headers = { "Payment-Receipt": sent };
+    const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-payment": "stub-signed-payment" },
+      body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 16, messages: [{ role: "user", content: "hi" }] }),
+    });
+    await res.arrayBuffer();
+    assert.equal(res.status, 200);
+    const got = res.headers.get("payment-receipt");
+    assert.equal(got, sent, "the header arrives byte for byte");
+    return verifyReceiptBinding(JSON.parse(Buffer.from(got, "base64url").toString("utf8")));
+  };
+  assert.deepEqual(await throughProxy(receipt), control);
+  const refused = await throughProxy(changed);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.error, "receipt.leaf does not match the leaf recomputed from the receipt's fields");
+  assert.equal(upstream.state.hits, 2);
 });

@@ -3,7 +3,17 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import {
+  classifyUpstreamOutcome,
+  REQUEST_RATE_PAUSE_MS,
+  REQUEST_RATE_PAUSE_REASON,
+  RequestRateLimiter,
+  UPSTREAM_FAILURE_PAUSE_REASON,
+  UpstreamFailureBreaker,
+  type BreakerTripRecord,
+} from "./breakers.js";
 import { runVerifyLedger } from "./chain.js";
 import { loadConfig, type KillswitchConfig } from "./config.js";
 import {
@@ -16,9 +26,12 @@ import {
   requestEstimate,
   vetoBody,
   writePauseSwitch,
+  type GateDecision,
+  type PauseSwitchState,
   type PromptSize,
+  type SpendWindow,
 } from "./gate.js";
-import { Ledger } from "./ledger.js";
+import { Ledger, type LedgerLine } from "./ledger.js";
 import { costUsd, type ModelRates } from "./pricing.js";
 import {
   carriesPaymentCredential,
@@ -33,6 +46,32 @@ const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 /** The `model` written on a session-management ledger line: no model was requested. */
 export const SESSION_MANAGEMENT_MODEL = "(session-management)";
+
+/** The `model` written on the line that records an upstream-failure breaker trip. */
+export const BREAKER_MODEL = "(breaker)";
+
+/**
+ * One server's breaker state (breakers.ts). Each breaker is null when it is
+ * off. `heldPause` is a trip whose `.pause` could not be written: this
+ * process refuses what a pause refuses until it ends, so a breaker still
+ * fails closed when the state directory is not writable.
+ */
+interface Breakers {
+  upstream: UpstreamFailureBreaker | null;
+  rate: RequestRateLimiter | null;
+  heldPause: { untilUnixMs: number; reason: string; decisionId: string } | null;
+}
+
+function createBreakers(cfg: KillswitchConfig): Breakers {
+  return {
+    upstream:
+      cfg.upstreamFailureThreshold > 0
+        ? new UpstreamFailureBreaker(cfg.upstreamFailureThreshold, cfg.upstreamFailureCooldownMs)
+        : null,
+    rate: cfg.maxRequestsPerMinute > 0 ? new RequestRateLimiter(cfg.maxRequestsPerMinute) : null,
+    heldPause: null,
+  };
+}
 
 /** The request text and the number of bytes it arrived as (the prompt-token bound counts bytes). */
 function readBody(req: http.IncomingMessage): Promise<{ text: string; bytes: number }> {
@@ -88,9 +127,23 @@ export function createServer(
   const replayed = ledger.load();
   // eslint-disable-next-line no-console
   console.log(`agent-killswitch: replayed ${replayed} ledger lines from the last 48 h`);
+  const breakers = createBreakers(cfg);
+  if (breakers.rate) {
+    const n = breakers.rate.limit;
+    // eslint-disable-next-line no-console
+    console.log(`agent-killswitch: request-rate limit on: ${n} ${n === 1 ? "request" : "requests"} per 60 s`);
+  }
+  if (breakers.upstream) {
+    const n = breakers.upstream.threshold;
+    // eslint-disable-next-line no-console
+    console.log(
+      `agent-killswitch: upstream-failure breaker on: trips after ${n} consecutive ` +
+        `${n === 1 ? "failure" : "failures"}, pauses ${breakers.upstream.cooldownMs} ms`,
+    );
+  }
 
   return http.createServer((req, res) => {
-    void handle(req, res, cfg, ledger).catch((err) => {
+    void handle(req, res, cfg, ledger, breakers).catch((err) => {
       // eslint-disable-next-line no-console
       console.error(`request failed: ${(err as Error).message}`);
       if (!res.headersSent) json(res, 500, { error: { type: "killswitch_error", message: "internal error" } });
@@ -110,26 +163,38 @@ async function handle(
   res: http.ServerResponse,
   cfg: ReturnType<typeof loadConfig>,
   ledger: Ledger,
+  breakers: Breakers,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
 
   if (req.method === "GET" && url.pathname === "/healthz") {
     const w = ledger.window();
-    const pause = checkPauseSwitch(cfg.pauseFilePath);
+    const nowMs = Date.now();
+    const pause = checkPauseSwitch(cfg.pauseFilePath, nowMs);
+    const held = activeHeldPause(breakers, nowMs);
+    const paused = pause.paused || held !== null;
     json(res, 200, {
       ok: true,
       killed: checkKillSwitch(cfg.killFilePath),
-      paused: pause.paused,
+      paused,
       ...(pause.paused
         ? {
             pause_until_unix_ms: pause.untilUnixMs,
             pause_reason: pause.reason,
             pause_decision_id: pause.decisionId,
           }
-        : {}),
+        : held
+          ? {
+              pause_until_unix_ms: held.untilUnixMs,
+              pause_reason: held.reason,
+              pause_decision_id: held.decisionId,
+              pause_held_in_memory: true,
+            }
+          : {}),
       hour_usd: w.hourUsd,
       day_usd: w.dayUsd,
       in_flight: ledger.inFlight(),
+      ...breakersHealth(breakers, paused),
     });
     return;
   }
@@ -162,7 +227,7 @@ async function handle(
     return;
   }
   if (management !== null) {
-    await handleSessionManagement(req, res, cfg, ledger, management);
+    await handleSessionManagement(req, res, cfg, ledger, breakers, management);
     return;
   }
 
@@ -181,13 +246,15 @@ async function handle(
   const nowMs = Date.now();
   const now = new Date(nowMs).toISOString();
   const pause = checkPauseSwitch(cfg.pauseFilePath, nowMs);
+  const window = ledger.window();
 
   // $0 pricing (the free allowlist, a built-in $0 row) is for an unpaid call.
   // Keyless mode is also how an MPP/x402 buyer runs the proxy, and a call
   // that carries a payment credential can cost money: it passes an empty
   // list, which prices nothing at $0. An unpaid call with no allowlist
   // passes no list, so a built-in $0 row keeps its catalog price.
-  const zeroPriceModels: readonly string[] | null = carriesPaymentCredential(req.headers)
+  const paid = carriesPaymentCredential(req.headers);
+  const zeroPriceModels: readonly string[] | null = paid
     ? []
     : cfg.freeModels.length > 0
       ? cfg.freeModels
@@ -198,7 +265,7 @@ async function handle(
     paused: pause.paused,
     pauseReason: pause.reason,
     pauseDecisionId: pause.decisionId,
-    window: ledger.window(),
+    window,
     model,
     maxTokens,
     prompt,
@@ -211,6 +278,19 @@ async function handle(
     modelRates: cfg.modelRates,
   });
 
+  const vetoLine = {
+    timestamp: now,
+    model,
+    requested_model: model,
+    served_model: null,
+    model_mismatch: false,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    cost_usd: 0,
+    request_id: requestId,
+  };
+
   if (!decision.allowed) {
     // Do not shorten the pause this request saw in force: a 60 s
     // per-minute refusal must not cut an hourly or daily budget pause short,
@@ -218,35 +298,17 @@ async function handle(
     // between the read above and this write, so within one process this
     // holds; a pause another process writes in that gap can still be
     // replaced, as before.
-    const longerPauseInForce =
-      pause.paused && pause.untilUnixMs !== null && pause.untilUnixMs >= nowMs + (decision.pauseWindowMs ?? 0);
-    if (decision.code === "budget_exceeded" && decision.pauseWindowMs && !longerPauseInForce) {
-      try {
-        writePauseSwitch(cfg.pauseFilePath, {
-          ttlMs: decision.pauseWindowMs,
-          reason: "budget_exceeded",
-          decisionId: requestId,
-          now: nowMs,
-        });
-      } catch {
-        /* best-effort backpressure file write */
-      }
+    if (decision.code === "budget_exceeded" && decision.pauseWindowMs) {
+      writePauseUnlessLonger(cfg, pause, nowMs, decision.pauseWindowMs, "budget_exceeded", requestId);
     }
-    ledger.append({
-      timestamp: now,
-      model,
-      requested_model: model,
-      served_model: null,
-      model_mismatch: false,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      total_tokens: 0,
-      cost_usd: 0,
-      allowed: false,
-      veto_reason: decision.code,
-      request_id: requestId,
-    });
+    ledger.append({ ...vetoLine, allowed: false, veto_reason: decision.code });
     json(res, decision.status, vetoBody(decision));
+    return;
+  }
+
+  const admitted = admitThroughBreakers(cfg, ledger, breakers, { nowMs, requestId, window, line: vetoLine });
+  if ("refused" in admitted) {
+    json(res, admitted.refused.status, vetoBody(admitted.refused));
     return;
   }
 
@@ -268,13 +330,219 @@ async function handle(
       outboundText,
     );
   } finally {
-    settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: zeroPriceModels, rates: cfg.modelRates });
+    try {
+      settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: zeroPriceModels, rates: cfg.modelRates });
+    } finally {
+      observeUpstream(cfg, ledger, breakers, admitted.ticket, result, paid, requestId);
+    }
   }
+}
+
+/**
+ * Write `.pause` for `ttlMs` unless `pause` (read at `nowMs`) is already in
+ * force at least as long. A corrupt sentinel (in force, no end) is never
+ * replaced: it halts until a person removes it, and a timed pause written
+ * over it would end on its own. Returns when the written pause ends, null
+ * when none was written, or "failed" when the write threw.
+ */
+function writePauseUnlessLonger(
+  cfg: KillswitchConfig,
+  pause: PauseSwitchState,
+  nowMs: number,
+  ttlMs: number,
+  reason: string,
+  decisionId: string,
+): number | null | "failed" {
+  const untilUnixMs = Math.floor(nowMs + ttlMs);
+  if (pause.paused && (pause.untilUnixMs === null || pause.untilUnixMs >= untilUnixMs)) return null;
+  try {
+    writePauseSwitch(cfg.pauseFilePath, { ttlMs, reason, decisionId, now: nowMs });
+    return untilUnixMs;
+  } catch {
+    return "failed";
+  }
+}
+
+/** The pause a failed `.pause` write left in memory, while it is in force. */
+function activeHeldPause(breakers: Breakers, nowMs: number): Breakers["heldPause"] {
+  const held = breakers.heldPause;
+  if (held === null) return null;
+  if (nowMs >= held.untilUnixMs) {
+    breakers.heldPause = null;
+    return null;
+  }
+  return held;
+}
+
+/**
+ * Put a breaker trip in force: write `.pause` for `ttlMs` unless a longer
+ * pause is already in force. When the write fails, hold the pause in this
+ * process instead. Returns the pause fields of the trip's ledger record.
+ */
+function tripPause(
+  cfg: KillswitchConfig,
+  breakers: Breakers,
+  nowMs: number,
+  ttlMs: number,
+  reason: string,
+  decisionId: string,
+): Pick<BreakerTripRecord, "pause_until_unix_ms" | "pause_write_failed"> {
+  const written = writePauseUnlessLonger(cfg, checkPauseSwitch(cfg.pauseFilePath, nowMs), nowMs, ttlMs, reason, decisionId);
+  if (written !== "failed") return { pause_until_unix_ms: written };
+  const untilUnixMs = Math.floor(nowMs + ttlMs);
+  if (breakers.heldPause === null || breakers.heldPause.untilUnixMs < untilUnixMs) {
+    breakers.heldPause = { untilUnixMs, reason, decisionId };
+  }
+  return { pause_until_unix_ms: untilUnixMs, pause_write_failed: true };
+}
+
+/**
+ * The breaker checks for a request that passed every other check and is
+ * about to be forwarded: a pause held in memory, then the request-rate
+ * limit. A refusal is ledgered here (as `line` plus the veto) and returned.
+ * Otherwise the request is counted against the rate limit and gets the
+ * upstream-failure ticket to hand back to observeUpstream when it ends.
+ */
+function admitThroughBreakers(
+  cfg: KillswitchConfig,
+  ledger: Ledger,
+  breakers: Breakers,
+  ctx: {
+    nowMs: number;
+    requestId: string;
+    window: SpendWindow;
+    line: Omit<LedgerLine, "allowed" | "veto_reason">;
+  },
+): { refused: GateDecision } | { ticket: number | null } {
+  const held = activeHeldPause(breakers, ctx.nowMs);
+  if (held !== null) {
+    const refused: GateDecision = {
+      allowed: false,
+      status: 429,
+      code: "payment_gate_halt",
+      message: `Payment gate pause active: ${held.reason} (held in memory: the pause file could not be written)`,
+      spentUsd: ctx.window.hourUsd,
+      limitUsd: cfg.maxUsdPerHour,
+      decisionId: held.decisionId,
+    };
+    ledger.append({ ...ctx.line, allowed: false, veto_reason: refused.code });
+    return { refused };
+  }
+
+  const rate = breakers.rate;
+  const rateNow = performance.now();
+  if (rate !== null && rate.full(rateNow)) {
+    const inWindow = rate.count(rateNow);
+    const pauseFields = tripPause(cfg, breakers, ctx.nowMs, REQUEST_RATE_PAUSE_MS, REQUEST_RATE_PAUSE_REASON, ctx.requestId);
+    // As the token-per-minute refusal carries tokens in these two fields,
+    // this one carries requests.
+    const refused: GateDecision = {
+      allowed: false,
+      status: 429,
+      code: "request_rate_limit",
+      message: `Request-rate limit of ${rate.limit} per 60 s reached; requests are paused for 60 s`,
+      spentUsd: inWindow,
+      limitUsd: rate.limit,
+    };
+    ledger.append({
+      ...ctx.line,
+      allowed: false,
+      veto_reason: refused.code,
+      breaker: {
+        name: "request_rate",
+        event: "trip",
+        reason: `${inWindow} ${inWindow === 1 ? "request" : "requests"} forwarded in the last 60 s; the limit is ${rate.limit}`,
+        ...pauseFields,
+        requests_in_window: inWindow,
+        limit: rate.limit,
+        window_ms: rate.windowMs,
+      },
+    });
+    return { refused };
+  }
+  rate?.record(rateNow);
+  return { ticket: breakers.upstream?.ticket() ?? null };
+}
+
+/**
+ * Hand a forwarded call's end to the upstream-failure breaker. A trip writes
+ * `.pause` for the cooldown and one ledger line with `model` "(breaker)".
+ */
+function observeUpstream(
+  cfg: KillswitchConfig,
+  ledger: Ledger,
+  breakers: Breakers,
+  ticket: number | null,
+  result: ForwardResult | null,
+  paid: boolean,
+  requestId: string,
+): void {
+  const breaker = breakers.upstream;
+  if (breaker === null || ticket === null) return;
+  const trip = breaker.observe(ticket, classifyUpstreamOutcome(result, paid));
+  if (trip === null) return;
+  const nowMs = Date.now();
+  const pauseFields = tripPause(cfg, breakers, nowMs, breaker.cooldownMs, UPSTREAM_FAILURE_PAUSE_REASON, requestId);
+  ledger.append({
+    timestamp: new Date(nowMs).toISOString(),
+    model: BREAKER_MODEL,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    cost_usd: 0,
+    allowed: false,
+    veto_reason: UPSTREAM_FAILURE_PAUSE_REASON,
+    request_id: requestId,
+    breaker: {
+      name: "upstream_failure",
+      event: trip.event,
+      reason:
+        trip.event === "trip"
+          ? `${trip.consecutiveFailures} consecutive upstream ${trip.consecutiveFailures === 1 ? "failure" : "failures"}; the last was ${trip.detail}`
+          : `a failure while half-open: ${trip.detail}`,
+      ...pauseFields,
+      consecutive_failures: trip.consecutiveFailures,
+      threshold: breaker.threshold,
+      cooldown_ms: breaker.cooldownMs,
+    },
+  });
+}
+
+/** The `/healthz` `breakers` block; absent when both breakers are off. */
+function breakersHealth(breakers: Breakers, pausedNow: boolean): { breakers?: Record<string, unknown> } {
+  const { upstream, rate } = breakers;
+  if (upstream === null && rate === null) return {};
+  return {
+    breakers: {
+      ...(upstream !== null
+        ? {
+            upstream_failure: {
+              state: upstream.state(pausedNow),
+              consecutive_failures: upstream.consecutiveFailures,
+              threshold: upstream.threshold,
+              cooldown_ms: upstream.cooldownMs,
+            },
+          }
+        : {}),
+      ...(rate !== null
+        ? {
+            request_rate: {
+              requests_in_window: rate.count(performance.now()),
+              limit: rate.limit,
+              window_ms: rate.windowMs,
+            },
+          }
+        : {}),
+    },
+  };
 }
 
 /**
  * Forward an MPP session-management call without a hold. The kill file still
  * refuses it, and a pause refuses a topUp (gate.ts evaluateSessionManagement).
+ * The breakers act on what a pause acts on: a topUp counts against the
+ * request-rate limit and the upstream-failure breaker; a close and a
+ * bodiless request without a credential do not.
  * One ledger line is written either way, at cost 0, with `session_action`.
  */
 async function handleSessionManagement(
@@ -282,18 +550,20 @@ async function handleSessionManagement(
   res: http.ServerResponse,
   cfg: KillswitchConfig,
   ledger: Ledger,
+  breakers: Breakers,
   action: "close" | "topUp" | "empty",
 ): Promise<void> {
   const requestId = (req.headers["x-request-id"] as string | undefined) ?? randomUUID();
   const nowMs = Date.now();
   const pause = checkPauseSwitch(cfg.pauseFilePath, nowMs);
+  const window = ledger.window();
   const decision = evaluateSessionManagement({
     action,
     killed: checkKillSwitch(cfg.killFilePath),
     paused: pause.paused,
     pauseReason: pause.reason,
     pauseDecisionId: pause.decisionId,
-    window: ledger.window(),
+    window,
     maxUsdPerHour: cfg.maxUsdPerHour,
   });
   const line = {
@@ -311,10 +581,24 @@ async function handleSessionManagement(
     json(res, decision.status, vetoBody(decision));
     return;
   }
+  let ticket: number | null = null;
+  if (action === "topUp") {
+    const admitted = admitThroughBreakers(cfg, ledger, breakers, { nowMs, requestId, window, line });
+    if ("refused" in admitted) {
+      json(res, admitted.refused.status, vetoBody(admitted.refused));
+      return;
+    }
+    ticket = admitted.ticket;
+  }
+  let result: ForwardResult | null = null;
   try {
-    await forwardSessionManagement(cfg.upstreamBaseUrl, cfg.apiKey, res, requestId, cfg.upstreamTimeoutMs, req.headers);
+    result = await forwardSessionManagement(cfg.upstreamBaseUrl, cfg.apiKey, res, requestId, cfg.upstreamTimeoutMs, req.headers);
   } finally {
-    ledger.append({ ...line, allowed: true, veto_reason: null });
+    try {
+      ledger.append({ ...line, allowed: true, veto_reason: null });
+    } finally {
+      observeUpstream(cfg, ledger, breakers, ticket, result, carriesPaymentCredential(req.headers), requestId);
+    }
   }
 }
 

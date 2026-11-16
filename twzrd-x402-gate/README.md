@@ -459,6 +459,8 @@ npm run wash-dogfood
 
 Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**, **tx broadcast = none**, ALL PASS.
 
+**Re-checked 2026-11-16:** the overlay has moved since July. `7G73PL…` and `BJGds…` no longer read `wash_flagged=true` on the live merchant card; `HuSiSpc…` still does and preflights `block`. `npm run wash-dogfood` now defaults to `HuSiSpc…` with a fresh alternate. The table above is the July record.
+
 **Public transcript:** https://gist.github.com/twzrd-sol/2882bddee912f89e99061f3bc1da8227
 
 **Accurate paste line:**
@@ -611,7 +613,7 @@ Canonical path for every agent that spends USDC on Solana x402:
 **Order note:** `onWarnUpsell` (points at first paid hop `GET /v1/intel/quick` $0.001) fires on preflight `warn` **before** the merchant_card wash check. A wash-flagged seller that preflighted as `warn` may still get the upsell hook, then be refused on step 2. Optional V7 `GET /v1/intel/trust` $0.05 stays `autoReceipt` / `requireReceipt` / `escalateOnWarn:false`.
 
 Dogfood (one public live proof path):
-- Free only (wash refuse): `npm run wash-dogfood` → [`examples/wash-refuse-dogfood.ts`](./examples/wash-refuse-dogfood.ts)
+- Free only (wash refuse, from a checkout): `npm run wash-dogfood` → [`examples/wash-refuse-dogfood.ts`](./examples/wash-refuse-dogfood.ts). Fixtures checked live on 2026-11-16: a `wash_flagged=true` seller that preflights `block` (plus an alternate) and a clean control with `wash_flagged=false` and full coverage. The overlay moves, so each run re-reads the card and fails on a fixture that has drifted; override with `WASH_PAYTO` / `CLEAN_PAYTO`.
 - Official client + Path E hook (live Solana ≤$0.001): `npm run official-dogfood` → [`examples/official-x402-dogfood.ts`](./examples/official-x402-dogfood.ts). Needs `@x402/fetch` `@x402/svm` `@x402/core` `@solana/kit` `@scure/base` and a funded Solana key (`SVM_KEYPAIR_PATH` or `~/.agentcash/solana-wallet.json`). `--block` exercises hard `gateOnCanSpend` abort with $0 spend.
 - Multi-hook composition (amount cap then TWZRD, abort short-circuit) is proven offline against the real `x402Client` in `test/x402-official-compat.test.ts`.
 - Release identity: `CLIENT_VERSION` is read from `package.json` (single source of truth); `npm test` includes `version-identity`; `npm run pack-smoke` packs the tarball and checks the installed header.
@@ -817,7 +819,7 @@ the intent hash, so the decision no longer matches.
 npx twzrd-safe-fetch https://example/paid --gate-on-can-spend --payment-network solana --json
 
 # Dry-run: preflight only, zero USDC
-npx twzrd-safe-fetch 'https://intel.twzrd.xyz/v1/intel/quick/BJGdsDXJFy63eCAnX3UmGfShp8BuqbtkTfcamyRGr7VQ' --dry-run --json
+npx twzrd-safe-fetch 'https://intel.twzrd.xyz/v1/intel/quick/HuSiSpcUoUEF4hct1MRsGtNGz8EdBiTs7p2WtJGksLSa' --dry-run --json
 ```
 
 ```text

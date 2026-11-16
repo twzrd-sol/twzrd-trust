@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.3.0 (2026-11-16)
+
+A minor release: new options, all off by default. Nothing changes for a
+config that does not set them.
+
+### Added
+
+- Opt-in upstream-failure breaker: `KILLSWITCH_UPSTREAM_FAILURE_THRESHOLD`
+  / `upstream.failure_threshold` (0 = off) and
+  `KILLSWITCH_UPSTREAM_FAILURE_COOLDOWN_MS` / `upstream.failure_cooldown_ms`
+  (default 60000, at most one day). It counts consecutive upstream failures:
+  a timeout, an unreachable upstream, a 5xx, or any non-2xx to a call that
+  carried a payment credential. An unpaid 402, 400 or 429 neither counts nor
+  resets the count. At the threshold it writes `.pause` for the cooldown;
+  after it the breaker is half-open, and one failure re-trips it while one
+  2xx closes it.
+- Opt-in request-rate limit: `KILLSWITCH_MAX_REQUESTS_MINUTE` /
+  `limits.max_requests_per_minute` (0 = off). It caps the calls forwarded in
+  any 60 s, $0 and free-model calls and MPP `topUp`s included. The call over
+  the limit is refused with 429 `request_rate_limit` (a new veto code) and
+  writes `.pause` for 60 s. The per-minute token limit does not stop a loop
+  of small $0 calls at the default settings: such a call holds only its
+  bytes, and a call answered non-2xx without usage records nothing.
+- Both write `.pause`, never `.kill`, so a trip also halts the payment gate
+  that shares the state directory. Each trip goes on the hash-chained ledger
+  with a `breaker` record (name, event, reason, pause end). An
+  upstream-failure trip writes its own line with model `(breaker)`. A trip
+  never shortens a longer pause and never replaces a corrupt `.pause`. If
+  `.pause` cannot be written, the process holds the pause in memory and
+  `/healthz` reports `pause_held_in_memory`.
+- `/healthz` reports a `breakers` object while either breaker is on.
+- The binding policy accepts `compute.max_requests_per_minute`,
+  `compute.upstream_failure_threshold` and
+  `compute.upstream_failure_cooldown_ms`.
+- All three settings take whole numbers only: a YAML number, or ASCII digits
+  in the env var. A quoted number, a decimal, a boolean or an out-of-range
+  value is refused at startup.
+- Conformance vectors for the halts: each spend cap, both breakers, a
+  cross-reader test showing a breaker's `.pause` stops the payment gate's
+  paid call and its board fallback, and a V7 receipt passing through the
+  proxy unchanged. The conformance workflow now also runs on pull requests
+  that change this package.
+
+### Changed
+
+- The exported `VetoCode` type gains `request_rate_limit`. `createBudgetGate`
+  never returns it (the breakers live in the proxy), but code that matches
+  `VetoCode` exhaustively needs a case for it.
+
 ## 0.2.2 (2026-11-14)
 
 ### Added

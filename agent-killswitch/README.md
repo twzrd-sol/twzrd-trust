@@ -7,9 +7,11 @@ append-only JSONL ledger.
 
 Point any OpenAI client at it by changing one variable — `OPENAI_BASE_URL` —
 and calls through the proxy are refused once they would cross the limits you
-set. It caps a bill: it does not detect a loop, and a loop that costs $0 (a
-free model) keeps running until you touch the kill file. It listens on
-`127.0.0.1` by default and talks to one configured upstream.
+set. It caps a bill: it does not detect a loop, and by default a loop that
+costs $0 (a free model) keeps running until you touch the kill file. The
+opt-in request-rate limit caps calls a minute whatever they cost (see
+"Breakers"). It listens on `127.0.0.1` by default and talks to one
+configured upstream.
 
 ## 5-minute setup (npm / npx)
 
@@ -147,9 +149,11 @@ unsettled estimate forever. `/healthz` reports `in_flight`.
 
 It caps what a **runaway** agent can spend (a loop, a retry storm, a prompt
 that will not end) and refuses the next call once a limit would be crossed.
-It does not stop the loop itself: calls that stay under the limits keep
-going until you touch the kill file, and a call already sent upstream runs
-to its end. It does not stop an **adversarial** agent either. Any local process
+By default it does not stop the loop itself: calls that stay under the limits
+keep going until you touch the kill file, and a call already sent upstream
+runs to its end. Two opt-in breakers (below) pause on a loop's shape instead
+of its spend: a run of upstream failures, or more calls a minute than you
+allow. It does not stop an **adversarial** agent either. Any local process
 that can write the sentinel directory can lift the kill by removing `.kill`
 or `.pause`, and that includes the agent itself. HTTP has no reset endpoint.
 If the agent could act against you:
@@ -161,6 +165,90 @@ If the agent could act against you:
 - keep the upstream key out of the agent's environment, or it can call
   upstream directly and skip the proxy. Traffic that never reaches the
   proxy's port is not capped.
+
+## Breakers (opt-in)
+
+Both breakers are off by default. Each writes `.pause`, never `.kill`, so a
+trip also halts the sibling payment gate when it shares the state directory,
+and each logs its trip on the hash-chained ledger.
+
+**Upstream-failure breaker** (`KILLSWITCH_UPSTREAM_FAILURE_THRESHOLD`,
+`KILLSWITCH_UPSTREAM_FAILURE_COOLDOWN_MS`). It counts consecutive upstream
+failures:
+
+- a timeout (504), an unreachable upstream (502), or an error after the
+  request was sent;
+- any 5xx answer;
+- any non-2xx answer to a call that carried a payment credential.
+
+An unpaid 402 challenge, 400 or 429 neither counts nor resets the count: the
+upstream is up and answering. A 2xx resets it. At the threshold the breaker
+trips. The call that tripped it gets its own answer, `.pause` is written for
+the cooldown (default 60 s, at most 24 h), and calls are refused with 429
+`payment_gate_halt` until the pause ends. Then the breaker is half-open:
+calls flow again, and the first to finish with a 2xx or a failure decides.
+A failure re-trips it at once; a 2xx closes it and resets the count.
+
+**Request-rate limit** (`KILLSWITCH_MAX_REQUESTS_MINUTE`). It caps how many
+calls the proxy forwards in any 60 s, whatever they cost. The call over the
+limit is refused with 429 `request_rate_limit` and writes `.pause` for 60 s.
+It counts calls, whatever is in them: it is a rate limit, not loop
+detection.
+
+The token limit does not do this job. At the default 100,000 tokens a
+minute, a call of about 100 bytes holds about 100 tokens while it is in
+flight, and once answered it counts only the tokens the upstream reports,
+so thousands of such calls a minute pass. A call answered non-2xx without
+usage releases its hold and records nothing, so a loop of failing calls is
+never counted at all.
+
+Both breakers count chat completions and MPP `topUp`s, the calls a pause
+refuses. A `close`, and a bodiless call without a credential, are not
+counted and still pass a pause. Counting is per process: two proxies on one
+state directory share the `.pause`, not their counts.
+
+- An upstream-failure trip writes `.pause` as the tripping call ends, just
+  after its answer is sent. The proxy takes no other call in between, but a
+  process that reads the file the instant that answer arrives can still see
+  the old state for a few milliseconds. A request-rate trip writes `.pause`
+  before its refusal is sent.
+- A trip never shortens a longer pause already in force. It never replaces
+  a corrupt `.pause`, which halts until a person removes it.
+- If `.pause` cannot be written (a read-only state directory), this process
+  holds the pause in memory and refuses until it ends. `/healthz` then
+  reports `"pause_held_in_memory": true`. That pause does not reach the
+  payment gate.
+- Removing `.pause` by hand lifts a breaker's pause like any other. The
+  upstream-failure breaker is then half-open, and the request-rate window
+  still counts the calls of the last 60 s.
+
+`/healthz` carries a `breakers` object while either breaker is on. `state`
+is `closed`, `open` (tripped, pause in force) or `half_open`:
+
+```json
+"breakers": {
+  "upstream_failure": {"state": "closed", "consecutive_failures": 0, "threshold": 5, "cooldown_ms": 60000},
+  "request_rate": {"requests_in_window": 12, "limit": 120, "window_ms": 60000}
+}
+```
+
+An upstream-failure trip appends a line of its own: `model` `(breaker)`,
+`allowed: false`, cost 0, `veto_reason: "upstream_failure_breaker"`, and the
+`request_id` of the call that tripped it. A request-rate trip is the veto
+line of the call it refused. Both carry a `breaker` object:
+
+```json
+{"name": "upstream_failure", "event": "trip",
+  "reason": "5 consecutive upstream failures; the last was upstream_status_503",
+  "pause_until_unix_ms": 1794830400000, "consecutive_failures": 5, "threshold": 5, "cooldown_ms": 60000}
+```
+
+`event` is `retrip` for a failure while half-open. `pause_until_unix_ms` is
+null when a longer pause was already in force. `pause_write_failed: true`
+marks a pause held in memory. A request-rate record carries
+`requests_in_window`, `limit` and `window_ms` instead. Its refusal body
+carries the request count and the limit in `spent_usd` and `limit_usd`, as
+the token-per-minute refusal carries tokens there.
 
 ## Configuration
 
@@ -180,12 +268,22 @@ at startup rather than coerced:
 | `KILLSWITCH_MAX_USD_HOUR` | `limits.max_usd_per_hour` | `5.00` |
 | `KILLSWITCH_MAX_USD_DAY` | `limits.max_usd_per_day` | `25.00` |
 | `KILLSWITCH_MAX_COST_REQUEST` | `limits.max_cost_per_request_usd` | `0.50` |
+| `KILLSWITCH_MAX_REQUESTS_MINUTE` | `limits.max_requests_per_minute` | `0` (off) |
+| `KILLSWITCH_UPSTREAM_FAILURE_THRESHOLD` | `upstream.failure_threshold` | `0` (off) |
+| `KILLSWITCH_UPSTREAM_FAILURE_COOLDOWN_MS` | `upstream.failure_cooldown_ms` | `60000` (1 to 86400000) |
 | `KILLSWITCH_KILL_FILE` | `kill_switch.file_path` | `./data/.kill` |
 | `KILLSWITCH_KILL_API` | `kill_switch.enable_api_endpoint` | `true` |
 | `KILLSWITCH_LEDGER_PATH` | `logging.path` | `./data/spend-ledger.jsonl` |
 | `KILLSWITCH_PORT` / `PORT` | `server.port` | `4020` |
 | `KILLSWITCH_HOST` | — (bind address) | `127.0.0.1` (Docker image sets `0.0.0.0`) |
 | `KILLSWITCH_FREE_MODELS` | — (comma-separated exact model ids) | unset |
+
+The three breaker settings take whole numbers only: a YAML number (not a
+quoted string, a decimal or a boolean), or ASCII digits in the env var.
+Anything else is refused at startup. In a `twzrd.binding_policy.v1` file
+the keys are `compute.max_requests_per_minute`,
+`compute.upstream_failure_threshold` and
+`compute.upstream_failure_cooldown_ms`.
 
 When `KILLSWITCH_FREE_MODELS` is set, a model outside that list is rejected
 with 403 `model_not_allowed` and never reaches upstream. The proxy also
@@ -210,14 +308,18 @@ the $15/$60 fallback. A rate you set yourself in `model_rates` is used as
 given, at $0 too. Do not list a model your upstream bills for in a way the
 proxy cannot see.
 
-A $0 call without `max_tokens` holds nothing before it is sent, so a burst
-of parallel calls to a local model all reach upstream; the per-minute token
-limit counts them once the responses land.
+A $0 call holds no dollars. Without `max_tokens` its token hold is its
+request bytes, so a burst of small parallel calls to a local model all
+reach upstream, and the per-minute token limit counts what the responses
+report once they land. To cap the number of calls, set the request-rate
+limit (see "Breakers").
 
-Every decision — allowed or vetoed — appends one line to the JSONL ledger
-with timestamp, model, token counts, `cost_usd`, `allowed`, `veto_reason`,
-and `request_id`; allowed lines also carry `metered` (`usage` or
-`held_estimate`). An allowed line is written when the call ends. Restart replays the last 48 h to rebuild the spend
+Every veto, and every allowed call except one answered non-2xx without
+usage, appends one line to the JSONL ledger with timestamp, model, token
+counts, `cost_usd`, `allowed`, `veto_reason`, and `request_id`; allowed
+lines also carry `metered` (`usage` or `held_estimate`). An allowed line is
+written when the call ends. A breaker trip writes a `breaker` record (see
+"Breakers"). Restart replays the last 48 h to rebuild the spend
 windows; the ledger file is the source of truth. Each line also carries
 `prev`, which links it to the line before it (see "Ledger integrity").
 
@@ -423,7 +525,21 @@ hold (credential forwarded, body dropped, receipt returned, one cost-0
 before upstream; the kill file refuses all of them and a pause refuses a
 `topUp`; a flat `per_request` row holds and ledgers exactly its amount, so
 an open, four vouchers and a close ledger 3,750 base units on a chain that
-verifies with `--strict`.
+verifies with `--strict`. Halts and breakers: each spend cap (tokens per
+minute, dollars per hour, dollars per day) refuses before upstream and
+writes `.pause` for its own window; both breakers are off by default; the
+upstream-failure breaker trips at its threshold, refuses while paused, goes
+half-open, re-trips on one failure and closes on one 2xx; timeouts, dropped
+connections and paid non-2xx answers count, unpaid 402/400/429 do not; a
+`topUp` counts and a `close` does not; the request-rate limit refuses the
+call over the limit; a trip does not shorten a longer pause or replace a
+corrupt one; a pause that cannot be written is held in memory; strict
+config parsing. A cross-reader test runs the real payment gate against a
+loopback seller: a breaker's `.pause` in a shared `TWZRD_STATE_DIR` refuses
+the paid call and the board fallback before anything is paid. Another
+passes a signed V7 receipt through the proxy in `Payment-Receipt`: the
+bytes arrive unchanged and still verify, and a changed one fails the
+gate's verifier (the proxy does not verify receipts).
 
 ## Pricing notes
 
