@@ -449,6 +449,53 @@ test("runColdStart skips a private-resolving hop candidate and still attempts th
   assert.equal(safeProbed, true, "the loop moves on to the next listing");
 });
 
+test("runColdStart never probes a route-template hop listing and moves on to the next one", async (t) => {
+  const dir = tempDir("cold-start-template-hop-");
+  const templateUrl = "https://template-seller.example/quote/:ticker";
+  const flaggedUrl = "https://flagged-seller.example/v1/item";
+  const concreteUrl = "https://concrete-seller.example/v1/time";
+  const probed: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/v1/intel/resources")) {
+      return Response.json({
+        resources: [
+          // Listed first and reporting a live 402, but a template: never a hop.
+          {
+            resource_url: templateUrl,
+            pay_to: "TemplateSeller11111111111111111111111111111",
+            flags: { has_callable_url: false, has_live_402: true },
+          },
+          // The catalog marks this one non-callable even though the URL is concrete.
+          {
+            resource_url: flaggedUrl,
+            pay_to: "FlaggedSeller111111111111111111111111111111",
+            flags: { has_callable_url: false, has_live_402: true },
+          },
+          {
+            resource_url: concreteUrl,
+            pay_to: "ConcreteSeller11111111111111111111111111111",
+            flags: { has_callable_url: true, has_live_402: true },
+          },
+        ],
+      });
+    }
+    if (url === templateUrl || url === flaggedUrl || url === concreteUrl) {
+      probed.push(url);
+      return new Response("", { status: 404 });
+    }
+    return new Response("", { status: 404 });
+  });
+  await runColdStart(
+    parseArgs(["--policy-out", join(dir, "policy.json")]),
+    {
+      pinnedFetch: PROBE_VIA_MOCK,
+      resolveHost: async () => [{ address: "93.184.216.34", family: 4 }],
+    },
+  );
+  assert.deepEqual(probed, [concreteUrl], "only the callable listing is probed");
+});
+
 test("a hop candidate whose live-resolved payTo duplicates an already-scored wallet is skipped, not double-recorded", async (t) => {
   const dir = tempDir("cold-start-hop-payto-dedup-");
   const dietSeller = "https://diet-seller.example/product";
