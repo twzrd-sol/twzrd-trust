@@ -1,19 +1,30 @@
 #!/usr/bin/env node
-// x402 guard showcase: three acts on Base USDC and Solana USDC.
+// x402 guard showcase: three acts on Base USDC and Solana USDC, on three seats
+// (twzrd.safeFetch; createGuardedX402Fetch on an @x402/fetch client;
+// createGuardedX402SolanaFetch on the stock x402-solana client, Solana only).
+// The x402-solana seat is opt-in: without its packages (npm run
+// setup:x402-solana) it is skipped, and the header and result say so.
 //
-//   node showcase.mjs [--data-dir <dir>]
+//   node showcase.mjs [--scenario allow|block|kill|all] [--json] [--interactive] [--data-dir <dir>]
 //
-// Prints the transcript, writes <data-dir>/showcase-transcript.json, and exits
-// 0 when every check passes, 1 when one fails, 2 when it refused to start.
+// Prints each act as it finishes (or, with --json, one trace record per line),
+// writes <data-dir>/showcase-transcript.json, and exits 0 when every check
+// passes (or --interactive was stopped early with every check so far
+// passing), 1 when one fails, 2 when it refused to start or a flag is wrong.
 // The default data dir is ./data next to this file, whatever the working
 // directory.
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { HALTED_CALLS_PER_RAIL, ShowcaseRefusal, runShowcase } from "./lib/acts.mjs";
+import { ACTS, HALTED_CALLS_PER_RAIL, ShowcaseRefusal, runShowcase } from "./lib/acts.mjs";
 import { RAILS } from "./lib/rails.mjs";
+
+const USAGE = "usage: node showcase.mjs [--scenario allow|block|kill|all] [--json] [--interactive] [--data-dir <dir>]";
+const ACT_TITLE = { allow: "ALLOW", block: "BLOCK", kill: "KILL" };
+const actNumber = (act) => ACTS.indexOf(act) + 1;
 
 function shown(file) {
   const rel = relative(process.cwd(), file);
@@ -27,119 +38,263 @@ function table(rows) {
 
 const ms3 = (n) => `${n.toFixed(3)} ms`;
 const short = (s) => `${s.slice(0, 6)}...${s.slice(-4)}`;
+const title = (rail) => RAILS[rail].title;
+const sellerSaw = (p) => (p.sellerPaid ? `402, then ${p.sellerPaid} paid request (${p.status})` : "402 only, 0 paid");
+const receiptCell = (p) => (p.receiptVerified === null ? "-" : p.receiptVerified ? "verified" : "FAILED");
+const checksLine = (checks) => `  checks ${checks.filter((c) => c.pass).length}/${checks.length}`;
 
-function render(t, file) {
-  const { allow, block, kill } = t.acts;
-  const title = (rail) => RAILS[rail].title;
-  const sellerSaw = (p) => (p.seller_paid ? `402, then ${p.seller_paid} paid request (${p.status})` : "402 only, 0 paid");
-  const out = [];
+const SEAT_LINE = {
+  "safe-fetch": "twzrd.safeFetch with the recorded seller check",
+  "x402-fetch": "createGuardedX402Fetch on an @x402/fetch client; TWZRD evaluator off (offline)",
+  "x402-solana": "createGuardedX402SolanaFetch on the stock x402-solana client, Solana only; TWZRD evaluator off (offline)",
+};
+/** Seat names padded to one width, skipped seats included. */
+const seatWidth = (t) => Math.max(...[...t.seats, ...t.skippedSeats.map((s) => s.seat)].map((seat) => seat.length));
+const skippedLine = (s) => `not installed: ${s.setup} adds this seat`;
 
-  out.push(
-    `x402 guard showcase   twzrd-x402-gate ${t.packages["twzrd-x402-gate"]}   twzrd-receipt-verifier ${t.packages["twzrd-receipt-verifier"]}   node ${t.node}`,
-    `seller  ${t.seller.origin} (loopback, settles nothing)`,
-    "signer  demo: holds no key, builds no transaction",
-    `budget  ${t.budget.max_spend_usdc} USDC per call and in total, both rails`,
-    `kill    ${shown(kill.kill_file)}`,
-    "",
-    "ACT 1  ALLOW",
-    table([
-      ["rail", "shop", "verdict", "signerInvocations", "seller saw"],
-      ...allow.purchases.map((p) => [title(p.rail), p.path, p.verdict, p.signer_invocations, sellerSaw(p)]),
-    ]),
-    `  V7 receipt (fixtures/intel-receipt-v7.json) checked offline: twzrd-receipt-verifier, key ${allow.receipt.key_id} ${short(allow.receipt.trusted_pubkey)}`,
-    table(
-      allow.receipt.cases.map((c) => [
-        `  ${c.label}`,
-        c.valid ? "VALID" : "INVALID",
-        c.valid
-          ? `subject ${short(allow.receipt.subject)}  score ${allow.receipt.score}  issued ${allow.receipt.issued_at.slice(0, 10)}`
-          : c.errors[0] ?? "",
-      ]),
-    ),
-    `    connections opened during the check: ${allow.receipt.connections_during_check}`,
-    "",
-    "ACT 2  BLOCK",
-    table([
-      ["rail", "shop", "verdict", "reason", "signerInvocations", "seller check", "seller saw"],
-      ...block.purchases.map((p) => [
-        title(p.rail),
-        p.path,
-        p.verdict,
-        p.reason,
-        p.signer_invocations,
-        p.seller_check_consulted ? "asked" : "not reached",
-        sellerSaw(p),
-      ]),
-    ]),
-    `  budget spent by refusals: ${block.budget_spent_by_refusals_usdc} USDC`,
-    "",
-    `ACT 3  KILL  ${shown(kill.kill_file)}`,
-    "  in flight: one purchase per rail waiting on the seller check when .kill was written",
-    table(
-      kill.in_flight.map((e) => [
-        title(e.rail),
-        e.path,
-        e.verdict,
-        e.reason,
-        `signerInvocations ${e.signer_invocations}`,
-        `seller paid ${e.seller_paid}`,
-        `refused ${ms3(e.kill_to_refusal_ms)} after .kill`,
-      ]),
-    ),
-    `  halted: ${HALTED_CALLS_PER_RAIL} more purchases per rail with .kill present`,
-    table(
-      kill.halted.map((h) => [
-        title(h.rail),
-        `${h.refused_on_entry}/${h.attempts} refused on entry`,
-        `signer calls ${h.demo_signer_calls}`,
-        `seller requests ${h.seller_requests}`,
-        `p50 ${ms3(h.refusal_ms.p50)}`,
-        `max ${ms3(h.refusal_ms.max)}`,
-      ]),
-    ),
-    `  sub-millisecond halt: ${kill.halt_sub_millisecond ? "yes" : "no (see the timings above)"}`,
-    `  resumed: .kill ${kill.kill_removed ? "removed (this run wrote it)" : "not removed"}`,
-    table(
-      kill.resumed.map((p) => [
-        title(p.rail),
-        p.path,
-        p.verdict,
-        `signerInvocations ${p.signer_invocations}`,
-        `seller paid ${p.seller_paid}`,
-      ]),
-    ),
-    "",
-  );
+function renderHeader(start) {
+  const p = start.packages;
+  const max = start.budget.maxSpendUsdc;
+  const solana = start.seats.includes("x402-solana");
+  const versions = ["twzrd-x402-gate", "twzrd-receipt-verifier", "@x402/fetch", "x402-solana"]
+    .filter((name) => p[name])
+    .map((name) => `${name} ${p[name]}`);
+  const width = seatWidth(start);
+  const seats = [
+    ...start.seats.map((seat) => `${seat.padEnd(width)}  ${SEAT_LINE[seat]}`),
+    ...start.skippedSeats.map((s) => `${s.seat.padEnd(width)}  ${skippedLine(s)}`),
+  ];
+  return [
+    `x402 guard showcase   ${versions.join("   ")}   node ${start.node}`,
+    `seller  ${start.seller} (loopback, settles nothing)`,
+    ...(start.rpc ? [`rpc     ${start.rpc} (loopback Solana RPC stub for x402-solana: the mint, two token accounts, a blockhash)`] : []),
+    ...seats.map((line, i) => `${i === 0 ? "seats" : ""}`.padEnd(8) + line),
+    `signer  demo signer (safe-fetch), demo exact scheme (x402-fetch)${solana ? ", demo wallet (x402-solana)" : ""}: no key, nothing signed`,
+    `budget  ${max} USDC per call; safe-fetch ${max} in total, x402-fetch ${max} per hour per rail${solana ? `, x402-solana ${max} per hour` : ""}`,
+    `kill    ${shown(start.killFile)}`,
+    `acts    ${start.acts.join(", ")}`,
+  ].join("\n");
+}
 
+/** The x402-solana purchases in a list: the only ones with an RPC read count. */
+const solanaOf = (purchases) => purchases.filter((p) => p.rpcCalls !== null);
+const chainCell = (n) => (n === null ? "" : `chain reads ${n}`);
+
+function renderAct(act, section, checks) {
+  const out = [`ACT ${actNumber(act)}  ${ACT_TITLE[act]}${act === "kill" ? `  ${shown(section.killFile)}` : ""}`];
+  if (act === "allow") {
+    const r = section.receipt;
+    out.push(
+      table([
+        ["seat", "rail", "shop", "decision", "signerInvocations", "receipt", "seller saw"],
+        ...section.purchases.map((p) => [p.seat, title(p.rail), p.shop, p.decision, p.signerInvocations, receiptCell(p), sellerSaw(p)]),
+      ]),
+    );
+    const sol = solanaOf(section.purchases);
+    if (sol.length > 0) {
+      const handed = sol.filter((p) => p.signedTransferMatchesOffer !== null);
+      out.push(
+        `  x402-solana read the chain after its hook approved: ${[...new Set(sol.map((p) => p.rpcCalls))].join("/")} RPC reads per payment`,
+        `  transfers its wallet was handed that pay the approved offer: ${handed.filter((p) => p.signedTransferMatchesOffer).length}/${handed.length}`,
+      );
+    }
+    out.push(
+      `  V7 receipt (fixtures/intel-receipt-v7.json) checked offline: twzrd-receipt-verifier, key ${r.keyId} ${short(r.trustedPubkey)}`,
+      table(
+        r.cases.map((c) => [
+          `  ${c.label}`,
+          c.valid ? "VALID" : "INVALID",
+          c.valid ? `subject ${short(r.subject)}  score ${r.score}  issued ${r.issuedAt.slice(0, 10)}` : (c.errors[0] ?? ""),
+        ]),
+      ),
+      `    connections opened during the check: ${r.connectionsDuringCheck}`,
+    );
+  } else if (act === "block") {
+    out.push(
+      table([
+        ["seat", "rail", "shop", "decision", "reason", "signerInvocations", "seller saw"],
+        ...section.purchases.map((p) => [p.seat, title(p.rail), p.shop, p.decision, p.reason, p.signerInvocations, sellerSaw(p)]),
+      ]),
+    );
+    const sol = solanaOf(section.purchases);
+    if (sol.length > 0) out.push(`  x402-solana chain reads during its refusals: ${sol.reduce((n, p) => n + p.rpcCalls, 0)}`);
+    out.push(`  safe-fetch budget spent by refusals: ${section.safeFetchBudgetSpentByRefusalsUsdc} USDC`);
+  } else {
+    const solana = section.inFlight.some((p) => p.seat === "x402-solana");
+    out.push(
+      "  in flight: one purchase per seat and rail, held when .kill was written",
+      ...(solana
+        ? ["  (safe-fetch on the seller check after its 402, x402-fetch on its 402,", "  x402-solana on its blockhash read, after its hook approved)"]
+        : ["  (safe-fetch on the seller check after its 402, x402-fetch on its 402)"]),
+      table(
+        section.inFlight.map((p) => [
+          p.seat,
+          title(p.rail),
+          p.decision,
+          p.reason,
+          p.stage,
+          `signerInvocations ${p.signerInvocations}`,
+          `seller paid ${p.sellerPaid}`,
+          `refused ${ms3(p.killLatencyMs)} after .kill`,
+          chainCell(p.rpcCalls),
+        ]),
+      ),
+      `  halted: ${HALTED_CALLS_PER_RAIL} more purchases per seat and rail with .kill present`,
+      table(
+        section.halted.map((h) => [
+          h.seat,
+          title(h.rail),
+          `${h.refusedOnEntry}/${h.attempts} refused on entry`,
+          `signer calls ${h.demoSignerCalls}`,
+          `seller requests ${h.sellerRequests}`,
+          `p50 ${ms3(h.refusalMs.p50)}`,
+          `max ${ms3(h.refusalMs.max)}`,
+          chainCell(h.rpcCalls),
+        ]),
+      ),
+      `  sub-millisecond halt: ${Object.entries(section.subMillisecond)
+        .map(([s, yes]) => `${s} ${yes ? "yes" : "no"}`)
+        .join(", ")} (a measurement, not a check${solana ? ";" : ")"}`,
+      ...(solana
+        ? ["  once released, the in-flight x402-solana purchase finishes a chain read and builds its transaction before its wallet refuses)"]
+        : []),
+      `  resumed: .kill ${section.killRemoved ? "removed (this run wrote it)" : "not removed"}`,
+      table(
+        section.resumed.map((p) => [
+          p.seat,
+          title(p.rail),
+          p.shop,
+          p.decision,
+          `signerInvocations ${p.signerInvocations}`,
+          `seller paid ${p.sellerPaid}`,
+        ]),
+      ),
+    );
+  }
+  out.push(checksLine(checks), "");
+  return out.join("\n");
+}
+
+function renderResult(t, file) {
   const passed = t.checks.filter((c) => c.pass).length;
-  out.push(`RESULT  ${t.result.toUpperCase()}  ${passed}/${t.checks.length} checks`);
+  const ran = t.result === "stopped" ? ` (stopped; ran: ${t.actsRun.join(", ") || "none"})` : "";
+  const out = [`RESULT  ${t.result.toUpperCase()}  ${passed}/${t.checks.length} checks${ran}`];
   for (const c of t.checks.filter((x) => !x.pass)) out.push(`  FAILED ${c.id}: ${c.observed}`);
-  const byRail = Object.entries(t.totals.seller_paid_by_rail)
-    .map(([rail, n]) => `${title(rail)} ${n}`)
-    .join(", ");
+  const byRail = (obj) =>
+    Object.entries(obj)
+      .map(([rail, n]) => `${title(rail)} ${n}`)
+      .join(", ");
+  const SIGNER = { "safe-fetch": "demo signer calls", "x402-fetch": "demo scheme calls", "x402-solana": "demo wallet calls" };
+  const width = seatWidth(t);
+  for (const seat of t.seats) {
+    const s = t.totals.seats[seat];
+    out.push(
+      `  ${seat.padEnd(width)}  ${SIGNER[seat]} ${s.demoSignerCalls}, signerInvocations ${s.signerInvocations}, seller paid requests ${s.sellerPaid} (${byRail(s.sellerPaidByRail)})`,
+      `  ${"".padEnd(width)}  events: onDecision ${s.events.onDecision}, onKill ${s.events.onKill}, onReceiptVerified ${s.events.onReceiptVerified}`,
+    );
+    if (s.signedTransfers) {
+      const r = t.totals.solanaRpc;
+      out.push(
+        `  ${"".padEnd(width)}  transfers handed to the wallet ${s.signedTransfers.handed}, paying the approved offer ${s.signedTransfers.matchingOffer}`,
+        `  ${"".padEnd(width)}  RPC reads: getAccountInfo ${r.getAccountInfo}, getLatestBlockhash ${r.getLatestBlockhash}, other ${r.other}`,
+      );
+    }
+  }
+  for (const s of t.skippedSeats) out.push(`  ${s.seat.padEnd(width)}  ${skippedLine(s)}`);
+  const sf = t.totals.seats["safe-fetch"];
+  const sol = t.totals.seats["x402-solana"];
   out.push(
-    `  demo signer calls ${t.totals.demo_signer_calls}, gate signerInvocations ${t.totals.gate_signer_invocations}, seller paid requests ${t.totals.seller_paid} (${byRail})`,
-    `  budget used ${t.totals.budget_used_usdc} of ${t.budget.max_spend_usdc} USDC (demo ledger; no USDC moved)`,
-    `  TCP connections ${t.totals.tcp_connections}, all loopback; non-loopback refused ${t.totals.non_loopback_connections_refused}`,
+    `  budget used: safe-fetch ${sf.ledgerBudgetUsedUsdc} of ${t.budget.maxSpendUsdc} USDC (one ledger, both rails); ` +
+      `x402-fetch ${byRail(t.totals.seats["x402-fetch"].budgetUsedUsdc)}` +
+      `${sol ? `; x402-solana ${byRail(sol.budgetUsedUsdc)}` : ""} USDC (demo; no USDC moved)`,
+    `  TCP connections ${t.totals.tcpConnections}, all loopback; non-loopback refused ${t.totals.nonLoopbackConnectionsRefused}`,
     `  transcript ${shown(file)}`,
   );
   return out.join("\n");
 }
 
-const { values } = parseArgs({ options: { "data-dir": { type: "string" } } });
+/** Prompts on stderr before each act: Enter runs it, q or end of input stops. */
+function interactivePrompter() {
+  const reader = createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false });
+  const lines = reader[Symbol.asyncIterator]();
+  let closed = false;
+  return {
+    async beforeAct(act) {
+      if (closed) return false;
+      process.stderr.write(`next: ACT ${actNumber(act)} ${ACT_TITLE[act]}. Enter runs it, q stops: `);
+      const line = await lines.next();
+      // A terminal echoes the answer and its newline; piped input does not.
+      if (line.done) process.stderr.write("(end of input)\n");
+      else if (!process.stdin.isTTY) process.stderr.write(`${line.value}\n`);
+      if (line.done || /^\s*q/i.test(line.value)) {
+        closed = true;
+        return false;
+      }
+      return true;
+    },
+    // Closing the reader releases stdin. Without it a terminal, or any stdin
+    // left open, keeps the process alive after the last act.
+    close() {
+      reader.close();
+    },
+  };
+}
+
+let values;
+try {
+  ({ values } = parseArgs({
+    options: {
+      "data-dir": { type: "string" },
+      scenario: { type: "string", default: "all" },
+      json: { type: "boolean", default: false },
+      interactive: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+    strict: true,
+    allowPositionals: false,
+  }));
+} catch (err) {
+  console.error(`${err.message}\n${USAGE}`);
+  process.exit(2);
+}
+if (values.help) {
+  console.log(USAGE);
+  process.exit(0);
+}
+if (values.scenario !== "all" && !ACTS.includes(values.scenario)) {
+  console.error(`unknown scenario "${values.scenario}"\n${USAGE}`);
+  process.exit(2);
+}
+const acts = values.scenario === "all" ? ACTS : [values.scenario];
 const dataDir = values["data-dir"] ?? fileURLToPath(new URL("./data/", import.meta.url));
+const transcriptFile = join(dataDir, "showcase-transcript.json");
+const prompter = values.interactive ? interactivePrompter() : null;
+const print = (text) => process.stdout.write(`${text}\n`);
 
 let transcript;
 try {
-  transcript = await runShowcase({ dataDir });
+  transcript = await runShowcase({
+    dataDir,
+    acts,
+    beforeAct: prompter?.beforeAct,
+    onEvent: (record) => {
+      if (values.json) print(JSON.stringify(record));
+      else if (record.type === "start") print(`${renderHeader(record)}\n`);
+    },
+    afterAct: (act, section, checks) => {
+      if (!values.json) print(renderAct(act, section, checks));
+    },
+  });
 } catch (err) {
   if (err instanceof ShowcaseRefusal) {
     console.error(`refused to start: ${err.message}`);
     process.exit(2);
   }
   throw err;
+} finally {
+  prompter?.close();
 }
-const transcriptFile = join(dataDir, "showcase-transcript.json");
 writeFileSync(transcriptFile, `${JSON.stringify(transcript, null, 2)}\n`);
-console.log(render(transcript, transcriptFile));
-process.exitCode = transcript.result === "pass" ? 0 : 1;
+if (values.json) console.error(`transcript ${shown(transcriptFile)}`);
+else print(renderResult(transcript, transcriptFile));
+process.exitCode = transcript.result === "fail" ? 1 : 0;

@@ -34,6 +34,11 @@ export function demoAddress(seller, railId) {
   return railId === "base" ? `0x${digest.subarray(12).toString("hex")}` : base58(digest);
 }
 
+/** A demo Solana address made the same way from `x402-guard-showcase/<label>`. Nobody holds a key for it either. */
+export function demoKey(label) {
+  return base58(createHash("sha256").update(`x402-guard-showcase/${label}`).digest());
+}
+
 export const RAILS = Object.freeze({
   base: Object.freeze({
     id: "base",
@@ -60,6 +65,13 @@ export const RAILS = Object.freeze({
       good: "2WBvtM5caeqGYzEsL1bpBykRBZT117YtBekYFwdrw6kw",
       flagged: "4Pp6jnLy2bXjSBJbk7hHUBxSyRc6tuWPKQpuXqNqTbSX",
     }),
+    // The x402-solana seat's buyer (demoKey("buyer/solana")), and the fee payer
+    // the seller names in each Solana offer's extra.feePayer, which x402-solana
+    // requires (demoKey("fee-payer/solana")). The buyer and both sellers are on
+    // the ed25519 curve, as a wallet's address is, so token account addresses
+    // derive from them.
+    buyer: "6kuZ92r2eBnqnbDmgHYmR8SmoUgMQFtXTuQre7qzaCy8",
+    feePayer: "Em4M5LpQjSpvMKNdEqATth57fvUzfhXPNZYpLMqQmDbq",
   }),
 });
 

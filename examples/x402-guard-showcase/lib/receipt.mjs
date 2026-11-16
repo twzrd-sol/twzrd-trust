@@ -1,11 +1,14 @@
 // Offline check of a signed V7 receipt with twzrd-receipt-verifier: the leaf
 // hash of the preimage and an ed25519 signature against the issuer key the
-// package pins. verify() is synchronous and does no I/O.
+// package pins. verifyReceipt (lib/guarded-fetch.mjs) calls verify(), which is
+// synchronous and does no I/O.
 import { readFileSync } from "node:fs";
 
 import verifier from "twzrd-receipt-verifier";
 
-const { verify, CURRENT_RECEIPT_PUBKEY, CURRENT_RECEIPT_SIGNING_KEY_ID } = verifier;
+import { verifyReceipt } from "./guarded-fetch.mjs";
+
+const { CURRENT_RECEIPT_PUBKEY, CURRENT_RECEIPT_SIGNING_KEY_ID } = verifier;
 
 /**
  * A receipt the paid trust endpoint issued. The same bytes are published at
@@ -40,26 +43,26 @@ export function loadReceipt() {
 }
 
 /** Verify the receipt as issued, then two edited copies: the score, and the freshness window. */
-export function checkReceiptOffline(receipt = loadReceipt()) {
+export function checkReceiptOffline({ receipt = loadReceipt(), onReceiptVerified } = {}) {
   return {
     kind: receipt.kind,
     subject: receipt.preimage.agent_id,
     score: receipt.preimage.score,
-    issued_at: new Date(receipt.preimage.timestamp_unix * 1000).toISOString(),
-    trusted_pubkey: CURRENT_RECEIPT_PUBKEY,
-    key_id: CURRENT_RECEIPT_SIGNING_KEY_ID,
+    issuedAt: new Date(receipt.preimage.timestamp_unix * 1000).toISOString(),
+    trustedPubkey: CURRENT_RECEIPT_PUBKEY,
+    keyId: CURRENT_RECEIPT_SIGNING_KEY_ID,
     cases: CASES.map(({ name, label, edit }) => {
       const copy = structuredClone(receipt);
       if (edit) edit(copy.preimage);
-      const result = verify(copy, CURRENT_RECEIPT_PUBKEY);
+      const event = verifyReceipt(copy, { onReceiptVerified });
       return {
         name,
         label,
-        expect_valid: edit === null,
-        valid: result.valid,
-        leaf_valid: result.leaf_valid,
-        signature_valid: result.signature_valid,
-        errors: result.errors,
+        expectValid: edit === null,
+        valid: event.valid,
+        leafValid: event.leafValid,
+        signatureValid: event.signatureValid,
+        errors: event.errors,
       };
     }),
   };

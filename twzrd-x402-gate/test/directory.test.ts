@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  isCallableListing,
   listDirectoryCallables,
   listResources,
   listX402Directory,
@@ -75,6 +76,106 @@ async function run() {
     }) as unknown as typeof fetch,
   });
   assert.equal(emptyThenOverlay[0]?.payTo, "Fb");
+
+  // --- live row shapes ---------------------------------------------------
+  // A /v1/intel/resources row keeps its live-402 state and callability under
+  // flags / discovery, not at the top level.
+  const joinRow = normalizeDirectoryRow(
+    {
+      resource_url: "https://seller.example/v1/time",
+      pay_to: "Seller1111111111111111111111111111111111111",
+      discovery: { service_name: "time", live_402_verified: true },
+      flags: { has_callable_url: true, has_live_402: true },
+    },
+    "resources",
+  );
+  assert.equal(joinRow.live402, true);
+  assert.equal(joinRow.name, "time");
+  assert.equal(joinRow.callable, true);
+
+  const templateRow = normalizeDirectoryRow(
+    {
+      resource_url: "https://seller.example/quote/:ticker",
+      pay_to: "Seller2222222222222222222222222222222222222",
+      discovery: { live_402_verified: true },
+      flags: { has_callable_url: false, has_live_402: true },
+    },
+    "resources",
+  );
+  assert.equal(templateRow.live402, true, "a template row can still report a live 402");
+  assert.equal(templateRow.callable, false);
+  assert.equal(isCallableListing(templateRow), false);
+
+  // The catalog's own flag wins even when the URL looks concrete.
+  const markedRow = normalizeDirectoryRow(
+    { resource_url: "https://seller.example/v1/x", pay_to: "P", flags: { has_callable_url: false } },
+    "resources",
+  );
+  assert.equal(markedRow.callable, false);
+
+  // A template the catalog did not flag is caught by the URL check.
+  const unflaggedTemplate = normalizeDirectoryRow(
+    { resource_url: "https://seller.example/v1/item/{id}", pay_to: "P" },
+    "resources",
+  );
+  assert.equal(unflaggedTemplate.callable, false);
+
+  // Either live-402 source is read on its own.
+  assert.equal(
+    normalizeDirectoryRow({ resource_url: "https://a.example/x", flags: { has_live_402: true } }, "resources").live402,
+    true,
+  );
+  assert.equal(
+    normalizeDirectoryRow({ resource_url: "https://a.example/x", discovery: { live_402_verified: false } }, "resources").live402,
+    false,
+  );
+
+  // A row with no URL is not refused by the template check.
+  assert.equal(normalizeDirectoryRow({ pay_to: "P" }, "resources").callable, null);
+
+  // An x402-directory service lists its callable URLs under `endpoints`.
+  const service = normalizeDirectoryRow(
+    {
+      name: "svc.example",
+      pay_to: "Seller3333333333333333333333333333333333333",
+      endpoints: ["https://svc.example/a", "https://svc.example/b"],
+      endpoint_count: 4,
+      non_callable: { template: 2, non_http_uri: 0 },
+    },
+    "x402-directory",
+  );
+  assert.equal(service.resourceUrl, "https://svc.example/a");
+  assert.equal(service.name, "svc.example");
+  assert.equal(service.callable, true);
+
+  // pickCallable skips a template even when it is first and reports a live 402.
+  const pickedPastTemplate = pickCallable([templateRow, joinRow]);
+  assert.equal(pickedPastTemplate?.resourceUrl, "https://seller.example/v1/time");
+  // A listing built by hand, without `callable`, gets the same URL check.
+  assert.equal(
+    pickCallable([
+      { resourceUrl: "https://t.example/docs/[slug]", payTo: "T", live402: true, listed: true, name: "t", source: "resources" },
+    ]),
+    null,
+  );
+  assert.equal(pickCallable([templateRow]), null);
+
+  // listX402Directory reads the overlay's `services` array.
+  const servicesFetch = (async () =>
+    new Response(
+      JSON.stringify({
+        coverage: [{ source: "upstream", served_rows: 1 }],
+        services: [
+          { name: "svc.example", pay_to: "Seller3333333333333333333333333333333333333", endpoints: ["https://svc.example/a"] },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as unknown as typeof fetch;
+  const services = await listX402Directory({ fetch: servicesFetch, intelBase: "https://intel.example" });
+  assert.equal(services.length, 1);
+  assert.equal(services[0]?.resourceUrl, "https://svc.example/a");
+  assert.equal(services[0]?.payTo, "Seller3333333333333333333333333333333333333");
+  assert.equal(services[0]?.source, "x402-directory");
 
   console.log("directory.test.ts: ALL PASSED");
 }

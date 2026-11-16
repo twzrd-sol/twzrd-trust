@@ -589,7 +589,7 @@ Examples:
   twzrd-safe-fetch https://example/paid --gate-on-can-spend --payment-network solana --json
 
   # Dry-run only
-  twzrd-safe-fetch https://intel.twzrd.xyz/v1/intel/quick/<pubkey> --dry-run --json
+  twzrd-safe-fetch https://intel.twzrd.xyz/v1/intel/quick/GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs --dry-run --json
 `);
 }
 

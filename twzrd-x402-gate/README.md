@@ -302,8 +302,7 @@ The existing APIs below retain their own defaults and optional switches.
 
 Commerce loop (directory → preflight → AutoGate → verify → evidence bundle):
 repo [docs/COMMERCE-KIT.md](../docs/COMMERCE-KIT.md). `exportEvidenceBundle` /
-`npx twzrd-evidence-bundle` writes `twzrd.evidence_bundle.v1`. This package is
-not Catena's Agent Commerce Kit.
+`npx twzrd-evidence-bundle` writes `twzrd.evidence_bundle.v1`.
 
 ### Lower-level call (named export `twzrd`)
 
