@@ -1,3 +1,4 @@
+import { MAX_UPSTREAM_FAILURE_COOLDOWN_MS } from "./breakers.js";
 import { parseModelRates, type ModelRates } from "./pricing.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -21,6 +22,20 @@ export interface KillswitchConfig {
   maxUsdPerHour: number;
   maxUsdPerDay: number;
   maxCostPerRequestUsd: number;
+  /**
+   * Request-rate limit: the most requests (chat completions and MPP
+   * `topUp`s) forwarded in any 60 s window, whatever they cost. 0 (the
+   * default) turns it off. A request that would go over is refused and
+   * writes `.pause` for 60 s.
+   */
+  maxRequestsPerMinute: number;
+  /**
+   * Upstream-failure breaker: consecutive failures that trip it. 0 (the
+   * default) turns it off.
+   */
+  upstreamFailureThreshold: number;
+  /** How long a trip of the upstream-failure breaker pauses, in ms (1 to 86400000). */
+  upstreamFailureCooldownMs: number;
   killFilePath: string;
   pauseFilePath: string;
   enableKillApi: boolean;
@@ -34,12 +49,19 @@ interface RawConfig {
   state_dir?: unknown;
   compute?: Record<string, unknown>;
   payment?: unknown;
-  upstream?: { base_url?: string; api_key_env?: string; timeout_ms?: number };
+  upstream?: {
+    base_url?: string;
+    api_key_env?: string;
+    timeout_ms?: number;
+    failure_threshold?: unknown;
+    failure_cooldown_ms?: unknown;
+  };
   limits?: {
     max_tokens_per_minute?: number;
     max_usd_per_hour?: number;
     max_usd_per_day?: number;
     max_cost_per_request_usd?: number;
+    max_requests_per_minute?: unknown;
   };
   kill_switch?: { file_path?: string; pause_file_path?: string; enable_api_endpoint?: unknown };
   logging?: { path?: string };
@@ -56,6 +78,9 @@ const BINDING_COMPUTE_KEYS = new Set([
   "max_usd_per_hour",
   "max_usd_per_day",
   "max_cost_per_request_usd",
+  "max_requests_per_minute",
+  "upstream_failure_threshold",
+  "upstream_failure_cooldown_ms",
   "enable_kill_api",
   "ledger_path",
   "port",
@@ -67,6 +92,63 @@ function nonNegNum(val: unknown, name: string): number | undefined {
     throw new Error(`Invalid numeric compute config '${name}': ${String(val)}`);
   }
   return val;
+}
+
+function wholeNumberText(min: number, max: number): string {
+  return max === Number.MAX_SAFE_INTEGER ? `a whole number of at least ${min}` : `a whole number from ${min} to ${max}`;
+}
+
+function describeValue(val: unknown): string {
+  return typeof val === "string" ? `the string '${val}'` : `'${String(val)}'`;
+}
+
+/**
+ * A whole number from a YAML or JSON config file: a literal number only. A
+ * quoted string, a fraction, a boolean or null is refused at startup, never
+ * coerced (the same rule as kill_switch.enable_api_endpoint).
+ */
+function wholeNumber(val: unknown, name: string, min: number, max: number = Number.MAX_SAFE_INTEGER): number | undefined {
+  if (val === undefined) return undefined;
+  if (typeof val !== "number" || !Number.isSafeInteger(val) || val < min || val > max) {
+    throw new Error(`${name} must be ${wholeNumberText(min, max)}, got ${describeValue(val)}`);
+  }
+  return val;
+}
+
+/**
+ * A whole number from the environment variable `name`: ASCII digits only
+ * (no sign, space, fraction, exponent or hex). Unset or empty means `fallback`.
+ */
+function envWholeNumber(name: string, fallback: number, min: number, max: number = Number.MAX_SAFE_INTEGER): number {
+  const env = process.env[name];
+  if (env === undefined || env === "") return fallback;
+  const v = /^[0-9]+$/.test(env) ? Number(env) : Number.NaN;
+  if (!Number.isSafeInteger(v) || v < min || v > max) {
+    throw new Error(`${name} must be ${wholeNumberText(min, max)}, got '${env}'`);
+  }
+  return v;
+}
+
+/** The three breaker settings with their environment overrides applied (env wins, as everywhere). */
+function breakerSettings(file: {
+  maxRequestsPerMinute?: number;
+  upstreamFailureThreshold?: number;
+  upstreamFailureCooldownMs?: number;
+}): Pick<KillswitchConfig, "maxRequestsPerMinute" | "upstreamFailureThreshold" | "upstreamFailureCooldownMs"> {
+  return {
+    maxRequestsPerMinute: envWholeNumber("KILLSWITCH_MAX_REQUESTS_MINUTE", file.maxRequestsPerMinute ?? 0, 0),
+    upstreamFailureThreshold: envWholeNumber(
+      "KILLSWITCH_UPSTREAM_FAILURE_THRESHOLD",
+      file.upstreamFailureThreshold ?? 0,
+      0,
+    ),
+    upstreamFailureCooldownMs: envWholeNumber(
+      "KILLSWITCH_UPSTREAM_FAILURE_COOLDOWN_MS",
+      file.upstreamFailureCooldownMs ?? 60000,
+      1,
+      MAX_UPSTREAM_FAILURE_COOLDOWN_MS,
+    ),
+  };
 }
 
 function literalBoolean(val: unknown, name: string): boolean | undefined {
@@ -87,6 +169,9 @@ function validateBindingComputeSection(raw: Record<string, unknown>): {
   maxUsdPerHour?: number;
   maxUsdPerDay?: number;
   maxCostPerRequestUsd?: number;
+  maxRequestsPerMinute?: number;
+  upstreamFailureThreshold?: number;
+  upstreamFailureCooldownMs?: number;
   enableKillApi?: boolean;
   ledgerPath?: string;
   port?: number;
@@ -143,6 +228,14 @@ function validateBindingComputeSection(raw: Record<string, unknown>): {
     maxUsdPerHour: nonNegNum(c["max_usd_per_hour"], "max_usd_per_hour"),
     maxUsdPerDay: nonNegNum(c["max_usd_per_day"], "max_usd_per_day"),
     maxCostPerRequestUsd: nonNegNum(c["max_cost_per_request_usd"], "max_cost_per_request_usd"),
+    maxRequestsPerMinute: wholeNumber(c["max_requests_per_minute"], "compute.max_requests_per_minute", 0),
+    upstreamFailureThreshold: wholeNumber(c["upstream_failure_threshold"], "compute.upstream_failure_threshold", 0),
+    upstreamFailureCooldownMs: wholeNumber(
+      c["upstream_failure_cooldown_ms"],
+      "compute.upstream_failure_cooldown_ms",
+      1,
+      MAX_UPSTREAM_FAILURE_COOLDOWN_MS,
+    ),
     enableKillApi: typeof c["enable_kill_api"] === "boolean" ? c["enable_kill_api"] : undefined,
     ledgerPath: typeof c["ledger_path"] === "string" ? c["ledger_path"].trim() : undefined,
     port: nonNegNum(c["port"], "port"),
@@ -254,6 +347,7 @@ export function loadConfig(configPath: string): KillswitchConfig {
         "KILLSWITCH_MAX_COST_REQUEST",
         binding.maxCostPerRequestUsd ?? 0.5,
       ),
+      ...breakerSettings(binding),
       killFilePath,
       pauseFilePath,
       enableKillApi:
@@ -269,6 +363,16 @@ export function loadConfig(configPath: string): KillswitchConfig {
     raw.kill_switch?.enable_api_endpoint,
     "kill_switch.enable_api_endpoint",
   );
+  const legacyBreakers = {
+    maxRequestsPerMinute: wholeNumber(raw.limits?.max_requests_per_minute, "limits.max_requests_per_minute", 0),
+    upstreamFailureThreshold: wholeNumber(raw.upstream?.failure_threshold, "upstream.failure_threshold", 0),
+    upstreamFailureCooldownMs: wholeNumber(
+      raw.upstream?.failure_cooldown_ms,
+      "upstream.failure_cooldown_ms",
+      1,
+      MAX_UPSTREAM_FAILURE_COOLDOWN_MS,
+    ),
+  };
   const freeModels = freeModelList();
   const apiKeyEnv = str(process.env.KILLSWITCH_API_KEY_ENV, raw.upstream?.api_key_env ?? "OPENAI_API_KEY");
   // A free allowlist never copies a key into config, even if one is present in the environment.
@@ -311,6 +415,7 @@ export function loadConfig(configPath: string): KillswitchConfig {
       "KILLSWITCH_MAX_COST_REQUEST",
       raw.limits?.max_cost_per_request_usd ?? 0.5,
     ),
+    ...breakerSettings(legacyBreakers),
     killFilePath,
     pauseFilePath,
     enableKillApi:

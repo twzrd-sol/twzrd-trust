@@ -7,7 +7,8 @@ export type VetoCode =
   | "kill_switch"
   | "payment_gate_halt"
   | "per_request_cap"
-  | "model_not_allowed";
+  | "model_not_allowed"
+  | "request_rate_limit";
 
 export const PAUSE_SENTINEL_SCHEMA = "twzrd.pause_sentinel.v1" as const;
 

@@ -13,13 +13,15 @@ name: agent-killswitch conformance
 # Triggers:
 #   workflow_call  publish-agent-killswitch.yml and agent-killswitch-image.yml
 #                  run this first; their release job `needs` it.
-#   pull_request   only when one of these three files changes, so an edit to
-#                  the release path gets a hosted run before it merges. The
+#   pull_request   when the package or one of these three files changes, so
+#                  a change to the proxy, its conformance vectors or the
+#                  release path gets a hosted run before it merges. The
 #                  release workflows themselves are workflow_dispatch only.
 on:
   workflow_call:
   pull_request:
     paths:
+      - agent-killswitch/**
       - .github/workflows/agent-killswitch-conformance.yml
       - .github/workflows/publish-agent-killswitch.yml
       - .github/workflows/agent-killswitch-image.yml

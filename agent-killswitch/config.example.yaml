@@ -6,12 +6,21 @@ upstream:
   # Give up on upstream after this many ms (504 to the client). Covers the
   # response headers, and the whole body when not streaming. 0 disables.
   timeout_ms: 60000
+  # Opt-in upstream-failure breaker (0 = off). After this many consecutive
+  # failures (timeout, unreachable, 5xx, or any non-2xx to a paid call) it
+  # writes .pause for failure_cooldown_ms (1 to 86400000), then lets calls
+  # through half-open: one failure re-trips it, one 2xx closes it.
+  failure_threshold: 0
+  failure_cooldown_ms: 60000
 
 limits:
   max_tokens_per_minute: 100000
   max_usd_per_hour: 5.00
   max_usd_per_day: 25.00
   max_cost_per_request_usd: 0.50
+  # Opt-in request-rate limit (0 = off): calls forwarded in any 60 s,
+  # whatever they cost. The call over it is refused and writes .pause for 60 s.
+  max_requests_per_minute: 0
 
 kill_switch:
   # When this file exists, every chat-completion request is vetoed
