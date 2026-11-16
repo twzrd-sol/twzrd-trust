@@ -45,14 +45,16 @@ Live surfaces:
 - Verifier (free): `POST https://intel.twzrd.xyz/v1/intel/resource_bind/verify`
   with `{"signature": "...", "paymentRequired": <the 402 JSON>}` or
   `{"signature": "...", "leaf": {leaf_hash, pay_to, asset, amount_raw[, payer]}}`.
-- A live v1-dialect 402: `GET https://reader.outbid.sh/scrape?url=https://example.com/`
-  (the checks below do not need its source)
+
+The v1-dialect 402 behind the cross-stack row is checked in as captured:
+`twzrd-x402-gate/test/fixtures/reader-outbid-402.json`. The checks below do not
+need the seller's source.
 
 ## The strongest single check
 
 Reimplement the leaf from this repo's spec alone, then:
 
-1. `GET` the reader URL above; take the 402 JSON body.
+1. Take the 402 JSON body from that fixture.
 2. Derive the leaf from its first solana-exact accepts entry + its `resource`.
 3. Fetch tx `5Tq8sKFa…` from any mainnet RPC; confirm `meta.err == null`;
    decode the Memo instruction.
