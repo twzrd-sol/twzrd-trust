@@ -6,7 +6,7 @@
  * payTo before signing. On its own that is not evidence the gate discriminates:
  * a hook hardcoded to `{ abort: true }` would produce an identical green proof.
  * This harness supplies the missing controls. All three arms run through the
- * SAME real x402-solana@2.1.0 stock client against LIVE intel:
+ * SAME real x402-solana stock client (the gate's devDependency) against LIVE intel:
  *
  *   ARM A  wash payTo  + refuseWashFlagged:true   -> EXPECT abort  (gate fires)
  *   ARM B  clean payTo + refuseWashFlagged:true   -> EXPECT no abort (merchant-dependent)
@@ -14,6 +14,13 @@
  *
  * B proves the refusal tracks the MERCHANT. C proves it tracks the GATE BEING ON.
  * If any arm disagrees, the S1 proof is hollow and this exits non-zero.
+ *
+ * Live limit (checked 2026-11-16): intel's preflight never soft-allows a
+ * wash_flagged seller. It answers decision=block with a recommended cap of 0,
+ * and the gate enforces both whatever refuseWashFlagged says, so against live
+ * intel ARM C refuses on intel's own block. That outcome is reported as a
+ * fixture that cannot isolate the gate (exit 2), never as a gate that failed to
+ * discriminate. C needs a wash_flagged fixture whose preflight is warn.
  *
  * In the allow arms the client proceeds past the gate into transaction
  * construction and fails there on the placeholder wallet ("Non-base58
@@ -27,14 +34,15 @@
  *
  * Env:
  *   TWZRD_INTEL_BASE  default https://intel.twzrd.xyz
- *   WASH_PAYTO        default BJGdsDXJ... (live wash_flagged=true)
- *   CLEAN_PAYTO       default X4o2D8op... (live wash_flagged=false)
+ *   WASH_PAYTO        default HuSiSpc... (wash_flagged=true, preflight block; 2026-11-16)
+ *   CLEAN_PAYTO       default J7aN3PLJ... (wash_flagged=false with full coverage,
+ *                     preflight allow; 2026-11-16)
  */
 import { createTwzrdBeforePaymentHook } from "../src/x402-client-hook.js";
 
 const INTEL = (process.env.TWZRD_INTEL_BASE || "https://intel.twzrd.xyz").replace(/\/+$/, "");
-const WASH = process.env.WASH_PAYTO?.trim() || "BJGdsDXJFy63eCAnX3UmGfShp8BuqbtkTfcamyRGr7VQ";
-const CLEAN = process.env.CLEAN_PAYTO?.trim() || "X4o2D8op42a2jcNJJVZcDq3eYivh1oR9XiezPWCXosZ";
+const WASH = process.env.WASH_PAYTO?.trim() || "HuSiSpcUoUEF4hct1MRsGtNGz8EdBiTs7p2WtJGksLSa";
+const CLEAN = process.env.CLEAN_PAYTO?.trim() || "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 type ArmResult = {
@@ -188,6 +196,16 @@ async function main() {
       a.signer_invocations === 0 && b.signer_invocations === 0 && c.signer_invocations === 0,
   };
   const discriminating = Object.values(checks).every(Boolean);
+  // C refused on intel's own block or zero cap (see the header): the fixture
+  // cannot isolate the gate. A and B still discriminate on the merchant.
+  const cBlockedByIntel =
+    c.aborted && /twzrd_decision_block|twzrd_over_recommended_cap_/.test(c.reason ?? "");
+  const fixtureCannotIsolateGate =
+    !discriminating &&
+    checks.A_blocks_wash &&
+    checks.B_allows_clean &&
+    checks.no_arm_signs &&
+    cBlockedByIntel;
 
   console.log(
     JSON.stringify(
@@ -200,16 +218,19 @@ async function main() {
         arms: [a, b, c],
         checks,
         discriminating,
+        fixture_cannot_isolate_gate: fixtureCannotIsolateGate,
         interpretation: discriminating
           ? "Refusal tracks BOTH the merchant wash flag and the gate being enabled - the S1 proof is not a constant-block."
-          : "Gate did NOT discriminate. The S1 green proof does not establish selective refusal.",
+          : fixtureCannotIsolateGate
+            ? "A refuses the wash merchant and B allows the clean one with zero signer calls, so the refusal tracks the merchant. C cannot run as a control with this fixture: intel's preflight blocks this wash_flagged seller (cap 0) and the gate enforces that with refuseWashFlagged:false too. Set WASH_PAYTO to a wash_flagged seller whose preflight is warn to run C."
+            : "Gate did NOT discriminate. The S1 green proof does not establish selective refusal.",
       },
       null,
       2,
     ),
   );
 
-  if (!discriminating) process.exit(1);
+  if (!discriminating) process.exit(fixtureCannotIsolateGate ? 2 : 1);
 }
 
 main().catch((e) => {
