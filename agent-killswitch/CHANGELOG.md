@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (2026-11-16)
+## 0.3.0 (2026-11-16)
 
 A minor release: new options, all off by default. Nothing changes for a
 config that does not set them.
