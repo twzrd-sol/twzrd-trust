@@ -2,6 +2,28 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## Unreleased
+
+No allow/refuse decision changes. Discovery picks and the `onWarnUpsell` path can change.
+
+- **A route template is never called (x402-foundation/x402#4284).** A listing whose URL
+  is a route template (`/quote/:ticker`, `/item/{id}`, `/docs/[slug]`, raw or
+  percent-encoded once or twice) is not a resource. `pickCallable` skips it, and the
+  `twzrd-cold-start` hop never probes it, so the hop can land on a different host.
+  `isRouteTemplateUrl` (new export) is the check; `isCallableListing` (new export)
+  applies it, with the catalog's own flag, to a directory listing.
+- **Directory rows read as served.** `normalizeDirectoryRow` reads a
+  `/v1/intel/resources` row's live-402 state from `flags.has_live_402` or
+  `discovery.live_402_verified`, its name from `discovery.service_name`, and the
+  catalog's `flags.has_callable_url`. `DirectoryListing.callable` (new, optional) is
+  false for a row that cannot be requested as listed and null for a row with no URL.
+  `listX402Directory` now reads the overlay's `services` array; it read none of it
+  before and returned no rows. A service's first `endpoints` URL is its `resourceUrl`.
+- **`onWarnUpsell` never gets a route template.** A first-hop path from the server
+  that is a route template is replaced by `/v1/intel/quick/<seller>` instead of
+  being passed through.
+- `twzrd-safe-fetch --help` shows a concrete wallet in its dry-run example.
+
 ## 0.22.0 (2026-11-14)
 
 Every item adds a refusal or narrows what is read; none loosens one. The first three change
