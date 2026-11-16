@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { nextPrev } from "./chain.js";
+import type { BreakerTripRecord } from "./breakers.js";
 import type { SpendWindow } from "./gate.js";
 
 export interface LedgerLine {
@@ -30,6 +31,14 @@ export interface LedgerLine {
    * `model` is "(session-management)". Absent on every other line.
    */
   session_action?: "close" | "topUp" | "empty";
+  /**
+   * Set on the line that records a breaker trip (breakers.ts). An
+   * upstream-failure trip gets a line of its own, with `model` "(breaker)",
+   * `allowed` false, cost 0, `veto_reason` "upstream_failure_breaker" and
+   * the `request_id` of the call whose failure tripped it. A request-rate
+   * trip is the veto line of the request it refused. Absent on every other line.
+   */
+  breaker?: BreakerTripRecord;
   /**
    * SHA-256 (hex) of the line before this one, or "genesis" (chain.ts).
    * Written by `append()`; a value the caller passes is ignored. Absent on
