@@ -205,6 +205,28 @@ async function run() {
   assert.equal(teaserHops[0]?.upsellUrl, "/v1/intel/quick/SELLER");
   assert.equal(teaserHops[0]?.priceUsdc, 0.001);
 
+  // A server path that is a route template is never handed to the hook: the
+  // gate builds the concrete path for this seller instead.
+  const templateHops: Array<{ upsellUrl: string; priceUsdc: number }> = [];
+  await twzrdApprovePayment(
+    { payTo: "SELLER", priceUsdc: 0.01 },
+    resolveConfig({
+      refuseWashFlagged: false,
+      fetch: okFetch({
+        decision: "warn",
+        trust_score: 45,
+        recommended_cap_usdc: 0.1,
+        paid_teaser: "/v1/intel/quick/{seller_payTo}",
+        paid_teaser_usdc: 0.001,
+      }),
+      onWarnUpsell: (ctx) => {
+        templateHops.push({ upsellUrl: ctx.upsellUrl, priceUsdc: ctx.priceUsdc });
+      },
+    }),
+  );
+  assert.equal(templateHops[0]?.upsellUrl, "/v1/intel/quick/SELLER");
+  assert.equal(templateHops[0]?.priceUsdc, 0.001);
+
   console.log("policy.test.ts: ALL PASSED");
 }
 

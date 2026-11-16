@@ -152,7 +152,12 @@ function snapshotRates(value: ModelRates | undefined): ModelRates | undefined {
     const entries = price as unknown as Record<string, unknown>;
     const inputPerMTok = finiteNonNegative(`modelRates.${id}.inputPerMTok`, entries["inputPerMTok"]);
     const outputPerMTok = finiteNonNegative(`modelRates.${id}.outputPerMTok`, entries["outputPerMTok"]);
-    snapshot[id] = Object.freeze({ inputPerMTok, outputPerMTok });
+    // Optional flat USD per request (an MPP session voucher, a per-call x402 price).
+    const rawFlat = entries["perRequestUsd"];
+    const perRequestUsd = rawFlat === undefined ? undefined : finiteNonNegative(`modelRates.${id}.perRequestUsd`, rawFlat);
+    snapshot[id] = Object.freeze(
+      perRequestUsd === undefined ? { inputPerMTok, outputPerMTok } : { inputPerMTok, outputPerMTok, perRequestUsd },
+    );
   }
   return Object.freeze(snapshot);
 }

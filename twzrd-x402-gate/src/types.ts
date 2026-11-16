@@ -33,7 +33,7 @@ export type TwzrdReadinessCard = {
   full_report_price_usdc?: number;
   /** Optional V7 receipt path, e.g. /v1/intel/trust/{wallet}. Not the first paid hop. */
   paid_trust_endpoint?: string;
-  /** First paid hop path from worktree intel, e.g. /v1/intel/quick/{wallet}. */
+  /** First paid hop path the server returns, e.g. /v1/intel/quick/<wallet>. */
   paid_teaser?: string;
   /** First paid hop price (0.001). */
   paid_teaser_usdc?: number;
@@ -261,7 +261,11 @@ export type TwzrdApproveContext = {
 export type TwzrdUpsellContext = {
   sellerWallet: string | undefined;
   trustScore: number | null;
-  /** Relative path to the first paid hop, e.g. /v1/intel/quick/{wallet} */
+  /**
+   * Relative path to the first paid hop, e.g. /v1/intel/quick/<wallet>.
+   * Never a route template: one from the server is replaced by a path built
+   * from the seller.
+   */
   upsellUrl: string;
   /** First-hop price (0.001). Not the optional $0.05 V7 receipt. */
   priceUsdc: number;

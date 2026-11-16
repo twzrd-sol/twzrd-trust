@@ -70,3 +70,5 @@ jobs:
           TWZRD_INTERNAL_CALLER: ${{ github.repository == 'twzrd-sol/twzrd-trust' && 'twzrd:internal:ci' || '' }}
         run: npm run ci
       - run: python3 -m unittest counsel_orchestration.test_decide
+      # Offline: loopback stub for the Intel host, recorded exit code for the verifier.
+      - run: python3 integrations/hermes-plugin/tests/test_plugin.py

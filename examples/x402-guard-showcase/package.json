@@ -1,0 +1,21 @@
+{
+  "name": "x402-guard-showcase",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Three acts on Base USDC and Solana USDC: twzrd.safeFetch and createGuardedX402Fetch on an @x402/fetch client, plus, after npm run setup:x402-solana, createGuardedX402SolanaFetch on the stock x402-solana client, each with typed events: allow with a verified V7 receipt, block before the signer, and a .kill halt. JSON trace, one act at a time, or step through. Loopback seller and Solana RPC stub, demo signers, no keys, no spend.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "showcase": "node showcase.mjs",
+    "test": "node --test test/*.test.mjs",
+    "setup:x402-solana": "npm install --no-save --ignore-scripts --no-audit --no-fund x402-solana@3.0.1 @solana/web3.js@1.99.0 @solana/spl-token@0.4.15"
+  },
+  "dependencies": {
+    "@x402/core": "2.31.0",
+    "@x402/fetch": "2.31.0",
+    "twzrd-receipt-verifier": "1.4.4",
+    "twzrd-x402-gate": "0.22.0"
+  }
+}

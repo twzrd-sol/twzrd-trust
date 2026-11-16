@@ -24,6 +24,7 @@ import {
 } from "./binding-plane.js";
 import { withDeadline } from "./deadline.js";
 import { QUICK_PRICE_USDC } from "./quick.js";
+import { isRouteTemplateUrl } from "./route-template.js";
 import type {
   TwzrdApprovalResult,
   TwzrdApproveContext,
@@ -46,18 +47,25 @@ function strictRefusesGenesisCluster(network: string | undefined | null): boolea
   return cluster === "devnet" || cluster === "testnet";
 }
 
-/** First paid hop on warn. Ignore live paid_trust_endpoint ($0.05 V7). */
+/**
+ * First paid hop on warn. Ignore live paid_trust_endpoint ($0.05 V7).
+ * The path handed to onWarnUpsell is never a route template: a server path
+ * that is one (`/v1/intel/quick/{pubkey}`) is replaced by one built here.
+ */
 function warnUpsellHop(
   card: TwzrdReadinessCard,
   seller: string | undefined,
 ): { upsellUrl: string; priceUsdc: number } {
+  const priceUsdc = card.paid_teaser_usdc ?? QUICK_PRICE_USDC;
   const teaser = card.paid_teaser ?? card.paid_quick_endpoint;
-  if (typeof teaser === "string" && teaser.includes("/quick")) {
-    return { upsellUrl: teaser, priceUsdc: card.paid_teaser_usdc ?? QUICK_PRICE_USDC };
+  if (typeof teaser === "string" && teaser.includes("/quick") && !isRouteTemplateUrl(teaser)) {
+    return { upsellUrl: teaser, priceUsdc };
   }
   return {
-    upsellUrl: seller ? `/v1/intel/quick/${seller}` : "/v1/intel/quick/unknown",
-    priceUsdc: card.paid_teaser_usdc ?? QUICK_PRICE_USDC,
+    upsellUrl: seller
+      ? `/v1/intel/quick/${seller}`
+      : "/v1/intel/quick/unknown",
+    priceUsdc,
   };
 }
 

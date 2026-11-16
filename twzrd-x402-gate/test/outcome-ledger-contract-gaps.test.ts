@@ -1,4 +1,4 @@
-// Pilot-contract gaps G1/G2 found by the codex discovery run (ops-history 2026-10-30-preflight-workflow-discovery),
+// Pilot-contract gaps G1/G2 found by a preflight-workflow discovery run (2026-10-30),
 // RED on c4d3db733c and 3d9e654; pinned GREEN by the operation key and settlement-evidence changes in #274.
 // All traffic, signatures and settlement headers are synthetic and in-process.
 import assert from 'node:assert/strict';

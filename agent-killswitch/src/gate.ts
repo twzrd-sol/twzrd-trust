@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { priceFor, type ModelRates } from "./pricing.js";
+import { flatUsd, priceFor, type ModelRates } from "./pricing.js";
 
 export type VetoCode =
   | "budget_exceeded"
@@ -462,7 +462,10 @@ function readPromptSize(prompt: PromptSize | null | undefined): { bytes: number 
  *   prompt bound's cost when that is higher.
  * - When the size is unknown, invalid, or the prompt is not text-only, the
  *   dollar estimate is never below the per-request cap.
- * - A model priced at $0 (see priceFor) holds no dollars.
+ * - A flat per-request amount (`perRequestUsd`) is added to the token part.
+ * - A model with no token rates (in and out both $0, see priceFor) holds only
+ *   its flat amount, which is $0 for a free model. No token count can change
+ *   what such a row costs, so the per-request-cap floor does not apply to it.
  *
  * A max_tokens that is negative or NaN is treated as absent. +Infinity keeps
  * an unbounded estimate, which every limit refuses.
@@ -476,25 +479,27 @@ export function requestEstimate(
   prompt?: PromptSize | null,
 ): RequestEstimate {
   const { price } = priceFor(model, freeModels, rates);
-  const free = price.inputPerMTok === 0 && price.outputPerMTok === 0;
+  // No token rate: the call costs its flat amount (0 for a free model) whatever its size.
+  const tokenFree = price.inputPerMTok === 0 && price.outputPerMTok === 0;
+  const flat = flatUsd(price);
   const { bytes, bounded } = readPromptSize(prompt);
   const promptTokens = bytes ?? 0;
   // +Infinity is not "absent": it is a request for unbounded output, and the
   // estimate stays unbounded so every limit refuses it, as before.
   if (maxTokens === Number.POSITIVE_INFINITY) {
-    return { tokens: Number.POSITIVE_INFINITY, usd: free ? 0 : Number.POSITIVE_INFINITY };
+    return { tokens: Number.POSITIVE_INFINITY, usd: tokenFree ? flat : Number.POSITIVE_INFINITY };
   }
   const outputTokens =
     typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens >= 0 ? maxTokens : null;
 
   if (outputTokens === null) {
-    const promptUsd = (promptTokens * price.inputPerMTok) / 1_000_000;
-    return { tokens: promptTokens, usd: free ? 0 : Math.max(maxCostPerRequestUsd, promptUsd) };
+    const promptUsd = (promptTokens * price.inputPerMTok) / 1_000_000 + flat;
+    return { tokens: promptTokens, usd: tokenFree ? flat : Math.max(maxCostPerRequestUsd, promptUsd) };
   }
-  const usd = (outputTokens * price.outputPerMTok + promptTokens * price.inputPerMTok) / 1_000_000;
+  const usd = (outputTokens * price.outputPerMTok + promptTokens * price.inputPerMTok) / 1_000_000 + flat;
   return {
     tokens: outputTokens + promptTokens,
-    usd: bounded || free ? usd : Math.max(usd, maxCostPerRequestUsd),
+    usd: bounded || tokenFree ? usd : Math.max(usd, maxCostPerRequestUsd),
   };
 }
 
@@ -671,6 +676,51 @@ export function evaluateGate(input: GateInput): GateDecision {
     };
   }
 
+  return { allowed: true, status: 200, code: null, message: "allowed", spentUsd: 0, limitUsd: 0 };
+}
+
+/**
+ * Admission for an MPP session-management call (proxy.ts
+ * sessionManagementKind): a channel `close`, a deposit `topUp`, or a request
+ * with no body and no credential. None of them runs inference, so no budget,
+ * allowlist or token limit applies and nothing is held. Still refused:
+ * - every one of them while the kill file exists (403 `kill_switch`), the same
+ *   as any other call;
+ * - a `topUp` while any pause is in force (429 `payment_gate_halt`): it puts
+ *   more money behind the channel. A `close` passes a pause, since it ends the
+ *   channel and returns the unspent deposit.
+ */
+export function evaluateSessionManagement(input: {
+  action: "close" | "topUp" | "empty";
+  killed: boolean;
+  paused: boolean;
+  pauseReason?: string | null;
+  pauseDecisionId?: string | null;
+  window: SpendWindow;
+  maxUsdPerHour: number;
+}): GateDecision {
+  if (input.killed) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "kill_switch",
+      message: "Kill switch engaged",
+      spentUsd: input.window.hourUsd,
+      limitUsd: input.maxUsdPerHour,
+    };
+  }
+  if (input.paused && input.action === "topUp") {
+    const detail = input.pauseReason ? `: ${input.pauseReason}` : "";
+    return {
+      allowed: false,
+      status: 429,
+      code: "payment_gate_halt",
+      message: `Payment gate pause active${detail}`,
+      spentUsd: input.window.hourUsd,
+      limitUsd: input.maxUsdPerHour,
+      decisionId: input.pauseDecisionId ?? null,
+    };
+  }
   return { allowed: true, status: 200, code: null, message: "allowed", spentUsd: 0, limitUsd: 0 };
 }
 
