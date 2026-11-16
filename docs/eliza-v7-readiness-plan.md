@@ -118,7 +118,7 @@ artifact resync.
 
 - Do not hand-edit `eliza-plugin/dist/` and call it a source migration.
 - Do not broaden package pins as a substitute for V7 receipt handling.
-- Do not import implementation from `witness`, `outbid`, `trade`, the private
+- Do not import implementation from sibling product repositories, the private
   upstream monorepo, or other lanes.
 - Do not make `server/` buildable as part of this work.
 

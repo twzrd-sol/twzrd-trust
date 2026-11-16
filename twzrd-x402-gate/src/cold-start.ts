@@ -12,7 +12,7 @@ import { existsSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { resolveLineage, type GateAdoptionLineage } from "./adoption-proof.js";
-import { listDirectoryCallables } from "./directory.js";
+import { isCallableListing, listDirectoryCallables } from "./directory.js";
 import { evaluate_x402_resource } from "./evaluate.js";
 import {
   payToFromRequirements,
@@ -599,6 +599,9 @@ export async function runColdStart(
         if (inspected >= HOP_INSPECT_CAP) break;
         const url = listing.resourceUrl;
         if (!url || isForbiddenUrl(url)) continue;
+        // A route template (`/quote/:ticker`) or a row the catalog marks
+        // non-callable is not a resource: never probed, never counted.
+        if (!isCallableListing(listing)) continue;
         const host = hostnameOf(url);
         if (!host || haveHost.has(host)) continue;
         if (listing.payTo && (havePayTo.has(listing.payTo) || isForbiddenPayTo(listing.payTo))) {
