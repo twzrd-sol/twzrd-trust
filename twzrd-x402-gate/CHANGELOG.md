@@ -2,7 +2,7 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
-## Unreleased
+## 0.22.1 (2026-11-16)
 
 No allow/refuse decision changes. Discovery picks and the `onWarnUpsell` path can change.
 
