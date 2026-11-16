@@ -354,7 +354,8 @@ to $0 still applies. For an unpaid call with no free list, leave
 model at the fallback.
 
 **modelRates shape.** `modelRates` takes `{ inputPerMTok, outputPerMTok }`
-per model id. This is **not** the shape of the config file's `model_rates`,
+per model id, with an optional `perRequestUsd` (a flat USD amount added to
+each request's estimate and cost). This is **not** the shape of the config file's `model_rates`,
 which uses `in` and `out` (see "Operator model-rate overrides" below); the
 config shape is rejected here:
 
@@ -415,7 +416,14 @@ codes. A test also states the limit: dropping the newest line or rewriting
 every hash verifies, and only a recorded head shows it. The programmatic
 export: the `.` export resolves to `dist/api.js` with its declarations, the
 decisions are identical to the proxy's on the same input, and malformed
-options, windows, requests and model rates throw rather than fail open.
+options, windows, requests and model rates throw rather than fail open. MPP
+sessions and flat rates: a `close` or `topUp` with no body passes without a
+hold (credential forwarded, body dropped, receipt returned, one cost-0
+`session_action` line); a bodiless voucher, open or x402 header is refused
+before upstream; the kill file refuses all of them and a pause refuses a
+`topUp`; a flat `per_request` row holds and ledgers exactly its amount, so
+an open, four vouchers and a close ledger 3,750 base units on a chain that
+verifies with `--strict`.
 
 ## Pricing notes
 
@@ -536,6 +544,41 @@ at least the per-request cap. If upstream answers it without usage, the
 ledger records that hold, so with the defaults ten such calls use the $5
 hourly limit. Upstreams that report usage are ledgered at the real cost.
 
+### MPP sessions
+
+An MPP session client (mppx `tempo.session`) pays with a signed voucher on
+each request and manages its payment channel with two more calls: `topUp`
+(add deposit) and `close` (settle and end the channel). mppx sends both as a
+POST with **no body** to the URL of the last paid request, which behind this
+proxy is `/v1/chat/completions`. The proxy reads the `action` in the
+`Authorization: Payment` credential (it does not verify the signature; the
+seller does) and:
+
+- forwards a `close` or `topUp` upstream with no body and **no budget
+  hold**: it runs no inference. Any body sent with one is dropped. The
+  seller's status, `Payment-Receipt` and challenge headers come back as
+  sent. The ledger gets one line at cost 0 with `session_action` set and
+  `model` `"(session-management)"`.
+- forwards a request with no body and no payment credential the same way
+  (`session_action: "empty"`); the seller answers it with a 402 challenge
+  or an error.
+- refuses (400, never forwarded) a request with no body that carries any
+  other credential: a voucher, an open, an x402 header or an unreadable
+  `Payment` value. A seller may accept a voucher on an empty request, and
+  that would move money this proxy never metered.
+
+The kill file refuses all of them (403 `kill_switch`). A pause refuses a
+`topUp` (429 `payment_gate_halt`) and lets a `close` through, because a
+close ends the channel and returns the unspent deposit. The hourly and
+daily dollar limits do not apply to either, but the pause a budget refusal
+writes still refuses a `topUp`. The proxy does not read voucher amounts: a
+close settles whatever the client's wallet signed. It meters the requests
+that pass through it, so give each request the seller's price with a flat
+`per_request` rate (see "Operator model-rate overrides"); for a seller that
+takes 750 base units of a 6-decimal stablecoin per request, that is
+`{in: 0, out: 0, per_request: 0.00075}`, and five requests ledger $0.00375
+(3,750 base units).
+
 Upstream payment headers an MPP/x402 buyer needs — `WWW-Authenticate`
 challenges, `PAYMENT-REQUIRED`, `Payment-Receipt`, and `X-Payment-*` — are
 forwarded to the client on both stream and non-stream responses, including
@@ -584,6 +627,22 @@ Rates are USD per **one million tokens**, with separate `in` and `out` values:
 export KILLSWITCH_MODEL_RATES='{"deepseek-reasoner":{"in":0.55,"out":2.19}}'
 ```
 
+An entry may add `per_request`: a flat USD amount charged on every request on
+top of the token rates. A seller that bills one fixed price per request (an
+MPP session voucher, a per-call x402 price) is a row with no token rates:
+
+```sh
+export KILLSWITCH_MODEL_RATES='{"infer-mpp/twzrd-coder":{"in":0,"out":0,"per_request":0.00075}}'
+```
+
+Such a row holds exactly `per_request` before the call and ledgers exactly
+`per_request` after it, with or without upstream usage, at any `max_tokens`
+or prompt size: no token count can change what it costs, so the
+per-request-cap floor that stands in for an unbounded output does not apply.
+Tokens still count toward the per-minute token limit. A row with token rates
+and `per_request` adds the two, and the floor applies as before. A row is
+free only when `in`, `out` and `per_request` are all 0.
+
 This is a configuration example, not a current DeepSeek price claim. In the legacy
 `config.yaml`, the equivalent is:
 
@@ -597,8 +656,9 @@ unpaid free-model allowlist rule > fixed $15/$60 unknown fallback, raised to
 any dearer row or override the id extends with `-` or `:`. A built-in $0
 row belongs to the unpaid free-model rule: a call that carries a payment
 credential skips it. Each override
-requires both finite nonnegative numeric fields; malformed JSON, missing fields,
-negative values and unknown fields fail startup. Zero rates are an explicit
+requires both finite nonnegative numeric fields (`per_request`, when present,
+must be one too); malformed JSON, missing fields, negative values and unknown
+fields fail startup. Zero rates are an explicit
 operator assertion. Request bodies cannot override these rates. Restart to reload.
 The shared binding-policy schema is unchanged; use the environment override with it.
 

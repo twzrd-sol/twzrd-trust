@@ -11,6 +11,7 @@ import {
   checkKillSwitch,
   checkPauseSwitch,
   evaluateGate,
+  evaluateSessionManagement,
   isTextOnlyPrompt,
   requestEstimate,
   vetoBody,
@@ -19,9 +20,19 @@ import {
 } from "./gate.js";
 import { Ledger } from "./ledger.js";
 import { costUsd, type ModelRates } from "./pricing.js";
-import { carriesPaymentCredential, forwardChatCompletion, outboundBodyText, type ForwardResult } from "./proxy.js";
+import {
+  carriesPaymentCredential,
+  forwardChatCompletion,
+  forwardSessionManagement,
+  outboundBodyText,
+  sessionManagementKind,
+  type ForwardResult,
+} from "./proxy.js";
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+/** The `model` written on a session-management ledger line: no model was requested. */
+export const SESSION_MANAGEMENT_MODEL = "(session-management)";
 
 /** The request text and the number of bytes it arrived as (the prompt-token bound counts bytes). */
 function readBody(req: http.IncomingMessage): Promise<{ text: string; bytes: number }> {
@@ -136,6 +147,25 @@ async function handle(
   }
 
   const { text: raw, bytes: rawBytes } = await readBody(req);
+
+  // MPP session management (close, topUp) arrives here with no body: no
+  // inference, so no budget hold. A bodiless call that carries any other
+  // credential is refused before it can move money unmetered.
+  const management = sessionManagementKind(req.headers, raw);
+  if (management === "refuse") {
+    json(res, 400, {
+      error: {
+        type: "invalid_request",
+        message: "a request with no body may carry only an MPP close or topUp credential",
+      },
+    });
+    return;
+  }
+  if (management !== null) {
+    await handleSessionManagement(req, res, cfg, ledger, management);
+    return;
+  }
+
   let body: Record<string, unknown>;
   try {
     body = JSON.parse(raw) as Record<string, unknown>;
@@ -239,6 +269,52 @@ async function handle(
     );
   } finally {
     settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: zeroPriceModels, rates: cfg.modelRates });
+  }
+}
+
+/**
+ * Forward an MPP session-management call without a hold. The kill file still
+ * refuses it, and a pause refuses a topUp (gate.ts evaluateSessionManagement).
+ * One ledger line is written either way, at cost 0, with `session_action`.
+ */
+async function handleSessionManagement(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  cfg: KillswitchConfig,
+  ledger: Ledger,
+  action: "close" | "topUp" | "empty",
+): Promise<void> {
+  const requestId = (req.headers["x-request-id"] as string | undefined) ?? randomUUID();
+  const nowMs = Date.now();
+  const pause = checkPauseSwitch(cfg.pauseFilePath, nowMs);
+  const decision = evaluateSessionManagement({
+    action,
+    killed: checkKillSwitch(cfg.killFilePath),
+    paused: pause.paused,
+    pauseReason: pause.reason,
+    pauseDecisionId: pause.decisionId,
+    window: ledger.window(),
+    maxUsdPerHour: cfg.maxUsdPerHour,
+  });
+  const line = {
+    timestamp: new Date(nowMs).toISOString(),
+    model: SESSION_MANAGEMENT_MODEL,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    cost_usd: 0,
+    request_id: requestId,
+    session_action: action,
+  };
+  if (!decision.allowed) {
+    ledger.append({ ...line, allowed: false, veto_reason: decision.code });
+    json(res, decision.status, vetoBody(decision));
+    return;
+  }
+  try {
+    await forwardSessionManagement(cfg.upstreamBaseUrl, cfg.apiKey, res, requestId, cfg.upstreamTimeoutMs, req.headers);
+  } finally {
+    ledger.append({ ...line, allowed: true, veto_reason: null });
   }
 }
 

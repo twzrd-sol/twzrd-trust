@@ -106,6 +106,61 @@ export function carriesPaymentCredential(clientHeaders: IncomingHttpHeaders): bo
   return false;
 }
 
+// mppx refuses a credential longer than this (Credential.deserialize).
+const MAX_PAYMENT_CREDENTIAL_LENGTH = 64 * 1024;
+
+/**
+ * The `action` of an MPP `Authorization: Payment <base64url JSON>` credential
+ * (`open`, `voucher`, `topUp` or `close` for a Tempo session), or null when
+ * there is no such credential or it does not decode. Only reads the payload;
+ * the seller verifies the signature.
+ */
+export function paymentCredentialAction(clientHeaders: IncomingHttpHeaders): string | null {
+  const raw = headerValue(clientHeaders.authorization);
+  if (raw === undefined || raw.length > MAX_PAYMENT_CREDENTIAL_LENGTH) return null;
+  // The whole header must be one Payment credential: that is the only form
+  // shouldPassThroughAuthorization forwards, so it is the only form a seller
+  // behind this proxy can act on.
+  const m = /^\s*payment\s+([A-Za-z0-9_\-+/]+={0,2})\s*$/i.exec(raw);
+  if (m === null) return null;
+  const token = m[1];
+  try {
+    const parsed = JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as { payload?: unknown };
+    const payload = parsed?.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+    const action = (payload as Record<string, unknown>)["action"];
+    return typeof action === "string" ? action : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How the proxy treats a chat-completions POST that may be MPP session
+ * management rather than inference:
+ * - `close` / `topUp`: the client sent an `Authorization: Payment` credential
+ *   whose action closes the session channel or adds deposit to it. mppx sends
+ *   these with no body to the URL of the last paid request. They run no
+ *   inference, so they pass without a budget hold. Any body is dropped, so a
+ *   seller cannot run unmetered inference on one.
+ * - `empty`: no body and no payment credential of any kind. Nothing can be
+ *   billed and nothing can be inferred; it passes without a hold (an upstream
+ *   answers it with a 402 challenge or a 400).
+ * - `refuse`: no body, but a credential that is not `close` / `topUp` (a
+ *   voucher, an open, an x402 header, an unreadable credential). A seller can
+ *   accept a voucher on an empty request, which would move money the proxy
+ *   never metered, so the proxy refuses it (400) before it reaches upstream.
+ * - null: an ordinary chat completion; the JSON body and the budget gate apply.
+ */
+export type SessionManagementKind = "close" | "topUp" | "empty" | "refuse";
+
+export function sessionManagementKind(clientHeaders: IncomingHttpHeaders, rawBody: string): SessionManagementKind | null {
+  const action = paymentCredentialAction(clientHeaders);
+  if (action === "close" || action === "topUp") return action;
+  if (rawBody.trim().length > 0) return null;
+  return carriesPaymentCredential(clientHeaders) ? "refuse" : "empty";
+}
+
 function sameAsConfiguredBearer(auth: string, apiKey: string): boolean {
   const m = /^bearer\s+(.*)$/i.exec(auth.trim());
   return m !== null && m[1] === apiKey;
@@ -211,6 +266,46 @@ function responseHeaders(upstream: Response, base: Record<string, string>): Reco
     if (value) headers[name] = value;
   }
   return headers;
+}
+
+/**
+ * Forward an MPP session-management call (see sessionManagementKind) upstream
+ * with no body, and pass the answer through: status, the payment challenge
+ * and receipt headers, and whatever body the upstream sent (none on a 204).
+ * Never reports usage; the caller writes no cost for it.
+ */
+export async function forwardSessionManagement(
+  upstreamBaseUrl: string,
+  apiKey: string,
+  clientRes: ServerResponse,
+  requestId: string,
+  timeoutMs: number,
+  clientHeaders: IncomingHttpHeaders = {},
+): Promise<ForwardResult> {
+  const controller = new AbortController();
+  const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let upstreamRes: Response;
+  let text = "";
+  try {
+    const headers = upstreamRequestHeaders(apiKey, requestId, clientHeaders);
+    delete headers["content-type"];
+    upstreamRes = await fetch(`${upstreamBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+    });
+    text = await upstreamRes.text();
+  } catch {
+    return upstreamFailure(clientRes, controller.signal.aborted);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  const base: Record<string, string> = {};
+  const contentType = upstreamRes.headers.get("content-type");
+  if (contentType && text.length > 0) base["content-type"] = contentType;
+  clientRes.writeHead(upstreamRes.status, responseHeaders(upstreamRes, base));
+  clientRes.end(text);
+  return { status: upstreamRes.status, usage: null, outcome: "answered" };
 }
 
 /**

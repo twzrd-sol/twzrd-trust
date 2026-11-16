@@ -6,6 +6,8 @@
  * Callers pick a callable, then preflight the payTo.
  */
 
+import { isRouteTemplateUrl } from "./route-template.js";
+
 export type DirectorySource = "resources" | "x402-directory";
 
 export type DirectoryListing = {
@@ -15,6 +17,14 @@ export type DirectoryListing = {
   listed: boolean | null;
   name: string | null;
   source: DirectorySource;
+  /**
+   * Whether `resourceUrl` can be requested as listed. False when the catalog
+   * marks the row non-callable, when the URL is not http(s), or when it is a
+   * route template such as `/quote/:ticker` or `/item/{id}`; null when the row
+   * has no URL. Optional so listings built by hand stay valid: when it is
+   * absent, `pickCallable` still skips a route-template URL.
+   */
+  callable?: boolean | null;
 };
 
 export type ListDirectoryOptions = {
@@ -36,7 +46,7 @@ function asRecords(body: unknown): Record<string, unknown>[] {
   }
   if (!body || typeof body !== "object") return [];
   const obj = body as Record<string, unknown>;
-  for (const key of ["resources", "items", "results", "data", "listings"]) {
+  for (const key of ["resources", "items", "results", "data", "listings", "services"]) {
     const v = obj[key];
     if (Array.isArray(v)) {
       return v.filter((row): row is Record<string, unknown> => !!row && typeof row === "object");
@@ -61,26 +71,72 @@ function flag(row: Record<string, unknown>, ...keys: string[]): boolean | null {
   return null;
 }
 
+function obj(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** First non-empty URL in an x402-directory service's `endpoints` list. */
+function firstEndpoint(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  for (const entry of value) {
+    if (typeof entry === "string" && entry.trim()) return entry.trim();
+  }
+  return null;
+}
+
+function isCallableUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url) && !isRouteTemplateUrl(url);
+}
+
+/**
+ * Reads both catalog shapes. A /v1/intel/resources row keeps its live-402
+ * state under `flags.has_live_402` / `discovery.live_402_verified` and its
+ * callability under `flags.has_callable_url`; an x402-directory service lists
+ * its callable URLs under `endpoints`.
+ */
 export function normalizeDirectoryRow(
   row: Record<string, unknown>,
   source: DirectorySource,
 ): DirectoryListing {
-  const nested =
-    row.resource && typeof row.resource === "object"
-      ? (row.resource as Record<string, unknown>)
-      : {};
+  const nested = obj(row.resource);
+  const flags = obj(row.flags);
+  const discovery = obj(row.discovery);
+  const resourceUrl =
+    str(row, "resource_url", "resourceUrl", "url", "endpoint") ??
+    str(nested, "url", "resource_url") ??
+    firstEndpoint(row.endpoints);
   return {
-    resourceUrl:
-      str(row, "resource_url", "resourceUrl", "url", "endpoint") ??
-      str(nested, "url", "resource_url"),
+    resourceUrl,
     payTo:
       str(row, "pay_to", "payTo", "seller_wallet", "sellerWallet") ??
       str(nested, "pay_to", "payTo"),
-    live402: flag(row, "live_402", "live402"),
+    live402:
+      flag(row, "live_402", "live402") ??
+      flag(flags, "has_live_402") ??
+      flag(discovery, "live_402_verified"),
     listed: flag(row, "listed"),
-    name: str(row, "name", "resource_name", "title") ?? str(nested, "name"),
+    name:
+      str(row, "name", "resource_name", "title") ??
+      str(nested, "name") ??
+      str(discovery, "service_name"),
     source,
+    callable:
+      resourceUrl === null
+        ? null
+        : flag(flags, "has_callable_url") !== false && isCallableUrl(resourceUrl),
   };
+}
+
+/**
+ * False for a listing that cannot be requested as listed: the catalog marked
+ * it non-callable, or its URL is a route template. A listing with no URL is not
+ * refused here.
+ */
+export function isCallableListing(listing: DirectoryListing): boolean {
+  if (listing.callable === false) return false;
+  return !(listing.resourceUrl && isRouteTemplateUrl(listing.resourceUrl));
 }
 
 async function getJson(
@@ -123,10 +179,11 @@ export async function listX402Directory(
 
 /**
  * First usable callable: prefer a live_402 row with payTo, else any row with payTo.
+ * Skips a listing that cannot be requested as listed (see isCallableListing).
  * No ranking by volume, wash, or score.
  */
 export function pickCallable(listings: DirectoryListing[]): DirectoryListing | null {
-  const withPayTo = listings.filter((row) => row.payTo);
+  const withPayTo = listings.filter((row) => row.payTo && isCallableListing(row));
   return withPayTo.find((row) => row.live402 === true) ?? withPayTo[0] ?? null;
 }
 

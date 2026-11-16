@@ -4,7 +4,7 @@
  * The reputation ladder has three rungs:
  *   free   POST /v1/intel/preflight          -> allow/warn/block only (no wash/fleet)
  *   $0.001 GET  /v1/intel/quick/{seller}      -> seller wash risk + wallet reputation  <-- this file
- *   $0.05  GET  /v1/intel/trust/{seller}      -> full intel + signed V6 receipt (autoReceipt)
+ *   $0.05  GET  /v1/intel/trust/{seller}      -> full intel + signed V7 receipt (autoReceipt)
  *
  * Use `quickCheck` for an evaluated warn you choose to confirm. The
  * before-payment hook never runs this hop for a `null_reason: unknown_subject`

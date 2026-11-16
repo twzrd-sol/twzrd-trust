@@ -1,0 +1,13 @@
+name: twzrd-intel
+version: 0.1.0
+kind: standalone
+description: Pre-spend x402 seller screening, free merchant-card lookup, and signed-receipt verification via TWZRD Intel
+author: TWZRD
+license: MIT
+homepage: https://intel.twzrd.xyz/skill.md
+requires_hermes: ">=0.23"
+requires_env: []
+provides_tools:
+  - twzrd_preflight
+  - twzrd_merchant_card
+  - twzrd_verify_receipt

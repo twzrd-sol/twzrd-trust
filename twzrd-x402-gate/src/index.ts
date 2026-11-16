@@ -344,10 +344,12 @@ export {
   listDirectoryCallables,
   pickCallable,
   normalizeDirectoryRow,
+  isCallableListing,
   type DirectoryListing,
   type DirectorySource,
   type ListDirectoryOptions,
 } from "./directory.js";
+export { isRouteTemplateUrl } from "./route-template.js";
 export {
   exportEvidenceBundle,
   exportEvidenceBundleFromAdoptionProof,

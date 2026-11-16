@@ -24,6 +24,13 @@ export interface LedgerLine {
    */
   metered?: "usage" | "held_estimate";
   /**
+   * Set on the line for an MPP session-management call (a channel `close`, a
+   * deposit `topUp`, or a request with no body and no credential), which ran
+   * no inference and was forwarded without a hold. Its `cost_usd` is 0 and its
+   * `model` is "(session-management)". Absent on every other line.
+   */
+  session_action?: "close" | "topUp" | "empty";
+  /**
    * SHA-256 (hex) of the line before this one, or "genesis" (chain.ts).
    * Written by `append()`; a value the caller passes is ignored. Absent on
    * lines written before the chain existed.
