@@ -136,7 +136,9 @@ export function writeFixtureDir(world, overrides = {}, opts = {}) {
 
 /** Start `mandate serve` in `dir`. Resolves once it is listening; rejects with its stderr if it exits first. */
 export function startServe(dir, args, env = {}) {
-  const child = spawn(process.execPath, [MANDATE_CLI, "serve", "--port", "0", "--quiet", ...args], { cwd: dir, env: childEnv(env), stdio: ["ignore", "ignore", "pipe"] });
+  // Every serve here pays the loopback seller, which answers with one fixed, signed fixture receipt.
+  const loopbackReceipts = ["--receipt-max-age", "off", "--allow-receipt-replay"];
+  const child = spawn(process.execPath, [MANDATE_CLI, "serve", "--port", "0", "--quiet", ...loopbackReceipts, ...args], { cwd: dir, env: childEnv(env), stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "";
   const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
   const ready = new Promise((resolve, reject) => {
@@ -285,7 +287,7 @@ export function reconcile(stateDir, world, mandateId) {
   const mismatches = [];
   const decision = readDecisionLedger(stateDir);
   if (!decision.chainOk) mismatches.push("the decision ledger's chain does not verify");
-  const calls = decision.rows.filter((row) => row.outcome !== "control");
+  const calls = decision.rows.filter((row) => row.outcome !== "control" && row.outcome !== "pending");
   const decisionMicro = calls.filter((row) => row.outcome === "settled" || row.outcome === "violation").reduce((sum, row) => sum + micro(row.settledUsd), 0);
   const signatures = calls.reduce((sum, row) => sum + row.signatures, 0);
   const refusedSigned = calls.filter((row) => row.outcome === "refused" && row.signatures !== 0).length;

@@ -33,7 +33,7 @@ import {
 } from "twzrd-x402-gate";
 import { type PricedOffer, type X402Challenge, narrowChallenge, readChallenge, readOffer, sameOffer, strictBase64ToUtf8 } from "./challenge.js";
 import type { MandateKey } from "./keys.js";
-import { type DecisionInput, type DecisionLedger, type DecisionRecord, openDecisionLedger } from "./ledger.js";
+import { type DecisionInput, type DecisionLedger, type DecisionRecord, ledgerAgreesWithHeartbeat, openDecisionLedger } from "./ledger.js";
 import { type InclusionCheck, type ReceiptCheck, checkInclusion, checkReceipt, findInclusion, findReceipt } from "./receipts.js";
 import { type Mandate, mandateLimitsMicro, microToUsd } from "./schema.js";
 
@@ -51,7 +51,13 @@ export const STATE_FILES = {
 export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const RECEIPT_PAUSE_REASON = "mandate_receipt_violation";
 export const SPEND_RECORD_PAUSE_REASON = "mandate_spend_record_failed";
-const DEFAULT_TRIP_PAUSE_MS = 3_600_000;
+export const SETTLEMENT_PAUSE_REASON = "mandate_settlement_mismatch";
+export const UNRESOLVED_PAUSE_REASON = "mandate_payment_unresolved";
+/** Receipt leaves this state directory has accepted, one per line. */
+export const RECEIPT_LEAVES_FILE = "receipt-leaves.txt";
+export const DEFAULT_RECEIPT_MAX_AGE_SECONDS = 900;
+const MIN_TRIP_PAUSE_MS = 60_000;
+const GUARD_MAX_TRIP_PAUSE_MS = 86_400_000;
 const MICRO = 1_000_000;
 
 /** What a pay module exports: it wraps a fetch that returns 402s and pays them. */
@@ -153,8 +159,23 @@ export interface MandateRuntimeOptions {
   logBaseUrl?: string;
   /** Transport for every outbound request. Default: global fetch. */
   fetch?: typeof fetch;
-  /** How long a violation pauses the state directory. Default one hour. */
+  /**
+   * How long a violation pauses the state directory. Default: until the
+   * mandate expires, so only `resume` with the control token clears it.
+   */
   tripPauseMs?: number;
+  /**
+   * Oldest receipt accepted, in seconds, measured against the receipt's
+   * signed `timestamp_unix`. Default 900. `null` turns the age check off: the
+   * loopback world serves one fixed, signed fixture and uses it.
+   */
+  receiptMaxAgeSeconds?: number | null;
+  /**
+   * Refuse a receipt whose leaf this state directory already accepted for an
+   * earlier call. Default true; the loopback world turns it off for the same
+   * reason as the age check.
+   */
+  refuseReceiptReplay?: boolean;
   /** Time allowed for each outbound request. Default two minutes. */
   requestTimeoutMs?: number;
   now?: () => number;
@@ -193,6 +214,13 @@ interface CallContext {
   paymentRequests: number;
   refusal: Refusal | null;
   transport: typeof fetch;
+  /**
+   * Runs once, just before the request that carries the payment leaves:
+   * the spend goes on the spend ledger and a `pending` line on the decision
+   * ledger, so a process that dies mid-payment has already recorded it. A
+   * refusal here stops the payment.
+   */
+  beforePayment: () => Refusal | null;
 }
 
 const PAYMENT_HEADERS = ["x-payment", "payment-signature"];
@@ -223,9 +251,28 @@ const STRIP_RESPONSE_HEADERS = new Set([
   "content-encoding",
 ]);
 
+/** An `Authorization: Payment ...` header is a payment credential (MPP). */
+export function isPaymentAuthorization(value: string | null | undefined): boolean {
+  return /^\s*payment(\s|$)/i.test(value ?? "");
+}
+
 function carriesPayment(headers: Headers): boolean {
   if (PAYMENT_HEADERS.some((h) => headers.has(h))) return true;
-  return /^\s*payment\s/i.test(headers.get("authorization") ?? "");
+  return isPaymentAuthorization(headers.get("authorization"));
+}
+
+const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi;
+
+/** Text for the ledger and the agent: every URL in it is cut to scheme, host and path, as `publicUrl` does. */
+function redactOrNull(text: string | null): string | null {
+  return text === null ? null : redactUrls(text);
+}
+
+export function redactUrls(text: string): string {
+  return text.replace(URL_IN_TEXT, (match) => {
+    const cut = publicUrl(match);
+    return cut === "(unparseable url)" ? "(url removed)" : cut;
+  });
 }
 
 function requestUrl(input: Parameters<typeof fetch>[0]): string {
@@ -248,12 +295,16 @@ export function publicUrl(url: string): string {
   }
 }
 
+/**
+ * Wallets named as path segments of the target (`/v1/intel/trust/<wallet>`):
+ * the subjects a paid trust lookup is about. The query string is not read,
+ * so an agent cannot widen the receipt check with `?ref=<wallet>`.
+ */
 function walletsNamedIn(url: string): string[] {
   const found = new Set<string>();
   try {
     const u = new URL(url);
-    const parts = [...u.pathname.split("/"), ...[...u.searchParams.values()]];
-    for (const part of parts) {
+    for (const part of u.pathname.split("/")) {
       if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(part) || /^0x[0-9a-fA-F]{40}$/.test(part)) found.add(part);
     }
   } catch {
@@ -262,10 +313,40 @@ function walletsNamedIn(url: string): string[] {
   return [...found];
 }
 
-async function readCapped(resp: Response): Promise<Uint8Array> {
-  const buf = new Uint8Array(await resp.arrayBuffer());
-  if (buf.length > MAX_BODY_BYTES) throw new Error(`response body is larger than ${MAX_BODY_BYTES} bytes`);
-  return buf;
+/**
+ * Read a response body, at most `limit` bytes. A declared length over the
+ * limit is refused before reading; otherwise the read stops (and the
+ * request is cancelled) as soon as the running total passes the limit, so
+ * an oversized body is never held in memory.
+ */
+export async function readCapped(resp: Response, limit: number = MAX_BODY_BYTES): Promise<Uint8Array> {
+  const tooLarge = (): Error => new Error(`response body is larger than ${limit} bytes`);
+  const declared = resp.headers.get("content-length");
+  if (declared !== null && /^\d+$/.test(declared.trim()) && Number(declared.trim()) > limit) {
+    await resp.body?.cancel().catch(() => undefined);
+    throw tooLarge();
+  }
+  if (resp.body === null) return new Uint8Array(0);
+  const reader = resp.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return out;
 }
 
 function jsonBody(doc: unknown): Uint8Array {
@@ -316,6 +397,28 @@ function takeLock(stateDir: string): () => void {
   throw new Error(`could not lock state directory ${stateDir}`);
 }
 
+function readSeenLeaves(file: string): Set<string> {
+  try {
+    return new Set(
+      fs
+        .readFileSync(file, "utf8")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0),
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return new Set();
+    throw err;
+  }
+}
+
+/** `pending` lines that no later line answers: payments that left while a process died. */
+function unresolvedPayments(ledger: DecisionLedger): DecisionRecord[] {
+  const rows = ledger.tail(Number.MAX_SAFE_INTEGER);
+  const answered = new Set(rows.filter((r) => typeof r.ref === "number").map((r) => r.ref as number));
+  return rows.filter((r) => r.outcome === "pending" && !answered.has(r.seq));
+}
+
 function replayCounters(ledger: DecisionLedger): RuntimeCounters {
   const counters: RuntimeCounters = { decisions: 0, refusals: 0, settled: 0, free: 0, violations: 0, errors: 0, settledMicro: 0n, signatures: 0 };
   for (const row of ledger.tail(Number.MAX_SAFE_INTEGER)) tally(counters, row);
@@ -329,7 +432,8 @@ function usdStringToMicro(value: string | null): bigint {
 }
 
 function tally(counters: RuntimeCounters, row: DecisionRecord): void {
-  if (row.outcome === "control") return;
+  // A pending line is answered by the call's own outcome line (or by the recovery line written at start).
+  if (row.outcome === "control" || row.outcome === "pending") return;
   counters.decisions += 1;
   counters.signatures += row.signatures;
   if (row.outcome === "refused") counters.refusals += 1;
@@ -354,14 +458,23 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
   const killFile = path.join(stateDir, STATE_FILES.kill);
   const pauseFile = path.join(stateDir, STATE_FILES.pause);
   const limits = mandateLimitsMicro(mandate);
-  const tripPauseMs = options.tripPauseMs ?? DEFAULT_TRIP_PAUSE_MS;
+  // A violation pause lasts until the mandate ends: only `resume` (with the control token) lifts it sooner.
+  const tripPauseMs = options.tripPauseMs ?? Math.max(MIN_TRIP_PAUSE_MS, options.expiresAtMs - clock());
+  const receiptMaxAgeSeconds =
+    options.receiptMaxAgeSeconds === undefined ? DEFAULT_RECEIPT_MAX_AGE_SECONDS : options.receiptMaxAgeSeconds;
+  const refuseReceiptReplay = options.refuseReceiptReplay ?? true;
+  const receiptLeavesPath = path.join(stateDir, RECEIPT_LEAVES_FILE);
   const baseFetch: typeof fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
   const intelBase = (options.intelBase ?? "https://intel.twzrd.xyz").replace(/\/+$/, "");
 
   let ledger: DecisionLedger;
   let guard: ToolGuard;
+  let seenLeaves: Set<string>;
   try {
     ledger = openDecisionLedger(path.join(stateDir, STATE_FILES.decisionLedger), mandate.mandateId, clock);
+    const agreed = ledgerAgreesWithHeartbeat(ledger, path.join(stateDir, STATE_FILES.heartbeat));
+    if (!agreed.ok) throw new Error(`refusing to open ${stateDir}: ${agreed.detail}`);
+    seenLeaves = readSeenLeaves(receiptLeavesPath);
     guard = createToolGuard({
       ledgerPath: path.join(stateDir, STATE_FILES.toolLedger),
       killFilePath: killFile,
@@ -370,13 +483,54 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       maxCostPerCallUsd: Number(limits.perCall) / MICRO,
       maxUsdPerHour: Number(limits.hourly) / MICRO,
       maxUsdPerDay: Number(limits.daily) / MICRO,
-      tripPauseMs,
+      // The guard bounds its own trip pause at one day; the runtime's pause() writes the full length.
+      tripPauseMs: Math.min(GUARD_MAX_TRIP_PAUSE_MS, Math.max(1000, Math.round(tripPauseMs))),
     });
   } catch (err) {
     release();
     throw err;
   }
   const counters = replayCounters(ledger);
+
+  function rememberLeaf(leaf: string): void {
+    const fd = fs.openSync(receiptLeavesPath, "a", 0o600);
+    try {
+      fs.writeSync(fd, `${leaf}\n`);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    seenLeaves.add(leaf);
+  }
+
+  // A pending line no later line answers is a payment that left while the
+  // process died. Its spend is already in the hour and day windows (it was
+  // booked before the payment left); answer it on the ledger and pause, so an
+  // operator looks before spending goes on.
+  try {
+    const orphans = unresolvedPayments(ledger);
+    for (const orphan of orphans) {
+      write({
+        outcome: "violation",
+        layer: null,
+        code: "payment_unresolved",
+        tool: orphan.tool,
+        target: orphan.target,
+        payTo: orphan.payTo,
+        quotedUsd: orphan.quotedUsd,
+        settledUsd: orphan.quotedUsd,
+        signatures: orphan.signatures,
+        receipt: null,
+        inclusion: null,
+        detail: "a payment left but the process stopped before its outcome was recorded; the signed amount is recorded and spending is paused",
+        ref: orphan.seq,
+      });
+    }
+    if (orphans.length > 0) pause(UNRESOLVED_PAUSE_REASON);
+  } catch (err) {
+    release();
+    throw err;
+  }
 
   // Every setting that decides whether a seller is paid is stated here, so an
   // environment variable on the host cannot loosen what the mandate says.
@@ -426,6 +580,11 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       if (stopped) {
         ctx.refusal = stopped;
         throw new TwzrdWashAbortError(stopped.code);
+      }
+      const unrecorded = ctx.beforePayment();
+      if (unrecorded) {
+        ctx.refusal = unrecorded;
+        throw new TwzrdWashAbortError(unrecorded.code);
       }
       ctx.paymentRequests += 1;
     }
@@ -552,6 +711,8 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
     receipt?: ReceiptCheck | null;
     inclusion?: InclusionCheck | null;
     detail?: string | null;
+    /** The seq of this call's `pending` line, when a payment left. */
+    ref?: number | null;
   }
 
   function finish(f: Finish): CallResult {
@@ -571,7 +732,9 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       signatures,
       receipt: f.receipt?.status ?? null,
       inclusion: f.inclusion?.status ?? null,
-      detail: refusal?.detail ?? f.detail ?? null,
+      // Error text can quote the target with its credentials and query: cut every URL down.
+      detail: redactOrNull(refusal?.detail ?? f.detail ?? null),
+      ref: f.ref ?? null,
     });
     const headers = new Headers();
     f.headers?.forEach((value, key) => {
@@ -641,6 +804,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
   function readBill(headers: Headers, signedMicro: bigint): { micro: bigint | null; detail: string } {
     const header = headers.get("payment-response") ?? headers.get("x-payment-response");
     if (header === null) return { micro: signedMicro, detail: "no settlement header; the signed amount is recorded" };
+    // What the seller reports is checked against what was signed, never recorded in its place.
     const text = strictBase64ToUtf8(header);
     let doc: unknown;
     try {
@@ -655,13 +819,17 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
     if (typeof settled.amount !== "string" || !/^(0|[1-9][0-9]{0,17})$/.test(settled.amount)) {
       return { micro: null, detail: "the settlement header's amount is not readable" };
     }
-    return { micro: BigInt(settled.amount), detail: "billed amount read from the settlement header" };
+    return { micro: BigInt(settled.amount), detail: "the settlement header names the signed amount" };
   }
 
   function buildInit(request: CallRequest): RequestInit {
     const headers = new Headers();
     for (const [key, value] of Object.entries(request.headers ?? {})) {
-      if (!STRIP_REQUEST_HEADERS.has(key.toLowerCase())) headers.set(key, value);
+      const name = key.toLowerCase();
+      if (STRIP_REQUEST_HEADERS.has(name)) continue;
+      // The runtime is the payer: an agent's own `Authorization: Payment ...` is dropped like `x-payment`.
+      if (name === "authorization" && isPaymentAuthorization(value)) continue;
+      headers.set(key, value);
     }
     const method = (request.method ?? "GET").toUpperCase();
     const init: RequestInit = { method, headers, redirect: "manual", signal: AbortSignal.timeout(options.requestTimeoutMs ?? 120_000) };
@@ -699,6 +867,9 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       if (!request.transport && target.protocol !== "http:" && target.protocol !== "https:") throw new Error("scheme");
     } catch {
       return finish({ outcome: "error", request, status: 400, refusal: { layer: null, code: "bad_target", detail: "the target is not an http or https URL" } });
+    }
+    if (target.username !== "" || target.password !== "") {
+      return finish({ outcome: "error", request, status: 400, refusal: { layer: null, code: "bad_target", detail: "the target URL carries credentials; send them in a header instead" } });
     }
 
     // The unpaid request: the price, or the answer if the call is free.
@@ -742,17 +913,55 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       return finish({ outcome: "refused", request, status: 403, offer, refusal: { layer, code, detail: decision.message } });
     }
     const hold: ToolHold = decision.hold;
-    const ctx: CallContext = { approved: offer, targetUrl: target.href, paymentRequests: 0, refusal: null, transport };
     let resp: Response | undefined;
     let respBody: Uint8Array | undefined;
     let thrown: unknown;
     let held = true;
+    let pending: DecisionRecord | null = null;
     const releaseHold = (): void => {
       if (held) {
         held = false;
         hold.release();
       }
     };
+    const quotedUsd = microToUsd(offer.amountMicro);
+    const beforePayment = (): Refusal | null => {
+      try {
+        held = false;
+        // The signed amount, booked in the hour and day windows before the payment can leave.
+        hold.settle(worstCaseUsd);
+      } catch (err) {
+        // Nothing was booked, so the hold must not stay reserved either.
+        try {
+          hold.release();
+        } catch {
+          // already settled or released; nothing is held
+        }
+        pause(SPEND_RECORD_PAUSE_REASON);
+        return { layer: null, code: "spend_record_failed", detail: `the spend could not be recorded, so nothing was paid: ${(err as Error).message}` };
+      }
+      try {
+        pending = write({
+          outcome: "pending",
+          layer: null,
+          code: "payment_sent",
+          tool: request.tool,
+          target: publicUrl(target.href),
+          payTo: offer.payTo,
+          quotedUsd,
+          settledUsd: quotedUsd,
+          signatures: 1,
+          receipt: null,
+          inclusion: null,
+          detail: "a payment is leaving; this call's outcome follows on a later line",
+        });
+      } catch (err) {
+        pause(SPEND_RECORD_PAUSE_REASON);
+        return { layer: null, code: "spend_record_failed", detail: `the decision ledger could not be written, so nothing was paid: ${(err as Error).message}` };
+      }
+      return null;
+    };
+    const ctx: CallContext = { approved: offer, targetUrl: target.href, paymentRequests: 0, refusal: null, transport, beforePayment };
     try {
       // Layer 5: the trust screen. A free preflight; nothing is signed for it.
       let approval;
@@ -809,32 +1018,14 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         return finish({ outcome: "free", request, status: (resp as Response).status, headers: (resp as Response).headers, body: respBody as Uint8Array });
       }
 
-      // A payment left. From here the spend is recorded whatever happens next.
+      // A payment left, and its spend was booked before it did (beforePayment). What is
+      // recorded is the signed amount, whatever the seller reports about it.
       const signatures = ctx.paymentRequests;
+      const ref = (pending as DecisionRecord | null)?.seq ?? null;
       const failed = thrown !== undefined || !(resp as Response).ok;
-      const bill = failed ? { micro: null, detail: "" } : readBill((resp as Response).headers, offer.amountMicro);
-      let settledMicro: bigint;
-      let tripped: boolean;
-      let tripReason: string | null;
-      try {
-        held = false;
-        const settlement = hold.settle(bill.micro === null ? null : Number(bill.micro) / MICRO);
-        settledMicro = BigInt(Math.round(settlement.costUsd * MICRO));
-        tripped = settlement.tripped;
-        tripReason = settlement.tripReason;
-      } catch (err) {
-        pause(SPEND_RECORD_PAUSE_REASON);
-        return finish({
-          outcome: "violation",
-          request,
-          status: 502,
-          offer,
-          signatures,
-          settledMicro: offer.amountMicro,
-          refusal: { layer: null, code: "spend_record_failed", detail: `a payment was sent but its spend could not be recorded: ${(err as Error).message}` },
-        });
-      }
+      const settledMicro = offer.amountMicro;
       if (failed) {
+        pause(SETTLEMENT_PAUSE_REASON);
         const why = thrown !== undefined ? `the paid request failed: ${(thrown as Error).message}` : `the seller answered ${(resp as Response).status} to a signed payment`;
         return finish({
           outcome: "violation",
@@ -843,9 +1034,19 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
           offer,
           signatures,
           settledMicro,
-          refusal: { layer: null, code: "paid_call_failed", detail: `${why}; the worst case is recorded and spending is paused` },
+          ref,
+          refusal: { layer: null, code: "paid_call_failed", detail: `${why}; the signed amount is recorded and spending is paused` },
         });
       }
+      const bill = readBill((resp as Response).headers, offer.amountMicro);
+      let tripReason: string | null = null;
+      if (bill.micro === null) {
+        tripReason = `${bill.detail}; the signed amount ${quotedUsd} USD is recorded`;
+      } else if (bill.micro !== offer.amountMicro) {
+        tripReason = `the seller reports ${microToUsd(bill.micro)} USD settled, but ${quotedUsd} USD was signed; the signed amount is recorded`;
+      }
+      const tripped = tripReason !== null;
+      if (tripped) pause(SETTLEMENT_PAUSE_REASON);
 
       // Receipt and inclusion, under pinned keys.
       const paid = resp as Response;
@@ -859,7 +1060,29 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       const receipt = checkReceipt(findReceipt(parsed), {
         subjects: [offer.payTo, ...walletsNamedIn(target.href)],
         requireV7: mandate.requireV7Receipt,
+        maxAgeSeconds: receiptMaxAgeSeconds,
+        now: clock(),
+        ...(refuseReceiptReplay ? { seenLeaves } : {}),
       });
+      if (receipt.status === "verified" && receipt.leaf !== null && refuseReceiptReplay) {
+        // Recorded before the response is handed back: the same receipt is refused next time, across restarts.
+        try {
+          rememberLeaf(receipt.leaf);
+        } catch (err) {
+          pause(SPEND_RECORD_PAUSE_REASON);
+          return finish({
+            outcome: "violation",
+            request,
+            status: 502,
+            offer,
+            signatures,
+            settledMicro,
+            receipt,
+            ref,
+            refusal: { layer: null, code: "spend_record_failed", detail: `the receipt could not be recorded: ${(err as Error).message}; the response is withheld and spending is paused` },
+          });
+        }
+      }
       let inclusion: InclusionCheck = { status: "not_checked", leafIndex: null, treeSize: null, detail: "not required" };
       const hasInlineProof = findInclusion(parsed) !== undefined;
       if (receipt.status === "verified" && receipt.leaf !== null && (mandate.requireMerkleInclusion || hasInlineProof)) {
@@ -883,6 +1106,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
           settledMicro,
           receipt,
           inclusion,
+          ref,
           refusal: { layer: null, code, detail: `${detail}; the response is withheld and spending is paused` },
         });
       }
@@ -898,6 +1122,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
           settledMicro,
           receipt,
           inclusion,
+          ref,
           refusal: { layer: null, code: "settlement_tripped", detail: `${tripReason ?? bill.detail}; spending is paused` },
         });
       }
@@ -912,6 +1137,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         settledMicro,
         receipt,
         inclusion,
+        ref,
         detail: bill.detail,
       });
     } finally {

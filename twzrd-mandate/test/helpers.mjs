@@ -70,6 +70,9 @@ export async function makeRig(opts = {}) {
     fetch: guard.fetch,
     agentKey,
     now: () => clock.now,
+    // The loopback seller serves one fixed, signed fixture receipt on every paid call.
+    receiptMaxAgeSeconds: null,
+    refuseReceiptReplay: false,
     ...(opts.payer === false ? {} : { wrapPay: payer.wrapPay }),
     ...(opts.runtime ?? {}),
   });

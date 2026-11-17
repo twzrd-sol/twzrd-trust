@@ -45,8 +45,10 @@ test("stages 1-7 over /pay: one paid call passes every control and all the recor
     const books = reconcile(stack.stateDir, stack.world, stack.mandate.mandateId);
     assert.deepEqual(books.mismatches, []);
     assert.deepEqual([books.decisionMicro, books.toolMicro, books.gateMicro, books.sellerMicro, books.signatures], [10_000, 10_000, 10_000, 10_000, 1]);
-    const [row] = books.rows;
-    assert.deepEqual([row.outcome, row.quotedUsd, row.settledUsd, row.signatures, row.receipt, row.inclusion], ["settled", "0.01", "0.01", 1, "verified", "proven"]);
+    // The pending line is written before the payment leaves; the settled line answers it.
+    const [pending, row] = books.rows;
+    assert.deepEqual([pending.outcome, pending.code, pending.settledUsd, pending.ref], ["pending", "payment_sent", "0.01", null]);
+    assert.deepEqual([row.outcome, row.quotedUsd, row.settledUsd, row.signatures, row.receipt, row.inclusion, row.ref], ["settled", "0.01", "0.01", 1, "verified", "proven", pending.seq]);
 
     const status = await stack.status();
     assert.deepEqual([status.counters.settled, status.counters.settledUsd, status.spend.remainingDayUsd, status.ledger.head], [1, "0.01", "0.99", books.head]);
@@ -73,7 +75,12 @@ test("stages 1-7 over /mcp: a paid MCP tool is settled in band, once, within the
     const books = reconcile(stack.stateDir, stack.world, stack.mandate.mandateId);
     assert.deepEqual(books.mismatches, []);
     assert.deepEqual([books.decisionMicro, books.sellerMicro, books.signatures], [20_000, 20_000, 1]);
-    assert.deepEqual(books.rows.map((r) => [r.tool, r.outcome]), [["mcp:paid_lookup", "settled"], ["mcp:unlisted_tool", "refused"], ["mcp:echo", "free"]]);
+    assert.deepEqual(books.rows.map((r) => [r.tool, r.outcome]), [
+      ["mcp:paid_lookup", "pending"],
+      ["mcp:paid_lookup", "settled"],
+      ["mcp:unlisted_tool", "refused"],
+      ["mcp:echo", "free"],
+    ]);
   } finally {
     await stack.close();
   }
@@ -211,7 +218,10 @@ test("vector: a seller that takes the payment and answers an error is counted in
     const books = reconcile(stack.stateDir, stack.world, stack.mandate.mandateId);
     assert.deepEqual(books.mismatches, []);
     assert.deepEqual([books.decisionMicro, books.toolMicro, books.gateMicro, books.sellerMicro], [10_000, 10_000, 10_000, 10_000]);
-    assert.deepEqual(books.rows.filter((r) => r.outcome !== "control").map((r) => [r.outcome, r.code, r.settledUsd]), [["violation", "paid_call_failed", "0.01"]]);
+    assert.deepEqual(books.rows.filter((r) => r.outcome !== "control").map((r) => [r.outcome, r.code, r.settledUsd]), [
+      ["pending", "payment_sent", "0.01"],
+      ["violation", "paid_call_failed", "0.01"],
+    ]);
     assert.equal((await stack.status()).spend.remainingDayUsd, "0.99");
 
     // Spending is paused for everything, until an operator resumes with the control token.
@@ -266,7 +276,7 @@ test("vector: twenty calls racing for a budget that holds five", async () => {
     assert.deepEqual([stack.signatures(), stack.world.paidCount, stack.world.receivedMicro], [5, 5, 250_000]);
     const books = reconcile(stack.stateDir, stack.world, stack.mandate.mandateId);
     assert.deepEqual(books.mismatches, []);
-    assert.deepEqual([books.decisionMicro, books.toolMicro, books.gateMicro, books.rows.length], [250_000, 250_000, 250_000, 20]);
+    assert.deepEqual([books.decisionMicro, books.toolMicro, books.gateMicro, books.rows.length], [250_000, 250_000, 250_000, 25]); // 20 decisions + 5 pending lines
     assert.equal((await stack.status()).spend.remainingDayUsd, "0");
     // And the over-and-over mix: MCP and HTTP share the one budget.
     assert.equal((await stack.mcp("paid_lookup")).result.structuredContent.twzrd_mandate.code, "budget_exceeded");

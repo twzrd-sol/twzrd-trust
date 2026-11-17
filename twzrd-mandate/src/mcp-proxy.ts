@@ -20,7 +20,7 @@ import readline from "node:readline";
 import { Readable } from "node:stream";
 import { strictBase64ToUtf8 } from "./challenge.js";
 import { BodyTooLargeError, flatHeaders, readRequestBody, writeJson } from "./http-proxy.js";
-import { type CallResult, type MandateRuntime, MAX_BODY_BYTES, type Refusal } from "./runtime.js";
+import { type CallResult, type MandateRuntime, MAX_BODY_BYTES, type Refusal, readCapped } from "./runtime.js";
 
 export type JsonRpcMessage = Record<string, unknown>;
 
@@ -41,6 +41,70 @@ export interface McpUpstream {
   /** Messages the upstream sends that answer no request (stdio upstreams only). */
   onMessage?: (message: JsonRpcMessage) => void;
   close(): void;
+}
+
+const ENVELOPE_KEYS = ["jsonrpc", "id", "method", "params", "result", "error"];
+const PARAMS_KEYS = ["name", "arguments", "_meta"];
+
+function fold(key: string): string {
+  // NFKC maps U+017F (long s) to "s" and U+212A (Kelvin) to "K", as Go's case-insensitive field match does.
+  return key.normalize("NFKC").toLowerCase();
+}
+
+/**
+ * Two keys in one object (at any depth) that fold to the same name. Some MCP
+ * servers decode field names case-insensitively and keep the last match; the
+ * proxy decides on exact keys, so a message that could be read two ways is
+ * refused. Returns the offending key, or null.
+ */
+export function ambiguousKey(message: unknown, depth = 0): string | null {
+  if (depth > 64) return "(nested too deeply)";
+  if (Array.isArray(message)) {
+    for (const item of message) {
+      const bad = ambiguousKey(item, depth + 1);
+      if (bad !== null) return bad;
+    }
+    return null;
+  }
+  if (!isObject(message)) return null;
+  const seen = new Set<string>();
+  for (const [key, value] of Object.entries(message)) {
+    const folded = fold(key);
+    if (seen.has(folded)) return key;
+    seen.add(folded);
+    const bad = ambiguousKey(value, depth + 1);
+    if (bad !== null) return bad;
+  }
+  return null;
+}
+
+function nonCanonicalKey(obj: Record<string, unknown>, canonical: readonly string[]): string | null {
+  for (const key of Object.keys(obj)) {
+    const match = canonical.find((c) => fold(c) === fold(key));
+    if (match !== undefined && match !== key) return key;
+  }
+  return null;
+}
+
+/**
+ * The first key in a JSON-RPC message (or batch) that an upstream could read
+ * differently from this proxy, or null: a case-folding collision anywhere, or
+ * an envelope or params key spelled in another case (`"Method"`, `"Name"`,
+ * `"argument\u017f"`).
+ */
+export function unsafeMessageKey(message: unknown): string | null {
+  const collision = ambiguousKey(message);
+  if (collision !== null) return collision;
+  for (const m of Array.isArray(message) ? message : [message]) {
+    if (!isObject(m)) continue;
+    const top = nonCanonicalKey(m, ENVELOPE_KEYS);
+    if (top !== null) return top;
+    if (isObject(m.params)) {
+      const inner = nonCanonicalKey(m.params, PARAMS_KEYS);
+      if (inner !== null) return inner;
+    }
+  }
+  return null;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -222,8 +286,7 @@ export function x402McpTransport(inner: typeof fetch): typeof fetch {
     }
     const resp = await inner(request.url, { method: request.method, headers, body, redirect: "manual", signal: request.signal });
     if (!resp.ok) return resp;
-    const bytes = new Uint8Array(await resp.arrayBuffer());
-    if (bytes.length > MAX_BODY_BYTES) throw new Error("the MCP answer is too large");
+    const bytes = await readCapped(resp, MAX_BODY_BYTES);
     const out = new Headers(resp.headers);
     out.delete("content-length");
     out.delete("content-encoding");
@@ -397,6 +460,14 @@ export function createMcpGateway(runtime: MandateRuntime | null, upstream: McpUp
       return;
     }
     if (runtime !== null) {
+      const unsafe = unsafeMessageKey(message);
+      if (unsafe !== null) {
+        const id = isObject(message) ? (message.id ?? null) : null;
+        writeJson(res, 400, rpcError(id, -32600, `the key ${JSON.stringify(unsafe)} could be read two ways; send each key once, in its exact case`));
+        return;
+      }
+      // Forward what was parsed, not the bytes that arrived: the upstream reads the message the proxy decided on.
+      body = new TextEncoder().encode(JSON.stringify(message));
       if (Array.isArray(message)) {
         if (message.some((m) => isObject(m) && m.method === "tools/call")) {
           const answers = message
@@ -445,6 +516,12 @@ export function createMcpGateway(runtime: MandateRuntime | null, upstream: McpUp
   }
 
   async function handleMessage(message: JsonRpcMessage): Promise<JsonRpcMessage | null> {
+    if (runtime !== null) {
+      const unsafe = unsafeMessageKey(message);
+      if (unsafe !== null) {
+        return message.id === undefined ? null : rpcError(message.id, -32600, `the key ${JSON.stringify(unsafe)} could be read two ways; send each key once, in its exact case`);
+      }
+    }
     const body = new TextEncoder().encode(JSON.stringify(message));
     const headers: Record<string, string> = { accept: "application/json, text/event-stream", "content-type": "application/json", ...session };
     const answered = message.id !== undefined && message.id !== null && typeof message.method === "string";
@@ -460,7 +537,7 @@ export function createMcpGateway(runtime: MandateRuntime | null, upstream: McpUp
       if (halted) return answered ? haltError(message.id, halted) : null;
       try {
         const raw = await upstream.fetch(upstream.targetUrl, { method: "POST", headers, body: Buffer.from(body), redirect: "manual" });
-        resp = { headers: raw.headers, body: new Uint8Array(await raw.arrayBuffer()), ok: raw.ok, status: raw.status };
+        resp = { headers: raw.headers, body: await readCapped(raw, MAX_BODY_BYTES), ok: raw.ok, status: raw.status };
       } catch (err) {
         return answered ? rpcError(message.id, -32002, `the MCP upstream could not be reached: ${(err as Error).message}`) : null;
       }

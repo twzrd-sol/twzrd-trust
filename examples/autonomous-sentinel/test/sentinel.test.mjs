@@ -74,7 +74,8 @@ test("a loopback cycle: discover, settle the honest tasks, refuse the rest unsig
     assert.deepEqual([second.ok, second.heartbeat.seq, second.heartbeat.decisions, second.heartbeat.settledUsd], [true, 2, 12, "0.06"]);
     assert.match(second.heartbeat.prevHeartbeatHash, /^[0-9a-f]{64}$/);
     const ledger = verifyDecisionLedger(path.join(sentinel.runtime.stateDir, "mandate-ledger.jsonl"));
-    assert.deepEqual([ledger.ok, ledger.lines, ledger.head], [true, 12, second.heartbeat.ledgerHeadHash]);
+    // 12 decisions, plus a pending line written before each of the 4 payments.
+    assert.deepEqual([ledger.ok, ledger.lines, ledger.head], [true, 16, second.heartbeat.ledgerHeadHash]);
   } finally {
     await sentinel.close();
   }

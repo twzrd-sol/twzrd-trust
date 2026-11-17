@@ -144,22 +144,30 @@ under `structuredContent.twzrd_mandate`.
 
 ## After a payment
 
-- The amount recorded is what the seller's settlement header reports, or
-  the signed amount when it reports none. If the header cannot be read, or
-  the seller answers non-2xx after being paid, the signed amount is
-  recorded and spending is paused.
+- The spend is written to disk, at the signed amount, before the payment
+  leaves, together with a `pending` ledger line. A sidecar that dies
+  mid-payment finds that line when it next starts, records the payment and
+  pauses.
+- The amount recorded is always the signed amount. If the seller's
+  settlement header names a different amount, cannot be read or reports
+  failure, or the seller answers non-2xx after being paid, spending is
+  paused as well.
 - With `requireV7Receipt`, the answer must carry a V7 receipt that
-  verifies under the pinned TWZRD key and is about a wallet this call
-  named. No key is fetched; the key a receipt names for itself is ignored.
+  verifies under the pinned TWZRD key, is about the wallet paid (or a
+  wallet named in the request path), was signed in the last 900 seconds
+  (`--receipt-max-age`), and has not been accepted for an earlier call. No
+  key is fetched; the key a receipt names for itself is ignored.
 - With `requireMerkleInclusion`, the receipt must also be proven in the
   receipt log under the pinned log key.
 - When a check fails after payment, the answer is withheld from the
   agent, the violation is recorded, and spending is paused until an
-  operator resumes.
+  operator resumes (or the mandate ends).
 
-Every decision (free, settled, refused, violation, control) is one line in
-`mandate-ledger.jsonl`, hash-chained to the line before it. `mandate
-ledger --verify` checks the chain. `serve --heartbeat <seconds>` signs a
+Every decision (free, settled, refused, violation, control, and the
+`pending` line before each payment) is one line in `mandate-ledger.jsonl`,
+hash-chained to the line before it. `mandate ledger --verify` checks the
+chain. A sidecar will not start on a ledger that no longer contains the head
+its last signed heartbeat named. `serve --heartbeat <seconds>` signs a
 `twzrd.mandate.heartbeat.v1` statement of the counters, remaining budget
 and ledger head with the agent key.
 
@@ -189,7 +197,10 @@ report as data. Types ship with the package.
   flight at the same moment, one on each side, can together pass a ceiling
   by at most the amounts in flight.
 - The monthly ceiling covers paid tool calls; `/v1` is bounded by the
-  per-call, hourly and daily ceilings.
+  per-call, hourly and daily ceilings. `/v1` requests are on the meter's
+  spend ledger, not the decision ledger.
+- Pinning an operator issuer (`--trust-issuer`) turns self-signed mandates
+  off unless `--allow-self-mandate` is given.
 - One sidecar per state directory. A second one is refused.
 
 ## Develop

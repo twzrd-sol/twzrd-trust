@@ -99,7 +99,7 @@ test("stages 1-7: two daemon cycles as a child process, and every record recheck
   // 6: the three ledgers on disk chain and agree: 2 x (0.01 + 0.02) settled, four signatures, no signed refusal.
   const books = reconcile(stateDir, null, mandate.mandateId);
   assert.deepEqual(books.mismatches, []);
-  assert.deepEqual([books.decisionMicro, books.toolMicro, books.gateMicro, books.signatures, books.rows.length], [60_000, 60_000, 60_000, 4, 12]);
+  assert.deepEqual([books.decisionMicro, books.toolMicro, books.gateMicro, books.signatures, books.rows.length], [60_000, 60_000, 60_000, 4, 16]); // 12 decisions + 4 pending lines
 
   // 7: both heartbeats are signed by the mandate's agent, chain to each other, and the last one
   // states the ledger head recomputed here.

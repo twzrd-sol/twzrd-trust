@@ -84,8 +84,8 @@ test("health, status and ledger report the mandate, the spend and a verified cha
     assert.deepEqual(status.routes, { mcp: true, inference: false, pay: true });
     assert.equal(status.mandate.limits.dailyCeilingUsd, "1.00");
     const ledger = await (await s.get("/mandate/ledger?limit=5")).json();
-    assert.deepEqual([ledger.schema, ledger.lines, ledger.chainVerified, ledger.records.length], ["twzrd.mandate.ledger.v1", 1, true, 1]);
-    assert.equal(ledger.records[0].outcome, "settled");
+    assert.deepEqual([ledger.schema, ledger.lines, ledger.chainVerified, ledger.records.length], ["twzrd.mandate.ledger.v1", 2, true, 2]);
+    assert.deepEqual(ledger.records.map((r) => r.outcome), ["pending", "settled"]);
     assert.equal(ledger.head, status.ledger.head);
     const missing = await s.get("/nope");
     assert.equal(missing.status, 404);
@@ -239,9 +239,9 @@ test("MCP proxy: list and free calls pass, a paid tool settles in band with one 
     assert.equal(paid.result.isError ?? false, false, JSON.stringify(paid));
     assert.equal(paid.result.structuredContent.answer, 42);
     assert.deepEqual([s.payer.signatures, s.world.paidCount], [1, 1]);
-    const rows = s.runtime.ledger.tail(2);
-    assert.deepEqual(rows.map((r) => [r.tool, r.outcome]), [["mcp:echo", "free"], ["mcp:paid_lookup", "settled"]]);
-    assert.deepEqual([rows[1].receipt, rows[1].inclusion, rows[1].signatures, rows[1].settledUsd], ["verified", "proven", 1, "0.01"]);
+    const rows = s.runtime.ledger.tail(3);
+    assert.deepEqual(rows.map((r) => [r.tool, r.outcome]), [["mcp:echo", "free"], ["mcp:paid_lookup", "pending"], ["mcp:paid_lookup", "settled"]]);
+    assert.deepEqual([rows[2].receipt, rows[2].inclusion, rows[2].signatures, rows[2].settledUsd, rows[2].ref], ["verified", "proven", 1, "0.01", rows[1].seq]);
   } finally {
     await s.close();
   }

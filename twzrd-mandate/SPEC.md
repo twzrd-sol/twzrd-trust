@@ -86,6 +86,11 @@ trust. The runtime therefore needs a pin as well:
   (`--trust-issuer`, `TWZRD_MANDATE_TRUSTED_ISSUERS`). No list, no service.
 - `self-mandated` and an `ephemeral-session` the agent signed itself: the
   runtime must hold the agent key named in the mandate (`--agent-key`).
+  When the runtime pins any operator issuer, a mandate the agent signed for
+  itself is refused (`mandate_issuer_untrusted`) unless the agent key is
+  itself pinned or the operator passes `--allow-self-mandate`
+  (`allowSelfMandate`). An operator who pins issuers decides what the agent
+  may spend; the agent cannot step around that by signing its own mandate.
 
 ## Signature
 
@@ -135,11 +140,28 @@ is sent. A mandate that expires while a call is in flight stops that call.
 A receipt requirement is checked after payment: a seller is paid before it
 can return anything. When a required receipt is missing, does not verify
 under the pinned key, is about a wallet this call did not name (neither the
-paid recipient nor a wallet in the request URL), or is not proven in the
-log, the runtime withholds the response from the agent, records the
-violation, and writes `.pause`, so nothing more is spent until an operator
-resumes. The key a receipt names for itself is ignored; only the pinned key
-is tried, and no key is ever fetched.
+paid recipient nor a wallet named as a path segment of the request URL; the
+query string is not read), is older than the runtime accepts, repeats a
+receipt this state directory already accepted, or is not proven in the log,
+the runtime withholds the response from the agent, records the violation,
+and writes `.pause`, so nothing more is spent until an operator resumes. The
+key a receipt names for itself is ignored; only the pinned key is tried, and
+no key is ever fetched.
+
+Receipt age is measured against the receipt's signed `timestamp_unix`:
+older than 900 seconds (`receiptMaxAgeSeconds`, `--receipt-max-age`), or
+more than 300 seconds in the future, is refused. Each accepted receipt's
+leaf is appended to `receipt-leaves.txt` in the state directory before the
+response is handed over, and a receipt whose leaf is already there is
+refused, across restarts. The package's loopback seller answers every paid
+call with one fixed, signed fixture receipt, so the loopback rigs, the
+sentinel's loopback mode and `serve --receipt-max-age off
+--allow-receipt-replay` turn both checks off, and say so; nothing else
+should.
+
+A pause written by the runtime after a violation lasts until the mandate
+expires (`tripPauseMs` shortens it). Only `resume`, with the control token,
+lifts it sooner.
 
 ## Pre-sign refusal layers
 
@@ -182,19 +204,30 @@ from how it arrives; an agent does not choose it.
 3. Each offer is priced. Only an exact-amount USDC offer on Solana mainnet
    or Base mainnet has a price. The cheapest offer that passes the chain and
    counterparty lists and the per-call cap is the approved offer.
-4. A hold for the approved amount is taken on the spend ledger (layer 4).
+4. A hold for the approved amount is taken (layer 4).
 5. The trust lookup runs (layer 5).
 6. The payer is handed a 402 that carries the approved offer and no other.
    If the seller's next 402 no longer carries that offer at that price or
    less, the call is refused (`offer_changed_after_approval`).
-7. At most one payment-bearing request leaves, to the call's own URL. There
-   is no fallback route and no second payment.
-8. The amount recorded is the amount in the seller's settlement header when
-   it reports one; the signed amount when the header is absent or reports no
-   amount; and, when the header cannot be read, reports failure, or the
-   seller answers non-2xx after taking the payment, the signed amount with
-   spending paused (`paid_call_failed`, `settlement_tripped`).
-9. Receipt and inclusion are checked when the mandate requires them.
+7. Just before the payment-bearing request leaves, the signed amount is
+   written to the spend ledger (it counts in the hour, day and month windows
+   from then on) and a `pending` line is written to the decision ledger,
+   both to disk. If either write fails, nothing is paid
+   (`spend_record_failed`).
+8. At most one payment-bearing request leaves, to the call's own URL. There
+   is no fallback route and no second payment. An `x-payment`,
+   `payment-signature` or `Authorization: Payment ...` header the agent
+   sent is dropped first: only the payer pays.
+9. The amount recorded is always the signed amount. A settlement header that
+   names a different amount, cannot be read or reports failure, or a seller
+   that answers non-2xx after taking the payment, pauses spending
+   (`settlement_tripped`, `paid_call_failed`). What a seller reports never
+   lowers the recorded spend.
+10. Receipt and inclusion are checked when the mandate requires them.
+
+If the process dies after step 7, the next runtime to open the state
+directory finds the `pending` line no later line answers, records it as a
+`violation` (`payment_unresolved`) at the signed amount, and pauses.
 
 The seller therefore sees up to three requests for one paid call: the
 runtime's unpaid request, the payer's unpaid request, and the paid request.
@@ -204,12 +237,13 @@ Codes outside the six layers, for calls that are not clean refusals:
 | Code | Outcome | Meaning |
 | --- | --- | --- |
 | `paid_call_failed` | `violation` | a payment left and the seller did not answer 2xx; spending is paused |
-| `settlement_tripped` | `violation` | the billed amount could not be read, or was more than was signed; spending is paused |
-| `spend_record_failed` | `violation` | a payment left and the spend ledger could not be written; spending is paused |
+| `settlement_tripped` | `violation` | the settlement header names an amount other than the one signed, cannot be read, or reports failure; the signed amount is recorded and spending is paused |
+| `spend_record_failed` | `refused` or `violation` | the spend ledger, the decision ledger or the receipt-leaf file could not be written; before the payment, nothing is paid; after it, spending is paused |
+| `payment_unresolved` | `violation` | a `pending` payment found unanswered when the runtime opened the state directory; spending is paused |
 | `receipt_missing`, `receipt_invalid`, `inclusion_unproven` | `violation` | see above; the response is withheld |
 | `payment_not_made` | `refused` | the pay module returned the 402 without paying it |
 | `second_payment_refused` | `refused` or `violation` | the payer tried to send a second payment for one call |
-| `upstream_error`, `bad_target` | `error` | the target could not be reached or is not an http(s) URL; nothing was signed |
+| `upstream_error`, `bad_target` | `error` | the target could not be reached, is not an http(s) URL, or carries credentials in the URL; nothing was signed |
 | `connect_not_supported` | `refused` | an https `CONNECT` through the forward proxy; the proxy cannot read it, so cannot govern it |
 
 ## Sidecar
@@ -247,17 +281,27 @@ as a tool result with `isError: true` and
 Every other MCP message passes through unless the mandate has expired or is
 halted.
 
+The proxy forwards the message it parsed, re-serialized, never the bytes
+that arrived, so a duplicate key reaches the upstream the way the proxy read
+it. A message (or batch) with two keys in one object that differ only in
+case, or an envelope or `params` key spelled in another case (`"Method"`,
+`"Name"`, `"argumentſ"`), is refused with JSON-RPC error `-32600`
+before anything is forwarded: some MCP servers match field names without
+regard to case, and would read a different method or tool from it.
+
 ## Decision ledger
 
 `mandate-ledger.jsonl` in the state directory holds one line per decision
 (`twzrd.mandate.decision.v1`). Each line carries `seq`, `at`, `mandateId`,
 `prev` (SHA-256 of the previous line, `genesis` for the first), the tool
 and target (query string and credentials removed), `outcome`, `layer`,
-`code`, `detail`, `quotedUsd`, `settledUsd`, `signatures`, `payTo`,
-`receipt` and `inclusion`.
+`code`, `detail` (every URL in it cut to scheme, host and path), `quotedUsd`,
+`settledUsd`, `signatures`, `payTo`, `receipt`, `inclusion` and `ref` (the
+`seq` of the `pending` line this line answers, or null).
 
 | Outcome | Meaning |
 | --- | --- |
+| `pending` | a payment is about to leave; the call's own outcome line follows and names it in `ref` |
 | `free` | the call cost nothing and was passed through |
 | `settled` | one payment was made and every post-payment check passed |
 | `refused` | stopped before any payment; `signatures` is 0 |
@@ -265,8 +309,13 @@ and target (query string and credentials removed), `outcome`, `layer`,
 | `forwarded` | a `/v1` request was admitted and handed to the meter, which keeps its own spend line |
 | `control` | a kill, a resume, or a pause written by the runtime |
 
-Editing, removing or reordering a line breaks the chain. Truncating the
-tail does not; the heartbeat's `ledgerHeadHash` is what pins the head.
+Editing, removing or reordering a line breaks the chain. The chain is
+unkeyed, so someone who can write the state directory can rewrite every
+line and recompute every hash; the signed heartbeat is what pins it. A
+runtime refuses to open a state directory whose ledger no longer contains
+the head the last heartbeat (`heartbeat.json`) signed, or records fewer
+decisions or less settled spend than that heartbeat did. Keep heartbeats
+somewhere the agent cannot write as well, to catch a deleted one.
 
 ## Limits of 0.1.0
 
@@ -275,6 +324,11 @@ tail does not; the heartbeat's `ledgerHeadHash` is what pins the head.
   package holds no wallet key and has not been run against a funded wallet.
 - In-band MCP payment follows the x402 MCP transport document and has been
   run only against the package's own loopback MCP server.
+- The `/v1` meter is an `agent-killswitch` process on a loopback port. It
+  answers only requests that carry the per-start token the sidecar holds
+  (`x-twzrd-meter-token`), and it is not started unless `inference` is in
+  `allowedTools`. `/v1` requests are on the meter's spend ledger, not the
+  decision ledger.
 - `/v1` holds live in the meter's process and tool-call holds in the
   runtime's. Settled spend is shared through the one spend ledger; two
   calls in flight at the same moment, one on each side, can together pass a

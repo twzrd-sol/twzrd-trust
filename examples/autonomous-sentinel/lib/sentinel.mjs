@@ -156,7 +156,11 @@ export async function openSentinel(options = {}) {
       intelBase,
       ...(wrapPay ? { wrapPay } : {}),
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
+      // The loopback seller serves one fixed, signed fixture receipt on every
+      // paid call, so its age and repeat checks are off there. Live keeps both.
+      ...(live ? {} : { receiptMaxAgeSeconds: null, refuseReceiptReplay: false }),
     });
+    if (!live) log("loopback: receipt age and replay checks are off (one fixed fixture receipt); live mode keeps both on");
     const tasks = options.tasks ?? (live ? LIVE_DEFAULT_TASKS : null);
     return {
       live,

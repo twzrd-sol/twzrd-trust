@@ -94,7 +94,7 @@ under; 3 the mandate expired.
 ## As a service
 
 - `deploy/twzrd-sentinel.service`: a systemd user unit. Copy it to
-  `~/.config/systemd/user/`, set the two paths at the top, then
+  `~/.config/systemd/user/`, set `SENTINEL_HOME` at the top, then
   `systemctl --user enable --now twzrd-sentinel`.
 - `deploy/Dockerfile`: builds from the published package, so it works once
   `@twzrd1111/mandate` is on npm. It has not been built yet.

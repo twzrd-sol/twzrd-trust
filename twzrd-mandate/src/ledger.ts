@@ -15,7 +15,12 @@ import path from "node:path";
 export const LEDGER_GENESIS = "genesis";
 export const DECISION_LEDGER_SCHEMA = "twzrd.mandate.decision.v1";
 
-export type DecisionOutcome = "settled" | "refused" | "free" | "forwarded" | "violation" | "control";
+/**
+ * `pending` is written just before a payment leaves. The call's own outcome
+ * line answers it through `ref`; one left unanswered when a runtime opens the
+ * state directory is a payment whose process died, and is answered then.
+ */
+export type DecisionOutcome = "settled" | "refused" | "free" | "forwarded" | "violation" | "control" | "pending";
 
 export interface DecisionRecord {
   schema: typeof DECISION_LEDGER_SCHEMA;
@@ -36,10 +41,12 @@ export interface DecisionRecord {
   receipt: string | null;
   inclusion: string | null;
   detail: string | null;
+  /** The `seq` of the `pending` line this line answers, or null. */
+  ref: number | null;
   prev: string;
 }
 
-export type DecisionInput = Omit<DecisionRecord, "schema" | "seq" | "at" | "prev" | "mandateId">;
+export type DecisionInput = Omit<DecisionRecord, "schema" | "seq" | "at" | "prev" | "mandateId" | "ref"> & { ref?: number | null };
 
 export interface LedgerVerifyReport {
   ok: boolean;
@@ -102,6 +109,66 @@ export function verifyDecisionLedger(filePath: string): LedgerVerifyReport {
   return report;
 }
 
+function usdToMicro(value: unknown): bigint | null {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]{0,15})(\.[0-9]{1,6})?$/.test(value)) return null;
+  const [whole = "0", frac = ""] = value.split(".");
+  return BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, "0"));
+}
+
+/**
+ * The chain alone cannot tell a rewritten ledger from an honest one: whoever
+ * rewrites every line can recompute every hash. The last heartbeat signed a
+ * ledger head and the counters at that moment, so the ledger must still
+ * contain that head, and must not report fewer decisions or less settled
+ * spend than the heartbeat did. A missing heartbeat file passes (a fresh
+ * state directory has none); keep heartbeats somewhere else as well to
+ * catch a deleted one.
+ */
+export function ledgerAgreesWithHeartbeat(
+  ledger: Pick<DecisionLedger, "head" | "tail">,
+  heartbeatPath: string,
+): { ok: true } | { ok: false; detail: string } {
+  let text: string;
+  try {
+    text = fs.readFileSync(heartbeatPath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { ok: true };
+    return { ok: false, detail: `the last heartbeat cannot be read: ${(err as Error).message}` };
+  }
+  let hb: Record<string, unknown>;
+  try {
+    const doc: unknown = JSON.parse(text);
+    if (doc === null || typeof doc !== "object" || Array.isArray(doc)) throw new Error("not an object");
+    hb = doc as Record<string, unknown>;
+  } catch {
+    return { ok: false, detail: "the last heartbeat is not JSON" };
+  }
+  const head = hb.ledgerHeadHash;
+  if (typeof head !== "string") return { ok: false, detail: "the last heartbeat names no ledger head" };
+  const rows = ledger.tail(Number.MAX_SAFE_INTEGER);
+  const heads = new Set<string>([LEDGER_GENESIS, ledger.head(), ...rows.map((r) => r.prev)]);
+  if (!heads.has(head)) {
+    return {
+      ok: false,
+      detail: `the decision ledger no longer contains head ${head.slice(0, 16)} that heartbeat ${String(hb.seq)} signed: it was rewritten or cut short`,
+    };
+  }
+  const calls = rows.filter((r) => r.outcome !== "control" && r.outcome !== "pending");
+  if (typeof hb.decisions === "number" && calls.length < hb.decisions) {
+    return { ok: false, detail: `the decision ledger has ${calls.length} decisions, fewer than the ${hb.decisions} heartbeat ${String(hb.seq)} signed` };
+  }
+  const signedMicro = usdToMicro(hb.settledUsd);
+  if (signedMicro !== null) {
+    const ledgerMicro = calls
+      .filter((r) => r.outcome === "settled" || r.outcome === "violation")
+      .reduce((sum, r) => sum + (usdToMicro(r.settledUsd) ?? 0n), 0n);
+    if (ledgerMicro < signedMicro) {
+      return { ok: false, detail: `the decision ledger records less settled spend than heartbeat ${String(hb.seq)} signed` };
+    }
+  }
+  return { ok: true };
+}
+
 export interface DecisionLedger {
   readonly filePath: string;
   append(input: DecisionInput): DecisionRecord;
@@ -141,6 +208,7 @@ export function openDecisionLedger(filePath: string, mandateId: string, clock: (
         at: new Date(clock()).toISOString(),
         mandateId,
         ...input,
+        ref: input.ref ?? null,
         prev: head,
       };
       const line = Buffer.from(JSON.stringify(record), "utf8");

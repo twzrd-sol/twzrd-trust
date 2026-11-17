@@ -24,6 +24,7 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import net from "node:net";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { emitHeartbeat, lastHeartbeat } from "./heartbeat.js";
 import { BodyTooLargeError, callRequestFromHttp, forwardProxyTarget, payRouteTarget, readRequestBody, writeCallResult, writeJson } from "./http-proxy.js";
 import type { McpGateway } from "./mcp-proxy.js";
@@ -38,9 +39,18 @@ export const INFERENCE_TOOL = "inference";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 
+/** Same names as meter-guard.ts, which is not imported here: importing it would guard this process's own server. */
+const METER_TOKEN_HEADER = "x-twzrd-meter-token";
+const METER_TOKEN_ENV = "TWZRD_METER_TOKEN";
+
 export interface InferenceMeter {
   /** Where the agent-killswitch proxy listens (loopback). */
   port: number;
+  /**
+   * The per-start token the meter requires on every request
+   * (`x-twzrd-meter-token`). Only the sidecar holds it.
+   */
+  token: string;
   upstreamBaseUrl: string;
   close(): void;
 }
@@ -85,6 +95,9 @@ function freePort(): Promise<number> {
  */
 export async function startInferenceMeter(options: InferenceMeterOptions): Promise<InferenceMeter> {
   const { runtime } = options;
+  if (!runtime.mandate.allowedTools.includes("inference")) {
+    throw new Error('the mandate does not allow the tool "inference", so no inference meter is started');
+  }
   const limits = mandateLimitsMicro(runtime.mandate);
   const usd = (micro: bigint): string => (Number(micro) / 1_000_000).toString();
   const require = createRequire(import.meta.url);
@@ -92,6 +105,7 @@ export async function startInferenceMeter(options: InferenceMeterOptions): Promi
   const configPath = path.join(runtime.stateDir, "inference-meter.json");
   fs.writeFileSync(configPath, "{}\n", { mode: 0o600 });
   const port = await freePort();
+  const token = crypto.randomBytes(32).toString("base64url");
   const apiKeyEnv = options.apiKeyEnv ?? "OPENAI_API_KEY";
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) throw new Error("the API key variable name is not a valid environment variable name");
   const env: NodeJS.ProcessEnv = {
@@ -108,12 +122,14 @@ export async function startInferenceMeter(options: InferenceMeterOptions): Promi
     KILLSWITCH_PAUSE_FILE: path.join(runtime.stateDir, ".pause"),
     KILLSWITCH_LEDGER_PATH: path.join(runtime.stateDir, "spend-ledger.jsonl"),
     TWZRD_STATE_DIR: runtime.stateDir,
+    [METER_TOKEN_ENV]: token,
   };
   if (options.freeModels?.length) env.KILLSWITCH_FREE_MODELS = options.freeModels.join(",");
   else if (process.env[apiKeyEnv] !== undefined) env[apiKeyEnv] = process.env[apiKeyEnv];
   if (options.modelRatesJson !== undefined) env.KILLSWITCH_MODEL_RATES = options.modelRatesJson;
 
-  const child: ChildProcess = spawn(process.execPath, [entry, configPath], { env, stdio: ["ignore", "ignore", "pipe"] });
+  const guard = fileURLToPath(new URL("./meter-guard.js", import.meta.url));
+  const child: ChildProcess = spawn(process.execPath, ["--import", pathToFileURL(guard).href, entry, configPath], { env, stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "";
   child.stderr?.on("data", (chunk: Buffer) => {
     if (stderr.length < 4000) stderr += chunk.toString("utf8");
@@ -126,7 +142,7 @@ export async function startInferenceMeter(options: InferenceMeterOptions): Promi
   for (;;) {
     if (exited) throw new Error(`the inference meter did not start: ${stderr.trim() || "agent-killswitch exited"}`);
     try {
-      const resp = await fetch(`http://${DEFAULT_HOST}:${port}/healthz`, { signal: AbortSignal.timeout(1000) });
+      const resp = await fetch(`http://${DEFAULT_HOST}:${port}/healthz`, { headers: { [METER_TOKEN_HEADER]: token }, signal: AbortSignal.timeout(1000) });
       if (resp.ok) break;
     } catch {
       // not listening yet
@@ -143,6 +159,7 @@ export async function startInferenceMeter(options: InferenceMeterOptions): Promi
   timer.unref();
   return {
     port,
+    token,
     upstreamBaseUrl: options.upstreamBaseUrl,
     close(): void {
       clearTimeout(timer);
@@ -223,7 +240,8 @@ export async function startSidecar(options: SidecarOptions): Promise<Sidecar> {
   }
 
   function forwardInference(req: http.IncomingMessage, res: http.ServerResponse, meter: InferenceMeter): void {
-    const headers = { ...req.headers, host: `${DEFAULT_HOST}:${meter.port}` };
+    // The agent's own copy of the header (if any) is replaced by the real token.
+    const headers = { ...req.headers, host: `${DEFAULT_HOST}:${meter.port}`, [METER_TOKEN_HEADER]: meter.token };
     const upstream = http.request({ host: DEFAULT_HOST, port: meter.port, method: req.method, path: req.url, headers }, (answer) => {
       res.writeHead(answer.statusCode ?? 502, answer.headers);
       answer.pipe(res);

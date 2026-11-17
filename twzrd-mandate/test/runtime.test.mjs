@@ -273,13 +273,19 @@ test("with several offers the payer is handed only the cheapest one the mandate 
   }
 });
 
-test("billing: the seller's reported amount, the signed amount when none is reported, never more than signed without a trip", async () => {
+test("billing: the signed amount is what is recorded; a seller report that differs from it pauses spending", async () => {
+  // Security review finding 1: recording the seller's lower report let a
+  // seller (or a forged header) shrink the hourly and daily windows.
   const lower = await makeRig();
   try {
     lower.world.product("ok").billMicro = 4_000;
     const result = await lower.buy("ok");
-    assert.deepEqual([result.outcome, result.quotedUsd, result.settledUsd], ["settled", "0.01", "0.004"]);
-    assert.equal(lower.runtime.status().spend.dayUsd, "0.004");
+    assert.deepEqual([result.outcome, result.quotedUsd, result.settledUsd, result.refusal.code], ["violation", "0.01", "0.01", "settlement_tripped"]);
+    assert.match(result.record.detail, /reports 0\.004 USD settled, but 0\.01 USD was signed/);
+    assert.equal(lower.runtime.status().spend.dayUsd, "0.01");
+    assert.equal(lower.runtime.status().halt.active, true);
+    assert.equal((await lower.buy("ok")).refusal.code, "payment_gate_halt");
+    assert.equal(lower.payer.signatures, 1);
   } finally {
     await lower.close();
   }
@@ -303,9 +309,9 @@ test("billing: the seller's reported amount, the signed amount when none is repo
   try {
     higher.world.product("ok").billMicro = 40_000;
     const result = await higher.buy("ok");
-    // The seller says it took more than was signed for. The reported amount is what is recorded, and spending stops.
+    // The seller says it took more than was signed for. The signature bounds what can have moved; spending stops.
     assert.equal(result.outcome, "violation");
-    assert.equal(result.settledUsd, "0.04");
+    assert.equal(result.settledUsd, "0.01");
     assert.equal(higher.runtime.status().halt.active, true);
     assert.equal((await higher.buy("ok")).refusal.code, "payment_gate_halt");
     assert.equal(higher.payer.signatures, 1);
@@ -496,10 +502,16 @@ test("the decision ledger: one chained line per decision, tamper-evident, replay
     rig.world.product("gratis").free = true;
     await rig.buy("gratis");
     const rows = rig.runtime.ledger.tail(10);
-    assert.deepEqual(rows.map((r) => [r.seq, r.outcome, r.code]), [[1, "settled", null], [2, "refused", "tool_not_allowed"], [3, "free", null]]);
+    // The pending line is written before the payment leaves; the settled line answers it by ref.
+    assert.deepEqual(rows.map((r) => [r.seq, r.outcome, r.code, r.ref]), [
+      [1, "pending", "payment_sent", null],
+      [2, "settled", null, 1],
+      [3, "refused", "tool_not_allowed", null],
+      [4, "free", null, null],
+    ]);
     assert.equal(rows[0].prev, "genesis");
-    assert.equal(rows[0].target, rig.world.url("ok"));
-    assert.deepEqual([rows[0].receipt, rows[0].inclusion, rows[0].signatures, rows[0].settledUsd], ["verified", "proven", 1, "0.01"]);
+    assert.equal(rows[1].target, rig.world.url("ok"));
+    assert.deepEqual([rows[1].receipt, rows[1].inclusion, rows[1].signatures, rows[1].settledUsd], ["verified", "proven", 1, "0.01"]);
     assert.equal(verifyDecisionLedger(file).ok, true);
   } finally {
     await rig.close();
@@ -510,13 +522,13 @@ test("the decision ledger: one chained line per decision, tamper-evident, replay
     const status = again.runtime.status();
     assert.deepEqual([status.counters.decisions, status.counters.settled, status.counters.refusals, status.counters.signatures], [3, 1, 1, 1]);
     assert.equal(status.spend.dayUsd, "0.01");
-    assert.equal(status.ledger.lines, 3);
+    assert.equal(status.ledger.lines, 4);
   } finally {
     await again.close();
   }
   // Edit one line: the chain breaks, and a runtime refuses to extend it.
   const lines = fs.readFileSync(file, "utf8").split("\n");
-  lines[1] = lines[1].replace('"refused"', '"settled"');
+  lines[2] = lines[2].replace('"refused"', '"settled"');
   fs.writeFileSync(file, lines.join("\n"));
   assert.equal(verifyDecisionLedger(file).ok, false);
   await assert.rejects(() => makeRig({ stateDir: rig.stateDir, agentKey: rig.agentKey }), /does not verify/);

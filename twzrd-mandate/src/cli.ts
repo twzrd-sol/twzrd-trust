@@ -18,7 +18,7 @@ import { parseArgs } from "node:util";
 import { formatBreakerReport, verifyBreakers } from "./breakers.js";
 import { type MandateKey, loadKeyFile, loadOrCreateKeyFile } from "./keys.js";
 import { verifyDecisionLedger } from "./ledger.js";
-import { type IssueMandateInput, issueMandate, loadMandateFile, writeMandateFile } from "./mandate.js";
+import { type IssueMandateInput, issueMandate, loadMandateFile, mandateStateDir, writeMandateFile } from "./mandate.js";
 import { type McpGateway, createHttpUpstream, createMcpGateway, createStdioUpstream, runMcpStdio } from "./mcp-proxy.js";
 import { type MandateRuntime, STATE_FILES, type WrapPay, createMandateRuntime } from "./runtime.js";
 import { type IssuerMode, MANDATE_CHAINS, type MandateChain, MAX_LIFETIME_MS, MAX_SESSION_LIFETIME_MS, usdToMicro, microToUsd } from "./schema.js";
@@ -66,12 +66,15 @@ Issue
     --agent <pubkey>         (init) the agent's public key, when the operator does not hold its key
 
 Check
-  mandate verify [mandate.json] [--trust-issuer <pubkey>] [--agent-key <file>]
+  mandate verify [mandate.json] [--trust-issuer <pubkey>] [--agent-key <file>] [--allow-self-mandate]
   mandate verify-breakers [--json]
       Proves on this machine that each of the six pre-sign layers refuses with 0 signatures.
 
 Run
   mandate serve [--mandate mandate.json] [--agent-key <file>] [--trust-issuer <pubkey>]
+      --allow-self-mandate           accept a self-signed mandate even when issuers are pinned
+      --receipt-max-age 900          oldest receipt accepted, in seconds ("off": loopback only)
+      --allow-receipt-replay         accept a receipt already seen (loopback only)
       --port 4029                    loopback only
       --pay-module ./pay.mjs         a module exporting wrapPay(guardedFetch): the payer.
                                      Without one, every 402 is refused (no_payer_configured).
@@ -248,6 +251,9 @@ const RUNTIME_OPTIONS = {
   mandate: { type: "string" },
   "agent-key": { type: "string" },
   "trust-issuer": { type: "string", multiple: true },
+  "allow-self-mandate": { type: "boolean" },
+  "receipt-max-age": { type: "string" },
+  "allow-receipt-replay": { type: "boolean" },
   "pay-module": { type: "string" },
   "intel-base": { type: "string" },
   "mcp-upstream": { type: "string" },
@@ -259,6 +265,9 @@ interface RuntimeFlags {
   mandate?: string;
   "agent-key"?: string;
   "trust-issuer"?: string[];
+  "allow-self-mandate"?: boolean;
+  "receipt-max-age"?: string;
+  "allow-receipt-replay"?: boolean;
   "pay-module"?: string;
   "intel-base"?: string;
   "mcp-upstream"?: string;
@@ -285,6 +294,7 @@ async function openRuntime(flags: RuntimeFlags): Promise<{ runtime: MandateRunti
   const agentKey = flags["agent-key"] !== undefined ? loadKeyFile(flags["agent-key"]) : undefined;
   const loaded = loadMandateFile(flags.mandate ?? "mandate.json", {
     trustedIssuers: trustedIssuers(flags),
+    allowSelfMandate: flags["allow-self-mandate"] === true,
     ...(agentKey ? { heldAgentKey: agentKey.publicKey } : {}),
   });
   if (!loaded.ok) {
@@ -296,10 +306,21 @@ async function openRuntime(flags: RuntimeFlags): Promise<{ runtime: MandateRunti
   }
   if (agentKey && agentKey.publicKey !== loaded.mandate.agent) fail("refusing to start: --agent-key is not the agent this mandate names");
   const wrapPay = flags["pay-module"] !== undefined ? await loadPayModule(flags["pay-module"]) : undefined;
+  let receiptMaxAgeSeconds: number | null | undefined;
+  const maxAge = flags["receipt-max-age"];
+  if (maxAge !== undefined) {
+    if (maxAge === "off") receiptMaxAgeSeconds = null;
+    else if (/^[1-9][0-9]{0,8}$/.test(maxAge)) receiptMaxAgeSeconds = Number(maxAge);
+    else fail('--receipt-max-age takes a whole number of seconds, or "off"');
+  }
+  if (receiptMaxAgeSeconds === null) process.stderr.write("warning: receipt age is not checked (--receipt-max-age off); use it only against a loopback seller\n");
+  if (flags["allow-receipt-replay"] === true) process.stderr.write("warning: a receipt seen before is accepted again (--allow-receipt-replay); use it only against a loopback seller\n");
   const runtime = createMandateRuntime({
     mandate: loaded.mandate,
     expiresAtMs: loaded.expiresAtMs,
     stateDir: loaded.stateDir,
+    ...(receiptMaxAgeSeconds !== undefined ? { receiptMaxAgeSeconds } : {}),
+    ...(flags["allow-receipt-replay"] === true ? { refuseReceiptReplay: false } : {}),
     ...(wrapPay ? { wrapPay } : {}),
     ...(agentKey ? { agentKey } : {}),
     ...(flags["intel-base"] !== undefined ? { intelBase: flags["intel-base"] } : {}),
@@ -440,14 +461,9 @@ const OPERATE_OPTIONS = {
 function stateDirOf(values: { mandate?: string; "state-dir"?: string }): string {
   if (values["state-dir"] !== undefined) return path.resolve(values["state-dir"]);
   const file = path.resolve(values.mandate ?? "mandate.json");
-  let doc: { killswitchDir?: unknown };
-  try {
-    doc = JSON.parse(fs.readFileSync(file, "utf8")) as { killswitchDir?: unknown };
-  } catch {
-    fail(`cannot read ${file}; pass --mandate <file>, --state-dir <dir> or --url <sidecar>`);
-  }
-  if (typeof doc.killswitchDir !== "string") fail(`${file} names no killswitchDir`);
-  return path.resolve(path.dirname(file), doc.killswitchDir);
+  const read = mandateStateDir(file);
+  if (!read.ok) fail(`${read.detail}; pass --mandate <file>, --state-dir <dir> or --url <sidecar>`);
+  return read.stateDir;
 }
 
 async function sidecarFetch(base: string, route: string, init: RequestInit = {}): Promise<{ status: number; doc: unknown } | null> {
@@ -492,9 +508,10 @@ async function operate(command: "status" | "kill" | "resume" | "ledger", argv: s
       wrote = path.join(dir, STATE_FILES.kill);
       fs.writeFileSync(wrote, `${JSON.stringify({ at: new Date().toISOString(), reason: values.reason ?? "operator" })}\n`);
     }
-    const got = wrote === null ? await sidecarFetch(base, "/mandate/kill", { method: "POST", body: JSON.stringify({ reason: values.reason ?? "operator" }) }) : null;
+    // Tell the sidecar as well, even after writing the file: it answers for the directory it actually holds.
+    const got = await sidecarFetch(base, "/mandate/kill", { method: "POST", body: JSON.stringify({ reason: values.reason ?? "operator" }) });
     if (wrote === null && got === null) fail(`no sidecar answered at ${base}; pass --mandate <file> to write the kill file directly`);
-    print(wrote !== null ? { killed: true, killFile: wrote } : got?.doc);
+    print({ killed: true, ...(wrote !== null ? { killFile: wrote } : {}), sidecar: got === null ? "no answer" : got.doc });
     return 0;
   }
   // resume
@@ -529,13 +546,22 @@ async function operate(command: "status" | "kill" | "resume" | "ledger", argv: s
 function verifyCommand(argv: string[]): number {
   const { values, positionals } = parseArgs({
     args: argv,
-    options: { "trust-issuer": { type: "string", multiple: true }, "agent-key": { type: "string" }, mandate: { type: "string" } },
+    options: {
+      "trust-issuer": { type: "string", multiple: true },
+      "allow-self-mandate": { type: "boolean" },
+      "agent-key": { type: "string" },
+      mandate: { type: "string" },
+    },
     allowPositionals: true,
     strict: true,
   });
   const file = positionals[0] ?? values.mandate ?? "mandate.json";
   const agentKey = values["agent-key"] !== undefined ? loadKeyFile(values["agent-key"]) : undefined;
-  const loaded = loadMandateFile(file, { trustedIssuers: trustedIssuers(values), ...(agentKey ? { heldAgentKey: agentKey.publicKey } : {}) });
+  const loaded = loadMandateFile(file, {
+    trustedIssuers: trustedIssuers(values),
+    allowSelfMandate: values["allow-self-mandate"] === true,
+    ...(agentKey ? { heldAgentKey: agentKey.publicKey } : {}),
+  });
   if (!loaded.ok) {
     process.stdout.write(`INVALID  ${loaded.code}: ${loaded.detail}\n`);
     return 1;

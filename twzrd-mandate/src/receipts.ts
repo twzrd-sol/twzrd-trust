@@ -59,6 +59,9 @@ export function findInclusion(body: unknown): unknown {
   return undefined;
 }
 
+/** How far a receipt's signed timestamp may run ahead of this clock. */
+export const RECEIPT_CLOCK_SKEW_SECONDS = 300;
+
 /**
  * Verify a receipt offline. `subjects` are the wallets this call was about
  * (the recipient paid, and any wallet named in the request): a valid receipt
@@ -66,7 +69,20 @@ export function findInclusion(body: unknown): unknown {
  */
 export function checkReceipt(
   receipt: unknown,
-  opts: { subjects: readonly string[]; requireV7: boolean; pinnedKeys?: readonly string[] },
+  opts: {
+    subjects: readonly string[];
+    requireV7: boolean;
+    pinnedKeys?: readonly string[];
+    /**
+     * Oldest receipt accepted, in seconds, against the signed
+     * `preimage.timestamp_unix`. Omitted or null: no age check.
+     */
+    maxAgeSeconds?: number | null;
+    /** Milliseconds since the epoch. Default `Date.now()`. */
+    now?: number;
+    /** Leaves already accepted for earlier calls: a repeat is a replay. */
+    seenLeaves?: ReadonlySet<string>;
+  },
 ): ReceiptCheck {
   if (receipt === undefined || receipt === null) {
     return { status: "absent", version: null, leaf: null, subject: null, detail: "the response carries no receipt" };
@@ -88,6 +104,28 @@ export function checkReceipt(
       subject,
       detail: "the receipt is about a wallet this call did not name",
     };
+  }
+  if (opts.maxAgeSeconds !== undefined && opts.maxAgeSeconds !== null) {
+    const issued = preimage.timestamp_unix;
+    const nowSeconds = Math.floor((opts.now ?? Date.now()) / 1000);
+    if (typeof issued !== "number" || !Number.isFinite(issued)) {
+      return { status: "invalid", version: binding.version, leaf: binding.leaf, subject, detail: "the receipt carries no signed timestamp, so its age cannot be checked" };
+    }
+    if (issued > nowSeconds + RECEIPT_CLOCK_SKEW_SECONDS) {
+      return { status: "invalid", version: binding.version, leaf: binding.leaf, subject, detail: "the receipt is dated in the future" };
+    }
+    if (nowSeconds - issued > opts.maxAgeSeconds) {
+      return {
+        status: "invalid",
+        version: binding.version,
+        leaf: binding.leaf,
+        subject,
+        detail: `the receipt was issued ${nowSeconds - issued} s ago, older than the ${opts.maxAgeSeconds} s this runtime accepts`,
+      };
+    }
+  }
+  if (opts.seenLeaves?.has(binding.leaf)) {
+    return { status: "invalid", version: binding.version, leaf: binding.leaf, subject, detail: "this receipt was already accepted for an earlier call" };
   }
   return { status: "verified", version: binding.version, leaf: binding.leaf, subject, detail: `verified under ${binding.pubkey}` };
 }

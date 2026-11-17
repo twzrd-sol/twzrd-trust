@@ -99,6 +99,9 @@ export async function verifyBreakers(): Promise<BreakerReport> {
       fetch: guard.fetch,
       agentKey,
       now: () => now.value,
+      // The loopback seller serves one fixed, signed fixture receipt on every paid call.
+      receiptMaxAgeSeconds: null,
+      refuseReceiptReplay: false,
       ...(opts.payer === false ? {} : { wrapPay: payer.wrapPay }),
     });
     try {
