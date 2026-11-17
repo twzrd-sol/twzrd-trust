@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.4.0 (2026-11-17)
+
+`createToolGuard` first ships to npm in this release; 0.3.1 was not
+published. These are fixes from an independent review of 0.3.1, and they
+change what `run()` throws, hence the minor version.
+
+### Changed
+
+- `run()` throws `ToolSettleError` when the tool call completed but its
+  spend could not be written to the ledger. It carries the tool's `result`
+  and the open `hold`; call `hold.settle()` once the ledger is writable.
+  Before, the caller got the bare write error, the paid result was lost and
+  the hold could not be reached.
+- The not-sent escape (`ToolNotSentError`, `isNotSent`) applies only to an
+  error the tool function throws. Once the function has resolved the call
+  counts as sent: a malformed result, or a `billedUsd` that throws when
+  read, records the worst case and trips whatever the classifier says.
+- After a `settle()` whose ledger write failed, the bill is fixed and the
+  hold can only be settled. A retry cannot record a smaller bill, and
+  `release()` throws.
+
+### Fixed
+
+- A `settle()` retried after a write that was cut short (a full disk) no
+  longer lands on the torn fragment's line, where no reader counted it.
+  The guard ends a torn last line before every line it writes.
+- An allowed ledger line in the last 24 hours whose `cost_usd` is not a
+  finite non-negative number now refuses with `budget_exceeded`. Before,
+  only the window total was checked, so a negative line could cancel real
+  spend.
+- Guards on the same ledger through a symlink share their holds, and a
+  pause held in memory is honoured by every guard on that file in the
+  process, not only the one that tripped.
+- An `isNotSent` that returns a rejecting promise no longer leaves an
+  unhandled rejection. It still fails closed.
+
 ## 0.3.1 (2026-11-17)
 
 An addition to the programmatic API. Nothing changes for the proxy or for

@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { syncBuiltinESMExports } from "node:module";
 import {
   createToolGuard,
   ToolNotSentError,
   ToolRefusedError,
+  ToolSettleError,
   TOOL_GUARD_PAUSE_REASON,
 } from "@twzrd1111/agent-killswitch";
 import { Ledger } from "../dist/ledger.js";
@@ -480,7 +482,8 @@ test("ledger spend that is not a non-negative number refuses instead of passing"
     const base = { model: "gpt-4o", prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, allowed: true, veto_reason: null, request_id: null };
     fs.writeFileSync(
       s.ledgerPath,
-      JSON.stringify({ ...base, timestamp: new Date().toISOString(), cost_usd: 10 }) + "\n" +
+      // A small readable line: only the unreadable one below can refuse the call.
+      JSON.stringify({ ...base, timestamp: new Date().toISOString(), cost_usd: 0.001 }) + "\n" +
         JSON.stringify({ ...base, timestamp: new Date().toISOString(), cost_usd: cost }) + "\n",
     );
     const guard = guardFor(s);
@@ -608,4 +611,186 @@ test("isNotSent is not consulted on success and must be a function", async () =>
   }
   assert.equal(called, 0, "a bad options object is rejected before anything is held or sent");
   assert.equal(guard.spend().dayUsd, 0.001);
+});
+
+test("a negative ledger line cannot cancel real spend", () => {
+  const s = state();
+  const base = { model: "gpt-4o", prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, allowed: true, veto_reason: null, request_id: null };
+  fs.writeFileSync(
+    s.ledgerPath,
+    JSON.stringify({ ...base, timestamp: new Date().toISOString(), cost_usd: 9.99 }) + "\n" +
+      JSON.stringify({ ...base, timestamp: new Date().toISOString(), cost_usd: -9.98 }) + "\n",
+  );
+  const guard = guardFor(s, { maxCostPerCallUsd: 1, maxUsdPerHour: 10, maxUsdPerDay: 10 });
+  const decision = guard.authorize({ tool: "search", worstCaseUsd: 1 });
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.code, "budget_exceeded");
+});
+
+test("a line written after a torn tail is on a line of its own and counts", () => {
+  const s = state();
+  const guard = guardFor(s);
+  guard.authorize({ tool: "search", worstCaseUsd: 0.001 }).hold.settle(0.001);
+  fs.appendFileSync(s.ledgerPath, '{"timestamp":"2026-1'); // a write cut short
+  guard.authorize({ tool: "search", worstCaseUsd: 0.002 }).hold.settle(0.002);
+  assert.ok(Math.abs(guard.spend().dayUsd - 0.003) < 1e-12);
+  assert.ok(Math.abs(new Ledger(s.ledgerPath).window().dayUsd - 0.003) < 1e-12, "a fresh reader sees both bills");
+  const r = verifyLedgerFile(s.ledgerPath);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.unparseable, [2]);
+});
+
+test("a settle retried after a short write is recorded where readers count it", () => {
+  const s = state();
+  const guard = guardFor(s);
+  guard.authorize({ tool: "search", worstCaseUsd: 0.001 }).hold.settle(0.001);
+  const hold = guard.authorize({ tool: "search", worstCaseUsd: 0.002 }).hold;
+  const realWrite = fs.writeSync;
+  let failed = false;
+  fs.writeSync = (fd, buf, offset, length, ...rest) => {
+    if (!failed && Buffer.isBuffer(buf) && buf.includes('"settled"')) {
+      failed = true;
+      realWrite(fd, buf, offset, 20, ...rest); // 20 bytes land, then the disk is full
+      throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
+    }
+    return realWrite(fd, buf, offset, length, ...rest);
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => hold.settle(0.002), /ENOSPC/);
+  } finally {
+    fs.writeSync = realWrite;
+    syncBuiltinESMExports();
+  }
+  assert.equal(failed, true, "the fault was injected");
+  assert.equal(hold.settle().costUsd, 0.002);
+  assert.ok(Math.abs(guard.spend().dayUsd - 0.003) < 1e-12);
+  assert.ok(Math.abs(new Ledger(s.ledgerPath).window().dayUsd - 0.003) < 1e-12, "the retried bill is readable");
+  assert.equal(verifyLedgerFile(s.ledgerPath).ok, true);
+});
+
+test("after a failed settle the bill is fixed and the hold cannot be released", (t) => {
+  if (!notRoot) return t.skip("root ignores file permissions");
+  const s = state();
+  const guard = guardFor(s);
+  guard.authorize({ tool: "search", worstCaseUsd: 0.001 }).hold.settle(0.001);
+  const hold = guard.authorize({ tool: "search", worstCaseUsd: 0.001 }).hold;
+  fs.chmodSync(s.ledgerPath, 0o400);
+  try {
+    assert.throws(() => hold.settle(0.03), /EACCES/);
+  } finally {
+    fs.chmodSync(s.ledgerPath, 0o600);
+  }
+  assert.throws(() => hold.release(), /only be settled/);
+  assert.ok(Math.abs(guard.spend().dayUsd - 0.031) < 1e-12, "a refused release leaves the spend counting");
+  const settlement = hold.settle(0.0001); // a smaller bill on the retry is ignored
+  assert.equal(settlement.costUsd, 0.03);
+  assert.equal(settlement.tripped, true);
+  assert.deepEqual(lines(s).slice(-2).map((l) => l.tool.event), ["settled", "trip"]);
+});
+
+test("run() hands back the paid result and the hold when the bill cannot be recorded", async (t) => {
+  if (!notRoot) return t.skip("root ignores file permissions");
+  const s = state();
+  const guard = guardFor(s);
+  guard.authorize({ tool: "search", worstCaseUsd: 0.001 }).hold.settle(0.001);
+  let caught;
+  try {
+    await guard.run({ tool: "search", worstCaseUsd: 0.002 }, async () => {
+      fs.chmodSync(s.ledgerPath, 0o400);
+      return { result: "PAID-RESULT", billedUsd: 0.0015 };
+    });
+  } catch (err) {
+    caught = err;
+  } finally {
+    fs.chmodSync(s.ledgerPath, 0o600);
+  }
+  assert.ok(caught instanceof ToolSettleError);
+  assert.equal(caught.result, "PAID-RESULT");
+  assert.match(String(caught.cause), /EACCES/);
+  assert.equal(checkPauseSwitch(s.pauseFilePath).paused, true);
+  assert.equal(caught.hold.settle().costUsd, 0.0015);
+  assert.ok(Math.abs(new Ledger(s.ledgerPath).window().dayUsd - 0.0025) < 1e-12);
+});
+
+test("the not-sent escape does not apply once the tool function has resolved", async () => {
+  const s = state();
+  const guard = guardFor(s);
+  // A classifier that matches TypeError (as for a failed fetch) must not release a call that resolved badly.
+  await assert.rejects(
+    guard.run({ tool: "search", worstCaseUsd: 0.001 }, async () => undefined, { isNotSent: (e) => e instanceof TypeError }),
+    /must resolve to/,
+  );
+  assert.equal(lines(s).at(-1).tool.event, "trip");
+  assert.equal(guard.spend().dayUsd, 0.001);
+
+  const s2 = state();
+  const guard2 = guardFor(s2);
+  await assert.rejects(
+    guard2.run({ tool: "search", worstCaseUsd: 0.001 }, async () => ({
+      result: 1,
+      get billedUsd() {
+        throw new ToolNotSentError("claimed after the fact");
+      },
+    })),
+    /claimed after the fact/,
+  );
+  assert.equal(guard2.spend().dayUsd, 0.001);
+  assert.equal(checkPauseSwitch(s2.pauseFilePath).paused, true);
+});
+
+test("guards on a ledger and on a symlink to it share holds", () => {
+  const s = state();
+  const link = path.join(s.dir, "alias.jsonl");
+  fs.writeFileSync(s.ledgerPath, "");
+  fs.symlinkSync(s.ledgerPath, link);
+  const limits = { maxCostPerCallUsd: 1, maxUsdPerHour: 1.5, maxUsdPerDay: 1.5 };
+  const a = guardFor(s, limits);
+  const b = guardFor(s, { ...limits, ledgerPath: link });
+  assert.equal(a.authorize({ tool: "search", worstCaseUsd: 1 }).allowed, true);
+  assert.equal(b.authorize({ tool: "search", worstCaseUsd: 1 }).code, "budget_exceeded");
+});
+
+test("a pause held in memory stops every guard on that ledger", (t) => {
+  if (!notRoot) return t.skip("root ignores file permissions");
+  const s = state();
+  const a = guardFor(s);
+  const b = guardFor(s);
+  const hold = a.authorize({ tool: "search", worstCaseUsd: 0.001 }).hold;
+  fs.chmodSync(s.dir, 0o500); // .pause cannot be created
+  try {
+    hold.settle(0.03);
+  } catch {
+    // the ledger does not exist yet and cannot be created either
+  } finally {
+    fs.chmodSync(s.dir, 0o700);
+  }
+  assert.equal(fs.existsSync(s.pauseFilePath), false);
+  assert.equal(b.authorize({ tool: "search", worstCaseUsd: 0.001 }).code, "payment_gate_halt");
+});
+
+test("an async isNotSent that rejects fails closed without an unhandled rejection", async () => {
+  const s = state();
+  const guard = guardFor(s);
+  const seen = [];
+  const onUnhandled = (reason) => seen.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    await assert.rejects(
+      guard.run(
+        { tool: "search", worstCaseUsd: 0.001 },
+        async () => {
+          throw new Error("BOOM");
+        },
+        { isNotSent: async () => { throw new Error("classifier rejected"); } },
+      ),
+      /BOOM/,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+  assert.deepEqual(seen, []);
+  assert.equal(lines(s).at(-1).tool.event, "trip");
 });
