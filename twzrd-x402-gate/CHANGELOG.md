@@ -2,6 +2,31 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.24.1 (2026-11-17)
+
+Patch release: the caller's `AbortSignal` now governs a guarded call all the way through the paid
+retry. It adds no refusal policy: the only new refusal, `request_aborted`, applies to a call the
+caller has already abandoned. Upgrading from 0.24.0 is safe.
+
+- **A caller's timeout or abort is honoured on the paid request (`createGuardedX402Fetch`).** On
+  Node 24 (seen on v24.22.1, undici 7.30.1) a cloned `Request` stops following its source's
+  `AbortSignal` after a garbage collection, and `@x402/fetch` sends the paid retry as
+  `fetch(clonedRequest.clone())`. A call with `AbortSignal.timeout(300)` could then ignore the
+  timeout once the payment was signed, and wait for the seller (about 300 s in our tests). The
+  guarded fetch now:
+  - sends every request of the call under the caller's own signal, so the request is cancelled,
+    not only the promise;
+  - rejects with the signal's own `reason` (for example `TimeoutError`) as soon as it fires, or at
+    once, before any request or signature, when it is already aborted;
+  - removes the abort listener it added when the call settles.
+  - A payment the signer already produced stays counted against the budget. If the signal fires
+    while the pre-sign checks are still running, the abandoned call is refused with
+    `request_aborted` before the signer runs: nothing is signed and no budget is charged.
+  - `init.signal` wins over a `Request` input's own signal; an explicit `signal: null` means no
+    signal, as in `fetch`. A call with no signal is unchanged.
+  - Nothing else changes. Callers on other Node versions get the same behaviour; the bug it works
+    around was only observed on Node 24.
+
 ## 0.24.0 (2026-11-17)
 
 Security release. Every item but the Lighthouse one turns an allow into a refusal, so
