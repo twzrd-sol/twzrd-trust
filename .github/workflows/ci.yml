@@ -61,7 +61,7 @@ jobs:
       # pushes below and as local-ci/gate before merge.
       - name: Smoke tests (pull requests)
         if: github.event_name == 'pull_request'
-        run: npm test --workspace=twzrd-x402-gate && npm run test:agent-killswitch
+        run: npm test --workspace=twzrd-x402-gate && npm run test:agent-killswitch && npm run test:e2e
       - name: Full gate (main pushes)
         if: github.event_name != 'pull_request'
         # The README quickstart proof calls live intel; tag it as house traffic in this repo only
