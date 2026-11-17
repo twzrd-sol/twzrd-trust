@@ -3,7 +3,7 @@ import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-import { ToolNotSentError, ToolRefusedError, TOOL_GUARD_PAUSE_REASON } from "../agent-killswitch/dist/api.js";
+import { ToolNotSentError, ToolRefusedError, ToolSettleError, TOOL_GUARD_PAUSE_REASON } from "../agent-killswitch/dist/api.js";
 import { checkPauseSwitch } from "../agent-killswitch/dist/gate.js";
 import {
   cleanEnv,
@@ -200,28 +200,37 @@ test("failure 3: a call the gate refused releases its hold, so the budget is who
   assert.deepEqual(reconcile({ state, world, guard: p.guard }).mismatches, []);
 });
 
-test("failure 4: a paid call whose spend cannot be written pauses everything and keeps counting", async (t) => {
+test("failure 4: a paid call whose spend cannot be written pauses everything, keeps counting, and can be recorded later", async (t) => {
   if (!notRoot) return t.skip("root ignores file permissions");
   const p = pipeline();
   await p.buy(); // creates the tool ledger
   world.hook = (event) => {
     if (event === "payment") fs.chmodSync(state.toolLedger, 0o400);
   };
+  let failure;
   try {
-    await assert.rejects(p.buy());
+    await assert.rejects(p.buy(), (err) => {
+      failure = err;
+      return err instanceof ToolSettleError;
+    });
   } finally {
     world.hook = () => {};
     fs.chmodSync(state.toolLedger, 0o600);
   }
+  assert.equal(failure.result.answer, 42, "the result that was paid for is handed back");
   assert.equal(world.paidCount, 2, "the seller was paid");
   assert.equal(checkPauseSwitch(state.pauseFile).paused, true);
   assert.ok(near(p.guard.spend().dayUsd, 0.02), "the unrecorded bill still counts in the guard");
   const approval = await p.approve();
   assert.equal(approval.approved, false);
   assert.match(approval.reason, /^twzrd_payment_paused/);
-  const r = reconcile({ state, world, guard: p.guard });
-  assert.equal(r.ok, false, "reconciliation reports the spend the tool ledger is missing");
-  assert.ok(r.mismatches.some((m) => m.startsWith("tool ledger 10000 != gate ledger 20000")), r.mismatches.join("; "));
+  const before = reconcile({ state, world, guard: p.guard });
+  assert.equal(before.ok, false, "reconciliation reports the spend the tool ledger is missing");
+  assert.ok(before.mismatches.some((m) => m.startsWith("tool ledger 10000 != gate ledger 20000")), before.mismatches.join("; "));
+
+  // The ledger is writable again: retry the write through the hold that came back.
+  assert.equal(failure.hold.settle().costUsd, 0.01);
+  assert.deepEqual(reconcile({ state, world, guard: p.guard }).mismatches, []);
 });
 
 test("failure 5: parallel calls cannot spend the same budget twice", async () => {

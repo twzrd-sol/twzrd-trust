@@ -36,7 +36,7 @@ package.
 | 1a, 1b | `.kill` appears mid-run, before and after the trust gate approves | the signer is never called, the hold is released, nothing is recorded |
 | 2 | the seller reports a bill above its quote | the guard records the full bill and pauses; the gate halts without asking intel; reconciliation reports the difference |
 | 3 | the gate refuses, so the call is never sent | `ToolNotSentError` releases the hold and the whole budget is there for the next call |
-| 4 | the tool ledger cannot be written after the seller was paid | everything pauses, the spend still counts in the guard, reconciliation reports the missing line |
+| 4 | the tool ledger cannot be written after the seller was paid | everything pauses, the spend still counts in the guard, reconciliation reports the missing line; `ToolSettleError` hands back the result and the hold, and retrying the write makes the ledgers agree |
 | 5 | eight calls race for a budget of three | exactly three are signed and paid |
 | 6a, 6b | a pause written by the gate, and one written by the guard | each stops the other |
 
