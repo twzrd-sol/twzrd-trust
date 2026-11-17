@@ -19,7 +19,7 @@ from pathlib import Path
 from .schemas import ISSUER_PUBKEY
 
 BASE_URL = "https://intel.twzrd.xyz"
-VERIFIER_PACKAGE = "twzrd-receipt-verifier@1.4.4"
+VERIFIER_PACKAGE = "twzrd-receipt-verifier@1.4.6"
 USER_AGENT = "twzrd-hermes-plugin/0.2.0"
 
 _MAX_BODY = 1_000_000

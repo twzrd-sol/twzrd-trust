@@ -1,0 +1,22 @@
+{
+  "log_id": "intel.twzrd.xyz/v6",
+  "leaf": "0x4891c868b5631e3d7c47dbad201ba0c935cbba60e35e3208d24ad1cbb6b96b7c",
+  "leaf_index": 19,
+  "tree_size": 20,
+  "audit_path": [
+    "0xfbb8cb6d700c8e6a9b82673937aa966d3752809c28fbb45932ec9d50c634152d",
+    "0xb72778f3d1b69b798266b2d372cb565e630cd1d52cfe2582d0801d9e4241d58d",
+    "0x075f399461bcad49c727aaa74d09e04f6713a8c5242b3e22bb2a9f987218bcb9"
+  ],
+  "sth": {
+    "domain": "TWZRD:RECEIPT_LOG_STH_V1",
+    "log_id": "intel.twzrd.xyz/v6",
+    "tree_size": 20,
+    "timestamp_unix": 1794627727,
+    "root": "0xe5f733e2304dfa7b179c11dbff58ead0a8ea325a29dfac68e16c7d4524865096",
+    "signature": "397q3JVmphAbngE7Q1v3ExuLh8huBR539tuLftNiS1s7ck4CFiaZHtkhqMEXdgZF4woErP1KVzM7b1ZTA7rwqRAT",
+    "signing_pubkey": "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+  },
+  "verify": "/v1/log/proof/inclusion?leaf=0x4891c868b5631e3d7c47dbad201ba0c935cbba60e35e3208d24ad1cbb6b96b7c",
+  "anchor": null
+}

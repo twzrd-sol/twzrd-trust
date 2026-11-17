@@ -14,6 +14,16 @@ path, its role, and the invariants — see [docs/REPO-MAP.md](./docs/REPO-MAP.md
   sibling; it is why a gate-only `npm ci` is not enough. Check the tarball with
   `npm run pack-smoke --workspace=twzrd-log-verifier`. Publish via
   `.github/workflows/publish-log-verifier.yml` (workflow_dispatch only).
+- `twzrd-mandate/` — `@twzrd1111/mandate`: signed spend mandates, the `mandate` CLI and
+  the sidecar (MCP proxy, HTTP proxy, control API). Real `src/` + `test/`. It compiles
+  against the gate and `twzrd-log-verifier` workspace builds, so build with
+  `npm run build:mandate` from the root. Test: `npm test --workspace=@twzrd1111/mandate`;
+  end to end: `npm run test:e2e:mandate` and `npm run test:sentinel` (both need
+  `npm run build:mandate`, and `test:e2e:mandate` also needs `agent-killswitch/dist`, which
+  `npm run test:agent-killswitch` builds). Check the tarball with
+  `npm run pack-smoke --workspace=@twzrd1111/mandate`. Publish via
+  `.github/workflows/publish-mandate.yml` (workflow_dispatch only). All tests run on
+  loopback; nothing in them signs with a real wallet.
 - `eliza-plugin-source/` — restored V7 Eliza plugin TypeScript (issue #90). Real
   `src/` + `test/`. Lint: `npm run typecheck --workspace=@wzrd_sol/eliza-plugin-source`.
   Test: `npm test --workspace=@wzrd_sol/eliza-plugin-source`. This is **not** the
@@ -94,6 +104,6 @@ needs to re-sync divergence between the two packages, start from that PR.
   differently, through `attribution` / `TWZRD_ATTRIBUTION_INTEGRATION` +
   `TWZRD_ATTRIBUTION_RUN_ID`.
 - `x402-solana` is an optional peer. Consumers install
-  `twzrd-x402-gate@0.24.1 x402-solana@3.0.1`. This checkout lists `x402-solana`
+  `twzrd-x402-gate@0.25.0 x402-solana@3.0.1`. This checkout lists `x402-solana`
   as a gate **devDependency** so the seat is present after root `npm ci`. It is
   still not required to typecheck, build, or run `gate-eval-refuse`.

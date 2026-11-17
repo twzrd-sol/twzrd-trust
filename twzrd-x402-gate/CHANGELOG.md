@@ -2,11 +2,27 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
-## 0.24.1 (2026-11-17)
+## 0.25.0 (2026-11-17)
 
-Patch release: the caller's `AbortSignal` now governs a guarded call all the way through the paid
-retry. It adds no refusal policy: the only new refusal, `request_aborted`, applies to a call the
-caller has already abandoned. Upgrading from 0.24.0 is safe.
+Minor release. Pricing Arc USDC changes what a guarded fetch with a spend rule accepts or refuses
+on Arc, so it ships as a minor version; the `AbortSignal` fix is a bug fix with one new refusal,
+`request_aborted`, for a call the caller has already abandoned. Upgrading from 0.24.0 is otherwise
+safe.
+
+- **Arc USDC is in the USDC table.** Circle's Arc (`eip155:5042`) and Arc testnet
+  (`eip155:5042002`) USDC, `0x3600000000000000000000000000000000000000` with 6 decimals as
+  Circle's Gateway lists it, now counts as USDC. Matched by CAIP-2 id only; there is no `arc`
+  alias, because `classifyNetwork` has none.
+  - An Arc USDC offer is now priced, so `createBuyerFetch` and a guarded fetch with a spend
+    rule no longer refuse it as `unsupported_or_non_usdc_asset`. `@twzrd1111/mandate` is
+    unchanged: its chain list (Solana, Base) still refuses Arc as `chain_not_allowed`.
+  - Arc is still not reputation-scored (`network_not_scored`), so the unsupported-network
+    mode decides. In `strict`, which `createBuyerFetch` always uses, it is refused before
+    signing. In `observe`, the default elsewhere, a guarded fetch with a spend rule now
+    reaches the hook and proceeds as `unknown` within its USDC caps, as it already did
+    with no spend rule.
+  - Any other asset on Arc no longer has a USD price. Before, it was read as amount / 1e6,
+    as if it were USDC.
 
 - **A caller's timeout or abort is honoured on the paid request (`createGuardedX402Fetch`).** On
   Node 24 (seen on v24.22.1, undici 7.30.1) a cloned `Request` stops following its source's

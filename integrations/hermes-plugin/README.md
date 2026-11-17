@@ -6,7 +6,7 @@ Three tools and one skill for agents that pay x402 sellers.
 |---|---|---|
 | `twzrd_preflight` | Free readiness card for a `payTo` address: `decision` (allow, warn, block) and `maximum_recommended_spend_usdc` | `POST https://intel.twzrd.xyz/v1/intel/preflight` |
 | `twzrd_merchant_card` | Free merchant card: observed settlement history, `wash_flagged`, `decision` (refuse, insufficient_evidence, no_negative_signal) | `GET https://intel.twzrd.xyz/v1/intel/merchant_card/{address}` |
-| `twzrd_verify_receipt` | Verifies a saved TWZRD signed receipt against the pinned TWZRD issuer key and returns that key as `issuer_pubkey` | none for the check; the first run installs `twzrd-receipt-verifier@1.4.4` from npm by lockfile |
+| `twzrd_verify_receipt` | Verifies a saved TWZRD signed receipt against the pinned TWZRD issuer key and returns that key as `issuer_pubkey` | none for the check; the first run installs `twzrd-receipt-verifier@1.4.6` from npm by lockfile |
 
 The skill `twzrd-intel:twzrd-intel` tells the agent when to refuse.
 
@@ -38,7 +38,7 @@ itself.
   anchor receipts, are out of scope: check those with the CLI directly.
 - The receipt file is read once (1 MB limit) and those bytes are piped to the verifier, so the
   file cannot change between the key check and the signature check.
-- `verifier/package-lock.json` pins `twzrd-receipt-verifier@1.4.4` and its five dependencies by
+- `verifier/package-lock.json` pins `twzrd-receipt-verifier@1.4.6` and its five dependencies by
   version and integrity hash. The first call runs `npm ci --ignore-scripts` on a copy of that
   lockfile under `~/.cache/twzrd-hermes-plugin/`; later calls run the installed script with `node`
   and make no network call.

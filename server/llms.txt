@@ -13,7 +13,7 @@ HTTP paths below use https://intel.twzrd.xyz. Replace wallet/pubkey with the sel
   Send resource_url or seller_wallet; add price_usdc only for a known unit price, not an upto cap. Read `readiness_card.decision` and `readiness_card.recommended_cap_usdc`. unknown_subject: use the selected 402 payTo and re-check. Honor block; allow still needs your policy.
 - **Free merchant card:** `GET /v1/intel/merchant_card/{wallet}`
   Seller risk, wash flag and freshness. wash_flagged=true stops payment; `wash_flagged=null` means unevaluated, not clean. The separate /v1/intel/merchant costs 0.05 USDC.
-- **Buyer enforcement (core product):** `npm i twzrd-x402-gate@0.22.0 @x402/core @x402/fetch @x402/svm`
+- **Buyer enforcement (core product):** `npm i twzrd-x402-gate@0.22.1 @x402/core @x402/fetch @x402/svm`
   `createBuyerFetch({ client, maxPricePerCall: "1.00", allowedRecipients: [sellerPayTo] })` requires a configured x402Client, a USDC decimal-string cap and an explicit recipient array. Optional: hourlyBudgetCap.
   Runs at onBeforePaymentCreation. Refuses over-cap/off-allowlist quotes, exhausted configured budgets, preflight blocks/errors, and flagged/unknown/unreachable wash checks. An uncapped warn refuses; permitted warn attempts stay within the returned cap and are logged in local JSONL before signing.
   Adapter: `installTwzrdAutoGate(client)`; defaults differ. See /skill.md.
