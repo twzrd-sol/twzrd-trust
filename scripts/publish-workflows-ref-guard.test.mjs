@@ -56,6 +56,7 @@ const KNOWN_PUBLISHERS = [
   'publish-agent-killswitch.yml',
   'publish-eliza-plugin.yml',
   'publish-log-verifier.yml',
+  'publish-mandate.yml',
   'publish.yml',
 ];
 

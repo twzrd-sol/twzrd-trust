@@ -1,0 +1,38 @@
+# twzrd-sentinel as a systemd user unit.
+#
+#   cp deploy/twzrd-sentinel.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now twzrd-sentinel
+#   journalctl --user -u twzrd-sentinel -f
+#
+# Set the two paths below. SENTINEL_HOME is a checkout of twzrd-trust after
+# `npm ci && npm run build`; SENTINEL_STATE is where mandate.json, agent.json
+# and the state directory live. As written it runs loopback (no wallet, no
+# network). For live, add `--live --mandate mandate.json` (a dry run) and,
+# when a wallet is funded, `--pay-module <file>`.
+[Unit]
+Description=TWZRD sentinel: an autonomous buyer under a signed spend mandate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=SENTINEL_HOME=%h/twzrd-trust
+Environment=SENTINEL_STATE=%h/.local/state/twzrd-sentinel
+ExecStartPre=/usr/bin/mkdir -p ${SENTINEL_STATE}
+ExecStart=/usr/bin/env node ${SENTINEL_HOME}/examples/autonomous-sentinel/sentinel.mjs run --dir ${SENTINEL_STATE} --interval 300 --control-port 4031
+# SIGTERM finishes the cycle in progress and releases the state-directory lock.
+KillSignal=SIGTERM
+TimeoutStopSec=150
+Restart=on-failure
+RestartSec=30
+# 2: a mandate the agent will not start under. 3: the mandate expired. Neither is fixed by a restart.
+RestartPreventExitStatus=2 3
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=%h/.local/state/twzrd-sentinel
+
+[Install]
+WantedBy=default.target

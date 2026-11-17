@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:twzrd:schema:mandate:v1",
+  "title": "twzrd.mandate.v1",
+  "description": "A signed spend mandate for an agent runtime. Structural rules only: the signature, the issuer pin, the ordering of the limits and the lifetime rules are checked by verifyMandate in @twzrd1111/mandate (see SPEC.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mandateId",
+    "issuerMode",
+    "issuer",
+    "agent",
+    "issuedAt",
+    "expiresAt",
+    "limits",
+    "allowedChains",
+    "minTrustScore",
+    "allowedTools",
+    "requireV7Receipt",
+    "requireMerkleInclusion",
+    "killswitchDir",
+    "signature"
+  ],
+  "properties": {
+    "schema": { "const": "twzrd.mandate.v1" },
+    "mandateId": { "type": "string", "pattern": "^mnd_[0-9a-f]{32}$" },
+    "issuerMode": { "enum": ["human-operator", "self-mandated", "ephemeral-session"] },
+    "issuer": { "$ref": "#/$defs/ed25519PublicKey" },
+    "agent": { "$ref": "#/$defs/ed25519PublicKey" },
+    "issuedAt": { "$ref": "#/$defs/utcSecond" },
+    "expiresAt": { "$ref": "#/$defs/utcSecond" },
+    "task": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxPerCallUsd", "dailyCeilingUsd"],
+      "properties": {
+        "maxPerCallUsd": { "$ref": "#/$defs/usd" },
+        "hourlyCeilingUsd": { "$ref": "#/$defs/usd" },
+        "dailyCeilingUsd": { "$ref": "#/$defs/usd" },
+        "monthlyCeilingUsd": { "$ref": "#/$defs/usd" }
+      }
+    },
+    "allowedChains": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["solana", "base"] }
+    },
+    "minTrustScore": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "allowedCounterparties": { "$ref": "#/$defs/recipients" },
+    "blockedCounterparties": { "$ref": "#/$defs/recipients" },
+    "allowedTools": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[\\x21-\\x7e]+$" }
+    },
+    "requireV7Receipt": { "type": "boolean" },
+    "requireMerkleInclusion": { "type": "boolean" },
+    "killswitchDir": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "publicKey", "value"],
+      "properties": {
+        "alg": { "const": "ed25519" },
+        "publicKey": { "$ref": "#/$defs/ed25519PublicKey" },
+        "value": { "type": "string", "pattern": "^[A-Za-z0-9+/]{86}==$" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "issuerMode": { "const": "ephemeral-session" } }, "required": ["issuerMode"] },
+      "then": { "required": ["task"] },
+      "else": { "not": { "required": ["task"] } }
+    },
+    {
+      "if": { "properties": { "requireMerkleInclusion": { "const": true } }, "required": ["requireMerkleInclusion"] },
+      "then": { "properties": { "requireV7Receipt": { "const": true } } }
+    }
+  ],
+  "$defs": {
+    "ed25519PublicKey": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$" },
+    "utcSecond": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "usd": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,6})?$" },
+    "recipients": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^([1-9A-HJ-NP-Za-km-z]{32,44}|0x[0-9a-fA-F]{40})$" }
+    }
+  }
+}
