@@ -96,7 +96,7 @@ async function main() {
         mode: body.mode,
         ok: body.ok,
         pins: {
-          gate: "twzrd-x402-gate@0.22.1",
+          gate: "twzrd-x402-gate@0.23.0",
           verifier: "twzrd-receipt-verifier@^1.4.0",
         },
       },

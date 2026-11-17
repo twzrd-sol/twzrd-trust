@@ -482,6 +482,7 @@ export {
   createMemorySpendLedger,
   evaluateIntent,
   POLICY_VERSION,
+  SPEND_CAP_NEEDS_LEDGER,
   TWZRD_BUDGET_EXCEEDED,
   type CounterpartyIntelligence,
   type EvaluateIntentOptions,

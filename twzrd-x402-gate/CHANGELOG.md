@@ -2,6 +2,38 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.23.0 (2026-11-17)
+
+Changes an allow into a refusal for one misconfiguration, so this ships in a minor release.
+It also fixes spend that `createTwzrdPolicyFetch` did not record under concurrent calls.
+
+- **A cumulative cap with no spend ledger refuses.** `dailyCeilingUsd`, `monthlyCeilingUsd`
+  and `newCounterpartyCap` are read from a spend ledger. Through 0.22.1, setting one and
+  passing no `ledger` skipped the check: every intent was allowed and nothing reported
+  that the cap was off. `evaluateIntent` now returns a signed block with
+  `SPEND_CAP_NEEDS_LEDGER` (new export) and a reason naming the cap
+  (`NEEDS_LEDGER_DAILY_CEILING`, `NEEDS_LEDGER_MONTHLY_CEILING`,
+  `NEEDS_LEDGER_NEW_COUNTERPARTY_CAP`). It is a configuration refusal: on its own it
+  carries no `twzrd_budget_exceeded` and no `budgetRemainingUsdc`. These codes are not in
+  the closed `payment_decision.v1` reason enum, so `paymentDecisionRecordFromToken` throws
+  on such a token, as it does for a halt. The x402 client hook, the MPP hook
+  and `createTwzrdPolicyFetch` refuse the same way, before any payment is built.
+  To keep a cap, pass a ledger (`createMemorySpendLedger()` for one process, a
+  file-backed one to survive a restart). Per-payment caps (`maxAmountUsd`,
+  `maxPerTransactionUsd`) need no ledger and are unchanged.
+- **Concurrent calls through one `createTwzrdPolicyFetch` are each recorded.** The fetch
+  kept the offer it had cleared in one slot shared by every call on the instance. With
+  two calls in flight, the first to finish recorded the other's amount and cleared the
+  slot, so the second paid call was never recorded on the ledger; and both were checked
+  against a cumulative ceiling before either was recorded, so together they could pass
+  it. Through 0.22.1. Each call now keeps its own offer, an amount cleared to pay counts
+  against `dailyCeilingUsd`, a mandate's monthly ceiling and `newCounterpartyCap` until
+  the call ends, and offers are cleared one call at a time. Calls that are not
+  concurrent behave as before. The reservation is per instance: two instances, or two
+  processes, that share one ledger can still clear payments at the same moment, so hold
+  one policy fetch per ledger. A payer that calls the gated fetch outside the call's
+  async context (from its own queue or an event callback) shares one slot, as before.
+
 ## 0.22.1 (2026-11-16)
 
 No allow/refuse decision changes. Discovery picks and the `onWarnUpsell` path can change.

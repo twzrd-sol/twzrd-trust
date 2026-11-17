@@ -17,6 +17,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -231,9 +232,10 @@ export function verifyReceipt(receipt, paidSeller) {
  * gate's spend policy. A cumulative ceiling needs the gate's ledger to count
  * against, so the pipeline refuses to be built with one and no ledger.
  */
-export function createPipeline({ state, world, signer, limits, policy = {}, gateLedger = true, tripPauseOnBlockMs = 0, fetchImpl }) {
+export function createPipeline({ state, world, signer, limits, policy = {}, gateLedger = true, tripPauseOnBlockMs = 0, fetchImpl, skipLedgerCheck = false }) {
   const hasCeiling = policy.dailyCeilingUsd !== undefined || policy.monthlyCeilingUsd !== undefined;
-  if (hasCeiling && !gateLedger) {
+  // `skipLedgerCheck` lets a test hand the misconfiguration to the gate, to prove the gate refuses it too.
+  if (hasCeiling && !gateLedger && !skipLedgerCheck) {
     throw new Error("e2e pipeline: a spend ceiling is configured without a spend ledger to enforce it");
   }
   const guard = createToolGuard({
@@ -250,6 +252,29 @@ export function createPipeline({ state, world, signer, limits, policy = {}, gate
     intelBase: world.base,
     fetch: fetchImpl,
     tripPauseOnBlockMs,
+  });
+
+  // One paying fetch for every call, as an agent would hold it. Each call's
+  // trace rides on its async context so the shared payer can mark the stage.
+  const callTrace = new AsyncLocalStorage();
+  const policyFetch = createTwzrdPolicyFetch({
+    signer: decisionSigner,
+    policy,
+    ledger,
+    fetch: fetchImpl,
+    rawFetch: fetchImpl,
+    wrapPay: (guarded) =>
+      signer.wrapPay(async (input, init) => {
+        const resp = await guarded(input, init);
+        // A 402 reaching the signer means the budget step cleared it.
+        if (resp.status === 402) callTrace.getStore()?.push("budget");
+        return resp;
+      }),
+    stateDir: state.dir,
+    intelBase: world.base,
+    topUrl: `${world.base}/top`,
+    routeUrl: `${world.base}/route`,
+    deliveryCapture: false,
   });
 
   /** Stage 1: the agent reads the price before it asks for budget. */
@@ -270,7 +295,6 @@ export function createPipeline({ state, world, signer, limits, policy = {}, gate
   async function buy({ requestId } = {}) {
     const trace = ["agent"];
     const offer = await quote();
-    let signedHere = 0;
     const outcome = await guard.run({ tool: TOOL, worstCaseUsd: offer.usd, requestId }, async () => {
       trace.push("tool_guard");
       // Stage 3: trust gate.
@@ -282,39 +306,13 @@ export function createPipeline({ state, world, signer, limits, policy = {}, gate
         throw new ToolNotSentError(`trust gate refused: ${approval.reason}`, { cause: approval });
       }
       trace.push("trust_gate");
-      // Stages 4 and 5: budget authorization, then payment. One policy fetch
-      // per call: it carries the pending offer of a single request.
-      const countingPay = (guarded) => {
-        const pay = signer.wrapPay(async (input, init) => {
-          const resp = await guarded(input, init);
-          if (resp.status === 402) {
-            trace.push("budget");
-            signedHere += 1;
-          }
-          return resp;
-        });
-        return pay;
-      };
-      const policyFetch = createTwzrdPolicyFetch({
-        signer: decisionSigner,
-        policy,
-        ledger,
-        fetch: fetchImpl,
-        rawFetch: fetchImpl,
-        wrapPay: countingPay,
-        stateDir: state.dir,
-        intelBase: world.base,
-        topUrl: `${world.base}/top`,
-        routeUrl: `${world.base}/route`,
-        deliveryCapture: false,
-      });
+      // Stages 4 and 5: budget authorization, then payment.
       let resp;
       try {
-        resp = await policyFetch(world.url);
+        resp = await callTrace.run(trace, () => policyFetch(world.url));
       } catch (err) {
-        const refusedByGate = err instanceof TwzrdPolicyAbortError || err instanceof TwzrdWashAbortError;
-        // Only a refusal raised before the signer was handed the 402 is "not sent".
-        if (refusedByGate && signedHere === 0) {
+        // The gate raises these before it hands the 402 to the signer, so nothing was sent.
+        if (err instanceof TwzrdPolicyAbortError || err instanceof TwzrdWashAbortError) {
           throw new ToolNotSentError(`payment gate refused: ${err.message}`, { cause: err });
         }
         throw err;

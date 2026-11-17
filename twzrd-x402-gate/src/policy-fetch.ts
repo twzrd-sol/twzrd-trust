@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { DecisionSigner, PaymentDecision } from "./decision-token.js";
 import { distinctOffers, MAX_DISTINCT_OFFERS, TOO_MANY_PAYMENT_OPTIONS } from "./all-offers.js";
 import { wrapX402ClientEchoAttempt } from "./attempt-echo.js";
@@ -36,8 +38,52 @@ export type CreateTwzrdPolicyFetchInput = CreateTwzrdPayingFetchInput & {
   onAudit?: (d: PaymentDecision) => void;
 };
 
+type PendingOffer = { payTo: string; amount: string; decision: PaymentDecision };
+/** One call's state: the offer it was cleared to pay and what that holds against the ceilings. */
+type CallSlot = { pending?: PendingOffer; reserved?: Array<[scope: string, micro: bigint]> };
+
 export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeof fetch {
-  let pending: { payTo: string; amount: string; decision: PaymentDecision } | undefined;
+  // One slot per call, carried on the call's async context. A single shared
+  // slot let concurrent calls overwrite each other's offer: the first call to
+  // finish booked the other's amount and cleared the slot, so the second paid
+  // call was never booked, and a ceiling was read before either was.
+  const calls = new AsyncLocalStorage<CallSlot>();
+  // Used only if a payer invokes the gated fetch outside the call's async
+  // context (a queue or an event callback); such calls share one slot.
+  const detached: CallSlot = {};
+  // Amounts cleared to pay but not yet booked, per ledger scope. Ceilings
+  // read the ledger plus these, so a payment in flight counts.
+  const inflight = new Map<string, bigint>();
+  const release = (slot: CallSlot): void => {
+    for (const [scope, micro] of slot.reserved ?? []) {
+      const left = (inflight.get(scope) ?? 0n) - micro;
+      if (left > 0n) inflight.set(scope, left);
+      else inflight.delete(scope);
+    }
+    slot.reserved = undefined;
+    slot.pending = undefined;
+  };
+  const base = opts.ledger;
+  const ledgerView: SpendLedger | undefined = base && {
+    ...base,
+    spentMicro: (scope, windowMs, now) => base.spentMicro(scope, windowMs, now) + (inflight.get(scope) ?? 0n),
+    record: (scope, micro, at) => base.record(scope, micro, at),
+    firstSeen: (scope) => base.firstSeen(scope),
+  };
+  const scopesFor = (payTo: string): string[] => {
+    const scopes = [`counterparty:${payTo}`];
+    if (opts.policy?.dailyCeilingUsd !== undefined) scopes.push("policy:global");
+    if (opts.mandate) scopes.push(`mandate:${opts.mandate.mandateId}`);
+    return scopes;
+  };
+  // Clearing an offer awaits (one signed decision per offer). Calls take
+  // turns through that step so each reads the reservations of those before it.
+  let turn: Promise<void> = Promise.resolve();
+  const inTurn = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = turn.then(fn, fn);
+    turn = run.then(() => undefined, () => undefined);
+    return run;
+  };
   const userWrap = opts.wrapPay;
   return createTwzrdPayingFetch({
     ...opts,
@@ -63,29 +109,37 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
           throw new TwzrdWashAbortError(offers.length === 0 ? "twzrd_unidentifiable_payment_recipient" : TOO_MANY_PAYMENT_OPTIONS);
         }
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        // Every entry the payer could choose must clear the policy (0.11.3), not just the preferred one.
-        let intent; let decision;
-        const preferred = pickRequirements(offers);
-        for (const offer of offers) {
-          let it;
-          try { it = x402RequirementsToIntent(offer, { resourceUrl: url }); } catch (e) { throw new TwzrdWashAbortError(e instanceof TwzrdUnpricedAssetError ? "twzrd_non_usdc_asset" : "twzrd_unidentifiable_payment_recipient"); }
-          const d = await evaluateIntent(it, {
-            signer: opts.signer, policy: opts.policy, mandate: opts.mandate,
-            ledger: opts.ledger, recordSpend: false,
-            stateDir: opts.stateDir, killFilePath: opts.killFilePath, pauseFilePath: opts.pauseFilePath,
-          });
-          if (d.decision === "block") {
-            opts.onAudit?.(d);
-            throw new TwzrdPolicyAbortError(d);
+        const slot = calls.getStore() ?? detached;
+        return inTurn(async () => {
+          // A second 402 inside one call replaces what the first one held.
+          release(slot);
+          // Every entry the payer could choose must clear the policy (0.11.3), not just the preferred one.
+          let intent; let decision;
+          const preferred = pickRequirements(offers);
+          for (const offer of offers) {
+            let it;
+            try { it = x402RequirementsToIntent(offer, { resourceUrl: url }); } catch (e) { throw new TwzrdWashAbortError(e instanceof TwzrdUnpricedAssetError ? "twzrd_non_usdc_asset" : "twzrd_unidentifiable_payment_recipient"); }
+            const d = await evaluateIntent(it, {
+              signer: opts.signer, policy: opts.policy, mandate: opts.mandate,
+              ledger: ledgerView, recordSpend: false,
+              stateDir: opts.stateDir, killFilePath: opts.killFilePath, pauseFilePath: opts.pauseFilePath,
+            });
+            if (d.decision === "block") {
+              opts.onAudit?.(d);
+              throw new TwzrdPolicyAbortError(d);
+            }
+            // The client may pay any entry (default selector: accepts[0]), so the ledger books the
+            // costliest one rather than the preferred one; the daily ceiling cannot be undercounted.
+            if (!intent || toMicroUsd(it.amount) > toMicroUsd(intent.amount) || (toMicroUsd(it.amount) === toMicroUsd(intent.amount) && offer === preferred)) { intent = it; decision = d; }
           }
-          // The client may pay any entry (default selector: accepts[0]), so the ledger books the
-          // costliest one rather than the preferred one; the daily ceiling cannot be undercounted.
-          if (!intent || toMicroUsd(it.amount) > toMicroUsd(intent.amount) || (toMicroUsd(it.amount) === toMicroUsd(intent.amount) && offer === preferred)) { intent = it; decision = d; }
-        }
-        if (!intent || !decision) return handOver(resp);
-        handOver(resp);
-        pending = { payTo: intent.payTo, amount: intent.amount, decision };
-        return resp;
+          if (!intent || !decision) return handOver(resp);
+          handOver(resp);
+          const micro = toMicroUsd(intent.amount);
+          slot.pending = { payTo: intent.payTo, amount: intent.amount, decision };
+          slot.reserved = scopesFor(intent.payTo).map((scope) => [scope, micro]);
+          for (const [scope] of slot.reserved) inflight.set(scope, (inflight.get(scope) ?? 0n) + micro);
+          return resp;
+        });
       };
       let pay = userWrap?.(gated);
       return async (input, init) => {
@@ -96,18 +150,25 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
             wrapX402ClientEchoAttempt(opts.wallet) as never,
           );
         }
-        const r = await pay(input, init);
+        const slot: CallSlot = {};
+        const r = await calls.run(slot, () => pay!(input, init)).catch((err: unknown) => {
+          release(slot);
+          release(detached);
+          throw err;
+        });
+        // A payer that left the call's context put its offer in the shared slot.
+        const used = slot.pending ? slot : detached;
+        const pending = used.pending;
+        // Release before booking: the ledger takes over from the reservation.
+        release(used);
         if (r.ok && pending) {
           const now = Date.now();
           const micro = toMicroUsd(pending.amount);
-          opts.ledger?.record(`counterparty:${pending.payTo}`, micro, now);
           // Mirrors evaluateIntent's recordSpend scopes — dailyCeilingUsd
           // reads policy:global, which this record-on-200 path must feed.
-          if (opts.policy?.dailyCeilingUsd !== undefined) opts.ledger?.record("policy:global", micro, now);
-          if (opts.mandate) opts.ledger?.record(`mandate:${opts.mandate.mandateId}`, micro, now);
+          for (const scope of scopesFor(pending.payTo)) opts.ledger?.record(scope, micro, now);
           opts.onAudit?.(pending.decision);
         }
-        pending = undefined;
         return r;
       };
     },

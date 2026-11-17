@@ -48,7 +48,7 @@ async function run() {
   const later = await evaluateIntent(intent("0.55", "MerchantD"), { ...opts, now: t0 + 25 * HOUR });
   assert.equal(later.decision, "allow", JSON.stringify(later.reasonCodes));
 
-  /* 5. No ledger → ceiling cannot evaluate; per-tx cap still enforces. */
+  /* 5. No ledger: the ceiling refuses (cap-needs-ledger.test.ts); the per-tx cap still reports. */
   const noLedger = await evaluateIntent(intent("9.00", "MerchantE"), {
     signer,
     policy: { dailyCeilingUsd: "1.00", maxAmountUsd: "0.01" },

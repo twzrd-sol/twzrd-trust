@@ -51,7 +51,10 @@ export type SpendPolicy = {
   allowedNetworks?: string[];
   allowedAssets?: string[];
   maxAmountUsd?: string;
-  /** Global cumulative ceiling over a rolling 24h, all counterparties (needs a ledger). */
+  /**
+   * Global cumulative ceiling over a rolling 24h, all counterparties. Needs a
+   * ledger: without one every intent is blocked (`SPEND_CAP_NEEDS_LEDGER`).
+   */
   dailyCeilingUsd?: string;
   blocklist?: string[];
   allowlist?: string[];
@@ -156,6 +159,19 @@ export type EvaluateIntentOptions = {
   pauseFilePath?: string;
 };
 
+/**
+ * Block reason set whenever a cumulative cap (`dailyCeilingUsd`,
+ * `monthlyCeilingUsd`, `newCounterpartyCap`) is configured and
+ * `evaluateIntent` is called without a `ledger`. A second reason names the
+ * cap: `NEEDS_LEDGER_DAILY_CEILING`, `NEEDS_LEDGER_MONTHLY_CEILING` or
+ * `NEEDS_LEDGER_NEW_COUNTERPARTY_CAP`. It is a configuration refusal, not a
+ * budget refusal: on its own it carries no `twzrd_budget_exceeded` and no
+ * `budgetRemainingUsdc` (a per-payment cap that also trips still adds both).
+ * Like the halt codes, these are not in the closed `payment_decision.v1`
+ * reason enum, so such a token cannot be projected to a v1 record.
+ */
+export const SPEND_CAP_NEEDS_LEDGER = "SPEND_CAP_NEEDS_LEDGER";
+
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -219,8 +235,16 @@ export async function evaluateIntent(
     if (!reasons.includes(TWZRD_BUDGET_EXCEEDED)) block(TWZRD_BUDGET_EXCEEDED);
     budgetRemainingUsdc = fromMicroUsd(remainingMicro < 0n ? 0n : remainingMicro);
   };
+  /* A cumulative cap cannot be read without a spend ledger. Configuring one
+     and passing no ledger used to skip the check and allow; it now refuses
+     with a signed block that names the cap, so the cap is never silently off. */
+  const capWithoutLedger = (cap: string) => {
+    block(`NEEDS_LEDGER_${cap}`);
+    if (!reasons.includes(SPEND_CAP_NEEDS_LEDGER)) block(SPEND_CAP_NEEDS_LEDGER);
+  };
   const mandateCeilingCheck = () => {
-    if (mandate?.monthlyCeilingUsd === undefined || !options.ledger) return;
+    if (mandate?.monthlyCeilingUsd === undefined) return;
+    if (!options.ledger) return capWithoutLedger("MONTHLY_CEILING");
     const spent = options.ledger.spentMicro(`mandate:${mandate.mandateId}`, MONTH_MS, now);
     const ceiling = toMicroUsd(mandate.monthlyCeilingUsd);
     if (spent + amountMicro > ceiling) {
@@ -229,7 +253,8 @@ export async function evaluateIntent(
     }
   };
   const dailyCeilingCheck = () => {
-    if (policy?.dailyCeilingUsd === undefined || !options.ledger) return;
+    if (policy?.dailyCeilingUsd === undefined) return;
+    if (!options.ledger) return capWithoutLedger("DAILY_CEILING");
     const spent = options.ledger.spentMicro("policy:global", DAY_MS, now);
     const ceiling = toMicroUsd(policy.dailyCeilingUsd);
     if (spent + amountMicro > ceiling) {
@@ -238,7 +263,8 @@ export async function evaluateIntent(
     }
   };
   const counterpartyCapCheck = () => {
-    if (!policy?.newCounterpartyCap || !options.ledger) return;
+    if (!policy?.newCounterpartyCap) return;
+    if (!options.ledger) return capWithoutLedger("NEW_COUNTERPARTY_CAP");
     const windowMs = policy.newCounterpartyCap.windowHours * 3_600_000;
     const scope = `counterparty:${intent.payTo}`;
     const seen = options.ledger.firstSeen(scope);

@@ -13,6 +13,7 @@ import { test } from "node:test";
 import { createLocalDecisionSigner, type PaymentDecision } from "../src/decision-token.js";
 import { x402RequirementsToIntent } from "../src/intent-adapters.js";
 import { createTwzrdPolicyFetch, TwzrdPolicyAbortError } from "../src/policy-fetch.js";
+import { createMemorySpendLedger } from "../src/policy-runtime.js";
 import {
   installTwzrdX402ClientHook,
   type BeforePaymentCreationContext,
@@ -132,7 +133,8 @@ test("hook: the scope is checked against the buyer's URL", async () => {
 });
 
 test("hook: a mandate with no resource scope needs no buyer URL", async () => {
-  const rig = hookRig({ mandate: { mandateId: "m2", monthlyCeilingUsd: "5.00" } });
+  // A monthly ceiling needs a spend ledger; without one the hook refuses.
+  const rig = hookRig({ mandate: { mandateId: "m2", monthlyCeilingUsd: "5.00" }, ledger: createMemorySpendLedger() });
   assert.equal(aborted(await rig.fire(ALLOWED)), false);
   assert.equal(aborted(await hookRig({}).fire(undefined)), false);
 });

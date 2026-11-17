@@ -117,6 +117,36 @@ test("stage 4: a ceiling with no ledger to enforce it is refused when the pipeli
   assert.equal(signer.signs, 0);
 });
 
+test("stage 4: the gate itself refuses a ceiling with no ledger, before the signer", async () => {
+  const p = pipeline({ gateLedger: false, skipLedgerCheck: true, policy: { dailyCeilingUsd: "0.05" } });
+  await assert.rejects(
+    p.buy(),
+    (err) =>
+      err instanceof ToolNotSentError &&
+      /SPEND_CAP_NEEDS_LEDGER/.test(err.message) &&
+      /NEEDS_LEDGER_DAILY_CEILING/.test(err.message),
+  );
+  assert.equal(signer.signs, 0);
+  assert.equal(world.paidCount, 0);
+  assert.equal(p.guard.spend().dayUsd, 0, "the hold was released: nothing was sent");
+  assert.equal(fs.existsSync(state.gateLedger), false);
+});
+
+test("stage 4: parallel calls through one shared paying fetch cannot pass the gate's ceiling together", async () => {
+  // Loose guard limits: only the gate's daily ceiling (two payments) stands between eight calls and the seller.
+  const p = pipeline({
+    limits: { maxCostPerCallUsd: 0.02, maxUsdPerHour: 1, maxUsdPerDay: 1 },
+    policy: { dailyCeilingUsd: "0.025" },
+  });
+  const results = await Promise.allSettled(Array.from({ length: 8 }, () => p.buy()));
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 2);
+  assert.equal(signer.signs, 2);
+  assert.equal(world.paidCount, 2);
+  const r = reconcile({ state, world, guard: p.guard });
+  assert.deepEqual(r.mismatches, []);
+  assert.equal(r.gateMicro, 20_000);
+});
+
 test("stage 6: a tampered receipt is rejected and the payment still reconciles", async () => {
   const tampered = structuredClone(RECEIPT_FIXTURE);
   tampered.preimage.score += 1;
