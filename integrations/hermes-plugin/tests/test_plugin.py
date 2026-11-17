@@ -5,8 +5,8 @@ Run from the repository root:
     python3 integrations/hermes-plugin/tests/test_plugin.py
 
 No production route is called. Lookups go to a stub on the loopback interface and
-the verifier subprocess is replaced, so the suite needs neither network access nor
-Node.js. Standard library only.
+the npm and node subprocesses are replaced, so the suite needs neither network access
+nor Node.js. Standard library only.
 """
 
 import importlib.util
@@ -142,8 +142,37 @@ class PinTest(unittest.TestCase):
     def test_the_issuer_key_is_the_same_in_schema_and_skill(self):
         skill = (PLUGIN_DIR / "skills" / "twzrd-intel" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn(SCHEMAS.ISSUER_PUBKEY, skill)
-        default = SCHEMAS.SCHEMAS["twzrd_verify_receipt"]["parameters"]["properties"]["pubkey"]["default"]
-        self.assertEqual(default, SCHEMAS.ISSUER_PUBKEY)
+
+    def test_the_trusted_key_is_not_a_tool_argument(self):
+        params = SCHEMAS.SCHEMAS["twzrd_verify_receipt"]["parameters"]
+        self.assertEqual(sorted(params["properties"]), ["max_age_seconds", "receipt_path"])
+        self.assertIs(params["additionalProperties"], False)
+
+    def test_the_lockfile_pins_the_verifier_and_every_dependency_by_integrity(self):
+        name, version = TOOLS.VERIFIER_PACKAGE.split("@")
+        manifest = json.loads((PLUGIN_DIR / "verifier" / "package.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["dependencies"], {name: version})
+        lock = json.loads((PLUGIN_DIR / "verifier" / "package-lock.json").read_text(encoding="utf-8"))
+        packages = {k: v for k, v in lock["packages"].items() if k}
+        self.assertEqual(packages[f"node_modules/{name}"]["version"], version)
+        self.assertEqual(len(packages), 6)
+
+        for path, entry in packages.items():
+            with self.subTest(package=path):
+                self.assertRegex(entry["version"], r"^\d+\.\d+\.\d+$")
+                self.assertTrue(entry["integrity"].startswith("sha512-"))
+                self.assertTrue(entry["resolved"].startswith("https://registry.npmjs.org/"))
+                self.assertNotIn("hasInstallScript", entry)
+
+    def test_the_hash_list_covers_every_locked_package_and_nothing_else(self):
+        lock = json.loads((PLUGIN_DIR / "verifier" / "package-lock.json").read_text(encoding="utf-8"))
+        locked = {k for k in lock["packages"] if k}
+        files = TOOLS._expected_files()
+        self.assertEqual({"/".join(rel.split("/")[:2]) for rel in files}, locked)
+        self.assertIn("/".join(TOOLS._VERIFIER_SCRIPT), files)
+        for rel, digest in files.items():
+            self.assertRegex(digest, r"^[0-9a-f]{64}$")
+            self.assertNotIn("..", rel.split("/"))
 
 
 class LookupTest(unittest.TestCase):
@@ -222,79 +251,318 @@ class UnreachableTest(unittest.TestCase):
         self.assertEqual(out["status"], 0)
 
 
+V2_RECEIPT = {"key_id": "twzrd-receipt-ed25519-v2", "signing_pubkey": SOL, "preimage": {}}
+
+
+def _write_install(root: Path, tamper: bool = False) -> None:
+    """Lay down files that match verifier/files.sha256, without npm."""
+    for rel, digest in TOOLS._expected_files().items():
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(digest.encode())
+    (root / "node_modules" / ".package-lock.json").write_text("{}", encoding="utf-8")
+    if tamper:
+        root.joinpath(*TOOLS._VERIFIER_SCRIPT).write_text("process.exit(0)", encoding="utf-8")
+
+
 class VerifyReceiptTest(unittest.TestCase):
+    NODE, NPM = "/usr/bin/node", "/usr/bin/npm"
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.receipt = Path(self.tmp.name) / "receipt.json"
-        self.receipt.write_text("{}", encoding="utf-8")
+        self.receipt.write_text(json.dumps(V2_RECEIPT), encoding="utf-8")
+        self.cache = Path(self.tmp.name) / "cache"
+        # The stub install writes each file's digest as its content, so hash the content.
+        real = TOOLS.hashlib.sha256
+        stub = lambda data: mock.Mock(hexdigest=lambda: data.decode() if len(data) == 64 else real(data).hexdigest())
+        for patcher in (
+            mock.patch.object(TOOLS, "_cache_root", return_value=self.cache),
+            mock.patch.object(TOOLS.hashlib, "sha256", side_effect=stub),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
-    def _run(self, args, returncode=0, npx="/usr/bin/npx"):
-        done = subprocess.CompletedProcess([], returncode, stdout="out\n", stderr="err\n")
-        with mock.patch.object(TOOLS.shutil, "which", return_value=npx), mock.patch.object(
-            TOOLS.subprocess, "run", return_value=done
-        ) as run:
+    def _root(self) -> Path:
+        roots = [p for p in self.cache.iterdir() if p.name.startswith("verifier-")]
+        self.assertEqual(len(roots), 1)
+        return roots[0]
+
+    def _fake_run(self, verify_rc=0, install_rc=0, tamper=False):
+        def run(cmd, **kwargs):
+            if cmd[0] == self.NPM:
+                if install_rc == 0:
+                    _write_install(Path(kwargs["cwd"]), tamper=tamper)
+                return subprocess.CompletedProcess(cmd, install_rc, stdout="", stderr="npm said no\n")
+            return subprocess.CompletedProcess(cmd, verify_rc, stdout=b"out\n", stderr=b"err\n")
+
+        return run
+
+    def _run(self, args, verify_rc=0, install_rc=0, which=None, environ=None, tamper=False):
+        which = {"node": self.NODE, "npm": self.NPM} if which is None else which
+        with mock.patch.object(TOOLS.shutil, "which", side_effect=which.get), mock.patch.object(
+            TOOLS.subprocess, "run", side_effect=self._fake_run(verify_rc, install_rc, tamper)
+        ) as run, mock.patch.dict(TOOLS.os.environ, environ or {"PATH": "/usr/bin", "HOME": "/h"}, clear=True):
             return json.loads(TOOLS.handle_verify_receipt(args)), run
 
-    def test_the_command_is_the_pinned_verifier_with_the_pinned_key(self):
-        out, run = self._run({"receipt_path": str(self.receipt), "max_age_seconds": 3600})
-        self.assertEqual(
-            run.call_args.args[0],
-            [
-                "/usr/bin/npx",
-                "--yes",
-                TOOLS.VERIFIER_PACKAGE,
-                str(self.receipt.resolve()),
-                "--pubkey",
-                SCHEMAS.ISSUER_PUBKEY,
-                "--max-age",
-                "3600",
-            ],
-        )
-        self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
-        self.assertEqual(run.call_args.kwargs["timeout"], 90)
-        self.assertEqual(out, {"ok": True, "valid": True, "exit_code": 0, "stdout": "out", "stderr": "err"})
+    def _commands(self, run):
+        return [c.args[0][0] for c in run.call_args_list]
 
-    def test_a_nonzero_exit_is_not_valid(self):
-        out, _ = self._run({"receipt_path": str(self.receipt)}, returncode=1)
+    # -- install ---------------------------------------------------------------------------
+
+    def test_the_verifier_is_installed_from_the_lockfile_with_scripts_disabled(self):
+        _, run = self._run({"receipt_path": str(self.receipt)})
+        install = run.call_args_list[0]
+        self.assertEqual(install.args[0], [self.NPM, "ci", "--ignore-scripts", "--no-audit", "--no-fund"])
+        self.assertIs(install.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(install.kwargs["timeout"], 120)
+        self.assertEqual(self._commands(run), [self.NPM, self.NODE])
+        root = self._root()
+        self.assertRegex(root.name, r"^verifier-[0-9a-f]{16}$")
+        for name in ("package.json", "package-lock.json"):
+            self.assertEqual((root / name).read_bytes(), (PLUGIN_DIR / "verifier" / name).read_bytes())
+        self.assertEqual([p.name for p in self.cache.iterdir()], [root.name])
+
+    def test_a_second_call_reuses_an_intact_install(self):
+        self._run({"receipt_path": str(self.receipt)})
+        _, run = self._run({"receipt_path": str(self.receipt)})
+        self.assertEqual(self._commands(run), [self.NODE])
+
+    def test_an_altered_or_extra_or_missing_file_in_the_cache_forces_a_reinstall(self):
+        def alter(root):
+            root.joinpath(*TOOLS._VERIFIER_SCRIPT).write_text("process.exit(0)", encoding="utf-8")
+
+        def extra(root):
+            (root / "node_modules" / "tweetnacl" / "planted.js").write_text("x", encoding="utf-8")
+
+        def missing(root):
+            (root / "node_modules" / "bs58" / "index.js").unlink()
+
+        def link(root):
+            target = root / "node_modules" / "bs58" / "index.js"
+            copy = root / "elsewhere.js"
+            copy.write_bytes(target.read_bytes())
+            target.unlink()
+            target.symlink_to(copy)
+
+        for damage in (alter, extra, missing, link):
+            with self.subTest(damage=damage.__name__):
+                self._run({"receipt_path": str(self.receipt)})
+                damage(self._root())
+                self.assertIs(TOOLS._install_is_intact(self._root()), False)
+                out, run = self._run({"receipt_path": str(self.receipt)})
+                self.assertEqual(self._commands(run), [self.NPM, self.NODE])
+                self.assertIs(TOOLS._install_is_intact(self._root()), True)
+                self.assertIs(out["valid"], True)
+                TOOLS.shutil.rmtree(self.cache)
+
+    def test_a_planted_cache_directory_or_file_is_replaced(self):
+        name = "verifier-" + TOOLS.hashlib.sha256(
+            (PLUGIN_DIR / "verifier" / "package-lock.json").read_bytes()
+        ).hexdigest()[:16]
+        for kind in ("partial", "file"):
+            with self.subTest(kind=kind):
+                self.cache.mkdir()
+                if kind == "partial":
+                    (self.cache / name / "node_modules" / "x").mkdir(parents=True)
+                else:
+                    (self.cache / name).write_text("not a directory", encoding="utf-8")
+                out, run = self._run({"receipt_path": str(self.receipt)})
+                self.assertIs(out["valid"], True)
+                self.assertEqual(self._commands(run), [self.NPM, self.NODE])
+                self.assertIs(TOOLS._install_is_intact(self._root()), True)
+                TOOLS.shutil.rmtree(self.cache)
+
+    def test_an_install_that_does_not_match_the_hash_list_is_never_run(self):
+        out, run = self._run({"receipt_path": str(self.receipt)}, tamper=True)
         self.assertIs(out["valid"], False)
-        self.assertIs(out["ok"], False)
-        self.assertEqual(out["exit_code"], 1)
+        self.assertIn("files.sha256", out["error"])
+        self.assertEqual(self._commands(run), [self.NPM])
+        self.assertEqual(list(self.cache.iterdir()), [])
 
-    def test_no_max_age_flag_unless_a_positive_integer_is_given(self):
-        for value in [None, 0, -5, True, "3600", 1.5]:
-            with self.subTest(max_age_seconds=value):
-                _, run = self._run({"receipt_path": str(self.receipt), "max_age_seconds": value})
-                self.assertNotIn("--max-age", run.call_args.args[0])
+    def test_a_failed_install_is_reported_and_leaves_nothing_behind(self):
+        out, run = self._run({"receipt_path": str(self.receipt)}, install_rc=1)
+        self.assertIs(out["valid"], False)
+        self.assertIn("npm ci exit 1", out["error"])
+        self.assertIn("npm said no", out["error"])
+        self.assertEqual(self._commands(run), [self.NPM])
+        self.assertEqual(list(self.cache.iterdir()), [])
 
-    def test_a_flag_shaped_key_is_refused_before_any_subprocess(self):
-        for key in ["--fetch-key", "-x", "not base58!", "0x" + "1" * 40, 7]:
+    # -- command, key and environment ----------------------------------------------------------
+
+    def test_the_command_pipes_the_checked_bytes_to_the_verifier_with_the_pinned_key(self):
+        out, run = self._run({"receipt_path": str(self.receipt), "max_age_seconds": 3600})
+        verify = run.call_args_list[-1]
+        script = self._root().joinpath(*TOOLS._VERIFIER_SCRIPT)
+        self.assertEqual(
+            verify.args[0],
+            [self.NODE, str(script), "-", "--pubkey", SCHEMAS.ISSUER_PUBKEY, "--max-age", "3600"],
+        )
+        self.assertEqual(verify.kwargs["input"], self.receipt.read_bytes())
+        self.assertEqual(verify.kwargs["timeout"], 30)
+        self.assertEqual(
+            out,
+            {
+                "ok": True,
+                "valid": True,
+                "issuer_pubkey": SCHEMAS.ISSUER_PUBKEY,
+                "verifier": TOOLS.VERIFIER_PACKAGE,
+                "exit_code": 0,
+                "stdout": "out",
+                "stderr": "err",
+            },
+        )
+
+    def test_child_processes_get_a_minimal_environment(self):
+        environ = {
+            "PATH": "/usr/bin",
+            "HOME": "/h",
+            "npm_config_cache": "/c",
+            "NPM_CONFIG_REGISTRY": "https://registry.npmjs.org/",
+            "Npm_Config_Userconfig": "/odd-case",
+            "home": "/lower",
+            "OPENAI_API_KEY": "sk-secret",
+            "ANTHROPIC_API_KEY": "secret",
+            "OPENROUTER_API_KEY": "secret",
+            "NPM_TOKEN": "secret",
+            "NODE_OPTIONS": "--require /tmp/x.js",
+            "NODE_PATH": "/tmp",
+            "npm_config_script_shell": "/tmp/sh",
+            "HTTPS_PROXY": "http://user:pw@proxy",
+        }
+        _, run = self._run({"receipt_path": str(self.receipt)}, environ=environ)
+        self.assertEqual(self._commands(run), [self.NPM, self.NODE])
+        base = {"PATH": "/usr/bin", "HOME": "/h"}
+        self.assertEqual(
+            run.call_args_list[0].kwargs["env"],
+            {**base, "npm_config_cache": "/c", "NPM_CONFIG_REGISTRY": "https://registry.npmjs.org/"},
+        )
+        self.assertEqual(run.call_args_list[1].kwargs["env"], base)
+
+    def test_a_caller_supplied_key_is_refused_before_any_subprocess(self):
+        other = "2ELSDxLqNp6wTq7mnpWqUkcYQrBmXTtGRXsfdRZHYbqh"
+        for key in [other, SCHEMAS.ISSUER_PUBKEY, "--fetch-key", "", None, 7]:
             with self.subTest(pubkey=key):
                 out, run = self._run({"receipt_path": str(self.receipt), "pubkey": key})
                 self.assertIs(out["valid"], False)
-                self.assertIn("base58", out["error"])
+                self.assertIs(out["ok"], False)
+                self.assertEqual(out["issuer_pubkey"], SCHEMAS.ISSUER_PUBKEY)
+                self.assertIn("not an argument", out["error"])
                 run.assert_not_called()
 
+    def test_other_extra_arguments_never_reach_the_command(self):
+        extras = {"PubKey": "x", "--pubkey": "x", "fetch_key": True, "base_url": "https://evil.example", "wallet": "x"}
+        _, run = self._run({"receipt_path": str(self.receipt), **extras})
+        self.assertEqual(
+            run.call_args_list[-1].args[0][2:], ["-", "--pubkey", SCHEMAS.ISSUER_PUBKEY]
+        )
+
+    def test_a_receipt_the_verifier_would_check_against_a_retired_key_is_refused(self):
+        legacy = "9V6PnQy7mMCLRBNQGdbXn5X9XTLA2SLMrYxUoPvBbF1m"
+        cases = {
+            "no key_id": {"preimage": {}},
+            "v1 key_id": {"key_id": "twzrd-receipt-ed25519-v1", "preimage": {}},
+            "unknown key_id": {"key_id": "other", "preimage": {}},
+            "null key_id": {"key_id": None, "preimage": {}},
+            "embedded legacy key": {**V2_RECEIPT, "signing_pubkey": legacy},
+            "nested without key_id": {"twzrd_receipt": {"preimage": {}}},
+            "decoy nested v2, top-level legacy": {"preimage": {}, "twzrd_receipt": V2_RECEIPT},
+            "decoy nested v2, top-level anchor": {"anchor": None, "twzrd_receipt": V2_RECEIPT},
+            "cNFT anchor": {"anchor": {"minted_at": 1}},
+        }
+        for label, doc in cases.items():
+            with self.subTest(case=label):
+                self.receipt.write_text(json.dumps(doc), encoding="utf-8")
+                out, run = self._run({"receipt_path": str(self.receipt)})
+                self.assertIs(out["valid"], False)
+                self.assertIs(out["ok"], False)
+                self.assertEqual(out["issuer_pubkey"], SCHEMAS.ISSUER_PUBKEY)
+                run.assert_not_called()
+
+    def test_a_nested_api_response_with_the_current_key_id_is_verified(self):
+        self.receipt.write_text(json.dumps({"score": 1, "twzrd_receipt": V2_RECEIPT}), encoding="utf-8")
+        out, run = self._run({"receipt_path": str(self.receipt)})
+        self.assertIs(out["valid"], True)
+        self.assertEqual(run.call_args_list[-1].kwargs["input"], self.receipt.read_bytes())
+
+    def test_the_key_id_constant_matches_the_pinned_verifier(self):
+        # tools.ISSUER_KEY_ID mirrors CURRENT_RECEIPT_SIGNING_KEY_ID in the pinned verifier;
+        # the committed proof receipt, issued by that key, carries it.
+        proof = PLUGIN_DIR.parents[1] / "docs" / "proofs" / "intel-receipt" / "receipt.json"
+        doc = json.loads(proof.read_text(encoding="utf-8"))
+        self.assertEqual(doc["key_id"], TOOLS.ISSUER_KEY_ID)
+        self.assertEqual(doc["signing_pubkey"], SCHEMAS.ISSUER_PUBKEY)
+        self.assertIsNone(TOOLS._issuer_refusal(proof.read_bytes()))
+
+    def test_a_file_that_is_not_a_json_object_is_refused_before_any_subprocess(self):
+        for body in [b"", b"not json", b"[1]", b"\xff\xfe", b'"x"']:
+            with self.subTest(body=body):
+                self.receipt.write_bytes(body)
+                out, run = self._run({"receipt_path": str(self.receipt)})
+                self.assertIs(out["valid"], False)
+                run.assert_not_called()
+
+    def test_an_oversized_file_is_refused_before_any_subprocess(self):
+        self.receipt.write_bytes(b" " * (TOOLS._MAX_RECEIPT_BYTES + 1))
+        out, run = self._run({"receipt_path": str(self.receipt)})
+        self.assertIn("larger", out["error"])
+        run.assert_not_called()
+
+    def test_a_nonzero_exit_is_not_valid_and_still_names_the_key(self):
+        out, _ = self._run({"receipt_path": str(self.receipt)}, verify_rc=1)
+        self.assertIs(out["valid"], False)
+        self.assertIs(out["ok"], False)
+        self.assertEqual(out["exit_code"], 1)
+        self.assertEqual(out["issuer_pubkey"], SCHEMAS.ISSUER_PUBKEY)
+
+    def test_an_unusable_staleness_policy_is_refused_not_dropped(self):
+        for value in [0, -5, True, "3600", 1.5, 10**5000]:
+            with self.subTest(max_age_seconds=value):
+                out, run = self._run({"receipt_path": str(self.receipt), "max_age_seconds": value})
+                self.assertIs(out["valid"], False)
+                self.assertIn("max_age_seconds", out["error"])
+                run.assert_not_called()
+
+    def test_no_max_age_flag_when_none_is_given(self):
+        for args in [{}, {"max_age_seconds": None}]:
+            with self.subTest(args=args):
+                _, run = self._run({"receipt_path": str(self.receipt), **args})
+                self.assertNotIn("--max-age", run.call_args_list[-1].args[0])
+
     def test_a_missing_file_or_path_is_refused_before_any_subprocess(self):
-        for args in [{}, {"receipt_path": ""}, {"receipt_path": str(self.receipt) + ".absent"}]:
+        for args in [{}, {"receipt_path": ""}, {"receipt_path": str(self.receipt) + ".absent"},
+                     {"receipt_path": "-"}, {"receipt_path": "--self-test"}]:
             with self.subTest(args=args):
                 out, run = self._run(args)
                 self.assertIs(out["valid"], False)
                 run.assert_not_called()
 
-    def test_a_missing_npx_is_reported_not_raised(self):
-        out, run = self._run({"receipt_path": str(self.receipt)}, npx=None)
-        self.assertIs(out["valid"], False)
-        self.assertIn("npx", out["error"])
-        run.assert_not_called()
+    def test_a_missing_node_or_npm_is_reported_not_raised(self):
+        for which in [{"npm": self.NPM}, {"node": self.NODE}, {}]:
+            with self.subTest(which=which):
+                out, run = self._run({"receipt_path": str(self.receipt)}, which=which)
+                self.assertIs(out["valid"], False)
+                self.assertIn("Node.js", out["error"])
+                run.assert_not_called()
 
     def test_a_timeout_is_reported_not_raised(self):
-        with mock.patch.object(TOOLS.shutil, "which", return_value="/usr/bin/npx"), mock.patch.object(
-            TOOLS.subprocess, "run", side_effect=subprocess.TimeoutExpired("npx", 90)
-        ):
-            out = json.loads(TOOLS.handle_verify_receipt({"receipt_path": str(self.receipt)}))
-        self.assertIs(out["valid"], False)
-        self.assertIn("timed out", out["error"])
+        for stage, word in [(self.NPM, "install timed out"), (self.NODE, "verifier timed out")]:
+            with self.subTest(stage=stage):
+                good = self._fake_run()
+
+                def run(cmd, **kwargs):
+                    if cmd[0] == stage:
+                        raise subprocess.TimeoutExpired(cmd, 1)
+                    return good(cmd, **kwargs)
+
+                which = {"node": self.NODE, "npm": self.NPM}
+                with mock.patch.object(TOOLS.shutil, "which", side_effect=which.get), mock.patch.object(
+                    TOOLS.subprocess, "run", side_effect=run
+                ):
+                    out = json.loads(TOOLS.handle_verify_receipt({"receipt_path": str(self.receipt)}))
+                self.assertIs(out["valid"], False)
+                self.assertIn(word, out["error"])
 
 
 if __name__ == "__main__":
