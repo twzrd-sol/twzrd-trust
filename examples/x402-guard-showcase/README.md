@@ -194,8 +194,8 @@ Exit codes:
 - `2`: the run refused to start and changed nothing, or a flag was wrong.
 
 `npm ci` installs 10 packages pinned by `package-lock.json`: `twzrd-x402-gate`
-0.22.1, `twzrd-receipt-verifier` 1.4.4, `@x402/core` 2.31.0, `@x402/fetch`
-2.31.0, and their dependencies. None has an install script, and on 2026-11-16
+0.22.1, `twzrd-receipt-verifier` 1.4.6, `@x402/core` 2.31.0, `@x402/fetch`
+2.31.0, and their dependencies. None has an install script, and on 2026-11-17
 `npm audit` reported no vulnerabilities in them. That is enough for the
 safe-fetch and x402-fetch seats. The x402-solana seat is then skipped: the
 header, the result and the trace's `skippedSeats` name it and the command that
@@ -249,7 +249,7 @@ on these. The example's own `@x402/core` and `@x402/fetch` are 2.31.0, whose
 the loopback seller and the RPC stub in the same process. An agent that deploys
 x402-solana takes on the same tree: run `npm audit` on the versions you deploy.
 
-On 2026-11-16, from a clean `npm ci --ignore-scripts` in a copy of this example
+On 2026-11-17, from a clean `npm ci --ignore-scripts` in a copy of this example
 outside the repository, `npm test` passed 28 tests and skipped the 10
 x402-solana tests, and the showcase passed 45/45 checks. After
 `npm run setup:x402-solana`, the tests passed 38/38 and the showcase 58/58.
@@ -264,9 +264,9 @@ This is the stdout of one run on Node 24.22.1, after
 and from machine to machine.
 
 ```text
-x402 guard showcase   twzrd-x402-gate 0.22.1   twzrd-receipt-verifier 1.4.4   @x402/fetch 2.31.0   x402-solana 3.0.1   node v24.22.1
-seller  http://127.0.0.1:23849 (loopback, settles nothing)
-rpc     http://127.0.0.1:24959 (loopback Solana RPC stub for x402-solana: the mint, two token accounts, a blockhash)
+x402 guard showcase   twzrd-x402-gate 0.22.1   twzrd-receipt-verifier 1.4.6   @x402/fetch 2.31.0   x402-solana 3.0.1   node v24.22.1
+seller  http://127.0.0.1:31893 (loopback, settles nothing)
+rpc     http://127.0.0.1:40099 (loopback Solana RPC stub for x402-solana: the mint, two token accounts, a blockhash)
 seats   safe-fetch   twzrd.safeFetch with the recorded seller check
         x402-fetch   createGuardedX402Fetch on an @x402/fetch client; TWZRD evaluator off (offline)
         x402-solana  createGuardedX402SolanaFetch on the stock x402-solana client, Solana only; TWZRD evaluator off (offline)
@@ -321,17 +321,17 @@ ACT 3  KILL  ./data/.kill
   in flight: one purchase per seat and rail, held when .kill was written
   (safe-fetch on the seller check after its 402, x402-fetch on its 402,
   x402-solana on its blockhash read, after its hook approved)
-  safe-fetch   Base USDC    block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.282 ms after .kill
-  safe-fetch   Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.295 ms after .kill
-  x402-fetch   Base USDC    block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.563 ms after .kill
-  x402-fetch   Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.758 ms after .kill
-  x402-solana  Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 1.168 ms after .kill  chain reads 5
+  safe-fetch   Base USDC    block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.270 ms after .kill
+  safe-fetch   Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.286 ms after .kill
+  x402-fetch   Base USDC    block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.553 ms after .kill
+  x402-fetch   Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 0.742 ms after .kill
+  x402-solana  Solana USDC  block  twzrd_kill_switch  pre_sign  signerInvocations 0  seller paid 0  refused 1.173 ms after .kill  chain reads 5
   halted: 50 more purchases per seat and rail with .kill present
-  safe-fetch   Base USDC    50/50 refused on entry  signer calls 0  seller requests 0  p50 0.004 ms  max 0.023 ms
-  safe-fetch   Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.004 ms  max 0.008 ms
+  safe-fetch   Base USDC    50/50 refused on entry  signer calls 0  seller requests 0  p50 0.004 ms  max 0.022 ms
+  safe-fetch   Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.004 ms  max 0.007 ms
   x402-fetch   Base USDC    50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.006 ms
-  x402-fetch   Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.006 ms
-  x402-solana  Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.007 ms  chain reads 0
+  x402-fetch   Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.002 ms
+  x402-solana  Solana USDC  50/50 refused on entry  signer calls 0  seller requests 0  p50 0.002 ms  max 0.008 ms  chain reads 0
   sub-millisecond halt: safe-fetch yes, x402-fetch yes, x402-solana no (a measurement, not a check;
   once released, the in-flight x402-solana purchase finishes a chain read and builds its transaction before its wallet refuses)
   resumed: .kill removed (this run wrote it)
@@ -442,7 +442,7 @@ no transfer was handed over (`signedTransferMatchesOffer: null`).
 | The Solana RPC stub | A loopback JSON-RPC server in the same process (`lib/solana-rpc.mjs`). It answers `getAccountInfo` for the USDC mint and for the buyer's and the good seller's token accounts, and `getLatestBlockhash` with a fixed demo blockhash. Any other account reads as missing, and any other method gets an error; the run checks that no other method was called. It is not a chain: the accounts and balances are made up, and nothing is submitted. It starts only when the x402-solana seat runs. |
 | The signers | None holds a key or signs anything, and each counts its own calls. safe-fetch: a `pay` function that sends a demo `PAYMENT-SIGNATURE` naming the offer the gate approved, so the seller can count a paid request. x402-fetch: a demo `exact` scheme in the place `@x402/evm` or `@x402/svm` takes; `@x402/fetch` builds the `PAYMENT-SIGNATURE` from its demo payload. x402-solana: a demo wallet in the place a wallet adapter or keypair signer takes. It reads the transfer it was handed and returns the transaction unsigned. The run checks every transfer against the offer the gate approved: one `TransferChecked`, with its mint, amount, decimals, owner, source and destination token accounts, fee payer and blockhash. |
 | The seller check | safe-fetch: a recorded table. The good seller gets `allow`, the flagged seller gets `block` (`WASH_FLAGGED`), and anyone else gets `block`. A live agent uses TWZRD's free preflight here; see [Wire it to real money](#wire-it-to-real-money). x402-fetch and x402-solana: the gate's TWZRD evaluator, which asks TWZRD's live preflight, is off in this offline run (`twzrd: { disabled: true }`). Their caps, recipient allowlists and kill switch stay on, so they refuse the flagged seller with `unauthorized_recipient`. |
-| The V7 receipt | Real. TWZRD's paid trust route issued it. `fixtures/intel-receipt-v7.json` holds the same bytes as [`docs/proofs/intel-receipt/receipt.json`](../../docs/proofs/intel-receipt/receipt.json). It is checked with `twzrd-receipt-verifier` 1.4.4 against the issuer key that package pins. TWZRD operated both sides of it: a wallet TWZRD funds bought it, and it scores TWZRD's own seller wallet. The `/receipt` shop returns these same bytes in its paid body, so that receipt is about TWZRD's seller wallet, not about the demo seller that serves it. [docs/verify-intel-receipt.md](../../docs/verify-intel-receipt.md) walks through it. |
+| The V7 receipt | Real. TWZRD's paid trust route issued it. `fixtures/intel-receipt-v7.json` holds the same bytes as [`docs/proofs/intel-receipt/receipt.json`](../../docs/proofs/intel-receipt/receipt.json). It is checked with `twzrd-receipt-verifier` 1.4.6 against the issuer key that package pins. TWZRD operated both sides of it: a wallet TWZRD funds bought it, and it scores TWZRD's own seller wallet. The `/receipt` shop returns these same bytes in its paid body, so that receipt is about TWZRD's seller wallet, not about the demo seller that serves it. [docs/verify-intel-receipt.md](../../docs/verify-intel-receipt.md) walks through it. |
 | The budget | safe-fetch: `maxSpend: "0.10"`, which is both the per-call cap and the cumulative budget, one in-memory ledger for both rails. x402-fetch: `maxPricePerCall: "0.10"` and `hourlyBudgetCap: "0.10"`, a rolling hour kept in memory per client, so per rail. x402-solana: the same two limits, a rolling hour kept in memory, counted when the wallet is asked to sign. |
 | The demo addresses | Not real accounts; nobody holds a key for any of them. Each seller address is derived from the sha256 digest of a public label (`x402-guard-showcase/good-seller/base`, and so on): the last 20 bytes for Base, base58 of all 32 bytes for Solana. The Solana buyer, fee payer and blockhash come the same way from `x402-guard-showcase/buyer/solana`, `fee-payer/solana` and `blockhash/solana`. `npm test` re-derives them, and checks that the buyer and the sellers are on the ed25519 curve, as token account derivation needs. |
 | `x-showcase-agent` | Demo instrumentation. Each agent names itself in this request header so the seller can count per agent. A real agent sends no such header. |
@@ -472,7 +472,7 @@ before the signer, the x402-solana one by its wallet. The in-flight time runs fr
 halted time is the whole purchase with `.kill` present. The run prints both and
 says whether they were under a millisecond. That line is a measurement, not a
 check, so a slower machine does not fail the run. In the output above the
-x402-solana purchase took 1.168 ms: once released, it finishes the blockhash
+x402-solana purchase took 1.173 ms: once released, it finishes the blockhash
 read and builds its transaction before its wallet refuses.
 
 The gate never reads what is in `.kill`. It halts while the file exists, and also
