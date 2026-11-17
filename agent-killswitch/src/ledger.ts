@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { nextPrev } from "./chain.js";
 import type { BreakerTripRecord } from "./breakers.js";
 import type { SpendWindow } from "./gate.js";
+import type { ToolCallRecord } from "./tool-guard.js";
 
 export interface LedgerLine {
   timestamp: string;
@@ -39,6 +40,13 @@ export interface LedgerLine {
    * trip is the veto line of the request it refused. Absent on every other line.
    */
   breaker?: BreakerTripRecord;
+  /**
+   * Set on every line the tool-call guard writes (tool-guard.ts), all with
+   * `model` "(tool)" and zero tokens: a settled paid tool call (`allowed`
+   * true, `cost_usd` the bill or the held worst case), a refusal, or a trip.
+   * Absent on every other line.
+   */
+  tool?: ToolCallRecord;
   /**
    * SHA-256 (hex) of the line before this one, or "genesis" (chain.ts).
    * Written by `append()`; a value the caller passes is ignored. Absent on

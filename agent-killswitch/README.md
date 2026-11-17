@@ -488,6 +488,88 @@ does not record spend — after an allowed call completes, add the actual
 cost to your window yourself. For the ledger, the kill file and the
 upstream lifecycle, run the proxy.
 
+## Paid tool calls (`createToolGuard`)
+
+`createBudgetGate` covers chat completions. `createToolGuard` covers the
+other things an agent pays for: a search API, a scraper, an x402 or MPP
+resource. It reads and writes the same three files as the proxy, so point
+it at the proxy's state directory and tool spend and inference spend share
+one hourly and one daily budget, one kill file and one hash-chained ledger.
+
+```ts
+import { createToolGuard, ToolRefusedError } from "@twzrd1111/agent-killswitch";
+
+const guard = createToolGuard({
+  ledgerPath: "/var/lib/killswitch/ledger.jsonl",
+  killFilePath: "/var/lib/killswitch/.kill",
+  pauseFilePath: "/var/lib/killswitch/.pause",
+  allowedTools: ["search", "news"], // required; there is no "allow all"
+  maxCostPerCallUsd: 0.002,
+  maxUsdPerHour: 0.05,
+  maxUsdPerDay: 0.05,
+});
+
+try {
+  const { result } = await guard.run(
+    // The most this call can cost, from the tool's published price and the
+    // request you are about to send.
+    { tool: "search", worstCaseUsd: 0.0005, requestId },
+    async () => {
+      const response = await search(query);
+      return { result: response.results, billedUsd: response.billedUsd };
+    },
+  );
+} catch (err) {
+  if (err instanceof ToolRefusedError) {
+    // err.code says why. Nothing was sent and nothing was spent.
+  } else throw err;
+}
+```
+
+Before the call the guard refuses, and `fn` never runs, when:
+
+| Code | Reason |
+| --- | --- |
+| `kill_switch` | the kill file exists |
+| `payment_gate_halt` | a `.pause` is in force, or the sentinel is corrupt |
+| `tool_not_allowed` | the tool is not on `allowedTools` |
+| `unbounded_cost` | `worstCaseUsd` is not a finite non-negative number |
+| `per_request_cap` | the worst case is over `maxCostPerCallUsd` |
+| `budget_exceeded` | the worst case would take the hour or the day over its limit |
+
+An allowed call holds its worst case until it settles, so parallel calls
+cannot both pass on the same unspent budget. After the call the guard
+records what the tool billed. It trips when the bill is above the worst
+case (the full bill is still recorded) or when there is no readable bill:
+`fn` threw, or `billedUsd` was not a finite non-negative number. The worst
+case is then recorded as spend. A trip writes `.pause` for `tripPauseMs`
+(default one hour, at most one day), so the proxy and the payment gate on
+the same state directory stop too. It never shortens a longer pause and
+never writes `.kill`. To resume early, delete `.pause`.
+
+`guard.authorize(call)` is the synchronous form: it returns the decision
+and, when allowed, a `hold` with `settle(billedUsd)` and `release()`. Call
+it before the first `await` of the tool call. Use `release()` only for a
+call that was never sent. `guard.spend()` returns the hour and day totals,
+holds included.
+
+Every decision goes on the ledger with `model` `"(tool)"` and a `tool`
+object (`name`, `event` of `settled`, `refused` or `trip`, `worst_case_usd`,
+and `billed_usd` on a settled line). `verify-ledger` checks these lines
+like any other.
+
+Limits of the guard:
+
+- It trusts the caller's `worstCaseUsd` and the tool's own bill. It cannot
+  see a charge the tool does not report.
+- A hold lives in the process that made it. A crash between `authorize`
+  and `settle` drops the hold and records nothing, as with the proxy.
+- Two processes that share a ledger each see the other's settled spend,
+  not the other's holds.
+- A refusal for a budget does not write `.pause`; only a trip does.
+- Dollar comparisons allow 0.000000001 USD of slack so that binary
+  rounding of prices such as 0.0005 cannot refuse or trip on its own.
+
 ## Tests
 
 ```sh

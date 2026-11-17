@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `createToolGuard`: a hard spend guard for paid tool calls (a search API,
+  a scraper, an x402 or MPP resource), exported beside `createBudgetGate`.
+  It uses the proxy's ledger, `.kill` and `.pause`, so tool spend and
+  inference spend share one hourly and one daily budget. It refuses a call
+  before it is sent when the kill file exists, a pause is in force, the
+  tool is not on the required allow-list, the caller states no finite
+  worst-case cost, the worst case is over the per-call cap, or it would
+  take the hour or the day over its limit. An allowed call holds its worst
+  case until it settles. A bill above the worst case, or a call with no
+  readable bill, trips the guard: it writes `.pause` (default one hour) and
+  a `trip` line. Every decision is a ledger line with `model` `"(tool)"`
+  and a new optional `tool` object. Nothing changes for the proxy or for a
+  caller that does not create a guard.
+
 ## 0.3.0 (2026-11-16)
 
 A minor release: new options, all off by default. Nothing changes for a
