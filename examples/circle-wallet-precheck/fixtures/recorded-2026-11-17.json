@@ -1,0 +1,1685 @@
+{
+  "recorded_at": "2026-11-17T20:26:18.236Z",
+  "intel": [
+    {
+      "url": "https://intel.twzrd.xyz/v1/intel/preflight",
+      "method": "POST",
+      "request": {
+        "resource_name": "https://seller.example/api",
+        "seller_wallet": "0x3803A19280DeeFe533D177C4A169412BD341101b",
+        "resource_url": "https://seller.example/api",
+        "price_usdc": 0.01,
+        "agent_intent": "circle_wallet_demo",
+        "chain": "eip155:8453"
+      },
+      "status": 200,
+      "response": {
+        "readiness_card": {
+          "version": "readiness_card_v1",
+          "decision": "allow",
+          "trust_score": 72,
+          "can_spend": true,
+          "clean_inbound_history": false,
+          "score": 0.72,
+          "null_reason": null,
+          "subject_known": true,
+          "basis": [
+            {
+              "class": "behavioral",
+              "kind": "corpus_teaser_v1:provider_reputation_v1",
+              "source": "twzrd-x402-base-corpus",
+              "weight": 1,
+              "observed_at": "2026-11-17T20:25:33Z",
+              "scope": "x402 settlements on Base indexed from high-confidence EIP-3009 USDC transfers; observed subset, not a universe claim",
+              "complete_through": null
+            }
+          ],
+          "issued_at": "2026-11-17T20:25:33Z",
+          "expires_at": "2026-11-24T20:25:33Z",
+          "seller_wallet_rejected": null,
+          "proof": {
+            "type": "twzrd_preflight_v0",
+            "v5_receipt_upsell_available": false,
+            "has_v5_receipts": null,
+            "has_v5_receipt_path": null,
+            "receipt_endpoint": null
+          },
+          "caveats": [
+            "price: $0.01/req",
+            "seller_wallet observed: 0x3803...",
+            "agent_intent: circle_wallet_demo",
+            "trust_score_basis: corpus_teaser_v1:provider_reputation_v1 — free corpus teaser from observed x402 payment behavior (not the paid renorm). Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+            "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+          ],
+          "next_fixes": [
+            "Attach V7 receipt on every successful paid response (see /v1/intel/merchant_card for Base sellers; paid /v1/intel/trust takes a Solana subject wallet only, an EVM address returns 400)"
+          ],
+          "resource_name": "https://seller.example/api",
+          "seller_wallet": "0x3803a19280deefe533d177c4a169412bd341101b",
+          "category": null,
+          "price_kind": null,
+          "max_price_usdc": null,
+          "paid_teaser": null,
+          "paid_teaser_usdc": null,
+          "paid_deep_dive": null,
+          "paid_price_usdc": null,
+          "get_verified_proof": null,
+          "next_action": {
+            "version": "enrollment_next_action_v2",
+            "step": "gate_eval_live",
+            "decision": "allow",
+            "reason": "Preflight decision=allow for a small spend (see recommended_cap_usdc). command is the enrollment step (AutoGate on the host x402 pay path) if the host chooses to use it. This free card does not enforce. AutoGate on your pay path enforces (refuse transcript). day0.gate_evals counts the facilitator settle-gate, not buyer AutoGate. seller_wallet is an EVM (Base) address: the paid V7 receipt and the quick teaser read the Solana settlement surface and answer 0x with HTTP 400, so neither is offered here. commands.merchant_card is the free Base-corpus read (chain/corpus/tier, and wash_flagged when evaluated) that does serve it.",
+            "command": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "cost_usdc": 0,
+            "endpoint": null,
+            "seller_wallet": "0x3803a19280deefe533d177c4a169412bd341101b",
+            "correlation_id": "ace76337-74e1-4e76-a2f8-60f15b0ae8d9",
+            "preflight_id": 719567,
+            "can_spend": true,
+            "recommended_cap_usdc": 0.01,
+            "commands": {
+              "preflight": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x3803a19280deefe533d177c4a169412bd341101b\",\"price_usdc\":0.01,\"agent_intent\":\"preflight\"}'",
+              "merchant_card": "curl -sS 'https://intel.twzrd.xyz/v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b'",
+              "gate_eval_live": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+              "install_autogate": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+              "verify_receipt": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+            },
+            "ladder": [
+              {
+                "step": 1,
+                "action": "free_preflight",
+                "cost_usdc": 0,
+                "status": "done",
+                "gives": "allow|warn|block + spend cap (this response)"
+              },
+              {
+                "step": 2,
+                "action": "paid_trust_or_quick",
+                "cost_usdc": 0,
+                "status": "unavailable_on_evm_seller",
+                "gives": "unavailable: paid trust/quick read the Solana settlement surface; use commands.merchant_card for this Base seller"
+              },
+              {
+                "step": 3,
+                "action": "install_autogate",
+                "cost_usdc": 0,
+                "status": "required_for_host_agents",
+                "gives": "buyer AutoGate refuse transcript on host pay path (not day0.gate_evals)"
+              }
+            ],
+            "guide": "https://intel.twzrd.xyz/llms.txt",
+            "notes": [
+              "command is optional data. A host may use it only under its own policy.",
+              "Never paste OpenAPI templates (:pubkey, {pubkey}, {seller_wallet}) as wallets; commands refuse those with exit 2.",
+              "Paid trust takes USDC on the accepts[] entry you select (Solana or Base); the advertised Solana feePayer sponsors gas only."
+            ],
+            "next_step_type": "cli_command",
+            "payment_required": false,
+            "executable": true
+          },
+          "upgrade": {
+            "headline": "Base paid receipts deferred",
+            "why": "Free Base scoring uses high-confidence EIP-3009 USDC settlements. Paid /trust and /quick take a Solana subject wallet only (an EVM subject is HTTP 400); the free merchant_card is the Base read.",
+            "endpoint": null,
+            "price_usdc": null,
+            "status": "deferred",
+            "free_corpus_score": "/v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b"
+          },
+          "trust_score_basis": "corpus_teaser_v1:provider_reputation_v1",
+          "on_before_settle": {
+            "hook": "onBeforeSettle",
+            "description": "Before settling a payment to an unknown seller, call this free preflight. decision=block means abort the settle (fail-open on gate unavailability by default).",
+            "endpoint": "POST /v1/intel/preflight",
+            "params": "seller_wallet (or resource_name), price_usdc, agent_intent, queried_pubkey (your consumer wallet for attribution)",
+            "block_semantics": "decision=block → hard stop (do not sign/send). decision=warn → proceed only up to readiness_card.recommended_cap_usdc (or agent policy default 0.25 USDC); do not treat warn as refuse on clean counterparties. decision=allow → proceed up to the free-tier ceiling in recommended_cap_usdc. can_spend is price-aware: true whenever the supplied price_usdc fits under the cap, except for an unknown subject (subject_known=false, trust_score null), which is never spendable.",
+            "reference": "Drop-in client hook: pip install twzrd-mcp (or npx -y twzrd-mcp-server) — fail-open onBeforeSettle helper. Or call POST /v1/intel/preflight directly before you sign.",
+            "current_status": "Preflight is live and free. The settle-time gate is ON in prod: it runs on the paid market-intel routes (when ?merchant= or seller_wallet is supplied) and on /v1/intel/trust/{pubkey} for a distinct seller_wallet. Call the free card first, then hit a paid surface with the counterparty context to arm a settle-time gate evaluation."
+          },
+          "root_provenance": null,
+          "data_as_of_unix": 1794947133,
+          "as_of": "2026-11-17T20:25:33Z",
+          "staleness_days": 7,
+          "recheck_after_unix": 1795551933,
+          "score_decay_model": "step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25",
+          "recheck_hint": "re-verify via GET /v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b once now >= recheck_after_unix (paid /v1/intel/trust takes a Solana subject wallet only; an EVM address returns 400)",
+          "observed_at": "2026-11-17T00:01:33Z",
+          "stale": false,
+          "corpus_complete_day": null,
+          "corpus_age_days": null,
+          "ledger_exact_through": null,
+          "ledger_basis": null,
+          "envelope_version": "decision_envelope_v0",
+          "confidence": "high",
+          "reason_codes": [
+            "PREFLIGHT_ALLOW",
+            "CORPUS_TEASER",
+            "CAP_APPLIED"
+          ],
+          "risk_factors": [
+            "price: $0.01/req",
+            "seller_wallet observed: 0x3803...",
+            "agent_intent: circle_wallet_demo",
+            "trust_score_basis: corpus_teaser_v1:provider_reputation_v1 — free corpus teaser from observed x402 payment behavior (not the paid renorm). Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+            "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+          ],
+          "recommended_action": "proceed_for_small_spend",
+          "maximum_recommended_spend_usdc": 0.01,
+          "model_version": "corpus_teaser_v1:provider_reputation_v1",
+          "evidence": {
+            "first_seen": null,
+            "last_seen": null,
+            "trust_score": 72,
+            "wash_flagged": false,
+            "gone_dark": false
+          },
+          "wash_flagged": false,
+          "decision_envelope": {
+            "envelope_version": "decision_envelope_v0",
+            "decision": "allow",
+            "can_spend": true,
+            "confidence": "high",
+            "reason_codes": [
+              "PREFLIGHT_ALLOW",
+              "CORPUS_TEASER",
+              "CAP_APPLIED"
+            ],
+            "risk_factors": [
+              "price: $0.01/req",
+              "seller_wallet observed: 0x3803...",
+              "agent_intent: circle_wallet_demo",
+              "trust_score_basis: corpus_teaser_v1:provider_reputation_v1 — free corpus teaser from observed x402 payment behavior (not the paid renorm). Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+              "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+            ],
+            "recommended_action": "proceed_for_small_spend",
+            "maximum_recommended_spend_usdc": 0.01,
+            "expires_at": "2026-11-24T20:25:33Z",
+            "model_version": "corpus_teaser_v1:provider_reputation_v1",
+            "evidence": {
+              "first_seen": null,
+              "last_seen": null,
+              "trust_score": 72,
+              "wash_flagged": false,
+              "gone_dark": false
+            }
+          },
+          "recommended_cap_usdc": 0.01,
+          "price_usdc": 0.01
+        },
+        "suggested_seller_wallet": "0x3803a19280deefe533d177c4a169412bd341101b",
+        "next_action": {
+          "version": "enrollment_next_action_v2",
+          "step": "gate_eval_live",
+          "decision": "allow",
+          "reason": "Preflight decision=allow for a small spend (see recommended_cap_usdc). command is the enrollment step (AutoGate on the host x402 pay path) if the host chooses to use it. This free card does not enforce. AutoGate on your pay path enforces (refuse transcript). day0.gate_evals counts the facilitator settle-gate, not buyer AutoGate. seller_wallet is an EVM (Base) address: the paid V7 receipt and the quick teaser read the Solana settlement surface and answer 0x with HTTP 400, so neither is offered here. commands.merchant_card is the free Base-corpus read (chain/corpus/tier, and wash_flagged when evaluated) that does serve it.",
+          "command": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+          "cost_usdc": 0,
+          "endpoint": null,
+          "seller_wallet": "0x3803a19280deefe533d177c4a169412bd341101b",
+          "correlation_id": "ace76337-74e1-4e76-a2f8-60f15b0ae8d9",
+          "preflight_id": 719567,
+          "can_spend": true,
+          "recommended_cap_usdc": 0.01,
+          "commands": {
+            "preflight": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x3803a19280deefe533d177c4a169412bd341101b\",\"price_usdc\":0.01,\"agent_intent\":\"preflight\"}'",
+            "merchant_card": "curl -sS 'https://intel.twzrd.xyz/v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b'",
+            "gate_eval_live": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "install_autogate": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "verify_receipt": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+          },
+          "ladder": [
+            {
+              "step": 1,
+              "action": "free_preflight",
+              "cost_usdc": 0,
+              "status": "done",
+              "gives": "allow|warn|block + spend cap (this response)"
+            },
+            {
+              "step": 2,
+              "action": "paid_trust_or_quick",
+              "cost_usdc": 0,
+              "status": "unavailable_on_evm_seller",
+              "gives": "unavailable: paid trust/quick read the Solana settlement surface; use commands.merchant_card for this Base seller"
+            },
+            {
+              "step": 3,
+              "action": "install_autogate",
+              "cost_usdc": 0,
+              "status": "required_for_host_agents",
+              "gives": "buyer AutoGate refuse transcript on host pay path (not day0.gate_evals)"
+            }
+          ],
+          "guide": "https://intel.twzrd.xyz/llms.txt",
+          "notes": [
+            "command is optional data. A host may use it only under its own policy.",
+            "Never paste OpenAPI templates (:pubkey, {pubkey}, {seller_wallet}) as wallets; commands refuse those with exit 2.",
+            "Paid trust takes USDC on the accepts[] entry you select (Solana or Base); the advertised Solana feePayer sponsors gas only."
+          ],
+          "next_step_type": "cli_command",
+          "payment_required": false,
+          "executable": true
+        },
+        "preflight_id": 719567,
+        "correlation_id": "ace76337-74e1-4e76-a2f8-60f15b0ae8d9",
+        "aop_bind": {
+          "adapter_version": "aop_bind_v1",
+          "mode": "program_registry",
+          "hierarchy": [
+            "rebuild",
+            "artifact_hash",
+            "unreproduced"
+          ],
+          "policy": {
+            "h01_publish_paused_claims_live": false,
+            "transfer_fee_bps_ccm": 50,
+            "ao_commerce": "refuse",
+            "orthogonal_to_preflight_decision": true,
+            "observation_non_blocking": true,
+            "serve_stale_while_refreshing": true
+          },
+          "pins": {
+            "markets": {
+              "program_id": "7YZZxQC9JrWwoo1W1fYgxZs6rnbW17iF72mi65vU93sy",
+              "evidence_level": "rebuild",
+              "expected_hash": "d61bd46d6f21a195393f4db4ec00e12cc84ebdffd1d1a7baa456abe34cbc2ab1"
+            },
+            "rails": {
+              "program_id": "BdSv824hvYeGAWQZUcypRzAor8yJit2qeqCHty3CSZy9",
+              "evidence_level": "artifact_hash",
+              "expected_hash": "3128b6448cfa18c15d543bd755935c4fb01eca382bd4e5a20d41edddbd882006"
+            },
+            "ao_v2": {
+              "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+              "evidence_level": "unreproduced",
+              "expected_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1"
+            }
+          },
+          "programs": {
+            "markets": {
+              "program_id": "7YZZxQC9JrWwoo1W1fYgxZs6rnbW17iF72mi65vU93sy",
+              "expected_hash": "d61bd46d6f21a195393f4db4ec00e12cc84ebdffd1d1a7baa456abe34cbc2ab1",
+              "observed_hash": null,
+              "evidence_level": "rebuild",
+              "executable": true,
+              "source": "unavailable",
+              "pin_match": false,
+              "detail": "programdata_account_missing",
+              "stale": false,
+              "hard_bind_allowed": false
+            },
+            "rails": {
+              "program_id": "BdSv824hvYeGAWQZUcypRzAor8yJit2qeqCHty3CSZy9",
+              "expected_hash": "3128b6448cfa18c15d543bd755935c4fb01eca382bd4e5a20d41edddbd882006",
+              "observed_hash": null,
+              "evidence_level": "artifact_hash",
+              "executable": true,
+              "source": "unavailable",
+              "pin_match": false,
+              "detail": "programdata_account_missing",
+              "stale": false,
+              "hard_bind_allowed": false
+            },
+            "ao_v2": {
+              "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+              "expected_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+              "observed_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+              "evidence_level": "unreproduced",
+              "executable": true,
+              "source": "rpc_programdata_sha256",
+              "pin_match": true,
+              "detail": null,
+              "stale": false,
+              "hard_bind_allowed": false,
+              "commerce": "refuse"
+            }
+          },
+          "ao_refuse": {
+            "strength": "refuse",
+            "evidence_level": "unreproduced",
+            "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+            "program_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+            "fact_type": "other",
+            "fact_ref": {
+              "window_id": null,
+              "leaf_index": null,
+              "market_id": null
+            },
+            "checks": [
+              {
+                "id": "evidence_level",
+                "ok": false,
+                "detail": "unreproduced refuse floor for commerce"
+              },
+              {
+                "id": "program_known",
+                "ok": true,
+                "detail": null
+              }
+            ],
+            "reason": "AO unreproduced — hard-bind forbidden",
+            "as_of_slot": 0,
+            "net_amount": null,
+            "adapter_version": "aop_bind_v1"
+          },
+          "contract": "attention-oracle-program/docs/trust-rail-aop-seam.md"
+        }
+      }
+    },
+    {
+      "url": "https://intel.twzrd.xyz/v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b?full=true",
+      "method": "GET",
+      "request": null,
+      "status": 200,
+      "response": {
+        "merchant": "0x3803a19280deefe533d177c4a169412bd341101b",
+        "chain": "base",
+        "corpus": "x402_base_daily",
+        "in_corpus": true,
+        "provider_reputation_tier": "tier_b_provider",
+        "rank_band": "tier_b_provider",
+        "wash_flagged": false,
+        "wash_confidence": "full",
+        "circular_flow_signals": {
+          "self": 0,
+          "reciprocal": 0,
+          "ring": 0,
+          "ring_evaluated": true
+        },
+        "score_version": "provider_reputation_v1",
+        "corpus_complete_day": null,
+        "corpus_age_days": null,
+        "ledger_exact_through": null,
+        "ledger_basis": null,
+        "observed_at": "2026-11-17T00:02:17Z",
+        "stale": false,
+        "days_since_last_settle": 0.85,
+        "market_context": {
+          "source": "x402_base_daily (high-confidence EIP-3009 USDC settlements)",
+          "chain": "base",
+          "network": "eip155:8453",
+          "note": "Base scoring is observational reputation, not a payment guarantee. x402_confidence buckets apply; unknown/excluded traffic is excluded from this card."
+        },
+        "catalog_enriched": false,
+        "catalog": null,
+        "services": [],
+        "resource": null,
+        "headline": "Observed payment graph around this receive wallet",
+        "offering_status": "Offering unknown — graph only",
+        "card_version": "merchant_card_v1.6",
+        "upgrade": {
+          "headline": "Base paid receipts deferred",
+          "endpoint": null,
+          "price_usdc": null,
+          "status": "deferred",
+          "note": "Paid /quick, /trust and /merchant take a Solana subject wallet only (an EVM subject is HTTP 400). Free Base merchant_card + preflight score observational EIP-3009 USDC settlements (high-confidence bucket)."
+        },
+        "paid_teaser": {
+          "headline": "Base paid receipts deferred",
+          "endpoint": null,
+          "price_usdc": null,
+          "status": "deferred",
+          "note": "Paid /quick, /trust and /merchant take a Solana subject wallet only (an EVM subject is HTTP 400). Free Base merchant_card + preflight score observational EIP-3009 USDC settlements (high-confidence bucket)."
+        },
+        "optional_receipt": null,
+        "scoring_note": "Base scoring is observational reputation from EIP-3009 USDC settlements (x402_confidence=high); not a payment guarantee; confidence buckets apply. Send-side overlay is 2-cycle (self/reciprocal) plus live 3-cycle ring on x402_base_daily (90d, high-confidence). Paid /trust receipts require a Solana subject wallet; this Base subject has no paid receipt upgrade.",
+        "paid_receipts": "deferred",
+        "demand_interpretation": "Inbound payers show multi-merchant activity in the observed corpus window.",
+        "payable_conformance": {
+          "listed_services": 0,
+          "live_402_services": 0,
+          "fee_payer_stability": "unknown",
+          "distinct_fee_payers_observed": 0,
+          "last_fee_payers": [],
+          "note": "listed ≠ payable; live_402_verified is independent crawl ground truth"
+        },
+        "next_action": {
+          "decision": "no_negative_signal",
+          "reason": "Real inbound demand observed, no wash pattern. This is the absence of a red flag, not a guarantee of delivery.",
+          "recommended": {
+            "step": "proceed_small_spend",
+            "cost_usdc": 0,
+            "endpoint": null
+          },
+          "ladder": [
+            {
+              "step": 1,
+              "action": "free_merchant_card",
+              "cost_usdc": 0,
+              "status": "done",
+              "gives": "wash flag, inbound demand shape, listed services"
+            },
+            {
+              "step": 2,
+              "action": "quick_score",
+              "cost_usdc": 0.001,
+              "endpoint": null,
+              "status": "unavailable_on_evm_seller",
+              "gives": "tier + score for this seller (no signed receipt)",
+              "when": "seller is thin/unknown, or the spend is more than trivial"
+            },
+            {
+              "step": 3,
+              "action": "signed_trust_receipt",
+              "cost_usdc": 0.05,
+              "endpoint": null,
+              "status": "unavailable_on_evm_seller",
+              "gives": "full corpus intel + portable Ed25519 V7 receipt you can verify offline",
+              "when": "the spend is material, or you need proof you checked (audit/dispute)"
+            },
+            {
+              "step": 4,
+              "action": "refuse",
+              "cost_usdc": 0,
+              "gives": "no spend",
+              "when": "hard wash classes ( /  / unknown-label flag), preflight hard-block signals (scripted fleet / captive sole-buyer), or the rungs above do not clear your risk bar"
+            }
+          ],
+          "cheapest_listed_price_usdc": null,
+          "live_402_services": 0,
+          "fee_payer_stability": "unknown",
+          "vouch": false,
+          "step": "install_autogate",
+          "command": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 && node --input-type=module -e \"import {createTwzrdBeforePaymentHook} from 'twzrd-x402-gate';const h=createTwzrdBeforePaymentHook({gateOnCanSpend:false,refuseWashFlagged:true});console.log('PRIMARY seat: createX402Client({ wallet, network: \\'solana\\', beforePayment: h })');console.log('Alias: installTwzrdAutoGate(\\'x402-solana\\', { refuseWashFlagged: true })');console.log('Path E: installTwzrdAutoGate(x402CoreClient) for onBeforePaymentCreation');\"",
+          "commands": {
+            "preflight": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x3803a19280deefe533d177c4a169412bd341101b\",\"agent_intent\":\"preflight\"}'",
+            "install_autogate": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 && node --input-type=module -e \"import {createTwzrdBeforePaymentHook} from 'twzrd-x402-gate';const h=createTwzrdBeforePaymentHook({gateOnCanSpend:false,refuseWashFlagged:true});console.log('PRIMARY seat: createX402Client({ wallet, network: \\'solana\\', beforePayment: h })');console.log('Alias: installTwzrdAutoGate(\\'x402-solana\\', { refuseWashFlagged: true })');console.log('Path E: installTwzrdAutoGate(x402CoreClient) for onBeforePaymentCreation');\"",
+            "verify_receipt": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+          },
+          "version": "enrollment_next_action_v2",
+          "endpoint": null,
+          "next_step_type": "cli_command",
+          "payment_required": false,
+          "executable": true
+        }
+      }
+    },
+    {
+      "url": "https://intel.twzrd.xyz/v1/intel/preflight",
+      "method": "POST",
+      "request": {
+        "resource_name": "https://seller.example/api",
+        "seller_wallet": "0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+        "resource_url": "https://seller.example/api",
+        "price_usdc": 0.01,
+        "agent_intent": "circle_wallet_demo",
+        "chain": "eip155:8453"
+      },
+      "status": 200,
+      "response": {
+        "readiness_card": {
+          "version": "readiness_card_v1",
+          "decision": "warn",
+          "trust_score": null,
+          "can_spend": false,
+          "clean_inbound_history": false,
+          "score": null,
+          "null_reason": "unknown_subject",
+          "subject_known": false,
+          "basis": [
+            {
+              "class": "behavioral",
+              "kind": "corpus_teaser_v1:insufficient_free_evidence",
+              "source": "twzrd-x402-base-corpus",
+              "weight": 1,
+              "observed_at": null,
+              "observed_at_null_reason": "unknown_subject",
+              "scope": "x402 settlements on Base indexed from high-confidence EIP-3009 USDC transfers; observed subset, not a universe claim",
+              "complete_through": null
+            }
+          ],
+          "issued_at": "2026-11-17T20:25:34Z",
+          "expires_at": "2026-11-20T20:25:34Z",
+          "seller_wallet_rejected": null,
+          "proof": {
+            "type": "twzrd_preflight_v0",
+            "v5_receipt_upsell_available": false,
+            "has_v5_receipts": null,
+            "has_v5_receipt_path": null,
+            "receipt_endpoint": null
+          },
+          "caveats": [
+            "price: $0.01/req",
+            "seller_wallet observed: 0x7a3c...",
+            "agent_intent: circle_wallet_demo",
+            "trust_score_basis: corpus_teaser_v1:insufficient_free_evidence — unknown subject: TWZRD has no evidence about this counterparty in the observed x402 graph, so trust_score is null, subject_known is false and can_spend is false. Check that this is the payTo from the seller's real 402 challenge. TWZRD maintains a live payer corpus; Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+            "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+          ],
+          "next_fixes": [
+            "Improve marketplace quality score (currently the dominant negative signal)",
+            "Attach V7 receipt on every successful paid response (see /v1/intel/merchant_card for Base sellers; paid /v1/intel/trust takes a Solana subject wallet only, an EVM address returns 400)"
+          ],
+          "resource_name": "https://seller.example/api",
+          "seller_wallet": "0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+          "category": null,
+          "price_kind": null,
+          "max_price_usdc": null,
+          "paid_teaser": null,
+          "paid_teaser_usdc": null,
+          "paid_deep_dive": null,
+          "paid_price_usdc": null,
+          "get_verified_proof": null,
+          "next_action": {
+            "version": "enrollment_next_action_v2",
+            "step": "gate_eval_live",
+            "decision": "warn",
+            "reason": "Preflight decision=warn (or thin/unknown history). Free cap is 0.01 USDC — do not treat warn as unlimited spend. command is the enrollment step (AutoGate refuse transcript, 0 USDC when a block fires) if the host chooses to use it. This free card does not enforce. AutoGate on your pay path enforces (refuse transcript). day0.gate_evals counts the facilitator settle-gate, not buyer AutoGate. seller_wallet is an EVM (Base) address: the paid V7 receipt and the quick teaser read the Solana settlement surface and answer 0x with HTTP 400, so neither is offered here. commands.merchant_card is the free Base-corpus read (chain/corpus/tier, and wash_flagged when evaluated) that does serve it.",
+            "command": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "cost_usdc": 0,
+            "endpoint": "https://intel.twzrd.xyz/v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+            "seller_wallet": "0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+            "correlation_id": "0b32be8d-fa92-449c-b16f-0c522683cb37",
+            "preflight_id": 719569,
+            "can_spend": false,
+            "recommended_cap_usdc": 0.01,
+            "commands": {
+              "preflight": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d\",\"price_usdc\":0.01,\"agent_intent\":\"preflight\"}'",
+              "merchant_card": "curl -sS 'https://intel.twzrd.xyz/v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d'",
+              "gate_eval_live": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+              "install_autogate": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+              "verify_receipt": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+            },
+            "ladder": [
+              {
+                "step": 1,
+                "action": "free_preflight",
+                "cost_usdc": 0,
+                "status": "done",
+                "gives": "allow|warn|block + spend cap (this response)"
+              },
+              {
+                "step": 2,
+                "action": "paid_trust_or_quick",
+                "cost_usdc": 0,
+                "status": "unavailable_on_evm_seller",
+                "gives": "unavailable: paid trust/quick read the Solana settlement surface; use commands.merchant_card for this Base seller"
+              },
+              {
+                "step": 3,
+                "action": "install_autogate",
+                "cost_usdc": 0,
+                "status": "required_for_host_agents",
+                "gives": "buyer AutoGate refuse transcript on host pay path (not day0.gate_evals)"
+              }
+            ],
+            "guide": "https://intel.twzrd.xyz/llms.txt",
+            "notes": [
+              "command is optional data. A host may use it only under its own policy.",
+              "Never paste OpenAPI templates (:pubkey, {pubkey}, {seller_wallet}) as wallets; commands refuse those with exit 2.",
+              "Paid trust takes USDC on the accepts[] entry you select (Solana or Base); the advertised Solana feePayer sponsors gas only."
+            ],
+            "next_step_type": "cli_command",
+            "payment_required": false,
+            "executable": true
+          },
+          "upgrade": {
+            "headline": "Base paid receipts deferred",
+            "why": "Free Base scoring uses high-confidence EIP-3009 USDC settlements. Paid /trust and /quick take a Solana subject wallet only (an EVM subject is HTTP 400); the free merchant_card is the Base read.",
+            "endpoint": null,
+            "price_usdc": null,
+            "status": "deferred",
+            "free_corpus_score": "/v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d"
+          },
+          "trust_score_basis": "corpus_teaser_v1:insufficient_free_evidence",
+          "on_before_settle": {
+            "hook": "onBeforeSettle",
+            "description": "Before settling a payment to an unknown seller, call this free preflight. decision=block means abort the settle (fail-open on gate unavailability by default).",
+            "endpoint": "POST /v1/intel/preflight",
+            "params": "seller_wallet (or resource_name), price_usdc, agent_intent, queried_pubkey (your consumer wallet for attribution)",
+            "block_semantics": "decision=block → hard stop (do not sign/send). decision=warn → proceed only up to readiness_card.recommended_cap_usdc (or agent policy default 0.25 USDC); do not treat warn as refuse on clean counterparties. decision=allow → proceed up to the free-tier ceiling in recommended_cap_usdc. can_spend is price-aware: true whenever the supplied price_usdc fits under the cap, except for an unknown subject (subject_known=false, trust_score null), which is never spendable.",
+            "reference": "Drop-in client hook: pip install twzrd-mcp (or npx -y twzrd-mcp-server) — fail-open onBeforeSettle helper. Or call POST /v1/intel/preflight directly before you sign.",
+            "current_status": "Preflight is live and free. The settle-time gate is ON in prod: it runs on the paid market-intel routes (when ?merchant= or seller_wallet is supplied) and on /v1/intel/trust/{pubkey} for a distinct seller_wallet. Call the free card first, then hit a paid surface with the counterparty context to arm a settle-time gate evaluation."
+          },
+          "root_provenance": null,
+          "data_as_of_unix": null,
+          "as_of": null,
+          "staleness_days": 3,
+          "recheck_after_unix": 1795206334,
+          "score_decay_model": "step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25",
+          "recheck_hint": "re-verify via GET /v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d once now >= recheck_after_unix (paid /v1/intel/trust takes a Solana subject wallet only; an EVM address returns 400)",
+          "observed_at": null,
+          "stale": true,
+          "corpus_complete_day": null,
+          "corpus_age_days": null,
+          "ledger_exact_through": null,
+          "ledger_basis": null,
+          "envelope_version": "decision_envelope_v0",
+          "confidence": "low",
+          "reason_codes": [
+            "PREFLIGHT_WARN",
+            "CORPUS_TEASER",
+            "THIN_OR_UNKNOWN_SELLER",
+            "CAP_APPLIED"
+          ],
+          "risk_factors": [
+            "price: $0.01/req",
+            "seller_wallet observed: 0x7a3c...",
+            "agent_intent: circle_wallet_demo",
+            "trust_score_basis: corpus_teaser_v1:insufficient_free_evidence — unknown subject: TWZRD has no evidence about this counterparty in the observed x402 graph, so trust_score is null, subject_known is false and can_spend is false. Check that this is the payTo from the seller's real 402 challenge. TWZRD maintains a live payer corpus; Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+            "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+          ],
+          "recommended_action": "proceed_with_cap",
+          "maximum_recommended_spend_usdc": 0.01,
+          "model_version": "corpus_teaser_v1:insufficient_free_evidence",
+          "evidence": {
+            "first_seen": null,
+            "last_seen": null,
+            "trust_score": null,
+            "wash_flagged": null,
+            "gone_dark": null
+          },
+          "wash_flagged": null,
+          "decision_envelope": {
+            "envelope_version": "decision_envelope_v0",
+            "decision": "warn",
+            "can_spend": false,
+            "confidence": "low",
+            "reason_codes": [
+              "PREFLIGHT_WARN",
+              "CORPUS_TEASER",
+              "THIN_OR_UNKNOWN_SELLER",
+              "CAP_APPLIED"
+            ],
+            "risk_factors": [
+              "price: $0.01/req",
+              "seller_wallet observed: 0x7a3c...",
+              "agent_intent: circle_wallet_demo",
+              "trust_score_basis: corpus_teaser_v1:insufficient_free_evidence — unknown subject: TWZRD has no evidence about this counterparty in the observed x402 graph, so trust_score is null, subject_known is false and can_spend is false. Check that this is the payTo from the seller's real 402 challenge. TWZRD maintains a live payer corpus; Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+              "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+            ],
+            "recommended_action": "proceed_with_cap",
+            "maximum_recommended_spend_usdc": 0.01,
+            "expires_at": "2026-11-20T20:25:34Z",
+            "model_version": "corpus_teaser_v1:insufficient_free_evidence",
+            "evidence": {
+              "first_seen": null,
+              "last_seen": null,
+              "trust_score": null,
+              "wash_flagged": null,
+              "gone_dark": null
+            }
+          },
+          "recommended_cap_usdc": 0.01,
+          "price_usdc": 0.01
+        },
+        "suggested_seller_wallet": "0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+        "next_action": {
+          "version": "enrollment_next_action_v2",
+          "step": "gate_eval_live",
+          "decision": "warn",
+          "reason": "Preflight decision=warn (or thin/unknown history). Free cap is 0.01 USDC — do not treat warn as unlimited spend. command is the enrollment step (AutoGate refuse transcript, 0 USDC when a block fires) if the host chooses to use it. This free card does not enforce. AutoGate on your pay path enforces (refuse transcript). day0.gate_evals counts the facilitator settle-gate, not buyer AutoGate. seller_wallet is an EVM (Base) address: the paid V7 receipt and the quick teaser read the Solana settlement surface and answer 0x with HTTP 400, so neither is offered here. commands.merchant_card is the free Base-corpus read (chain/corpus/tier, and wash_flagged when evaluated) that does serve it.",
+          "command": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+          "cost_usdc": 0,
+          "endpoint": "https://intel.twzrd.xyz/v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+          "seller_wallet": "0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+          "correlation_id": "0b32be8d-fa92-449c-b16f-0c522683cb37",
+          "preflight_id": 719569,
+          "can_spend": false,
+          "recommended_cap_usdc": 0.01,
+          "commands": {
+            "preflight": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d\",\"price_usdc\":0.01,\"agent_intent\":\"preflight\"}'",
+            "merchant_card": "curl -sS 'https://intel.twzrd.xyz/v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d'",
+            "gate_eval_live": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "install_autogate": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "verify_receipt": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+          },
+          "ladder": [
+            {
+              "step": 1,
+              "action": "free_preflight",
+              "cost_usdc": 0,
+              "status": "done",
+              "gives": "allow|warn|block + spend cap (this response)"
+            },
+            {
+              "step": 2,
+              "action": "paid_trust_or_quick",
+              "cost_usdc": 0,
+              "status": "unavailable_on_evm_seller",
+              "gives": "unavailable: paid trust/quick read the Solana settlement surface; use commands.merchant_card for this Base seller"
+            },
+            {
+              "step": 3,
+              "action": "install_autogate",
+              "cost_usdc": 0,
+              "status": "required_for_host_agents",
+              "gives": "buyer AutoGate refuse transcript on host pay path (not day0.gate_evals)"
+            }
+          ],
+          "guide": "https://intel.twzrd.xyz/llms.txt",
+          "notes": [
+            "command is optional data. A host may use it only under its own policy.",
+            "Never paste OpenAPI templates (:pubkey, {pubkey}, {seller_wallet}) as wallets; commands refuse those with exit 2.",
+            "Paid trust takes USDC on the accepts[] entry you select (Solana or Base); the advertised Solana feePayer sponsors gas only."
+          ],
+          "next_step_type": "cli_command",
+          "payment_required": false,
+          "executable": true
+        },
+        "preflight_id": 719569,
+        "correlation_id": "0b32be8d-fa92-449c-b16f-0c522683cb37",
+        "aop_bind": {
+          "adapter_version": "aop_bind_v1",
+          "mode": "program_registry",
+          "hierarchy": [
+            "rebuild",
+            "artifact_hash",
+            "unreproduced"
+          ],
+          "policy": {
+            "h01_publish_paused_claims_live": false,
+            "transfer_fee_bps_ccm": 50,
+            "ao_commerce": "refuse",
+            "orthogonal_to_preflight_decision": true,
+            "observation_non_blocking": true,
+            "serve_stale_while_refreshing": true
+          },
+          "pins": {
+            "markets": {
+              "program_id": "7YZZxQC9JrWwoo1W1fYgxZs6rnbW17iF72mi65vU93sy",
+              "evidence_level": "rebuild",
+              "expected_hash": "d61bd46d6f21a195393f4db4ec00e12cc84ebdffd1d1a7baa456abe34cbc2ab1"
+            },
+            "rails": {
+              "program_id": "BdSv824hvYeGAWQZUcypRzAor8yJit2qeqCHty3CSZy9",
+              "evidence_level": "artifact_hash",
+              "expected_hash": "3128b6448cfa18c15d543bd755935c4fb01eca382bd4e5a20d41edddbd882006"
+            },
+            "ao_v2": {
+              "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+              "evidence_level": "unreproduced",
+              "expected_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1"
+            }
+          },
+          "programs": {
+            "markets": {
+              "program_id": "7YZZxQC9JrWwoo1W1fYgxZs6rnbW17iF72mi65vU93sy",
+              "expected_hash": "d61bd46d6f21a195393f4db4ec00e12cc84ebdffd1d1a7baa456abe34cbc2ab1",
+              "observed_hash": null,
+              "evidence_level": "rebuild",
+              "executable": true,
+              "source": "unavailable",
+              "pin_match": false,
+              "detail": "programdata_account_missing",
+              "stale": false,
+              "hard_bind_allowed": false
+            },
+            "rails": {
+              "program_id": "BdSv824hvYeGAWQZUcypRzAor8yJit2qeqCHty3CSZy9",
+              "expected_hash": "3128b6448cfa18c15d543bd755935c4fb01eca382bd4e5a20d41edddbd882006",
+              "observed_hash": null,
+              "evidence_level": "artifact_hash",
+              "executable": true,
+              "source": "unavailable",
+              "pin_match": false,
+              "detail": "programdata_account_missing",
+              "stale": false,
+              "hard_bind_allowed": false
+            },
+            "ao_v2": {
+              "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+              "expected_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+              "observed_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+              "evidence_level": "unreproduced",
+              "executable": true,
+              "source": "rpc_programdata_sha256",
+              "pin_match": true,
+              "detail": null,
+              "stale": false,
+              "hard_bind_allowed": false,
+              "commerce": "refuse"
+            }
+          },
+          "ao_refuse": {
+            "strength": "refuse",
+            "evidence_level": "unreproduced",
+            "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+            "program_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+            "fact_type": "other",
+            "fact_ref": {
+              "window_id": null,
+              "leaf_index": null,
+              "market_id": null
+            },
+            "checks": [
+              {
+                "id": "evidence_level",
+                "ok": false,
+                "detail": "unreproduced refuse floor for commerce"
+              },
+              {
+                "id": "program_known",
+                "ok": true,
+                "detail": null
+              }
+            ],
+            "reason": "AO unreproduced — hard-bind forbidden",
+            "as_of_slot": 0,
+            "net_amount": null,
+            "adapter_version": "aop_bind_v1"
+          },
+          "contract": "attention-oracle-program/docs/trust-rail-aop-seam.md"
+        }
+      }
+    },
+    {
+      "url": "https://intel.twzrd.xyz/v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d?full=true",
+      "method": "GET",
+      "request": null,
+      "status": 200,
+      "response": {
+        "merchant": "0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+        "chain": "base",
+        "corpus": "x402_base_daily",
+        "in_corpus": false,
+        "provider_reputation_tier": "unknown",
+        "rank_band": "unknown",
+        "wash_flagged": null,
+        "wash_confidence": "full",
+        "circular_flow_signals": {
+          "self": 0,
+          "reciprocal": 0,
+          "ring": 0,
+          "ring_evaluated": true
+        },
+        "score_version": "provider_reputation_v1",
+        "corpus_complete_day": null,
+        "corpus_age_days": null,
+        "ledger_exact_through": null,
+        "ledger_basis": null,
+        "observed_at": null,
+        "stale": true,
+        "days_since_last_settle": null,
+        "market_context": {
+          "source": "x402_base_daily (high-confidence EIP-3009 USDC settlements)",
+          "chain": "base",
+          "network": "eip155:8453",
+          "note": "Base scoring is observational reputation, not a payment guarantee. x402_confidence buckets apply; unknown/excluded traffic is excluded from this card."
+        },
+        "catalog_enriched": false,
+        "catalog": null,
+        "services": [],
+        "resource": null,
+        "headline": "Observed payment graph around this receive wallet",
+        "offering_status": "Offering unknown — graph only",
+        "card_version": "merchant_card_v1.6",
+        "upgrade": {
+          "headline": "Base paid receipts deferred",
+          "endpoint": null,
+          "price_usdc": null,
+          "status": "deferred",
+          "note": "Paid /quick, /trust and /merchant take a Solana subject wallet only (an EVM subject is HTTP 400). Free Base merchant_card + preflight score observational EIP-3009 USDC settlements (high-confidence bucket)."
+        },
+        "paid_teaser": {
+          "headline": "Base paid receipts deferred",
+          "endpoint": null,
+          "price_usdc": null,
+          "status": "deferred",
+          "note": "Paid /quick, /trust and /merchant take a Solana subject wallet only (an EVM subject is HTTP 400). Free Base merchant_card + preflight score observational EIP-3009 USDC settlements (high-confidence bucket)."
+        },
+        "optional_receipt": null,
+        "paid_receipts": "deferred",
+        "reason": "no_corpus_inbound",
+        "demand_interpretation": "Inbound payers show multi-merchant activity in the observed corpus window.",
+        "payable_conformance": {
+          "listed_services": 0,
+          "live_402_services": 0,
+          "fee_payer_stability": "unknown",
+          "distinct_fee_payers_observed": 0,
+          "last_fee_payers": [],
+          "note": "listed ≠ payable; live_402_verified is independent crawl ground truth"
+        },
+        "next_action": {
+          "decision": "insufficient_evidence",
+          "reason": "Seller has no observed inbound x402 demand in the corpus (thin or new). Absence of evidence is not evidence of fraud — buy the cheap rung to disambiguate.",
+          "recommended": {
+            "step": "quick",
+            "cost_usdc": 0.001,
+            "endpoint": "/v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d"
+          },
+          "ladder": [
+            {
+              "step": 1,
+              "action": "free_merchant_card",
+              "cost_usdc": 0,
+              "status": "done",
+              "gives": "wash flag, inbound demand shape, listed services"
+            },
+            {
+              "step": 2,
+              "action": "quick_score",
+              "cost_usdc": 0.001,
+              "endpoint": null,
+              "status": "unavailable_on_evm_seller",
+              "gives": "tier + score for this seller (no signed receipt)",
+              "when": "seller is thin/unknown, or the spend is more than trivial"
+            },
+            {
+              "step": 3,
+              "action": "signed_trust_receipt",
+              "cost_usdc": 0.05,
+              "endpoint": null,
+              "status": "unavailable_on_evm_seller",
+              "gives": "full corpus intel + portable Ed25519 V7 receipt you can verify offline",
+              "when": "the spend is material, or you need proof you checked (audit/dispute)"
+            },
+            {
+              "step": 4,
+              "action": "refuse",
+              "cost_usdc": 0,
+              "gives": "no spend",
+              "when": "hard wash classes ( /  / unknown-label flag), preflight hard-block signals (scripted fleet / captive sole-buyer), or the rungs above do not clear your risk bar"
+            }
+          ],
+          "cheapest_listed_price_usdc": null,
+          "live_402_services": 0,
+          "fee_payer_stability": "unknown",
+          "vouch": false,
+          "step": "preflight",
+          "command": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d\",\"agent_intent\":\"preflight\"}'",
+          "commands": {
+            "preflight": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d\",\"agent_intent\":\"preflight\"}'",
+            "install_autogate": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 && node --input-type=module -e \"import {createTwzrdBeforePaymentHook} from 'twzrd-x402-gate';const h=createTwzrdBeforePaymentHook({gateOnCanSpend:false,refuseWashFlagged:true});console.log('PRIMARY seat: createX402Client({ wallet, network: \\'solana\\', beforePayment: h })');console.log('Alias: installTwzrdAutoGate(\\'x402-solana\\', { refuseWashFlagged: true })');console.log('Path E: installTwzrdAutoGate(x402CoreClient) for onBeforePaymentCreation');\"",
+            "verify_receipt": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+          },
+          "version": "enrollment_next_action_v2",
+          "endpoint": "/v1/intel/merchant_card/0x7a3c5e1f9b2d4a6c8e0f1a3b5c7d9e1f2a4b6c8d",
+          "next_step_type": "cli_command",
+          "payment_required": false,
+          "executable": true
+        }
+      }
+    },
+    {
+      "url": "https://intel.twzrd.xyz/v1/intel/preflight",
+      "method": "POST",
+      "request": {
+        "resource_name": "https://seller.example/api",
+        "seller_wallet": "0x3803A19280DeeFe533D177C4A169412BD341101b",
+        "resource_url": "https://seller.example/api",
+        "price_usdc": 25,
+        "agent_intent": "circle_wallet_demo",
+        "chain": "eip155:8453"
+      },
+      "status": 200,
+      "response": {
+        "readiness_card": {
+          "version": "readiness_card_v1",
+          "decision": "allow",
+          "trust_score": 72,
+          "can_spend": false,
+          "clean_inbound_history": false,
+          "score": 0.72,
+          "null_reason": null,
+          "subject_known": true,
+          "basis": [
+            {
+              "class": "behavioral",
+              "kind": "corpus_teaser_v1:provider_reputation_v1",
+              "source": "twzrd-x402-base-corpus",
+              "weight": 1,
+              "observed_at": "2026-11-17T20:25:35Z",
+              "scope": "x402 settlements on Base indexed from high-confidence EIP-3009 USDC transfers; observed subset, not a universe claim",
+              "complete_through": null
+            }
+          ],
+          "issued_at": "2026-11-17T20:25:35Z",
+          "expires_at": "2026-11-24T20:25:35Z",
+          "seller_wallet_rejected": null,
+          "proof": {
+            "type": "twzrd_preflight_v0",
+            "v5_receipt_upsell_available": false,
+            "has_v5_receipts": null,
+            "has_v5_receipt_path": null,
+            "receipt_endpoint": null
+          },
+          "caveats": [
+            "price: $25.0/req",
+            "seller_wallet observed: 0x3803...",
+            "agent_intent: circle_wallet_demo",
+            "trust_score_basis: corpus_teaser_v1:provider_reputation_v1 — free corpus teaser from observed x402 payment behavior (not the paid renorm). Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+            "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+          ],
+          "next_fixes": [
+            "Attach V7 receipt on every successful paid response (see /v1/intel/merchant_card for Base sellers; paid /v1/intel/trust takes a Solana subject wallet only, an EVM address returns 400)"
+          ],
+          "resource_name": "https://seller.example/api",
+          "seller_wallet": "0x3803a19280deefe533d177c4a169412bd341101b",
+          "category": null,
+          "price_kind": null,
+          "max_price_usdc": null,
+          "paid_teaser": null,
+          "paid_teaser_usdc": null,
+          "paid_deep_dive": null,
+          "paid_price_usdc": null,
+          "get_verified_proof": null,
+          "next_action": {
+            "version": "enrollment_next_action_v2",
+            "step": "gate_eval_live",
+            "decision": "allow",
+            "reason": "Preflight decision=allow for a small spend (see recommended_cap_usdc). command is the enrollment step (AutoGate on the host x402 pay path) if the host chooses to use it. This free card does not enforce. AutoGate on your pay path enforces (refuse transcript). day0.gate_evals counts the facilitator settle-gate, not buyer AutoGate. seller_wallet is an EVM (Base) address: the paid V7 receipt and the quick teaser read the Solana settlement surface and answer 0x with HTTP 400, so neither is offered here. commands.merchant_card is the free Base-corpus read (chain/corpus/tier, and wash_flagged when evaluated) that does serve it.",
+            "command": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "cost_usdc": 0,
+            "endpoint": null,
+            "seller_wallet": "0x3803a19280deefe533d177c4a169412bd341101b",
+            "correlation_id": "96f5830d-726c-47d1-a8b2-b74e8ee5681d",
+            "preflight_id": 719571,
+            "can_spend": false,
+            "recommended_cap_usdc": 2.8,
+            "commands": {
+              "preflight": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x3803a19280deefe533d177c4a169412bd341101b\",\"price_usdc\":25.0,\"agent_intent\":\"preflight\"}'",
+              "merchant_card": "curl -sS 'https://intel.twzrd.xyz/v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b'",
+              "gate_eval_live": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+              "install_autogate": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+              "verify_receipt": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+            },
+            "ladder": [
+              {
+                "step": 1,
+                "action": "free_preflight",
+                "cost_usdc": 0,
+                "status": "done",
+                "gives": "allow|warn|block + spend cap (this response)"
+              },
+              {
+                "step": 2,
+                "action": "paid_trust_or_quick",
+                "cost_usdc": 0,
+                "status": "unavailable_on_evm_seller",
+                "gives": "unavailable: paid trust/quick read the Solana settlement surface; use commands.merchant_card for this Base seller"
+              },
+              {
+                "step": 3,
+                "action": "install_autogate",
+                "cost_usdc": 0,
+                "status": "required_for_host_agents",
+                "gives": "buyer AutoGate refuse transcript on host pay path (not day0.gate_evals)"
+              }
+            ],
+            "guide": "https://intel.twzrd.xyz/llms.txt",
+            "notes": [
+              "command is optional data. A host may use it only under its own policy.",
+              "Never paste OpenAPI templates (:pubkey, {pubkey}, {seller_wallet}) as wallets; commands refuse those with exit 2.",
+              "Paid trust takes USDC on the accepts[] entry you select (Solana or Base); the advertised Solana feePayer sponsors gas only."
+            ],
+            "next_step_type": "cli_command",
+            "payment_required": false,
+            "executable": true
+          },
+          "upgrade": {
+            "headline": "Base paid receipts deferred",
+            "why": "Free Base scoring uses high-confidence EIP-3009 USDC settlements. Paid /trust and /quick take a Solana subject wallet only (an EVM subject is HTTP 400); the free merchant_card is the Base read.",
+            "endpoint": null,
+            "price_usdc": null,
+            "status": "deferred",
+            "free_corpus_score": "/v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b"
+          },
+          "trust_score_basis": "corpus_teaser_v1:provider_reputation_v1",
+          "on_before_settle": {
+            "hook": "onBeforeSettle",
+            "description": "Before settling a payment to an unknown seller, call this free preflight. decision=block means abort the settle (fail-open on gate unavailability by default).",
+            "endpoint": "POST /v1/intel/preflight",
+            "params": "seller_wallet (or resource_name), price_usdc, agent_intent, queried_pubkey (your consumer wallet for attribution)",
+            "block_semantics": "decision=block → hard stop (do not sign/send). decision=warn → proceed only up to readiness_card.recommended_cap_usdc (or agent policy default 0.25 USDC); do not treat warn as refuse on clean counterparties. decision=allow → proceed up to the free-tier ceiling in recommended_cap_usdc. can_spend is price-aware: true whenever the supplied price_usdc fits under the cap, except for an unknown subject (subject_known=false, trust_score null), which is never spendable.",
+            "reference": "Drop-in client hook: pip install twzrd-mcp (or npx -y twzrd-mcp-server) — fail-open onBeforeSettle helper. Or call POST /v1/intel/preflight directly before you sign.",
+            "current_status": "Preflight is live and free. The settle-time gate is ON in prod: it runs on the paid market-intel routes (when ?merchant= or seller_wallet is supplied) and on /v1/intel/trust/{pubkey} for a distinct seller_wallet. Call the free card first, then hit a paid surface with the counterparty context to arm a settle-time gate evaluation."
+          },
+          "root_provenance": null,
+          "data_as_of_unix": 1794947135,
+          "as_of": "2026-11-17T20:25:35Z",
+          "staleness_days": 7,
+          "recheck_after_unix": 1795551935,
+          "score_decay_model": "step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25",
+          "recheck_hint": "re-verify via GET /v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b once now >= recheck_after_unix (paid /v1/intel/trust takes a Solana subject wallet only; an EVM address returns 400)",
+          "observed_at": "2026-11-17T00:01:35Z",
+          "stale": false,
+          "corpus_complete_day": null,
+          "corpus_age_days": null,
+          "ledger_exact_through": null,
+          "ledger_basis": null,
+          "envelope_version": "decision_envelope_v0",
+          "confidence": "high",
+          "reason_codes": [
+            "PREFLIGHT_ALLOW",
+            "CORPUS_TEASER",
+            "CAP_APPLIED"
+          ],
+          "risk_factors": [
+            "price: $25.0/req",
+            "seller_wallet observed: 0x3803...",
+            "agent_intent: circle_wallet_demo",
+            "trust_score_basis: corpus_teaser_v1:provider_reputation_v1 — free corpus teaser from observed x402 payment behavior (not the paid renorm). Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+            "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+          ],
+          "recommended_action": "proceed_for_small_spend",
+          "maximum_recommended_spend_usdc": 2.8,
+          "model_version": "corpus_teaser_v1:provider_reputation_v1",
+          "evidence": {
+            "first_seen": null,
+            "last_seen": null,
+            "trust_score": 72,
+            "wash_flagged": false,
+            "gone_dark": false
+          },
+          "wash_flagged": false,
+          "decision_envelope": {
+            "envelope_version": "decision_envelope_v0",
+            "decision": "allow",
+            "can_spend": false,
+            "confidence": "high",
+            "reason_codes": [
+              "PREFLIGHT_ALLOW",
+              "CORPUS_TEASER",
+              "CAP_APPLIED"
+            ],
+            "risk_factors": [
+              "price: $25.0/req",
+              "seller_wallet observed: 0x3803...",
+              "agent_intent: circle_wallet_demo",
+              "trust_score_basis: corpus_teaser_v1:provider_reputation_v1 — free corpus teaser from observed x402 payment behavior (not the paid renorm). Full renorm score + portable signed V7 receipt take a Solana subject wallet only (GET /v1/intel/trust returns 400 for an EVM address); GET /v1/intel/merchant_card/{wallet} is the free Base-corpus read.",
+              "This free card does not enforce. AutoGate on your pay path enforces (buyer refuse transcript). day0.gate_evals counts the facilitator settle-gate only."
+            ],
+            "recommended_action": "proceed_for_small_spend",
+            "maximum_recommended_spend_usdc": 2.8,
+            "expires_at": "2026-11-24T20:25:35Z",
+            "model_version": "corpus_teaser_v1:provider_reputation_v1",
+            "evidence": {
+              "first_seen": null,
+              "last_seen": null,
+              "trust_score": 72,
+              "wash_flagged": false,
+              "gone_dark": false
+            }
+          },
+          "recommended_cap_usdc": 2.8,
+          "price_usdc": 25
+        },
+        "suggested_seller_wallet": "0x3803a19280deefe533d177c4a169412bd341101b",
+        "next_action": {
+          "version": "enrollment_next_action_v2",
+          "step": "gate_eval_live",
+          "decision": "allow",
+          "reason": "Preflight decision=allow for a small spend (see recommended_cap_usdc). command is the enrollment step (AutoGate on the host x402 pay path) if the host chooses to use it. This free card does not enforce. AutoGate on your pay path enforces (refuse transcript). day0.gate_evals counts the facilitator settle-gate, not buyer AutoGate. seller_wallet is an EVM (Base) address: the paid V7 receipt and the quick teaser read the Solana settlement surface and answer 0x with HTTP 400, so neither is offered here. commands.merchant_card is the free Base-corpus read (chain/corpus/tier, and wash_flagged when evaluated) that does serve it.",
+          "command": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+          "cost_usdc": 0,
+          "endpoint": null,
+          "seller_wallet": "0x3803a19280deefe533d177c4a169412bd341101b",
+          "correlation_id": "96f5830d-726c-47d1-a8b2-b74e8ee5681d",
+          "preflight_id": 719571,
+          "can_spend": false,
+          "recommended_cap_usdc": 2.8,
+          "commands": {
+            "preflight": "curl -sS -X POST https://intel.twzrd.xyz/v1/intel/preflight -H 'content-type: application/json' -d '{\"seller_wallet\":\"0x3803a19280deefe533d177c4a169412bd341101b\",\"price_usdc\":25.0,\"agent_intent\":\"preflight\"}'",
+            "merchant_card": "curl -sS 'https://intel.twzrd.xyz/v1/intel/merchant_card/0x3803a19280deefe533d177c4a169412bd341101b'",
+            "gate_eval_live": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "install_autogate": "npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1 @x402/core @x402/fetch @x402/svm @solana/kit @scure/base && node node_modules/twzrd-x402-gate/bin/twzrd-gate-eval-refuse.js",
+            "verify_receipt": "npx twzrd-receipt-verifier@^1.4.0 receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS"
+          },
+          "ladder": [
+            {
+              "step": 1,
+              "action": "free_preflight",
+              "cost_usdc": 0,
+              "status": "done",
+              "gives": "allow|warn|block + spend cap (this response)"
+            },
+            {
+              "step": 2,
+              "action": "paid_trust_or_quick",
+              "cost_usdc": 0,
+              "status": "unavailable_on_evm_seller",
+              "gives": "unavailable: paid trust/quick read the Solana settlement surface; use commands.merchant_card for this Base seller"
+            },
+            {
+              "step": 3,
+              "action": "install_autogate",
+              "cost_usdc": 0,
+              "status": "required_for_host_agents",
+              "gives": "buyer AutoGate refuse transcript on host pay path (not day0.gate_evals)"
+            }
+          ],
+          "guide": "https://intel.twzrd.xyz/llms.txt",
+          "notes": [
+            "command is optional data. A host may use it only under its own policy.",
+            "Never paste OpenAPI templates (:pubkey, {pubkey}, {seller_wallet}) as wallets; commands refuse those with exit 2.",
+            "Paid trust takes USDC on the accepts[] entry you select (Solana or Base); the advertised Solana feePayer sponsors gas only."
+          ],
+          "next_step_type": "cli_command",
+          "payment_required": false,
+          "executable": true
+        },
+        "preflight_id": 719571,
+        "correlation_id": "96f5830d-726c-47d1-a8b2-b74e8ee5681d",
+        "aop_bind": {
+          "adapter_version": "aop_bind_v1",
+          "mode": "program_registry",
+          "hierarchy": [
+            "rebuild",
+            "artifact_hash",
+            "unreproduced"
+          ],
+          "policy": {
+            "h01_publish_paused_claims_live": false,
+            "transfer_fee_bps_ccm": 50,
+            "ao_commerce": "refuse",
+            "orthogonal_to_preflight_decision": true,
+            "observation_non_blocking": true,
+            "serve_stale_while_refreshing": true
+          },
+          "pins": {
+            "markets": {
+              "program_id": "7YZZxQC9JrWwoo1W1fYgxZs6rnbW17iF72mi65vU93sy",
+              "evidence_level": "rebuild",
+              "expected_hash": "d61bd46d6f21a195393f4db4ec00e12cc84ebdffd1d1a7baa456abe34cbc2ab1"
+            },
+            "rails": {
+              "program_id": "BdSv824hvYeGAWQZUcypRzAor8yJit2qeqCHty3CSZy9",
+              "evidence_level": "artifact_hash",
+              "expected_hash": "3128b6448cfa18c15d543bd755935c4fb01eca382bd4e5a20d41edddbd882006"
+            },
+            "ao_v2": {
+              "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+              "evidence_level": "unreproduced",
+              "expected_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1"
+            }
+          },
+          "programs": {
+            "markets": {
+              "program_id": "7YZZxQC9JrWwoo1W1fYgxZs6rnbW17iF72mi65vU93sy",
+              "expected_hash": "d61bd46d6f21a195393f4db4ec00e12cc84ebdffd1d1a7baa456abe34cbc2ab1",
+              "observed_hash": null,
+              "evidence_level": "rebuild",
+              "executable": true,
+              "source": "unavailable",
+              "pin_match": false,
+              "detail": "programdata_account_missing",
+              "stale": false,
+              "hard_bind_allowed": false
+            },
+            "rails": {
+              "program_id": "BdSv824hvYeGAWQZUcypRzAor8yJit2qeqCHty3CSZy9",
+              "expected_hash": "3128b6448cfa18c15d543bd755935c4fb01eca382bd4e5a20d41edddbd882006",
+              "observed_hash": null,
+              "evidence_level": "artifact_hash",
+              "executable": true,
+              "source": "unavailable",
+              "pin_match": false,
+              "detail": "programdata_account_missing",
+              "stale": false,
+              "hard_bind_allowed": false
+            },
+            "ao_v2": {
+              "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+              "expected_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+              "observed_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+              "evidence_level": "unreproduced",
+              "executable": true,
+              "source": "rpc_programdata_sha256",
+              "pin_match": true,
+              "detail": null,
+              "stale": false,
+              "hard_bind_allowed": false,
+              "commerce": "refuse"
+            }
+          },
+          "ao_refuse": {
+            "strength": "refuse",
+            "evidence_level": "unreproduced",
+            "program_id": "GnGzNdsQMxMpJfMeqnkGPsvHm8kwaDidiKjNU2dCVZop",
+            "program_hash": "b5330fcca2c8dd807fb7d2609b74e72ae7d709c003d7697f275ff54dca7b53b1",
+            "fact_type": "other",
+            "fact_ref": {
+              "window_id": null,
+              "leaf_index": null,
+              "market_id": null
+            },
+            "checks": [
+              {
+                "id": "evidence_level",
+                "ok": false,
+                "detail": "unreproduced refuse floor for commerce"
+              },
+              {
+                "id": "program_known",
+                "ok": true,
+                "detail": null
+              }
+            ],
+            "reason": "AO unreproduced — hard-bind forbidden",
+            "as_of_slot": 0,
+            "net_amount": null,
+            "adapter_version": "aop_bind_v1"
+          },
+          "contract": "attention-oracle-program/docs/trust-rail-aop-seam.md"
+        }
+      }
+    }
+  ],
+  "circle_supported": {
+    "kinds": [
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:1",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            },
+            {
+              "symbol": "cirBTC",
+              "address": "0x72dfb2e44f59c5ad2bafe84314e5b99a7cd5075e",
+              "decimals": 8,
+              "authorizationVersions": [
+                "2"
+              ]
+            },
+            {
+              "symbol": "EURC",
+              "address": "0x1abaea1f7c830bd89acc67ec4af516284b1bc33c",
+              "decimals": 6,
+              "authorizationVersions": [
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:8453",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            },
+            {
+              "symbol": "EURC",
+              "address": "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
+              "decimals": 6,
+              "authorizationVersions": [
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:43114",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            },
+            {
+              "symbol": "EURC",
+              "address": "0xc891eb4cbdeff6e073e859e987815ed1505c2acd",
+              "decimals": 6,
+              "authorizationVersions": [
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:42161",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:10",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:137",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:130",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0x078d782b760474a361dda0af3839290b0ef57ad6",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:146",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0x29219dd400f2bf60e5a23d13be72b486d4038894",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:480",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0x79a02482a880bce3f13e09da970dc34db4cd24d1",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            },
+            {
+              "symbol": "EURC",
+              "address": "0x1c60ba0a0ed1019e8eb035e6daf4155a5ce2380b",
+              "decimals": 6,
+              "authorizationVersions": [
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:1329",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:999",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0xb88339cb7199b77e23db6e890353e22632ba630f",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "eip155:5042",
+        "extra": {
+          "name": "GatewayWalletBatched",
+          "version": "1",
+          "verifyingContract": "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+          "minValiditySeconds": 604800,
+          "assets": [
+            {
+              "symbol": "USDC",
+              "address": "0x3600000000000000000000000000000000000000",
+              "decimals": 6,
+              "authorizationVersions": [
+                "1",
+                "2"
+              ]
+            },
+            {
+              "symbol": "cirBTC",
+              "address": "0x171a4217b86a807a64eb94757db6849fb4bdbaa0",
+              "decimals": 8,
+              "authorizationVersions": [
+                "2"
+              ]
+            },
+            {
+              "symbol": "EURC",
+              "address": "0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1",
+              "decimals": 6,
+              "authorizationVersions": [
+                "2"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "extensions": [],
+    "signers": {
+      "eip155:*": []
+    }
+  }
+}

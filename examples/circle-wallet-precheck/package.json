@@ -1,0 +1,16 @@
+{
+  "name": "twzrd-circle-wallet-precheck",
+  "private": true,
+  "type": "module",
+  "description": "A Circle developer-controlled wallet that checks the seller with TWZRD before it signs an x402 payment on Circle Gateway.",
+  "scripts": {
+    "start": "node demo.mjs",
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "twzrd-x402-gate": "0.24.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
