@@ -54,9 +54,10 @@ SCHEMAS = {
     "twzrd_verify_receipt": {
         "description": (
             "Verify a saved TWZRD signed receipt JSON file (V7; V5 and V6 still verify) "
-            "against a pinned Ed25519 issuer key using the pinned twzrd-receipt-verifier "
-            "CLI. The check makes no network or RPC call; the first run downloads the "
-            "pinned verifier from npm. Requires Node.js 16+ with npx."
+            "against the pinned TWZRD Ed25519 issuer key. The key is fixed by the plugin "
+            "and is not an argument; the result names it as issuer_pubkey. The check "
+            "makes no network or RPC call; the first run installs the verifier from npm "
+            "by lockfile. Requires Node.js 16+ with npm."
         ),
         "parameters": {
             "type": "object",
@@ -64,11 +65,6 @@ SCHEMAS = {
                 "receipt_path": {
                     "type": "string",
                     "description": "Local filesystem path to the receipt JSON file.",
-                },
-                "pubkey": {
-                    "type": "string",
-                    "default": ISSUER_PUBKEY,
-                    "description": "Base58 Ed25519 issuer public key to trust.",
                 },
                 "max_age_seconds": {
                     "type": "integer",
@@ -79,6 +75,7 @@ SCHEMAS = {
                 },
             },
             "required": ["receipt_path"],
+            "additionalProperties": False,
         },
     },
 }

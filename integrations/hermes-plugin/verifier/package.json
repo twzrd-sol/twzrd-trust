@@ -1,0 +1,10 @@
+{
+  "name": "twzrd-hermes-plugin-verifier",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Lockfile for the receipt verifier that twzrd_verify_receipt runs. Installed with npm ci --ignore-scripts.",
+  "license": "MIT",
+  "dependencies": {
+    "twzrd-receipt-verifier": "1.4.4"
+  }
+}

@@ -5,8 +5,8 @@ Run from the repository root:
     python3 integrations/hermes-plugin/tests/test_plugin.py
 
 No production route is called. Lookups go to a stub on the loopback interface and
-the verifier subprocess is replaced, so the suite needs neither network access nor
-Node.js. Standard library only.
+the npm and node subprocesses are replaced, so the suite needs neither network access
+nor Node.js. Standard library only.
 """
 
 import importlib.util
@@ -142,8 +142,26 @@ class PinTest(unittest.TestCase):
     def test_the_issuer_key_is_the_same_in_schema_and_skill(self):
         skill = (PLUGIN_DIR / "skills" / "twzrd-intel" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn(SCHEMAS.ISSUER_PUBKEY, skill)
-        default = SCHEMAS.SCHEMAS["twzrd_verify_receipt"]["parameters"]["properties"]["pubkey"]["default"]
-        self.assertEqual(default, SCHEMAS.ISSUER_PUBKEY)
+
+    def test_the_trusted_key_is_not_a_tool_argument(self):
+        params = SCHEMAS.SCHEMAS["twzrd_verify_receipt"]["parameters"]
+        self.assertEqual(sorted(params["properties"]), ["max_age_seconds", "receipt_path"])
+        self.assertIs(params["additionalProperties"], False)
+
+    def test_the_lockfile_pins_the_verifier_and_every_dependency_by_integrity(self):
+        name, version = TOOLS.VERIFIER_PACKAGE.split("@")
+        manifest = json.loads((PLUGIN_DIR / "verifier" / "package.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["dependencies"], {name: version})
+        lock = json.loads((PLUGIN_DIR / "verifier" / "package-lock.json").read_text(encoding="utf-8"))
+        packages = {k: v for k, v in lock["packages"].items() if k}
+        self.assertEqual(packages[f"node_modules/{name}"]["version"], version)
+        self.assertGreaterEqual(len(packages), 4)
+        for path, entry in packages.items():
+            with self.subTest(package=path):
+                self.assertRegex(entry["version"], r"^\d+\.\d+\.\d+$")
+                self.assertTrue(entry["integrity"].startswith("sha512-"))
+                self.assertTrue(entry["resolved"].startswith("https://registry.npmjs.org/"))
+                self.assertNotIn("hasInstallScript", entry)
 
 
 class LookupTest(unittest.TestCase):
@@ -223,57 +241,133 @@ class UnreachableTest(unittest.TestCase):
 
 
 class VerifyReceiptTest(unittest.TestCase):
+    NODE, NPM = "/usr/bin/node", "/usr/bin/npm"
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.receipt = Path(self.tmp.name) / "receipt.json"
         self.receipt.write_text("{}", encoding="utf-8")
+        self.cache = Path(self.tmp.name) / "cache"
+        patcher = mock.patch.object(TOOLS, "_cache_root", return_value=self.cache)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    def _run(self, args, returncode=0, npx="/usr/bin/npx"):
-        done = subprocess.CompletedProcess([], returncode, stdout="out\n", stderr="err\n")
-        with mock.patch.object(TOOLS.shutil, "which", return_value=npx), mock.patch.object(
-            TOOLS.subprocess, "run", return_value=done
-        ) as run:
+    def _fake_run(self, verify_rc=0, install_rc=0):
+        def run(cmd, **kwargs):
+            if cmd[0] == self.NPM:
+                if install_rc == 0:
+                    script = Path(kwargs["cwd"]).joinpath(*TOOLS._VERIFIER_SCRIPT)
+                    script.parent.mkdir(parents=True)
+                    script.write_text("// stub", encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, install_rc, stdout="", stderr="npm said no\n")
+            return subprocess.CompletedProcess(cmd, verify_rc, stdout="out\n", stderr="err\n")
+
+        return run
+
+    def _run(self, args, verify_rc=0, install_rc=0, which=None, environ=None):
+        which = {"node": self.NODE, "npm": self.NPM} if which is None else which
+        with mock.patch.object(TOOLS.shutil, "which", side_effect=which.get), mock.patch.object(
+            TOOLS.subprocess, "run", side_effect=self._fake_run(verify_rc, install_rc)
+        ) as run, mock.patch.dict(TOOLS.os.environ, environ or {"PATH": "/usr/bin", "HOME": "/h"}, clear=True):
             return json.loads(TOOLS.handle_verify_receipt(args)), run
 
-    def test_the_command_is_the_pinned_verifier_with_the_pinned_key(self):
-        out, run = self._run({"receipt_path": str(self.receipt), "max_age_seconds": 3600})
-        self.assertEqual(
-            run.call_args.args[0],
-            [
-                "/usr/bin/npx",
-                "--yes",
-                TOOLS.VERIFIER_PACKAGE,
-                str(self.receipt.resolve()),
-                "--pubkey",
-                SCHEMAS.ISSUER_PUBKEY,
-                "--max-age",
-                "3600",
-            ],
-        )
-        self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
-        self.assertEqual(run.call_args.kwargs["timeout"], 90)
-        self.assertEqual(out, {"ok": True, "valid": True, "exit_code": 0, "stdout": "out", "stderr": "err"})
+    def test_the_verifier_is_installed_from_the_lockfile_with_scripts_disabled(self):
+        _, run = self._run({"receipt_path": str(self.receipt)})
+        install = run.call_args_list[0]
+        self.assertEqual(install.args[0], [self.NPM, "ci", "--ignore-scripts", "--no-audit", "--no-fund"])
+        self.assertIs(install.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(install.kwargs["timeout"], 120)
+        self.assertEqual(len(run.call_args_list), 2)
+        installed = [p for p in self.cache.iterdir()]
+        self.assertEqual(len(installed), 1)
+        self.assertRegex(installed[0].name, r"^verifier-[0-9a-f]{16}$")
+        for name in ("package.json", "package-lock.json"):
+            self.assertEqual(
+                (installed[0] / name).read_bytes(), (PLUGIN_DIR / "verifier" / name).read_bytes()
+            )
 
-    def test_a_nonzero_exit_is_not_valid(self):
-        out, _ = self._run({"receipt_path": str(self.receipt)}, returncode=1)
+    def test_a_second_call_reuses_the_install(self):
+        self._run({"receipt_path": str(self.receipt)})
+        _, run = self._run({"receipt_path": str(self.receipt)})
+        self.assertEqual([c.args[0][0] for c in run.call_args_list], [self.NODE])
+
+    def test_the_command_is_the_installed_verifier_with_the_pinned_key(self):
+        out, run = self._run({"receipt_path": str(self.receipt), "max_age_seconds": 3600})
+        verify = run.call_args_list[-1]
+        script = next(self.cache.iterdir()).joinpath(*TOOLS._VERIFIER_SCRIPT)
+        self.assertEqual(
+            verify.args[0],
+            [self.NODE, str(script), str(self.receipt.resolve()), "--pubkey", SCHEMAS.ISSUER_PUBKEY,
+             "--max-age", "3600"],
+        )
+        self.assertIs(verify.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(verify.kwargs["timeout"], 30)
+        self.assertEqual(
+            out,
+            {
+                "ok": True,
+                "valid": True,
+                "issuer_pubkey": SCHEMAS.ISSUER_PUBKEY,
+                "verifier": TOOLS.VERIFIER_PACKAGE,
+                "exit_code": 0,
+                "stdout": "out",
+                "stderr": "err",
+            },
+        )
+
+    def test_child_processes_get_a_minimal_environment(self):
+        environ = {
+            "PATH": "/usr/bin",
+            "HOME": "/h",
+            "npm_config_cache": "/c",
+            "NPM_CONFIG_REGISTRY": "https://registry.npmjs.org/",
+            "OPENAI_API_KEY": "sk-secret",
+            "ANTHROPIC_API_KEY": "secret",
+            "OPENROUTER_API_KEY": "secret",
+            "NPM_TOKEN": "secret",
+            "NODE_OPTIONS": "--require /tmp/x.js",
+            "NODE_PATH": "/tmp",
+            "npm_config_script_shell": "/tmp/sh",
+            "HTTPS_PROXY": "http://user:pw@proxy",
+        }
+        _, run = self._run({"receipt_path": str(self.receipt)}, environ=environ)
+        self.assertEqual(len(run.call_args_list), 2)
+        for call in run.call_args_list:
+            with self.subTest(cmd=call.args[0][0]):
+                self.assertEqual(
+                    call.kwargs["env"],
+                    {
+                        "PATH": "/usr/bin",
+                        "HOME": "/h",
+                        "npm_config_cache": "/c",
+                        "NPM_CONFIG_REGISTRY": "https://registry.npmjs.org/",
+                    },
+                )
+
+    def test_a_caller_supplied_key_is_refused_before_any_subprocess(self):
+        other = "2ELSDxLqNp6wTq7mnpWqUkcYQrBmXTtGRXsfdRZHYbqh"
+        for key in [other, SCHEMAS.ISSUER_PUBKEY, "--fetch-key", "", None, 7]:
+            with self.subTest(pubkey=key):
+                out, run = self._run({"receipt_path": str(self.receipt), "pubkey": key})
+                self.assertIs(out["valid"], False)
+                self.assertIs(out["ok"], False)
+                self.assertEqual(out["issuer_pubkey"], SCHEMAS.ISSUER_PUBKEY)
+                self.assertIn("not an argument", out["error"])
+                run.assert_not_called()
+
+    def test_a_nonzero_exit_is_not_valid_and_still_names_the_key(self):
+        out, _ = self._run({"receipt_path": str(self.receipt)}, verify_rc=1)
         self.assertIs(out["valid"], False)
         self.assertIs(out["ok"], False)
         self.assertEqual(out["exit_code"], 1)
+        self.assertEqual(out["issuer_pubkey"], SCHEMAS.ISSUER_PUBKEY)
 
     def test_no_max_age_flag_unless_a_positive_integer_is_given(self):
         for value in [None, 0, -5, True, "3600", 1.5]:
             with self.subTest(max_age_seconds=value):
                 _, run = self._run({"receipt_path": str(self.receipt), "max_age_seconds": value})
-                self.assertNotIn("--max-age", run.call_args.args[0])
-
-    def test_a_flag_shaped_key_is_refused_before_any_subprocess(self):
-        for key in ["--fetch-key", "-x", "not base58!", "0x" + "1" * 40, 7]:
-            with self.subTest(pubkey=key):
-                out, run = self._run({"receipt_path": str(self.receipt), "pubkey": key})
-                self.assertIs(out["valid"], False)
-                self.assertIn("base58", out["error"])
-                run.assert_not_called()
+                self.assertNotIn("--max-age", run.call_args_list[-1].args[0])
 
     def test_a_missing_file_or_path_is_refused_before_any_subprocess(self):
         for args in [{}, {"receipt_path": ""}, {"receipt_path": str(self.receipt) + ".absent"}]:
@@ -282,19 +376,39 @@ class VerifyReceiptTest(unittest.TestCase):
                 self.assertIs(out["valid"], False)
                 run.assert_not_called()
 
-    def test_a_missing_npx_is_reported_not_raised(self):
-        out, run = self._run({"receipt_path": str(self.receipt)}, npx=None)
+    def test_a_missing_node_or_npm_is_reported_not_raised(self):
+        for which in [{"npm": self.NPM}, {"node": self.NODE}, {}]:
+            with self.subTest(which=which):
+                out, run = self._run({"receipt_path": str(self.receipt)}, which=which)
+                self.assertIs(out["valid"], False)
+                self.assertIn("Node.js", out["error"])
+                run.assert_not_called()
+
+    def test_a_failed_install_is_reported_and_leaves_nothing_behind(self):
+        out, run = self._run({"receipt_path": str(self.receipt)}, install_rc=1)
         self.assertIs(out["valid"], False)
-        self.assertIn("npx", out["error"])
-        run.assert_not_called()
+        self.assertIn("npm ci exit 1", out["error"])
+        self.assertIn("npm said no", out["error"])
+        self.assertEqual(len(run.call_args_list), 1)
+        self.assertEqual(list(self.cache.iterdir()), [])
 
     def test_a_timeout_is_reported_not_raised(self):
-        with mock.patch.object(TOOLS.shutil, "which", return_value="/usr/bin/npx"), mock.patch.object(
-            TOOLS.subprocess, "run", side_effect=subprocess.TimeoutExpired("npx", 90)
-        ):
-            out = json.loads(TOOLS.handle_verify_receipt({"receipt_path": str(self.receipt)}))
-        self.assertIs(out["valid"], False)
-        self.assertIn("timed out", out["error"])
+        for stage, word in [(self.NPM, "install timed out"), (self.NODE, "verifier timed out")]:
+            with self.subTest(stage=stage):
+                good = self._fake_run()
+
+                def run(cmd, **kwargs):
+                    if cmd[0] == stage:
+                        raise subprocess.TimeoutExpired(cmd, 1)
+                    return good(cmd, **kwargs)
+
+                which = {"node": self.NODE, "npm": self.NPM}
+                with mock.patch.object(TOOLS.shutil, "which", side_effect=which.get), mock.patch.object(
+                    TOOLS.subprocess, "run", side_effect=run
+                ):
+                    out = json.loads(TOOLS.handle_verify_receipt({"receipt_path": str(self.receipt)}))
+                self.assertIs(out["valid"], False)
+                self.assertIn(word, out["error"])
 
 
 if __name__ == "__main__":
