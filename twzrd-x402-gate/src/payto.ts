@@ -363,6 +363,17 @@ const EVM_USDC: Record<string, ReadonlySet<string>> = {
   "eip155:84532": new Set([
     "0x036cbd53842c5426634e7929541ec2318f3dcf7e", // Base Sepolia test USDC
   ]),
+  // Arc (Circle's L1). Native gas is USDC; x402 pays through its ERC-20
+  // interface at this address, 6 decimals, the same on mainnet and testnet
+  // (Circle Gateway GET /v1/x402/supported, read 2026-11-17). Arc is not
+  // reputation-scored: classifyNetwork keeps it network_not_scored, so this
+  // entry prices an Arc USDC offer and nothing more.
+  "eip155:5042": new Set([
+    "0x3600000000000000000000000000000000000000", // Arc USDC
+  ]),
+  "eip155:5042002": new Set([
+    "0x3600000000000000000000000000000000000000", // Arc testnet USDC
+  ]),
 };
 
 function evmUsdcTable(networkRaw: unknown): ReadonlySet<string> | undefined {
@@ -373,10 +384,15 @@ function evmUsdcTable(networkRaw: unknown): ReadonlySet<string> | undefined {
   if (network === "base-sepolia" || network === "eip155:84532") {
     return EVM_USDC["eip155:84532"];
   }
+  // Arc by CAIP-2 id only: classifyNetwork has no "arc" alias, and a name
+  // the classifier does not know must not gain a price here.
+  if (network === "eip155:5042" || network === "eip155:5042002") {
+    return EVM_USDC[network];
+  }
   return undefined;
 }
 
-/** True when the network has a USDC set the gate knows (Solana clusters, Base, Base Sepolia). */
+/** True when the network has a USDC set the gate knows (Solana clusters, Base, Base Sepolia, Arc, Arc testnet). */
 export function hasUsdcTable(requirement: { network?: unknown; payTo?: unknown; pay_to?: unknown }): boolean {
   return (
     solanaCluster(requirement.network as string | undefined, recipientOf(requirement)) !== undefined ||

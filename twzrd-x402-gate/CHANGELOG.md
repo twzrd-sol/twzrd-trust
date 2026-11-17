@@ -2,6 +2,23 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## Unreleased
+
+- **Arc USDC is in the USDC table.** Circle's Arc (`eip155:5042`) and Arc testnet
+  (`eip155:5042002`) USDC, `0x3600000000000000000000000000000000000000` with 6 decimals as
+  Circle's Gateway lists it, now counts as USDC. Matched by CAIP-2 id only; there is no `arc`
+  alias, because `classifyNetwork` has none.
+  - An Arc USDC offer is now priced, so `createBuyerFetch` and a guarded fetch with a spend
+    rule no longer refuse it as `unsupported_or_non_usdc_asset`. `@twzrd1111/mandate` is
+    unchanged: its chain list (Solana, Base) still refuses Arc as `chain_not_allowed`.
+  - Arc is still not reputation-scored (`network_not_scored`), so the unsupported-network
+    mode decides. In `strict`, which `createBuyerFetch` always uses, it is refused before
+    signing. In `observe`, the default elsewhere, a guarded fetch with a spend rule now
+    reaches the hook and proceeds as `unknown` within its USDC caps, as it already did
+    with no spend rule.
+  - Any other asset on Arc no longer has a USD price. Before, it was read as amount / 1e6,
+    as if it were USDC.
+
 ## 0.24.0 (2026-11-17)
 
 Security release. Every item but the Lighthouse one turns an allow into a refusal, so
