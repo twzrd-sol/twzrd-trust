@@ -1,0 +1,29 @@
+{
+  "version": "v7",
+  "kind": "twzrd_reputation_receipt_v7",
+  "leaf": "0x4891c868b5631e3d7c47dbad201ba0c935cbba60e35e3208d24ad1cbb6b96b7c",
+  "preimage": {
+    "domain": "TWZRD:AO_REPUTATION_RECEIPT_V7",
+    "agent_id": "GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs",
+    "score": 67,
+    "attention_score": null,
+    "confidence_bps": 6500,
+    "timestamp_unix": 1794627727,
+    "payer": "64NsKhbNGZCEj6sgTtjzscfuXSZSEpD1GoBXbT45yv4J",
+    "settlement_anchor": "4b51456e53593969443968414566424357634770673266467974724e724a774e",
+    "version": "v7",
+    "reputation_score": null,
+    "reputation_confidence_bps": null,
+    "reputation_score_version": "intel_renorm_v1_1",
+    "reputation_feature_window_start_unix": null,
+    "reputation_data_quality": "agent_executions+agent_contributions+x402_solana_payer_agg+x402_solana_merchant_agg+claims",
+    "recheck_after_unix": 1794886927,
+    "staleness_days": 3,
+    "score_decay_model": "step:<=7d=1.0,<=30d=0.8,<=90d=0.5,>90d=0.25",
+    "settlement_tx": "5Lb8pTStADxWTjKevYNQMtobMAZhkMjofH6y6JW9aeRh4YgHeHTMbDK8KQEnSY9iD9hAEfBCWcGpg2fFytrNrJwN"
+  },
+  "signature": "CTqQTtzBcLcvAhos9RXbvHGkyHQRqgLbUmGryNtCp7pGcnAyV8wL1LwCxUaE8tEDGc59Z1HesFqqk9Gj5R85YaU",
+  "signing_pubkey": "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS",
+  "key_id": "twzrd-receipt-ed25519-v2",
+  "signing_alg": "ed25519"
+}

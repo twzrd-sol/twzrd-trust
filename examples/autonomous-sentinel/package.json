@@ -1,0 +1,22 @@
+{
+  "name": "twzrd-sentinel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An autonomous buyer that runs under a signed spend mandate: discover, screen, hold, pay once, verify, reconcile, heartbeat.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "twzrd-sentinel": "./sentinel.mjs"
+  },
+  "scripts": {
+    "start": "node sentinel.mjs run",
+    "verify-breakers": "node sentinel.mjs --verify-breakers",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@twzrd1111/mandate": "0.1.0"
+  }
+}

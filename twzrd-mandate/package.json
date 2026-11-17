@@ -1,0 +1,70 @@
+{
+  "name": "@twzrd1111/mandate",
+  "version": "0.1.0",
+  "description": "Signed spend mandates for agent runtimes, and a loopback sidecar that enforces them: MCP proxy, paid-HTTP proxy and control API, built on twzrd-x402-gate and @twzrd1111/agent-killswitch.",
+  "license": "MIT",
+  "author": "TWZRD",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "mandate": "./dist/cli.js",
+    "twzrd-mandate": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": "./schema/twzrd.mandate.v1.schema.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "schema",
+    "fixtures",
+    "SPEC.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "homepage": "https://www.npmjs.com/package/@twzrd1111/mandate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twzrd-sol/twzrd-trust.git",
+    "directory": "twzrd-mandate"
+  },
+  "bugs": {
+    "url": "https://github.com/twzrd-sol/twzrd-trust/issues"
+  },
+  "keywords": [
+    "x402",
+    "mcp",
+    "agents",
+    "spend-control",
+    "mandate",
+    "kill-switch",
+    "twzrd"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p . && node -e \"require('node:fs').chmodSync('dist/cli.js',0o755)\"",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "pack-smoke": "node scripts/pack-smoke.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@twzrd1111/agent-killswitch": "0.5.0",
+    "twzrd-log-verifier": "0.5.4",
+    "twzrd-x402-gate": "0.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
