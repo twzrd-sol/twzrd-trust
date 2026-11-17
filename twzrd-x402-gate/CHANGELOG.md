@@ -2,7 +2,12 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
-## Unreleased
+## 0.25.0 (2026-11-17)
+
+Minor release. Pricing Arc USDC changes what a guarded fetch with a spend rule accepts or refuses
+on Arc, so it ships as a minor version; the `AbortSignal` fix is a bug fix with one new refusal,
+`request_aborted`, for a call the caller has already abandoned. Upgrading from 0.24.0 is otherwise
+safe.
 
 - **Arc USDC is in the USDC table.** Circle's Arc (`eip155:5042`) and Arc testnet
   (`eip155:5042002`) USDC, `0x3600000000000000000000000000000000000000` with 6 decimals as
@@ -18,6 +23,25 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
     with no spend rule.
   - Any other asset on Arc no longer has a USD price. Before, it was read as amount / 1e6,
     as if it were USDC.
+
+- **A caller's timeout or abort is honoured on the paid request (`createGuardedX402Fetch`).** On
+  Node 24 (seen on v24.22.1, undici 7.30.1) a cloned `Request` stops following its source's
+  `AbortSignal` after a garbage collection, and `@x402/fetch` sends the paid retry as
+  `fetch(clonedRequest.clone())`. A call with `AbortSignal.timeout(300)` could then ignore the
+  timeout once the payment was signed, and wait for the seller (about 300 s in our tests). The
+  guarded fetch now:
+  - sends every request of the call under the caller's own signal, so the request is cancelled,
+    not only the promise;
+  - rejects with the signal's own `reason` (for example `TimeoutError`) as soon as it fires, or at
+    once, before any request or signature, when it is already aborted;
+  - removes the abort listener it added when the call settles.
+  - A payment the signer already produced stays counted against the budget. If the signal fires
+    while the pre-sign checks are still running, the abandoned call is refused with
+    `request_aborted` before the signer runs: nothing is signed and no budget is charged.
+  - `init.signal` wins over a `Request` input's own signal; an explicit `signal: null` means no
+    signal, as in `fetch`. A call with no signal is unchanged.
+  - Nothing else changes. Callers on other Node versions get the same behaviour; the bug it works
+    around was only observed on Node 24.
 
 ## 0.24.0 (2026-11-17)
 
