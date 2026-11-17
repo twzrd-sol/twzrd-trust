@@ -23,6 +23,7 @@ export {
   createToolGuard,
   ToolNotSentError,
   ToolRefusedError,
+  ToolSettleError,
   TOOL_GUARD_PAUSE_REASON,
   TOOL_LEDGER_MODEL,
   DEFAULT_TOOL_TRIP_PAUSE_MS,

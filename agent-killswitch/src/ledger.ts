@@ -79,6 +79,10 @@ const RETAIN_MS = 48 * 3600 * 1000;
  */
 export class Ledger {
   private spends: TimedSpend[] = [];
+  // Timestamps of allowed lines whose cost_usd is not a finite non-negative
+  // number. They are still applied as before; unreadableCostLines() lets a
+  // caller refuse to rely on totals that include them.
+  private badCosts: number[] = [];
   // In-flight holds: counted by window() but never written to the JSONL.
   // A crash drops them; an unsettled hold must not consume budget forever.
   private holds = new Map<number, TimedSpend>();
@@ -97,6 +101,7 @@ export class Ledger {
   /** Replay the last 48 h of the ledger to rebuild the windows. */
   load(): number {
     this.spends = [];
+    this.badCosts = [];
     this.offset = 0;
     this.pending = Buffer.alloc(0);
     this.lastSize = 0;
@@ -128,6 +133,7 @@ export class Ledger {
       this.offset = 0;
       this.pending = Buffer.alloc(0);
       this.spends = [];
+      this.badCosts = [];
       this.lastInode = st.ino;
     }
     if (st.size < this.offset) {
@@ -135,6 +141,7 @@ export class Ledger {
       this.offset = 0;
       this.pending = Buffer.alloc(0);
       this.spends = [];
+      this.badCosts = [];
     }
     if (!force && st.size === this.lastSize && st.mtimeMs === this.lastMtimeMs) {
       return 0;
@@ -179,6 +186,8 @@ export class Ledger {
       if (!parsed.allowed) continue; // Vetoed calls cost nothing.
       const atMs = Date.parse(parsed.timestamp);
       if (!Number.isFinite(atMs) || atMs < cutoff) continue;
+      const cost = parsed.cost_usd;
+      if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) this.badCosts.push(atMs);
       this.spends.push({
         atMs,
         totalTokens: parsed.total_tokens ?? 0,
@@ -189,6 +198,7 @@ export class Ledger {
     // Bound memory: drop anything older than the replay horizon.
     if (this.spends.length > 10000) {
       this.spends = this.spends.filter((s) => s.atMs >= Date.now() - RETAIN_MS);
+      this.badCosts = this.badCosts.filter((atMs) => atMs >= Date.now() - RETAIN_MS);
     }
     return applied;
   }
@@ -210,6 +220,22 @@ export class Ledger {
       }
     }
     return { minuteTokens, hourUsd, dayUsd };
+  }
+
+  /**
+   * How many allowed lines in the last 24 h carry a cost_usd that is not a
+   * finite non-negative number (a string, null, NaN, a negative). Such a
+   * line makes the window totals unreliable: a negative one can cancel real
+   * spend while the total still looks valid.
+   */
+  unreadableCostLines(nowMs: number = Date.now()): number {
+    this.refresh();
+    let count = 0;
+    for (const atMs of this.badCosts) {
+      const age = nowMs - atMs;
+      if (age >= 0 && age < 24 * 3600 * 1000) count++;
+    }
+    return count;
   }
 
   /** Reserve an in-flight estimate. Synchronous: call it in the same turn as the gate check. */

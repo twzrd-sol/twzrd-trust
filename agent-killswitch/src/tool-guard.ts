@@ -3,6 +3,7 @@ import {
   checkPauseSwitch,
   writePauseSwitch,
 } from "./gate.js";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { Ledger } from "./ledger.js";
 
@@ -104,7 +105,8 @@ export interface ToolHold {
    * when it gave no readable bill: the worst case is then recorded and the
    * guard trips. A bill above the worst case is recorded in full and trips.
    */
-  settle(billedUsd: number | null | undefined): ToolSettlement;
+  /** After a settle whose ledger write failed, the bill is fixed: call `settle()` again to retry the write. */
+  settle(billedUsd?: number | null): ToolSettlement;
   /** Drop the hold without recording spend. Only for a call that was never sent. */
   release(): void;
 }
@@ -157,6 +159,23 @@ export interface ToolRunOptions {
   isNotSent?: (err: unknown) => boolean;
 }
 
+/**
+ * Thrown by `run` when the tool call completed but its spend could not be
+ * written to the ledger. The guard has paused and the spend is counting in
+ * memory. `result` is what the tool returned; call `hold.settle()` again
+ * once the ledger is writable to put the spend on record.
+ */
+export class ToolSettleError<T = unknown> extends Error {
+  readonly result: T;
+  readonly hold: ToolHold;
+  constructor(result: T, hold: ToolHold, cause: unknown) {
+    super("the tool call completed but its spend could not be recorded", { cause });
+    this.name = "ToolSettleError";
+    this.result = result;
+    this.hold = hold;
+  }
+}
+
 /** Thrown by `run` when the guard refuses. Nothing was sent and nothing was spent. */
 export class ToolRefusedError extends Error {
   readonly code: ToolVetoCode;
@@ -187,22 +206,68 @@ export class ToolNotSentError extends Error {
 // every guard in this process: two guards on the same file must see each
 // other's holds, or both would pass on the same unspent budget.
 interface SharedState {
+  path: string;
   ledger: Ledger;
   holds: Map<number, number>;
   nextHoldId: number;
+  // A pause that could not be written to disk, or that covers spend the
+  // ledger would not take. Shared, so every guard on this file honours it.
+  heldPauseUntilMs: number;
 }
+// Entries live for the life of the process: one per distinct ledger file.
 const sharedStates = new Map<string, SharedState>();
 
+/** The ledger's real path, so a symlink or a different spelling is the same file. */
+function canonicalPath(ledgerPath: string): string {
+  const abs = path.resolve(ledgerPath);
+  try {
+    return fs.realpathSync(abs);
+  } catch {
+    try {
+      return path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs));
+    } catch {
+      return abs;
+    }
+  }
+}
+
 function sharedStateFor(ledgerPath: string): SharedState {
-  const key = path.resolve(ledgerPath);
+  const key = canonicalPath(ledgerPath);
   let state = sharedStates.get(key);
   if (state === undefined) {
     const ledger = new Ledger(key);
     ledger.load();
-    state = { ledger, holds: new Map(), nextHoldId: 1 };
+    state = { path: key, ledger, holds: new Map(), nextHoldId: 1, heldPauseUntilMs: 0 };
     sharedStates.set(key, state);
   }
   return state;
+}
+
+/**
+ * End a torn last line before appending. A write cut short (a full disk, a
+ * crash) leaves bytes with no newline; a row appended straight after them
+ * becomes part of one unparseable line, and its spend is then read by
+ * nobody. Ending the fragment first keeps the new row on a line of its own.
+ */
+function endTornTail(filePath: string): void {
+  let fd: number;
+  try {
+    fd = fs.openSync(filePath, "r");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+  let torn = false;
+  try {
+    const size = fs.fstatSync(fd).size;
+    if (size > 0) {
+      const last = Buffer.alloc(1);
+      torn = fs.readSync(fd, last, 0, 1, size - 1) === 1 && last[0] !== 0x0a;
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (torn) fs.appendFileSync(filePath, "\n");
 }
 
 function nonEmptyString(name: string, value: unknown): string {
@@ -258,9 +323,10 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
 
   const shared = sharedStateFor(ledgerPath);
   const ledger = shared.ledger;
-  // A trip whose `.pause` could not be written, or whose spend could not be
-  // recorded, is held here, for this guard only.
-  let heldPauseUntilMs = 0;
+  const append = (row: Parameters<Ledger["append"]>[0]): void => {
+    endTornTail(shared.path);
+    ledger.append(row);
+  };
 
   /**
    * Hour and day spend: the ledger plus every open hold on this file. A hold
@@ -305,7 +371,7 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
     try {
       pause = checkPauseSwitch(pauseFilePath, nowMs);
     } catch {
-      heldPauseUntilMs = Math.max(heldPauseUntilMs, untilUnixMs);
+      shared.heldPauseUntilMs = Math.max(shared.heldPauseUntilMs, untilUnixMs);
       return { pauseUntil: untilUnixMs, writeFailed: true };
     }
     if (pause.paused && (pause.untilUnixMs === null || pause.untilUnixMs >= untilUnixMs)) {
@@ -320,7 +386,7 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
       });
       return { pauseUntil: untilUnixMs, writeFailed: false };
     } catch {
-      heldPauseUntilMs = Math.max(heldPauseUntilMs, untilUnixMs);
+      shared.heldPauseUntilMs = Math.max(shared.heldPauseUntilMs, untilUnixMs);
       return { pauseUntil: untilUnixMs, writeFailed: true };
     }
   }
@@ -328,7 +394,7 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
   /** Pause first, then record the trip: a ledger that cannot be written must not lose the pause. */
   function trip(tool: string, worstCaseUsd: number, reason: string, requestId: string | null): void {
     const { pauseUntil, writeFailed } = forcePause(requestId);
-    ledger.append(line(
+    append(line(
       {
         name: tool,
         event: "trip",
@@ -358,7 +424,7 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
     const nowMs = Date.now();
     const window = spendNow(nowMs);
     const refuse = (code: ToolVetoCode, message: string): ToolDecision => {
-      ledger.append(line(
+      append(line(
         { name: tool, event: "refused", worst_case_usd: worst },
         { allowed: false, costUsd: 0, veto: code, requestId },
       ));
@@ -372,7 +438,7 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
     if (pause.paused) {
       return refuse("payment_gate_halt", `paused: ${pause.reason ?? "payment_gate_halt"}`);
     }
-    if (nowMs < heldPauseUntilMs) {
+    if (nowMs < shared.heldPauseUntilMs) {
       return refuse("payment_gate_halt", `paused: ${TOOL_GUARD_PAUSE_REASON}`);
     }
     if (!allowedTools.has(tool)) {
@@ -386,7 +452,8 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
     // pass. Spend that cannot be read is treated as over the limit.
     if (
       typeof window.hourUsd !== "number" || !Number.isFinite(window.hourUsd) || window.hourUsd < 0 ||
-      typeof window.dayUsd !== "number" || !Number.isFinite(window.dayUsd) || window.dayUsd < 0
+      typeof window.dayUsd !== "number" || !Number.isFinite(window.dayUsd) || window.dayUsd < 0 ||
+      ledger.unreadableCostLines(nowMs) > 0
     ) {
       return refuse("budget_exceeded", "recorded spend on the ledger cannot be read as a non-negative number");
     }
@@ -409,12 +476,16 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
     const holdId = shared.nextHoldId++;
     shared.holds.set(holdId, worst);
     let open = true;
+    // Set by the first settle() whose ledger write failed. From then on the
+    // bill is fixed: a retry cannot swap in a smaller one, and the hold can
+    // no longer be released.
+    let attempted: { billed: number | null } | null = null;
     const hold: ToolHold = Object.freeze({
       tool,
       worstCaseUsd: worst,
-      settle(billedUsd: number | null | undefined): ToolSettlement {
+      settle(billedUsd?: number | null): ToolSettlement {
         if (!open) throw new Error("this hold was already settled or released");
-        const billed = isBill(billedUsd) ? billedUsd : null;
+        const billed = attempted !== null ? attempted.billed : isBill(billedUsd) ? billedUsd : null;
         const costUsd = billed ?? worst;
         const metered = billed === null ? "held_estimate" as const : "usage" as const;
         let tripReason: string | null = null;
@@ -424,7 +495,7 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
           tripReason = `tool "${tool}" billed $${billed}, over its worst case $${worst}`;
         }
         try {
-          ledger.append(line(
+          append(line(
             { name: tool, event: "settled", worst_case_usd: worst, billed_usd: billed },
             { allowed: true, costUsd, veto: null, requestId, metered },
           ));
@@ -433,9 +504,10 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
           // the larger of the bill and the worst case, pause (on disk if
           // possible, in memory always), and leave the hold open so a later
           // settle() can retry the write.
+          attempted = { billed };
           shared.holds.set(holdId, Math.max(costUsd, worst));
           forcePause(requestId);
-          heldPauseUntilMs = Math.max(heldPauseUntilMs, Date.now() + tripPauseMs);
+          shared.heldPauseUntilMs = Math.max(shared.heldPauseUntilMs, Date.now() + tripPauseMs);
           throw err;
         }
         shared.holds.delete(holdId);
@@ -445,6 +517,9 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
       },
       release(): void {
         if (!open) throw new Error("this hold was already settled or released");
+        if (attempted !== null) {
+          throw new Error("a settle was attempted on this hold: it can only be settled, not released");
+        }
         shared.holds.delete(holdId);
         open = false;
       },
@@ -471,21 +546,19 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
       const decision = authorize(call);
       if (!decision.allowed || decision.hold === null) throw new ToolRefusedError(decision);
       const hold = decision.hold;
-      let result: T;
-      let billedUsd: number | null | undefined;
+      let out: { result: T; billedUsd: number | null | undefined };
       try {
-        const out = await fn();
-        if (!out || typeof out !== "object") {
-          throw new TypeError("fn must resolve to { result, billedUsd }");
-        }
-        result = out.result;
-        // Read once, inside the try: a bill that throws on read is no bill.
-        billedUsd = out.billedUsd;
+        out = await fn();
       } catch (err) {
         let notSent = err instanceof ToolNotSentError;
         if (!notSent && isNotSent !== undefined) {
           try {
-            notSent = isNotSent(err) === true;
+            const verdict: unknown = isNotSent(err);
+            if (verdict !== null && typeof verdict === "object" && typeof (verdict as PromiseLike<unknown>).then === "function") {
+              // An async classifier is not `true`; do not let its rejection go unhandled.
+              (verdict as PromiseLike<unknown>).then(undefined, () => {});
+            }
+            notSent = verdict === true;
           } catch {
             notSent = false; // a classifier that throws fails closed
           }
@@ -503,7 +576,33 @@ export function createToolGuard(options: ToolGuardOptions): ToolGuard {
         }
         throw err;
       }
-      const settlement = hold.settle(billedUsd);
+      // The tool function resolved, so the call was sent. From here nothing
+      // releases the hold: the not-sent escape applies only to what fn throws.
+      let result: T;
+      let billedUsd: number | null | undefined;
+      try {
+        if (!out || typeof out !== "object") {
+          throw new TypeError("fn must resolve to { result, billedUsd }");
+        }
+        result = out.result;
+        // Read once: a bill that throws on read is no bill.
+        billedUsd = out.billedUsd;
+      } catch (err) {
+        try {
+          hold.settle(null);
+        } catch {
+          // paused and still counting; report the original problem
+        }
+        throw err;
+      }
+      let settlement: ToolSettlement;
+      try {
+        settlement = hold.settle(billedUsd);
+      } catch (err) {
+        // The result was paid for: hand it back with the hold, so the
+        // caller can retry the ledger write.
+        throw new ToolSettleError(result, hold, err);
+      }
       return { result, settlement };
     },
     spend(): { hourUsd: number; dayUsd: number } {
