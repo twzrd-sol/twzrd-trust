@@ -126,6 +126,31 @@ export const NETWORK_MALFORMED = "network_malformed";
  * resolveRequirementFields, before intel and before any signature.
  */
 export const BATCH_SETTLEMENT_REFUSED = "batch_settlement_refused";
+/**
+ * The `auth-capture` scheme is refused. The buyer signs an authorization that
+ * an operator captures later, and the offer's `extra` decides where the money
+ * goes: `feeRecipient` may take up to `maxFeeBps` of the captured amount (the
+ * x402 client accepts any value up to 10000, the whole payment), and
+ * `captureAuthorizer` decides when it is captured. The gate scores payTo only,
+ * so a clean payTo could front for a recipient nobody scored. Refused on any
+ * network, on every entry point that reads the requirement through
+ * resolveRequirementFields, before intel and before any signature, until the
+ * gate scores every party the offer can pay.
+ */
+export const AUTH_CAPTURE_REFUSED = "auth_capture_refused";
+/**
+ * The `upto` scheme on Solana is refused. The x402 SVM client does not send a
+ * transfer of at most `amount` to payTo: it opens a payment channel. The
+ * deposit is `amount`, the channel's payee is `extra.feePayer`, the key that
+ * signs settlements is `extra.receiverAuthorizer`, `extra.splits` names
+ * recipients, and the deposit stays locked for `extra.withdrawDelay`. None of
+ * those parties is payTo and none is scored. Refused on every entry point that
+ * reads the requirement through resolveRequirementFields, before intel and
+ * before any signature. `upto` on an EVM network is not refused: there the
+ * client signs a Permit2 authorization to payTo capped at `amount`, which a
+ * check on payTo and `amount` covers.
+ */
+export const SVM_UPTO_REFUSED = "svm_upto_refused";
 export type RequirementFieldConflict =
   | typeof AMOUNT_FIELD_CONFLICT
   | typeof PAYTO_FIELD_CONFLICT
@@ -134,6 +159,8 @@ export type RequirementFieldConflict =
   | typeof ASSET_MALFORMED
   | typeof NETWORK_MALFORMED
   | typeof BATCH_SETTLEMENT_REFUSED
+  | typeof AUTH_CAPTURE_REFUSED
+  | typeof SVM_UPTO_REFUSED
   | typeof SVM_SPLITS_REFUSED;
 
 /**
@@ -185,6 +212,34 @@ export function isBatchSettlement(req: unknown): boolean {
   const scheme = (req as Record<string, unknown>).scheme;
   if (scheme == null) return false;
   return String(scheme).trim().toLowerCase() === "batch-settlement";
+}
+
+/** The requirement's scheme name, trimmed and lowercased; undefined when none is given. */
+function schemeName(req: unknown): string | undefined {
+  if (req === null || typeof req !== "object") return undefined;
+  const scheme = (req as Record<string, unknown>).scheme;
+  if (scheme == null) return undefined;
+  return String(scheme).trim().toLowerCase();
+}
+
+/**
+ * True when a requirement names the `auth-capture` scheme, on any network.
+ * Read like isBatchSettlement: trimmed, lowercased, a non-string through String().
+ */
+export function isAuthCapture(req: unknown): boolean {
+  return schemeName(req) === "auth-capture";
+}
+
+/**
+ * True when a requirement names the `upto` scheme on Solana. Solana is read
+ * the way the splits check reads it (isSvmNetwork): CAIP-2, legacy and bare
+ * cluster names, and a missing network with a base58 recipient. A network or
+ * recipient that is not a string is refused earlier as malformed.
+ */
+export function isSvmUpto(req: unknown): boolean {
+  if (schemeName(req) !== "upto") return false;
+  const r = req as Record<string, unknown>;
+  return isSvmNetwork(r.network, r.payTo ?? r.pay_to);
 }
 
 const BASE_UNIT_AMOUNT = /^[0-9]+$/;
@@ -268,9 +323,13 @@ export function resolveRequirementFields(req: unknown): {
                 ? NETWORK_MALFORMED
                 : isBatchSettlement(r)
                   ? BATCH_SETTLEMENT_REFUSED
-                  : hasSvmExactSplits(r)
-                    ? SVM_SPLITS_REFUSED
-                    : undefined,
+                  : isAuthCapture(r)
+                    ? AUTH_CAPTURE_REFUSED
+                    : isSvmUpto(r)
+                      ? SVM_UPTO_REFUSED
+                      : hasSvmExactSplits(r)
+                        ? SVM_SPLITS_REFUSED
+                        : undefined,
   };
 }
 

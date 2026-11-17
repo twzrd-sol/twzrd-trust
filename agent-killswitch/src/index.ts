@@ -60,6 +60,11 @@ interface Breakers {
   upstream: UpstreamFailureBreaker | null;
   rate: RequestRateLimiter | null;
   heldPause: { untilUnixMs: number; reason: string; decisionId: string } | null;
+  /**
+   * Settlements whose ledger write threw. Their holds keep counting in
+   * memory; no call is forwarded until every one of them is on the ledger.
+   */
+  unsettled: { holdId: number; line: LedgerLine }[];
 }
 
 function createBreakers(cfg: KillswitchConfig): Breakers {
@@ -70,7 +75,27 @@ function createBreakers(cfg: KillswitchConfig): Breakers {
         : null,
     rate: cfg.maxRequestsPerMinute > 0 ? new RequestRateLimiter(cfg.maxRequestsPerMinute) : null,
     heldPause: null,
+    unsettled: [],
   };
+}
+
+/** The pause reason written when a settlement could not be recorded on the ledger. */
+export const LEDGER_WRITE_FAILED_PAUSE_REASON = "ledger_write_failed";
+/** How long that pause lasts: the tool guard's default for the same condition. */
+const LEDGER_WRITE_FAILED_PAUSE_MS = 3_600_000;
+
+/**
+ * Write a refusal's ledger line. A ledger that cannot be written must not
+ * turn the refusal into a 500: the request is refused either way, and the
+ * ledger remembers the failed write (Ledger.appendFailing).
+ */
+function appendVeto(ledger: Ledger, line: LedgerLine): void {
+  try {
+    ledger.append(line);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`agent-killswitch: ledger write failed: ${(err as Error).message}`);
+  }
 }
 
 /** The request text and the number of bytes it arrived as (the prompt-token bound counts bytes). */
@@ -301,7 +326,7 @@ async function handle(
     if (decision.code === "budget_exceeded" && decision.pauseWindowMs) {
       writePauseUnlessLonger(cfg, pause, nowMs, decision.pauseWindowMs, "budget_exceeded", requestId);
     }
-    ledger.append({ ...vetoLine, allowed: false, veto_reason: decision.code });
+    appendVeto(ledger, { ...vetoLine, allowed: false, veto_reason: decision.code });
     json(res, decision.status, vetoBody(decision));
     return;
   }
@@ -331,7 +356,20 @@ async function handle(
     );
   } finally {
     try {
-      settleHold(ledger, holdId, result, { now, model, requestId, est, freeModels: zeroPriceModels, rates: cfg.modelRates });
+      settleHold(ledger, holdId, result, {
+        now,
+        model,
+        requestId,
+        est,
+        freeModels: zeroPriceModels,
+        rates: cfg.modelRates,
+        // The spend could not be recorded: keep it owed, and pause (on disk
+        // if possible, in memory otherwise) as the tool guard does.
+        onWriteFailed: (line) => {
+          breakers.unsettled.push({ holdId, line });
+          tripPause(cfg, breakers, Date.now(), LEDGER_WRITE_FAILED_PAUSE_MS, LEDGER_WRITE_FAILED_PAUSE_REASON, requestId);
+        },
+      });
     } finally {
       observeUpstream(cfg, ledger, breakers, admitted.ticket, result, paid, requestId);
     }
@@ -414,6 +452,31 @@ function admitThroughBreakers(
     line: Omit<LedgerLine, "allowed" | "veto_reason">;
   },
 ): { refused: GateDecision } | { ticket: number | null } {
+  // A ledger that is not taking writes: nothing more is forwarded until it
+  // does. Each refused request retries the owed settlements and then its own
+  // line; once those are written, the next request is forwarded again.
+  if (breakers.unsettled.length > 0 || ledger.appendFailing()) {
+    const refused: GateDecision = {
+      allowed: false,
+      status: 429,
+      code: "payment_gate_halt",
+      message: `Payment gate pause active: ${LEDGER_WRITE_FAILED_PAUSE_REASON} (the spend ledger could not be written)`,
+      spentUsd: ctx.window.hourUsd,
+      limitUsd: cfg.maxUsdPerHour,
+    };
+    try {
+      while (breakers.unsettled.length > 0) {
+        const owed = breakers.unsettled[0];
+        ledger.settle(owed.holdId, owed.line);
+        breakers.unsettled.shift();
+      }
+      ledger.append({ ...ctx.line, allowed: false, veto_reason: refused.code });
+    } catch {
+      // Still not writable.
+    }
+    return { refused };
+  }
+
   const held = activeHeldPause(breakers, ctx.nowMs);
   if (held !== null) {
     const refused: GateDecision = {
@@ -425,7 +488,7 @@ function admitThroughBreakers(
       limitUsd: cfg.maxUsdPerHour,
       decisionId: held.decisionId,
     };
-    ledger.append({ ...ctx.line, allowed: false, veto_reason: refused.code });
+    appendVeto(ledger, { ...ctx.line, allowed: false, veto_reason: refused.code });
     return { refused };
   }
 
@@ -615,19 +678,40 @@ function settleHold(
   ledger: Ledger,
   holdId: number,
   result: ForwardResult | null,
-  ctx: { now: string; model: string; requestId: string; est: { tokens: number; usd: number }; freeModels: readonly string[] | null; rates: ModelRates },
+  ctx: {
+    now: string;
+    model: string;
+    requestId: string;
+    est: { tokens: number; usd: number };
+    freeModels: readonly string[] | null;
+    rates: ModelRates;
+    onWriteFailed?: (line: LedgerLine) => void;
+  },
 ): void {
   const telemetry = { requested_model: ctx.model, served_model: result?.servedModel ?? null, model_mismatch: result?.servedModel != null && result.servedModel !== ctx.model };
-  if (result?.usage) {
+  const settle = (line: LedgerLine): void => {
+    try {
+      ledger.settle(holdId, line);
+    } catch (err) {
+      ctx.onWriteFailed?.(line);
+      throw err;
+    }
+  };
+  // Usage whose cost is not a finite non-negative number cannot be priced:
+  // it is handled below exactly as a response with no usage block.
+  const usageCost = result?.usage
+    ? costUsd(ctx.model, result.usage.prompt_tokens, result.usage.completion_tokens, ctx.freeModels, ctx.rates)
+    : null;
+  if (result?.usage && usageCost !== null && Number.isFinite(usageCost) && usageCost >= 0) {
     const u = result.usage;
-    ledger.settle(holdId, {
+    settle({
       timestamp: ctx.now,
       model: ctx.model,
       ...telemetry,
       prompt_tokens: u.prompt_tokens,
       completion_tokens: u.completion_tokens,
       total_tokens: u.total_tokens,
-      cost_usd: costUsd(ctx.model, u.prompt_tokens, u.completion_tokens, ctx.freeModels, ctx.rates),
+      cost_usd: usageCost,
       allowed: true,
       veto_reason: null,
       request_id: ctx.requestId,
@@ -640,7 +724,7 @@ function settleHold(
     ledger.release(holdId);
     return;
   }
-  ledger.settle(holdId, {
+  settle({
     timestamp: ctx.now,
     model: ctx.model,
     ...telemetry,

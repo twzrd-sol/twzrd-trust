@@ -78,7 +78,7 @@ sentinels: an install with evaluation off still refuses while one is in force.
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.23.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.24.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -331,9 +331,16 @@ allowlist. It may carry, and nothing else:
 
 - ComputeBudget `SetComputeUnitLimit` and `SetComputeUnitPrice`, one of each, no accounts;
 - the bind memo and at most one other memo, each with no accounts and non-empty UTF-8 data;
-- one Associated Token Account `Create` or `CreateIdempotent` whose account is the bound
-  recipient's token account for the bound mint, under the transfer's token program;
-- one SPL Token or Token-2022 `TransferChecked` with exactly four accounts.
+- one Associated Token Account `CreateIdempotent`, funded by the transaction's fee payer,
+  whose account is the bound recipient's token account for the bound mint, under the
+  transfer's token program (a plain `Create` is refused);
+- one SPL Token or Token-2022 `TransferChecked` with exactly four accounts;
+- Lighthouse (`L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95`) assertion instructions, first
+  data byte 2 to 17, anywhere and in any number. Wallets such as Phantom add them; they
+  fail the transaction when an assertion is false and move nothing. Any other Lighthouse
+  instruction is refused with `lighthouse_instruction_not_allowed`.
+
+The message must be legacy or v0.
 
 Any other instruction (a System transfer, a second token transfer, an unknown program),
 an instruction whose program or accounts are not in the static account list, or a
@@ -342,10 +349,10 @@ and `pay()` is not called. `detail` names the first violation in instruction ord
 example `bound tx instruction refused: program_not_allowed:11111111111111111111111111111111`.
 `evaluateResourceBindLegsFromSvmTx` returns that same string as its reason
 (`BOUND_TX_INSTRUCTION_REFUSED` is the prefix). Not bounded by this check: the compute
-unit price, and which account funds the token account create. A transaction to which a
-wallet or a facilitator adds instructions of its own (a Lighthouse assertion, a multisig
-or transfer-hook transfer with more than four accounts) is refused: compose the bound
-transaction without them. The transaction string has to be canonical base64, or it does
+unit price. A transaction to which a wallet or a facilitator adds other instructions of
+its own (a multisig or transfer-hook transfer with more than four accounts) is refused:
+compose the bound transaction without them. An offer that sets its own `extra.memo`
+cannot be bound and is refused with `bind_seller_memo_conflict` before compose. The transaction string has to be canonical base64, or it does
 not verify as a hard bind (`bind_mismatch`).
 
 Full walkthrough: [QUICKSTART.md](https://github.com/twzrd-sol/twzrd-trust/blob/main/QUICKSTART.md) ·
@@ -359,7 +366,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.23.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.24.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -398,7 +405,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.23.0
+npm install twzrd-x402-gate@0.24.0
 ```
 
 ```typescript
@@ -443,7 +450,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.23.0
+npm install twzrd-x402-gate@0.24.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -465,7 +472,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.23.0 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.24.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -1621,6 +1628,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `intel_block` | The injected preflight answered `block`. |
 | `decision_bind_required` | A signed decision is required and none was bound. |
 | `bind_required_no_compose`, `bind_required_no_settlement`, `bind_required_no_leaf_hash`, `bind_mismatch` | A resource bind was required and could not be built or did not match. |
+| `bind_seller_memo_conflict` | A resource bind was required and the offer sets its own `extra.memo`. The x402 facilitator settles such an offer only with exactly one Memo instruction carrying that text, and a bound transaction must carry the bind memo, so it could not settle. Refused before `composeBoundTransaction` is called. |
 | `bind_unexpected_instruction` | A resource bind was required and the composed transaction carries an instruction a bound transfer may not carry (see the allowlist under *Lower-level call*), or uses an address lookup table. `detail` is `bound tx instruction refused: <code>`. From 0.22.0. |
 | `twzrd_kill_switch`, `twzrd_payment_paused`, `twzrd_pause_corrupt` | Track 5 `.kill` or `.pause` sentinel is active (or `.pause` is corrupt) in `stateDir` (default `./data`). The MPP entry points refuse on the same sentinel before a credential is created. Read on entry and again right before `pay` is called (before the WAL intent is written), or before an allow or warn is returned when no `pay` is configured. |
 | `wal_unresolved_intent`, `wal_intent_write_failed`, `wal_unconfirmed_payment` | Track 6 SVM write-ahead log (`svmWal` / `svmWalFile` / `TWZRD_SVM_WAL_FILE`) has an earlier `payment_intent` with no `payment_receipt` (loop frozen until `recoverUnresolvedIntents` polls RPC), the pre-sign `fsync` of `payment_intent` failed (`signerInvocations = 0`), or the payer ran and its return does not prove settlement (`signerInvocations = 1`). Proof is a well-formed `txSignature` with a positive integer `slot` and `confirmationStatus` `confirmed` or `finalized`, or with `facilitatorSettlement: { verified: true, facilitator }`. Without it no receipt is written and the intent stays unresolved. |

@@ -222,7 +222,8 @@ test("failure 3: a call the gate refused releases its hold, so the budget is who
   const p = pipeline({ limits: { maxCostPerCallUsd: 0.01, maxUsdPerHour: 0.01, maxUsdPerDay: 0.01 } });
   world.decision = "block";
   await assert.rejects(p.buy(), ToolNotSentError);
-  assert.equal(fs.existsSync(state.toolLedger), false, "a released hold writes no line");
+  // The guard creates its ledger file when it is built; a released hold adds nothing to it.
+  assert.equal(fs.existsSync(state.toolLedger) ? fs.readFileSync(state.toolLedger, "utf8") : "", "", "a released hold writes no line");
   assert.equal(fs.existsSync(state.pauseFile), false);
   world.decision = "allow";
   const { settlement } = await p.buy(); // needs the whole budget
@@ -282,6 +283,40 @@ test("failure 5: parallel calls cannot spend the same budget twice", async () =>
   const r = reconcile({ state, world, guard: p.guard });
   assert.deepEqual(r.mismatches, []);
   assert.equal(r.sellerMicro, 30_000);
+});
+
+test("failure 7a: a seller that takes the payment and answers an error is counted by both ledgers", async () => {
+  world.afterPayStatus = 500;
+  const p = pipeline();
+  await assert.rejects(() => p.buy({ requestId: "taken-1" }));
+  assert.equal(signer.signs, 1);
+  assert.equal(world.receivedMicro, 10_000, "the seller settled the payment before it answered");
+  const r = reconcile({ state, world, guard: p.guard });
+  assert.equal(r.gateMicro, 10_000, "the gate ledger holds what the seller received");
+  assert.ok(p.guard.spend().dayUsd >= 0.01 - 1e-9, "the tool guard counts at least what the seller received");
+});
+
+test("failure 7b: an offer that names another recipient after the trust gate approved is not signed", async () => {
+  const OTHER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+  const p = pipeline();
+  // The quote and the approval see the seller; the 402 the payer is handed names someone else.
+  world.hook = (event) => {
+    if (event === "preflight") world.payTo = OTHER;
+  };
+  await assert.rejects(() => p.buy({ requestId: "swap-1" }), ToolNotSentError);
+  assert.equal(signer.signs, 0, "the recipient that was approved is the only one that may be paid");
+  assert.equal(world.paidCount, 0);
+  assert.equal(p.guard.spend().dayUsd, 0, "nothing was sent, so the hold is released");
+});
+
+test("failure 7c: a price raised after the trust gate approved is not signed", async () => {
+  const p = pipeline();
+  world.hook = (event) => {
+    if (event === "preflight") world.priceMicro = 20_000; // quoted and approved at 10_000; still under every cap
+  };
+  await assert.rejects(() => p.buy({ requestId: "raise-1" }), ToolNotSentError);
+  assert.equal(signer.signs, 0);
+  assert.equal(world.paidCount, 0);
 });
 
 test("failure 6a: a pause the trust gate writes stops the tool guard", async () => {

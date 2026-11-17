@@ -360,8 +360,9 @@ async function run() {
   assert.equal(rb2NoId.signerInvocations, 0);
   assert.equal(rb2PayCalls, 0);
 
-  // Compat A inherit: selected.scheme "upto" allows paid < cap; unknown blocks
-  // before pay(); omit/exact still refuse underpay (no bare <=).
+  // Compat A: the after-pay leg check still reads scheme "upto" as paid <= cap
+  // (verifyOfferBindingAfterPay below), but a Solana upto offer is refused
+  // before pay(); unknown blocks before pay(); omit/exact refuse underpay.
   const xferUnder = token.getTransferCheckedInstruction({
     source: ata, mint, destination: ata, authority: owner, amount: 1n, decimals: 6,
   });
@@ -397,10 +398,12 @@ async function run() {
     composeBoundTransaction: composeUnder,
     pay: async () => { bindPayCalls += 1; return { response: new Response("ok") }; },
   });
-  assert.equal(uptoUnder.verdict, "allow");
-  assert.equal(uptoUnder.receipt?.strength, "hard");
-  assert.equal(uptoUnder.signerInvocations, 1);
-  assert.equal(bindPayCalls, 1);
+  // upto on Solana is refused before the bind check: the x402 client opens a
+  // payment channel there, not a transfer of at most `amount` to payTo.
+  assert.equal(uptoUnder.verdict, "block");
+  assert.equal(uptoUnder.reason, "svm_upto_refused");
+  assert.equal(uptoUnder.signerInvocations, 0);
+  assert.equal(bindPayCalls, 0);
 
   bindPayCalls = 0;
   const unknownScheme = await twzrd.safeFetch(resource, {

@@ -11,21 +11,35 @@
  *   - Memo instructions with no accounts and non-empty UTF-8 data: one bind
  *     memo (rb1: / rb2:) and one other memo (the x402 SVM client attaches one
  *     memo of its own to every transaction);
- *   - one Associated Token Account create or create-idempotent whose account
- *     is ATA(pay_to, asset) under the transfer's token program;
- *   - one SPL Token or Token-2022 TransferChecked with exactly four accounts.
+ *   - one Associated Token Account CreateIdempotent, funded by the
+ *     transaction's fee payer, whose account is ATA(pay_to, asset) under the
+ *     transfer's token program. A plain Create is refused (it fails the whole
+ *     transaction when the account already exists), and so is a create funded
+ *     by any other account: in a sponsored payment that account is the buyer,
+ *     who would pay the recipient's rent in SOL on top of the quoted price;
+ *   - one SPL Token or Token-2022 TransferChecked with exactly four accounts;
+ *   - Lighthouse assertion instructions (first data byte 2 to 17), anywhere and
+ *     in any number. Wallets add them to guard the signer's balances; they
+ *     fail the transaction when an assertion is false and move nothing. This
+ *     is the set the x402 SVM facilitator accepts (from @x402/svm 2.31.0).
+ *     Other Lighthouse instructions (0 and 1 write and close memory accounts)
+ *     are refused with `lighthouse_instruction_not_allowed`.
  * Every other instruction, an instruction whose program or accounts are not in
  * the static account list, and a transaction with address lookup tables are
  * refused with BOUND_TX_INSTRUCTION_REFUSED + a fixed code. The first
  * violation in instruction order is the one reported. Fee size is not
  * bounded here: a compute unit price is accepted at any value.
+ *
+ * Message versions: legacy and v0 are read. Any other version (v1 and later
+ * keep instructions in a layout this check does not read) is refused with
+ * `transaction_version_not_allowed` before any instruction is looked at.
  */
 import {
   evaluateResourceBind, memoContainsResourceBind, pickBindMemo,
   RESOURCE_BIND_MEMO_PREFIX, RESOURCE_BIND_V2_MEMO_PREFIX,
   type ResourceBindDecision,
 } from "./resource-bind.js";
-import { isStrictBase64 } from "./strict-base64.js";
+import { decodeBase64Strict, isStrictBase64 } from "./strict-base64.js";
 
 export const MEMO_PROGRAM_ADDRESS = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
@@ -33,6 +47,8 @@ const TOKEN22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
 const ASSOCIATED_TOKEN = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 const SYSTEM = "11111111111111111111111111111111";
+/** Lighthouse, the assertion program wallets (Phantom) add guard instructions from. */
+const LIGHTHOUSE = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
 
 /** Prefix of every reason the instruction allowlist refuses with; a fixed code follows it. */
 export const BOUND_TX_INSTRUCTION_REFUSED = "bound tx instruction refused: ";
@@ -114,7 +130,7 @@ function utf8(d: Uint8Array): string | null {
  */
 function classify(
   program: string, memoProgram: string, d: Uint8Array, keys: string[], seen: Seen,
-  admit: (ata: AtaCreate) => void,
+  admit: (ata: AtaCreate) => void, feePayer: string | undefined,
 ): string | null {
   if (program === COMPUTE_BUDGET) {
     if (keys.length > 0) return "compute_budget_has_accounts";
@@ -147,10 +163,14 @@ function classify(
   }
   if (program === ASSOCIATED_TOKEN) {
     // Empty data and [0] are Create, [1] is CreateIdempotent. RecoverNested ([2]) is not a create.
-    const create = d.byteLength === 0 || (d.byteLength === 1 && (d[0] === 0 || d[0] === 1));
-    if (!create) return "ata_instruction_not_allowed";
+    const plainCreate = d.byteLength === 0 || (d.byteLength === 1 && d[0] === 0);
+    const idempotent = d.byteLength === 1 && d[0] === 1;
+    if (!plainCreate && !idempotent) return "ata_instruction_not_allowed";
+    if (plainCreate) return "ata_create_not_idempotent";
     // funder, ata, owner, mint, system program, token program
     if (keys.length !== 6 || keys[4] !== SYSTEM) return "ata_create_bad_accounts";
+    // The rent comes from the funder. Only the fee payer may fund it.
+    if (feePayer === undefined || keys[0] !== feePayer) return "ata_create_funder_not_fee_payer";
     if (seen.ata) return "duplicate_ata_create";
     seen.ata = true;
     admit({ ata: keys[1], owner: keys[2], mint: keys[3], tokenProgram: keys[5] });
@@ -165,7 +185,42 @@ function classify(
     seen.transfer = true;
     return null;
   }
+  if (program === LIGHTHOUSE) {
+    return d.byteLength > 0 && d[0] > 1 && d[0] < 18 ? null : "lighthouse_instruction_not_allowed";
+  }
   return `program_not_allowed:${program}`;
+}
+
+/** A message version this check does not read: nothing observed, one violation. */
+function versionRefused(): Observed {
+  return { memos: [], transfer: null, violation: "transaction_version_not_allowed", ataCreate: null };
+}
+
+/**
+ * True when the wire transaction's message names a version other than legacy
+ * or v0. A wire transaction is a compact-u16 signature count, that many
+ * 64-byte signatures, then the message. A versioned message starts with
+ * 0x80 | version; a legacy message starts with its required-signature count,
+ * which is under 0x80. Read from the bytes, so the answer does not depend on
+ * which versions the installed @solana/kit decodes. Bytes too short to hold a
+ * message are left to the decoder.
+ */
+function messageVersionUnread(transactionBase64: string): boolean {
+  const bytes = decodeBase64Strict(transactionBase64);
+  if (!bytes) return false;
+  let count = 0;
+  let offset = 0;
+  // compact-u16: at most three bytes, seven bits each, low bits first.
+  for (let shift = 0; ; shift += 7) {
+    const b = bytes[offset++];
+    if (b === undefined) return false;
+    count |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) break;
+    if (shift === 14) return false;
+  }
+  const first = bytes[offset + count * 64];
+  if (first === undefined) return false;
+  return first >= 0x80 && first !== 0x80;
 }
 
 async function observe(transaction: string): Promise<Observed | null> {
@@ -175,12 +230,18 @@ async function observe(transaction: string): Promise<Observed | null> {
   try {
     const svm = await import("@x402/svm");
     const kit = await import("@solana/kit");
+    // Before any decoder runs: a decoder that does not know a version throws,
+    // and a throw here reads as "not verified" rather than as a refusal.
+    if (messageVersionUnread(tx)) return versionRefused();
     const decoded = svm.decodeTransactionFromPayload({ transaction: tx });
     const compiled = kit.getCompiledTransactionMessageDecoder().decode(decoded.messageBytes as never) as {
       staticAccounts?: Array<{ toString(): string }>; instructions?: Ix[];
-      addressTableLookups?: unknown[];
+      addressTableLookups?: unknown[]; version?: unknown;
     };
+    if (compiled.version !== "legacy" && compiled.version !== 0) return versionRefused();
     const accounts = (compiled.staticAccounts ?? []).map((a) => a.toString());
+    // The fee payer is the first static account of a legacy or v0 message.
+    const feePayer = accounts[0];
     const memoProgram = svm.MEMO_PROGRAM_ADDRESS ?? MEMO_PROGRAM_ADDRESS;
     const memos: string[] = [];
     let transfer: SvmTransferLegs | null = null;
@@ -198,7 +259,7 @@ async function observe(transaction: string): Promise<Observed | null> {
       const keys = (ix.accountIndices ?? []).map((i) => accounts[i]);
       violation ??= keys.some((k) => k === undefined)
         ? "instruction_account_unresolved"
-        : classify(program, memoProgram, d, keys, seen, (ata) => { ataCreate = ata; });
+        : classify(program, memoProgram, d, keys, seen, (ata) => { ataCreate = ata; }, feePayer);
       if (program === memoProgram) {
         if (d.byteLength) memos.push(new TextDecoder().decode(d));
         continue;

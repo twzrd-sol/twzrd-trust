@@ -154,9 +154,23 @@ export function paymentCredentialAction(clientHeaders: IncomingHttpHeaders): str
  */
 export type SessionManagementKind = "close" | "topUp" | "empty" | "refuse";
 
+/** True when the client sent a payment header other than `Authorization`: `x-payment`, `payment-signature` or any `x-payment-*`. */
+function carriesPaymentHeader(clientHeaders: IncomingHttpHeaders): boolean {
+  for (const [name, value] of Object.entries(clientHeaders)) {
+    if (value === undefined) continue;
+    const n = name.toLowerCase();
+    if (n === "x-payment" || n === "payment-signature" || n.startsWith("x-payment-")) return true;
+  }
+  return false;
+}
+
 export function sessionManagementKind(clientHeaders: IncomingHttpHeaders, rawBody: string): SessionManagementKind | null {
   const action = paymentCredentialAction(clientHeaders);
-  if (action === "close" || action === "topUp") return action;
+  // The close / topUp exemption is for the MPP credential alone. With a
+  // payment header of another protocol beside it the request is treated as
+  // what it also is: refused when it has no body, an ordinary call (budget
+  // hold, pause, limits) when it has one.
+  if ((action === "close" || action === "topUp") && !carriesPaymentHeader(clientHeaders)) return action;
   if (rawBody.trim().length > 0) return null;
   return carriesPaymentCredential(clientHeaders) ? "refuse" : "empty";
 }
@@ -246,8 +260,26 @@ function modelId(v: unknown): string | null {
   return typeof v === "string" && v.trim().length > 0 && v.length <= 512 ? v : null;
 }
 
-function num(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+function tokenCount(v: unknown): number | null {
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+}
+
+/**
+ * An upstream `usage` block, or null when it cannot be priced. It counts
+ * only when `prompt_tokens` and `completion_tokens` are both non-negative
+ * safe integers; `total_tokens` must be one too when present, and is their
+ * sum when absent. Anything else is the same as no usage block at all: the
+ * caller keeps the pre-call hold instead of pricing a guess.
+ */
+export function readUpstreamUsage(raw: unknown): UpstreamUsage | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const u = raw as Record<string, unknown>;
+  const prompt = tokenCount(u["prompt_tokens"]);
+  const completion = tokenCount(u["completion_tokens"]);
+  if (prompt === null || completion === null) return null;
+  const total = u["total_tokens"] === undefined ? tokenCount(prompt + completion) : tokenCount(u["total_tokens"]);
+  if (total === null) return null;
+  return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total };
 }
 
 const PASSTHROUGH_HEADERS = [
@@ -372,20 +404,9 @@ export async function forwardChatCompletion(
     clientRes.end(text);
     if (!upstreamRes.ok) return { status: upstreamRes.status, usage: null, outcome: "answered" };
     try {
-      const parsed = JSON.parse(text) as { model?: unknown; usage?: Partial<UpstreamUsage> };
-      const servedModel = modelId(parsed.model);
-      const u = parsed.usage;
-      if (!u) return { status: upstreamRes.status, servedModel, usage: null, outcome: "answered" };
-      return {
-        status: upstreamRes.status,
-        outcome: "answered",
-        servedModel,
-        usage: {
-          prompt_tokens: num(u.prompt_tokens),
-          completion_tokens: num(u.completion_tokens),
-          total_tokens: num(u.total_tokens),
-        },
-      };
+      const parsed = JSON.parse(text) as { model?: unknown; usage?: unknown } | null;
+      const servedModel = modelId(parsed?.model);
+      return { status: upstreamRes.status, outcome: "answered", servedModel, usage: readUpstreamUsage(parsed?.usage) };
     } catch {
       return { status: upstreamRes.status, usage: null, outcome: "answered" };
     }
@@ -428,11 +449,8 @@ export async function forwardChatCompletion(
         const evt = JSON.parse(payload) as { model?: unknown; usage?: Partial<UpstreamUsage> };
         servedModel = modelId(evt.model) ?? servedModel;
         if (evt.usage && (evt.usage.prompt_tokens !== undefined || evt.usage.total_tokens !== undefined)) {
-          usage = {
-            prompt_tokens: num(evt.usage.prompt_tokens),
-            completion_tokens: num(evt.usage.completion_tokens),
-            total_tokens: num(evt.usage.total_tokens),
-          };
+          // An event that cannot be priced also clears an earlier one.
+          usage = readUpstreamUsage(evt.usage);
         }
       } catch {
         // Non-JSON data lines (e.g. keepalives) are forwarded untouched.

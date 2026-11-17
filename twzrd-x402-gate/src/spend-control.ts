@@ -224,6 +224,27 @@ export type OfferBindingCheck = {
 };
 
 /** Shared shape for a bind-v1 check that never reached verification. */
+/**
+ * `requireOfferBinding` against an offer that sets its own `extra.memo`. The
+ * x402 SVM facilitator settles such an offer only when the transaction carries
+ * exactly one Memo instruction whose text is `extra.memo`. A bound transaction
+ * must carry the bind memo, so it cannot settle: with both memos the count is
+ * wrong, with the bind memo alone the text is. Refused before a transaction is
+ * composed, so nothing is signed for a payment that cannot land.
+ */
+export const BIND_SELLER_MEMO_CONFLICT = "bind_seller_memo_conflict";
+
+/**
+ * True when an offer sets `extra.memo`. Read as the facilitator reads it: any
+ * truthy value, whatever its type.
+ */
+export function offerSetsSellerMemo(offer: unknown): boolean {
+  if (offer === null || typeof offer !== "object") return false;
+  const extra = (offer as Record<string, unknown>).extra;
+  if (extra === null || typeof extra !== "object" || Array.isArray(extra)) return false;
+  return Boolean((extra as Record<string, unknown>).memo);
+}
+
 function refuseBindReceipt(leaf_hash: string | null): OfferBindingCheck["receipt"] {
   return { strength: "refuse", leaf_hash, fact_type: "resource_bound" };
 }
@@ -491,9 +512,18 @@ export async function spendControlSafeFetch(
   const recordSpend = () => {
     if (recorded) return;
     recorded = true;
-    ledger.record(agentKey, spendMicro, now);
-    ledger.record(merchantKey, spendMicro, now);
-    ledger.record(mandateKey, spendMicro, now);
+    try {
+      ledger.record(agentKey, spendMicro, now);
+      ledger.record(merchantKey, spendMicro, now);
+      ledger.record(mandateKey, spendMicro, now);
+    } catch (err) {
+      // The payer has run and the ledger does not hold the payment. Keep the
+      // in-process hold for the life of this process, so the amount still
+      // counts against maxSpend here; releasing it let every later call sign
+      // again under a ledger that reads but cannot be written.
+      release = () => {};
+      throw err;
+    }
   };
   // Set immediately before the payer runs. From then on the money may have moved,
   // so a throw from pay() is ambiguous and must be counted, never released.
@@ -729,6 +759,14 @@ export async function spendControlSafeFetch(
           signerInvocations: 0,
           receipt: refuseBindReceipt(leaf_hash),
         }, decisionId);
+      if (offerSetsSellerMemo(selected)) {
+        return blockResult({
+          verdict: "block",
+          reason: BIND_SELLER_MEMO_CONFLICT,
+          signerInvocations: 0,
+          receipt: refuseBindReceipt(leaf_hash),
+        }, decisionId);
+      }
       if (!leaf_hash || !opts.composeBoundTransaction) {
         return refuseNoCompose();
       }

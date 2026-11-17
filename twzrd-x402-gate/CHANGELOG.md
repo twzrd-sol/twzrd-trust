@@ -2,6 +2,98 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.24.0 (2026-11-17)
+
+Security release. Every item but the Lighthouse one turns an allow into a refusal, so
+this ships in a minor release. The changes are on `createTwzrdPolicyFetch`, `createTwzrdPayingFetch`,
+Payment Control, the requirement reader, `requireOfferBinding` and the Base Worker
+approval. The first six are payments the package signed or left uncounted through 0.23.0.
+
+- **A 402 whose `PAYMENT-REQUIRED` header cannot be read is refused.**
+  `createTwzrdPayingFetch` and `createTwzrdPolicyFetch` read the header with the strict
+  base64 reader. When that reader refused it (missing `=` padding, or unused low bits
+  set), both handed the 402 to the payer unchecked, and the x402 client decodes with
+  `atob`, which takes such text: the wash check, every policy check and the ledger were
+  skipped. Both now throw `TwzrdWashAbortError` with `twzrd_payment_required_unreadable`
+  (new export `PAYMENT_REQUIRED_UNREADABLE`) before the payer sees the 402. A 402 with
+  no header and no JSON body is still handed over, as before: the x402 client cannot pay
+  it. Do not wrap a payer for another 402 dialect in these two functions.
+- **`createTwzrdPolicyFetch` books a payment when it is sent.** It booked only when the
+  paid response was 2xx. A seller that took the signed payment and answered an error,
+  another 402, or closed the connection was never counted against `dailyCeilingUsd`, a
+  mandate's monthly ceiling or `newCounterpartyCap`. The amount is now recorded when the
+  request carrying `PAYMENT-SIGNATURE` or `X-PAYMENT` passes through the gated fetch,
+  whatever the answer. A payment that never reached the seller is therefore counted
+  too. A 402 the payer does not pay still books nothing. A payer that sends its payment
+  outside the gated fetch is booked on a 2xx only, as before; send through `gated`.
+- **The booking names the recipient that was paid.** With several offers in one 402 the
+  costliest offer's recipient was booked, whichever one the client paid, so a seller
+  could list a dearer decoy and stay under `newCounterpartyCap`. A v2 payment names the
+  requirement it pays, and that offer is booked. A v2 payment naming a requirement the
+  call did not clear is refused before it is sent (`payment_differs_from_approval`).
+  A v1 payment, or a header in the payer's own format, books every recipient it could
+  be paying, each at its own price, and the cumulative scopes once at the costliest.
+- **A payment the ledger cannot record is not sent.** A failed ledger write after a 2xx
+  was thrown as an ordinary error, which `createTwzrdPayingFetch` reads as a dead origin
+  and routes around by paying again. The write now happens before the paid request
+  leaves, and a failure throws `TwzrdWashAbortError` with `spend_ledger_unavailable`
+  (new export `SPEND_LEDGER_UNAVAILABLE`).
+  `twzrd.safeFetch` without a WAL still records after the payer returns. When that
+  write fails it now keeps the amount held against `maxSpend` for the life of the
+  process; it released the hold, so every later call signed again under a ledger
+  that could be read and not written. Another process reading the same ledger file
+  does not see the held amount: use `svmWal` where that matters.
+- **EVM recipients are compared without regard to letter case.** `blocklist`,
+  `allowlist`, `payeeBlocklist` and the `counterparty:` ledger scope compared the
+  recipient as text, so a blocklisted Base address was paid in its other spelling and
+  `newCounterpartyCap` counted each spelling separately. A `0x` 40-hex recipient is now
+  compared and keyed in lower case (new export `counterpartyScope`). Rows an older
+  ledger holds under a mixed-case scope still count for that spelling. Solana recipients
+  are unchanged.
+- **`auth-capture` offers are refused** with `auth_capture_refused` (new exports
+  `AUTH_CAPTURE_REFUSED`, `isAuthCapture`), on any network and on every entry point that
+  reads the requirement. The offer's `extra.feeRecipient` can take up to
+  `extra.maxFeeBps` of the payment (the x402 client accepts up to 10000, all of it) and
+  `extra.captureAuthorizer` decides when it is captured; the gate scores payTo only. It
+  was evaluated as an exact payment to payTo. The Base Worker approval
+  (`createTwzrdCloudflareBaseApproval`, `withTwzrdBasePreflight`) now refuses any Base
+  entry whose scheme is not `exact` (`scheme_not_exact`); it never read the scheme.
+- **`upto` offers on Solana are refused** with `svm_upto_refused` (new export
+  `SVM_UPTO_REFUSED`, check `isSvmUpto`). The x402 SVM client opens a payment channel:
+  the deposit is `amount`, the payee is `extra.feePayer`, the settlement signer is
+  `extra.receiverAuthorizer`, and `extra.splits` names recipients. It was evaluated as a
+  transfer of at most `amount` to payTo, and `requireOfferBinding` accepted such an
+  offer. `upto` on an EVM network is unchanged: a Permit2 authorization to payTo capped
+  at `amount`. `challengeHashV1` and `x402RequirementsToIntent` throw on both refused
+  schemes, as they do for `batch-settlement`.
+- **A bound transaction's token-account create must be CreateIdempotent funded by the
+  fee payer.** Under `requireOfferBinding` a plain Associated Token Account `Create`
+  (data `[0]` or empty) is refused with `ata_create_not_idempotent`, and a create whose
+  funder is not the transaction's fee payer with `ata_create_funder_not_fee_payer`. A
+  seller could otherwise have a sponsored buyer pay the recipient account's rent in SOL
+  on top of the quoted price. A buyer who is the fee payer may still fund it.
+- **A bound transaction's message must be legacy or v0.** Any other version is refused
+  with `transaction_version_not_allowed`, read from the wire bytes before a decoder
+  runs. It was already never read as bound, but only because the decoder threw. Address
+  lookup tables stay refused.
+
+Two items line the bound-transaction check up with the x402 SVM facilitator (`@x402/svm` 2.31.0):
+
+- **Lighthouse assertion instructions are allowed in a bound transaction.** Wallets such
+  as Phantom add Lighthouse (`L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95`) assertions to
+  what they sign. The facilitator accepts them anywhere and in any number when the first
+  data byte is 2 to 17; the gate refused every one with `program_not_allowed`, so a
+  payment that would have settled was blocked. The same set is now allowed. Any other
+  Lighthouse instruction (0 and 1 write and close memory accounts) is refused with
+  `lighthouse_instruction_not_allowed`. This is the one item here that turns a refusal
+  into an allow.
+- **`requireOfferBinding` refuses an offer that sets `extra.memo`** with
+  `bind_seller_memo_conflict` (new exports `BIND_SELLER_MEMO_CONFLICT`,
+  `offerSetsSellerMemo`), before `composeBoundTransaction` is called. For such an offer
+  the facilitator requires exactly one Memo instruction carrying the seller's text. A
+  bound transaction carries the bind memo, so the gate passed a transaction (two memos,
+  or the bind memo alone) that the facilitator then rejected, after the buyer had signed.
+
 ## 0.23.0 (2026-11-17)
 
 Changes an allow into a refusal for one misconfiguration, so this ships in a minor release.

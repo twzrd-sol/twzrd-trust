@@ -262,13 +262,39 @@ export class Ledger {
     return this.holds.size;
   }
 
+  // True from an append that threw until the next one that completes.
+  private appendFailed = false;
+
+  /** True when the most recent append threw: the ledger may not be recording spend. */
+  appendFailing(): boolean {
+    return this.appendFailed;
+  }
+
   append(line: LedgerLine): void {
+    try {
+      this.appendLine(line);
+      this.appendFailed = false;
+    } catch (err) {
+      this.appendFailed = true;
+      throw err;
+    }
+  }
+
+  private appendLine(line: LedgerLine): void {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     // Read the current last line and append on the same O_APPEND descriptor,
     // so a row a peer copy wrote a moment ago is the one this row commits to
     // (chain.ts). The caller never chooses `prev`.
     const fd = fs.openSync(this.filePath, "a+");
     try {
+      // End a torn last line first. A write cut short (a full disk, a crash)
+      // leaves bytes with no newline; a row appended straight after them
+      // would be part of one unparseable line that no reader counts.
+      const size = fs.fstatSync(fd).size;
+      if (size > 0) {
+        const last = Buffer.alloc(1);
+        if (fs.readSync(fd, last, 0, 1, size - 1) === 1 && last[0] !== 0x0a) fs.writeSync(fd, "\n");
+      }
       const { prev: _callerPrev, ...fields } = line;
       const buf = Buffer.from(JSON.stringify({ ...fields, prev: nextPrev(fd) }) + "\n", "utf8");
       let written = 0;

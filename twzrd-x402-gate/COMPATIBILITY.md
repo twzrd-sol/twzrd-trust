@@ -1,6 +1,18 @@
 # Compatibility notes — twzrd-x402-gate (current release first; the 0.9.3 → 0.9.4 default change follows)
 
-0.23.0 is the released identity of this package. It is a minor release with one allow-to-refuse change: a policy that sets `dailyCeilingUsd`, `monthlyCeilingUsd` or `newCounterpartyCap` and passes no spend `ledger` is refused with `SPEND_CAP_NEEDS_LEDGER` (new export) and a reason naming the cap, where 0.22.1 and earlier skipped the cap and allowed. The x402 client hook, the MPP hook and `createTwzrdPolicyFetch` refuse the same way before any payment is built. Per-payment caps need no ledger and are unchanged. Pass a ledger (`createMemorySpendLedger()` or a file-backed one) to keep a cumulative cap.
+0.24.0 is the released identity of this package. It is a security release, and a minor one because it turns allows into refusals. Upgrade from 0.23.0 or earlier if you use `createTwzrdPolicyFetch` or `createTwzrdPayingFetch`. What changes for a caller:
+
+- A 402 whose `PAYMENT-REQUIRED` header cannot be read as canonical base64 throws `TwzrdWashAbortError` with `twzrd_payment_required_unreadable`. 0.23.0 and earlier handed it to the payer with no check.
+- `createTwzrdPolicyFetch` writes the payment to the spend ledger before the paid request leaves, whatever the seller answers, and names the recipient that was paid. A payment that never reached the seller is counted too. If the ledger cannot be written, the paid request is not sent (`spend_ledger_unavailable`).
+- A v2 payment that names a requirement the call did not clear is refused with `payment_differs_from_approval`.
+- `auth-capture` offers are refused (`auth_capture_refused`), and `upto` offers on Solana are refused (`svm_upto_refused`). The Base Worker approval refuses any scheme but `exact` (`scheme_not_exact`). `upto` on an EVM network is unchanged.
+- EVM recipients are compared and keyed in lower case. Ledger rows written under a mixed-case `counterparty:` scope still count for that spelling only.
+- Under `requireOfferBinding`: a plain token-account `Create`, a create not funded by the fee payer, a message that is not legacy or v0, and an offer that sets `extra.memo` are refused. Lighthouse assertion instructions are now allowed.
+- `twzrd.safeFetch` without a WAL keeps an amount held against `maxSpend` for the life of the process when its ledger write fails.
+
+The refusal codes and new exports are listed in `CHANGELOG.md`.
+
+0.23.0 (2026-11-17) is a minor release with one allow-to-refuse change: a policy that sets `dailyCeilingUsd`, `monthlyCeilingUsd` or `newCounterpartyCap` and passes no spend `ledger` is refused with `SPEND_CAP_NEEDS_LEDGER` (new export) and a reason naming the cap, where 0.22.1 and earlier skipped the cap and allowed. The x402 client hook, the MPP hook and `createTwzrdPolicyFetch` refuse the same way before any payment is built. Per-payment caps need no ledger and are unchanged. Pass a ledger (`createMemorySpendLedger()` or a file-backed one) to keep a cumulative cap.
 
 0.22.1 (2026-11-16) is a patch over 0.22.0 with no allow or refuse change: a directory listing whose URL is a route template (`/quote/:ticker`, `/item/{id}`, `/docs/[slug]`, raw or percent-encoded) is never picked or probed (`isRouteTemplateUrl` and `isCallableListing` are new exports), `normalizeDirectoryRow` reads `/v1/intel/resources` rows as served (`DirectoryListing.callable` is new and optional), `listX402Directory` reads the overlay's `services` array, and `onWarnUpsell` never receives a route template.
 
@@ -99,12 +111,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` dist-tag: **0.23.0**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
+- `latest` dist-tag: **0.24.0**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.23.0 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.24.0 as the
   maintained line (0.11.2 and 0.11.3 are deprecated on npm for security fixes).
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.23.0`) if you want
+  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.24.0`) if you want
   no change at all.

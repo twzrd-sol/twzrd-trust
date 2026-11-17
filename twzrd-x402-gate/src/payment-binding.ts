@@ -118,6 +118,19 @@ export function paymentBindingRefusal(approved: ApprovedRequirement, header: str
   return same ? undefined : PAYMENT_DIFFERS_FROM_APPROVAL;
 }
 
+/**
+ * Whether the payment in `header` says which requirement it pays (a v2
+ * payload's `accepted`). A v1 payload, a header that is not base64 JSON and a
+ * payer's own format do not.
+ */
+export function paymentNamesRequirement(header: string): boolean {
+  try {
+    return asRecord(asRecord(JSON.parse(base64ToUtf8Strict(header)))?.accepted) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
 type FailureHook = (context: { error?: unknown }) => Promise<never>;
 
 /**

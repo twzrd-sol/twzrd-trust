@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.5.0 (2026-11-17)
+
+Security release: proxy and ledger fixes. Each one is spend the proxy
+forwarded or recorded wrongly through 0.4.0. Two behaviours change for a
+caller, so this is a minor release: a 2xx whose `usage` block cannot be
+priced now settles at the held estimate where it settled at $0, and
+`createToolGuard` creates its ledger file when it is constructed.
+
+### Fixed
+
+- **A 2xx whose `usage` block cannot be priced settles at the held
+  estimate.** The proxy read missing, negative, fractional or non-numeric
+  token counts as 0, so an upstream that answered `usage: {}` (or counts as
+  strings) was recorded at $0 and never reached a spend limit. A `usage`
+  block now counts only when `prompt_tokens` and `completion_tokens` are
+  non-negative safe integers (and `total_tokens` too when present); anything
+  else is treated as a response with no usage block, which keeps the
+  pre-call estimate. Streams follow the same rule.
+- **The proxy stops forwarding while the spend ledger cannot be written.**
+  A settlement write that failed left the call unrecorded and the proxy kept
+  forwarding. It now keeps the spend owed in memory, writes a one-hour
+  `.pause` with reason `ledger_write_failed`, and answers 429
+  `payment_gate_halt` until the owed line is on the ledger. A refusal whose
+  own ledger line cannot be written is still a refusal, not a 500. Known
+  limit: a new process started while both the ledger and `.pause` are
+  unwritable forwards one call before it sees the failure.
+- **A row appended after a torn last line is counted.** `Ledger.append`
+  ends an unterminated last line before it writes, as the tool guard
+  already did. Before, the new row was glued to the fragment and no reader
+  counted it.
+- **An MPP `close` / `topUp` credential no longer skips the budget hold
+  when another payment header rides with it.** With `x-payment`,
+  `payment-signature` or any `x-payment-*` header on the same request, a
+  bodiless request is refused with 400 and a request with a body is held
+  and limited like any other call.
+- **Two guards on one ledger file share holds under any name for it.**
+  A guard made on a hard link, or on a symlink created before the ledger's
+  first write, kept its own in-flight holds, so the two could pass on the
+  same unspent budget. Guards are now also matched by the file's device and
+  inode, and `createToolGuard` creates the ledger file when it is missing.
+
+### Docs
+
+- The `isNotSent` example classified `ENOTFOUND` as never sent. A client
+  that follows redirects can reach the tool, be billed, and fail a later
+  hop with that code; the hold was then released and nothing recorded. The
+  example and the `ToolNotSentError` comment now say the classifier must be
+  true only for an error raised before any byte could leave the process.
+
 ## 0.4.0 (2026-11-17)
 
 `createToolGuard` first ships to npm in this release; 0.3.1 was not

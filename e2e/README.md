@@ -39,6 +39,8 @@ package.
 | 4 | the tool ledger cannot be written after the seller was paid | everything pauses, the spend still counts in the guard, reconciliation reports the missing line; `ToolSettleError` hands back the result and the hold, and retrying the write makes the ledgers agree |
 | 5 | eight calls race for a budget of three | exactly three are signed and paid |
 | 6a, 6b | a pause written by the gate, and one written by the guard | each stops the other |
+| 7a | the seller takes the payment and answers 500 | the gate's ledger holds what the seller received and the guard counts at least that |
+| 7b, 7c | after the trust gate approved, the 402 handed to the payer names another recipient, or a higher price that is still under every cap | the signer is never called and the hold is released |
 
 ## Limits
 
@@ -46,6 +48,12 @@ package.
   payment is a signature the stub checks, not a chain transfer.
 - Stage 6 verifies a recorded TWZRD receipt (the fixture in
   `twzrd-x402-gate/test/fixtures/`) that the stub returns with its answer.
+- Stage 3 approves the offer the agent quoted. The 402 the payer is handed
+  is a second read of the seller's offer, and the paying fetch checks it for
+  wash and budget only, so the harness compares it with the approved offer
+  (same recipient, no higher price) before the signer sees it. An agent that
+  approves with `twzrdApprovePayment` and pays through a separate fetch
+  needs the same comparison, or `createBuyerFetch`, which makes it itself.
 - A spend ceiling needs a ledger to count against. The harness refuses to
   build a pipeline with a ceiling and no ledger.
 

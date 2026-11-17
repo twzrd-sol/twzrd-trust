@@ -33,6 +33,7 @@ const ASSOCIATED_TOKEN = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 const SYSTEM = "11111111111111111111111111111111";
 const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const UNKNOWN_PROGRAM = "BPFLoaderUpgradeab1e11111111111111111111111";
+const LIGHTHOUSE = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
 
 const AMOUNT = 50000n;
 const LEAF = "aa".repeat(32);
@@ -86,9 +87,9 @@ async function parts() {
   }) as Instruction;
   const memo = (text: string, accounts: Array<[string, number]> = []) =>
     ix(MEMO_PROGRAM, accounts, new TextEncoder().encode(text));
-  const ataCreate = (owner: string, ata: string, data: number[] = [1], mint: string = USDC) => ix(
+  const ataCreate = (owner: string, ata: string, data: number[] = [1], mint: string = USDC, funder: string = FEE_PAYER) => ix(
     ASSOCIATED_TOKEN,
-    [[FEE_PAYER, R.WRITABLE_SIGNER], [ata, R.WRITABLE], [owner, R.READONLY], [mint, R.READONLY],
+    [[funder, R.WRITABLE_SIGNER], [ata, R.WRITABLE], [owner, R.READONLY], [mint, R.READONLY],
       [SYSTEM, R.READONLY], [TOKEN, R.READONLY]],
     Uint8Array.from(data),
   );
@@ -112,15 +113,22 @@ async function parts() {
       TOKEN, [[source, R.WRITABLE], [otherAta, R.WRITABLE], [PAYER, R.READONLY_SIGNER]],
       Buffer.concat([Buffer.from([3]), u64le(1n)]),
     ),
+    /** A Lighthouse instruction; first data byte 2..17 is an assertion. Reads the buyer's token account. */
+    lighthouse: (discriminator: number | null = 5) => ix(
+      LIGHTHOUSE, [[source, R.READONLY]],
+      discriminator === null ? new Uint8Array(0) : Uint8Array.from([discriminator, 0, 1, 2, 3]),
+    ),
     unknown: () => ix(UNKNOWN_PROGRAM, [[PAYER, R.WRITABLE_SIGNER]], Uint8Array.from([9, 9, 9])),
   };
 }
 
-async function wire(instructions: Instruction[]): Promise<string> {
+async function wire(
+  instructions: Instruction[], version: 0 | "legacy" = 0, feePayer: string = FEE_PAYER,
+): Promise<string> {
   const kit = await import("@solana/kit");
   const msg = kit.pipe(
-    kit.createTransactionMessage({ version: 0 }),
-    (m) => kit.setTransactionMessageFeePayer(kit.address(FEE_PAYER), m),
+    kit.createTransactionMessage({ version } as { version: 0 }),
+    (m) => kit.setTransactionMessageFeePayer(kit.address(feePayer), m),
     (m) => kit.setTransactionMessageLifetimeUsingBlockhash(
       { blockhash: kit.blockhash(SYSTEM), lastValidBlockHeight: 0n }, m,
     ),
@@ -143,10 +151,6 @@ test("a bound transfer built only from allowlisted instructions is hard", async 
     "with a create-idempotent for the recipient ATA": [
       p.limit(), p.price(), p.ataCreate(SELLER, p.dest), p.transfer(), p.memo(BIND_MEMO),
     ],
-    "with a plain create for the recipient ATA": [
-      p.ataCreate(SELLER, p.dest, [0]), p.transfer(), p.memo(BIND_MEMO),
-    ],
-    "with a create encoded as empty data": [p.ataCreate(SELLER, p.dest, []), p.transfer(), p.memo(BIND_MEMO)],
   };
   for (const [name, instructions] of Object.entries(shapes)) {
     const d = await evaluateResourceBindLegsFromSvmTx(await wire(instructions), FIELDS);
@@ -176,6 +180,13 @@ test("the same bound transfer with a rider instruction is refused, wherever the 
     ["memo naming an account", p.memo("note", [[PAYER, p.R.READONLY_SIGNER]]), "memo_has_accounts"],
     ["empty memo", p.memo(""), "memo_empty"],
     ["ATA RecoverNested", p.ataCreate(SELLER, p.dest, [2]), "ata_instruction_not_allowed"],
+    ["plain ATA create for the recipient", p.ataCreate(SELLER, p.dest, [0]), "ata_create_not_idempotent"],
+    ["plain ATA create encoded as empty data", p.ataCreate(SELLER, p.dest, []), "ata_create_not_idempotent"],
+    ["plain ATA create funded by the buyer", p.ataCreate(SELLER, p.dest, [0], USDC, PAYER), "ata_create_not_idempotent"],
+    ["create-idempotent for the recipient funded by the buyer", p.ataCreate(SELLER, p.dest, [1], USDC, PAYER),
+      "ata_create_funder_not_fee_payer"],
+    ["create-idempotent for the recipient funded by a third account", p.ataCreate(SELLER, p.dest, [1], USDC, OTHER),
+      "ata_create_funder_not_fee_payer"],
     ["ATA create for another owner", p.ataCreate(OTHER, p.otherAta), "ata_create_not_for_bound_recipient"],
     ["ATA create naming the recipient but another account", p.ataCreate(SELLER, p.otherAta),
       "ata_create_not_for_bound_recipient"],
@@ -393,4 +404,121 @@ test("a transaction that loads accounts from an address lookup table is refused"
   const d = await evaluateResourceBindLegsFromSvmTx(kit.getBase64EncodedWireTransaction(compiled), FIELDS);
   assert.equal(d.strength, "refuse");
   assert.equal(d.reason, refused("address_lookup_tables_not_allowed"));
+});
+
+test("a buyer who is the fee payer may fund the recipient's create-idempotent", async (t) => {
+  if (!(await peersOk())) return t.skip("optional SVM peers not installed");
+  const p = await parts();
+  // Not sponsored: the buyer pays the fee, so the buyer is the fee payer the create must name.
+  const own = [p.limit(), p.price(), p.ataCreate(SELLER, p.dest, [1], USDC, PAYER), p.transfer(), p.memo(BIND_MEMO)];
+  const d = await evaluateResourceBindLegsFromSvmTx(await wire(own, 0, PAYER), FIELDS);
+  assert.equal(d.strength, "hard", d.reason);
+  // The same instructions under a sponsor: the buyer is no longer the fee payer.
+  const sponsored = await evaluateResourceBindLegsFromSvmTx(await wire(own, 0, FEE_PAYER), FIELDS);
+  assert.equal(sponsored.strength, "refuse");
+  assert.equal(sponsored.reason, refused("ata_create_funder_not_fee_payer"));
+});
+
+/** The first byte of the message inside a base64 wire transaction, and a copy with that byte replaced. */
+async function messageVersionByte(tx: string, replaceWith?: number): Promise<{ byte: number; tx: string }> {
+  const kit = await import("@solana/kit");
+  const bytes = Buffer.from(tx, "base64");
+  // compact-u16 signature count (one byte for the counts used here), then 64 bytes per signature.
+  const offset = 1 + bytes[0] * 64;
+  const decoded = kit.getTransactionDecoder().decode(bytes);
+  assert.equal(bytes[offset], (decoded.messageBytes as unknown as Uint8Array)[0], "offset points at the message");
+  const out = Buffer.from(bytes);
+  if (replaceWith !== undefined) out[offset] = replaceWith;
+  return { byte: bytes[offset], tx: out.toString("base64") };
+}
+
+test("a legacy message and a v0 message are both decoded and held to the same allowlist", async (t) => {
+  if (!(await peersOk())) return t.skip("optional SVM peers not installed");
+  const p = await parts();
+  const bound = [p.limit(), p.price(), p.ataCreate(SELLER, p.dest), p.transfer(), p.memo(BIND_MEMO)];
+  for (const version of [0, "legacy"] as const) {
+    const tx = await wire(bound, version);
+    const { byte } = await messageVersionByte(tx);
+    if (version === 0) assert.equal(byte, 0x80, "v0 fixture carries the version prefix");
+    else assert.ok(byte < 0x80, "legacy fixture has no version prefix");
+    const d = await evaluateResourceBindLegsFromSvmTx(tx, FIELDS);
+    assert.equal(d.strength, "hard", `${version}: ${d.reason}`);
+
+    const rider = await evaluateResourceBindLegsFromSvmTx(await wire([...bound, p.systemTransfer()], version), FIELDS);
+    assert.equal(rider.strength, "refuse", String(version));
+    assert.equal(rider.reason, refused(`program_not_allowed:${SYSTEM}`), String(version));
+
+    const buyerFunded = await evaluateResourceBindLegsFromSvmTx(
+      await wire([p.ataCreate(SELLER, p.dest, [1], USDC, PAYER), p.transfer(), p.memo(BIND_MEMO)], version), FIELDS,
+    );
+    assert.equal(buyerFunded.reason, refused("ata_create_funder_not_fee_payer"), String(version));
+
+    const wrongRecipient = await evaluateResourceBindLegsFromSvmTx(
+      await wire([p.transfer(p.otherAta), p.memo(BIND_MEMO)], version), FIELDS,
+    );
+    assert.equal(wrongRecipient.strength, "refuse", String(version));
+  }
+});
+
+test("a message version other than legacy or v0 is refused, never read as bound", async (t) => {
+  if (!(await peersOk())) return t.skip("optional SVM peers not installed");
+  const p = await parts();
+  const v0 = await wire([p.limit(), p.price(), p.transfer(), p.memo(BIND_MEMO)]);
+  assert.equal((await evaluateResourceBindLegsFromSvmTx(v0, FIELDS)).strength, "hard", "control");
+  // The same bytes relabelled as v1, v2 and the highest version number.
+  for (const prefix of [0x81, 0x82, 0xff]) {
+    const { tx } = await messageVersionByte(v0, prefix);
+    const d = await evaluateResourceBindLegsFromSvmTx(tx, FIELDS);
+    assert.equal(d.strength, "refuse", `0x${prefix.toString(16)}`);
+    assert.equal(d.reason, refused("transaction_version_not_allowed"), `0x${prefix.toString(16)}`);
+    const pay = await verifyOfferBindingAfterPay({
+      transactionBase64: tx, leafHash: LEAF, payTo: SELLER, asset: USDC, amountRaw: AMOUNT.toString(),
+    });
+    assert.equal(pay.verdict, "block", `0x${prefix.toString(16)}`);
+  }
+});
+
+test("Lighthouse assertion instructions may ride anywhere in a bound transfer, in any number", async (t) => {
+  if (!(await peersOk())) return t.skip("optional SVM peers not installed");
+  const p = await parts();
+  const shapes: Record<string, Instruction[]> = {
+    "first": [p.lighthouse(), p.limit(), p.price(), p.transfer(), p.memo(BIND_MEMO)],
+    "before the transfer": [p.limit(), p.price(), p.lighthouse(), p.transfer(), p.memo(BIND_MEMO)],
+    "last": [p.limit(), p.price(), p.transfer(), p.memo(BIND_MEMO), p.lighthouse()],
+    "three of them": [p.lighthouse(2), p.limit(), p.price(), p.lighthouse(9), p.transfer(), p.memo(BIND_MEMO), p.lighthouse(17)],
+    "lowest and highest assertion variant": [p.lighthouse(2), p.lighthouse(17), p.transfer(), p.memo(BIND_MEMO)],
+  };
+  for (const [name, instructions] of Object.entries(shapes)) {
+    for (const version of [0, "legacy"] as const) {
+      const d = await evaluateResourceBindLegsFromSvmTx(await wire(instructions, version), FIELDS);
+      assert.equal(d.strength, "hard", `${name} (${version}): ${d.reason}`);
+    }
+  }
+});
+
+test("a Lighthouse instruction that is not an assertion is refused, and a guard rescues nothing", async (t) => {
+  if (!(await peersOk())) return t.skip("optional SVM peers not installed");
+  const p = await parts();
+  // 0 and 1 write and close memory accounts; 18 and above are not assertion variants; empty data names none.
+  for (const discriminator of [0, 1, 18, 255, null]) {
+    for (const [where, instructions] of [
+      ["first", [p.lighthouse(discriminator), p.transfer(), p.memo(BIND_MEMO)]],
+      ["last", [p.transfer(), p.memo(BIND_MEMO), p.lighthouse(discriminator)]],
+    ] as Array<[string, Instruction[]]>) {
+      const d = await evaluateResourceBindLegsFromSvmTx(await wire(instructions), FIELDS);
+      assert.equal(d.strength, "refuse", `${discriminator} (${where})`);
+      assert.equal(d.reason, refused("lighthouse_instruction_not_allowed"), `${discriminator} (${where})`);
+    }
+  }
+  // An allowed guard beside a rider, a wrong recipient, or a missing bind memo changes none of those outcomes.
+  const rider = await evaluateResourceBindLegsFromSvmTx(
+    await wire([p.lighthouse(), p.transfer(), p.memo(BIND_MEMO), p.systemTransfer()]), FIELDS,
+  );
+  assert.equal(rider.reason, refused(`program_not_allowed:${SYSTEM}`));
+  const wrongRecipient = await evaluateResourceBindLegsFromSvmTx(
+    await wire([p.lighthouse(), p.transfer(p.otherAta), p.memo(BIND_MEMO)]), FIELDS,
+  );
+  assert.equal(wrongRecipient.strength, "refuse");
+  const noMemo = await evaluateResourceBindLegsFromSvmTx(await wire([p.lighthouse(), p.transfer()]), FIELDS);
+  assert.equal(noMemo.strength, "soft");
 });

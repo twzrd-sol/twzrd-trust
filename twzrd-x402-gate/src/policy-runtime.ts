@@ -175,6 +175,24 @@ export const SPEND_CAP_NEEDS_LEDGER = "SPEND_CAP_NEEDS_LEDGER";
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/**
+ * One spelling per recipient. An EVM address names the same account in any
+ * letter case (EIP-55 case is a checksum), so it is compared and keyed in
+ * lower case. Solana base58 is case-sensitive and is left as it is.
+ */
+function recipientKey(payTo: string): string {
+  return EVM_ADDRESS.test(payTo) ? payTo.toLowerCase() : payTo;
+}
+/** The ledger scope a recipient's spend is booked under. */
+export function counterpartyScope(payTo: string): string {
+  return `counterparty:${recipientKey(payTo)}`;
+}
+function listsRecipient(list: readonly string[], payTo: string): boolean {
+  const key = recipientKey(payTo);
+  return list.some((entry) => recipientKey(entry) === key);
+}
+
 /**
  * Authorization-safe URL scope match for mandate.resourceAllow.
  *
@@ -266,11 +284,14 @@ export async function evaluateIntent(
     if (!policy?.newCounterpartyCap) return;
     if (!options.ledger) return capWithoutLedger("NEW_COUNTERPARTY_CAP");
     const windowMs = policy.newCounterpartyCap.windowHours * 3_600_000;
-    const scope = `counterparty:${intent.payTo}`;
-    const seen = options.ledger.firstSeen(scope);
+    // A ledger written before recipients were keyed case-insensitively holds
+    // an EVM recipient under the spelling it was paid in; that row still counts.
+    const scopes = [...new Set([counterpartyScope(intent.payTo), `counterparty:${intent.payTo}`])];
+    const firsts = scopes.map((s) => options.ledger!.firstSeen(s)).filter((t): t is number => t !== undefined);
+    const seen = firsts.length > 0 ? Math.min(...firsts) : undefined;
     const isNew = seen === undefined || now - seen <= windowMs;
     if (isNew) {
-      const spent = options.ledger.spentMicro(scope, windowMs, now);
+      const spent = scopes.reduce((sum, s) => sum + options.ledger!.spentMicro(s, windowMs, now), 0n);
       if (spent + amountMicro > toMicroUsd(policy.newCounterpartyCap.capUsd)) {
         block("NEW_COUNTERPARTY_CAP");
       }
@@ -303,7 +324,7 @@ export async function evaluateIntent(
         block("MANDATE_RESOURCE_SCOPE");
       }
     }
-    if (mandate.payeeBlocklist?.includes(intent.payTo)) {
+    if (mandate.payeeBlocklist && listsRecipient(mandate.payeeBlocklist, intent.payTo)) {
       block("MANDATE_PAYEE_BLOCKED");
     }
     if (
@@ -321,8 +342,8 @@ export async function evaluateIntent(
 
   /* 2. Company policy — local hard controls */
   if (policy) {
-    if (policy.blocklist?.includes(intent.payTo)) block("POLICY_BLOCKLIST");
-    if (policy.allowlist && !policy.allowlist.includes(intent.payTo)) {
+    if (policy.blocklist && listsRecipient(policy.blocklist, intent.payTo)) block("POLICY_BLOCKLIST");
+    if (policy.allowlist && !listsRecipient(policy.allowlist, intent.payTo)) {
       block("POLICY_NOT_ALLOWLISTED");
     }
     if (policy.allowedNetworks && !policy.allowedNetworks.includes(intent.network)) {
@@ -392,7 +413,7 @@ export async function evaluateIntent(
 
   /* 4. Record spend that will be permitted (feeds cumulative/monthly caps) */
   if (!blocked && options.ledger && options.recordSpend !== false) {
-    options.ledger.record(`counterparty:${intent.payTo}`, amountMicro, now);
+    options.ledger.record(counterpartyScope(intent.payTo), amountMicro, now);
     // Global scope only when the ceiling is on — ledgers that don't opt in
     // keep the one-record-per-allow invariant (hook-single-eval guard).
     if (policy?.dailyCeilingUsd !== undefined) {

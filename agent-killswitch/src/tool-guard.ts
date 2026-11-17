@@ -189,11 +189,13 @@ export class ToolRefusedError extends Error {
 }
 
 /**
- * Throw this from the function given to `run` when the call was never sent
- * (a local validation error, a failed DNS lookup, a refused connection), so
- * it cannot have been billed. `run` then releases the hold instead of
- * recording the worst case and tripping. Throw it only when you are sure:
- * a request that may have reached the tool must not use it.
+ * Throw this from the function given to `run` when no byte of the request
+ * can have left the process (a refusal your own code raised before it called
+ * the client), so it cannot have been billed. `run` then releases the hold
+ * instead of recording the worst case and tripping. A network error code is
+ * not proof: a client that follows redirects can reach the tool, be billed,
+ * and then fail a later hop with a DNS error or a refused connection. A
+ * request that may have reached the tool must not use it.
  */
 export class ToolNotSentError extends Error {
   constructor(message: string = "the tool call was never sent", options?: { cause?: unknown }) {
@@ -231,15 +233,54 @@ function canonicalPath(ledgerPath: string): string {
   }
 }
 
+// The same entries by file identity (device and inode), so a second name for
+// one file (a hard link) reaches the state its first name made.
+const sharedStatesByFile = new Map<string, SharedState>();
+
+/** Device and inode of the file at `filePath`, or null when it cannot be read. */
+function fileIdentity(filePath: string): string | null {
+  try {
+    const st = fs.statSync(filePath, { bigint: true });
+    return `${st.dev}:${st.ino}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Create the ledger file when it is missing, so it has an identity before
+ * a guard is keyed on it. Opening through a symlink whose target does not
+ * exist yet creates the target. A failure here is left for the first ledger
+ * write to report.
+ */
+function ensureLedgerFile(ledgerPath: string): void {
+  const abs = path.resolve(ledgerPath);
+  try {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.closeSync(fs.openSync(abs, "a"));
+  } catch {
+    // keyed on the path alone, as before
+  }
+}
+
 function sharedStateFor(ledgerPath: string): SharedState {
+  ensureLedgerFile(ledgerPath);
   const key = canonicalPath(ledgerPath);
+  const fileId = fileIdentity(key);
   let state = sharedStates.get(key);
+  if (state === undefined && fileId !== null) {
+    // Only while that state's own path still names this file: an inode
+    // number freed by a rotation can be reused by an unrelated file.
+    const byFile = sharedStatesByFile.get(fileId);
+    if (byFile !== undefined && fileIdentity(byFile.path) === fileId) state = byFile;
+  }
   if (state === undefined) {
     const ledger = new Ledger(key);
     ledger.load();
     state = { path: key, ledger, holds: new Map(), nextHoldId: 1, heldPauseUntilMs: 0 };
-    sharedStates.set(key, state);
   }
+  sharedStates.set(key, state);
+  if (fileId !== null) sharedStatesByFile.set(fileId, state);
   return state;
 }
 

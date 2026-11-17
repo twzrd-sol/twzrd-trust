@@ -129,11 +129,15 @@ export function createTestSigner() {
  * Mutable knobs let a test change the world mid-run:
  *   priceMicro, billMicro (what the seller reports it charged; null = the price),
  *   reportBill (false = no payment-response header), receipt (the body's receipt),
- *   decision ("allow" | "block"), washFlagged, hook(event) (called on every request).
+ *   decision ("allow" | "block"), washFlagged, hook(event) (called on every request),
+ *   payTo (who the 402 names and who a payment must name; the receipt stays about SELLER),
+ *   afterPayStatus (what the seller answers once it has taken a valid payment).
  */
 export async function startWorld(publicKey) {
   const world = {
     priceMicro: 10_000,
+    payTo: SELLER,
+    afterPayStatus: 200,
     billMicro: null,
     reportBill: true,
     receipt: RECEIPT_FIXTURE,
@@ -171,7 +175,7 @@ export async function startWorld(publicKey) {
       }
       if (event === "merchant_card") return json(200, { wash_flagged: world.washFlagged, wash_confidence: "full" });
       if (event === "challenge") {
-        return json(402, { accepts: [{ payTo: SELLER, amount: String(world.priceMicro), network: "solana", asset: USDC }] });
+        return json(402, { accepts: [{ payTo: world.payTo, amount: String(world.priceMicro), network: "solana", asset: USDC }] });
       }
       if (event !== "payment") return json(404, {});
       let payment;
@@ -182,7 +186,7 @@ export async function startWorld(publicKey) {
       }
       const message = `${payment.payTo}|${payment.amount}|${payment.nonce}`;
       const valid =
-        payment.payTo === SELLER &&
+        payment.payTo === world.payTo &&
         payment.amount === String(world.priceMicro) &&
         !world.nonces.has(payment.nonce) &&
         crypto.verify(null, Buffer.from(message), publicKey, Buffer.from(String(payment.signature), "base64"));
@@ -190,6 +194,8 @@ export async function startWorld(publicKey) {
       world.nonces.add(payment.nonce);
       world.paidCount += 1;
       world.receivedMicro += world.priceMicro;
+      // The seller has the payment. What it answers next is its own choice.
+      if (world.afterPayStatus !== 200) return json(world.afterPayStatus, { error: "upstream" });
       const headers = world.reportBill
         ? {
             "payment-response": Buffer.from(
@@ -266,8 +272,21 @@ export function createPipeline({ state, world, signer, limits, policy = {}, gate
     wrapPay: (guarded) =>
       signer.wrapPay(async (input, init) => {
         const resp = await guarded(input, init);
+        if (resp.status !== 402) return resp;
+        const call = callTrace.getStore();
+        // Stage 3 approved one seller at one price. This 402 is a second read
+        // of the seller's offer, and the paying fetch checks it for wash and
+        // budget only. It must still be the offer that was approved: the same
+        // recipient, at no more than the approved price.
+        const header = resp.headers.get("payment-required");
+        const challenge = header ? JSON.parse(Buffer.from(header, "base64").toString("utf8")) : await resp.clone().json();
+        const offers = Array.isArray(challenge?.accepts) ? challenge.accepts : [];
+        const approved = call?.approved;
+        const same = offers.length > 0 && approved !== undefined &&
+          offers.every((o) => o.payTo === approved.payTo && /^[0-9]+$/.test(String(o.amount)) && Number(o.amount) <= approved.micro);
+        if (!same) throw new TwzrdWashAbortError("offer_changed_after_approval");
         // A 402 reaching the signer means the budget step cleared it.
-        if (resp.status === 402) callTrace.getStore()?.push("budget");
+        call.trace.push("budget");
         return resp;
       }),
     stateDir: state.dir,
@@ -309,7 +328,7 @@ export function createPipeline({ state, world, signer, limits, policy = {}, gate
       // Stages 4 and 5: budget authorization, then payment.
       let resp;
       try {
-        resp = await callTrace.run(trace, () => policyFetch(world.url));
+        resp = await callTrace.run({ trace, approved: offer }, () => policyFetch(world.url));
       } catch (err) {
         // The gate raises these before it hands the 402 to the signer, so nothing was sent.
         if (err instanceof TwzrdPolicyAbortError || err instanceof TwzrdWashAbortError) {

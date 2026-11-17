@@ -23,6 +23,14 @@ function x402FetchPeer(entry: string): Promise<typeof import("@x402/fetch")> {
 }
 
 /** Wash abort, and the `.kill` / `.pause` halt; never treated as a dead origin. */
+/**
+ * The 402 carries a PAYMENT-REQUIRED header this package cannot read (not
+ * canonical base64, or not a JSON object). A payer may still read it: the
+ * x402 client decodes with `atob`, which takes text a strict reader refuses.
+ * A challenge that was not checked is never handed to the payer.
+ */
+export const PAYMENT_REQUIRED_UNREADABLE = "twzrd_payment_required_unreadable";
+
 export class TwzrdWashAbortError extends Error {
   override name = "TwzrdWashAbortError";
 }
@@ -112,7 +120,7 @@ export function createTwzrdPayingFetch(opts: CreateTwzrdPayingFetchInput): typeo
     let challenge: unknown;
     try {
       challenge = await paymentRequiredFromResponse(resp);
-    } catch { return handOver(resp); }
+    } catch { throw new TwzrdWashAbortError(PAYMENT_REQUIRED_UNREADABLE); }
     if (challenge == null) return handOver(resp);
     lastChallenge = challenge;
     const accepts = (challenge as { accepts?: Array<Record<string, unknown>> }).accepts;

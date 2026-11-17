@@ -87,7 +87,7 @@ Guard an agent's paying fetch: a caller-supplied USDC cap, an explicit recipient
 allowlist, mandatory free preflight, and a local decision record before signing.
 
 ```bash
-npm install twzrd-x402-gate@0.23.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.24.0 @x402/core @x402/fetch
 ```
 
 ```js
@@ -111,7 +111,7 @@ wallet first. The optional `expectedAmount` quote binding needs `twzrd-x402-gate
 ### PayAI `x402-solana`
 
 ```bash
-npm install twzrd-x402-gate@0.23.0 x402-solana@3.0.1
+npm install twzrd-x402-gate@0.24.0 x402-solana@3.0.1
 ```
 
 ```ts
@@ -177,7 +177,7 @@ Registry `latest` as read on 2026-11-11; killswitch container pin also rechecked
 
 | Package | Registry | This tree | Role |
 |---|---|---|---|
-| `twzrd-x402-gate` | npm **0.23.0** | 0.23.0 | Buyer-side gate SDK and CLIs; the one package with source here |
+| `twzrd-x402-gate` | npm **0.24.0** | 0.24.0 | Buyer-side gate SDK and CLIs; the one package with source here |
 | `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
 | `twzrd-receipt-verifier` | npm and PyPI 1.4.4 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
 | `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.3 / PyPI 0.2.3 | 0.6.3 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
@@ -186,7 +186,7 @@ Registry `latest` as read on 2026-11-11; killswitch container pin also rechecked
 | `twzrd-preflight` | npm 0.5.1 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
 | `twzrd-log-verifier` | npm 0.5.4 | 0.5.4 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. 0.5.4 refuses a proof path entry that is not a string; 0.5.3 and later refuse a leaf that is not a string; 0.5.2 and later require a receipt checked beside an inclusion proof to name its own leaf; 0.5.1 and later do not follow redirects from the log. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
-| `@twzrd1111/agent-killswitch` | npm **0.3.0**; `ghcr.io/twzrd-sol/agent-killswitch:0.2.1` | 0.4.0 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
+| `@twzrd1111/agent-killswitch` | npm **0.5.0**; `ghcr.io/twzrd-sol/agent-killswitch:0.2.1` | 0.5.0 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
 
 ## Endpoints and prices
 
@@ -211,7 +211,7 @@ only.
 
 Each entry point's defaults are in the gate's
 [defaults by entry point](./twzrd-x402-gate/README.md#defaults-by-entry-point)
-table. Where the seller check runs, 0.23.0 refuses these by default (the last
+table. Where the seller check runs, 0.24.0 refuses these by default (the last
 three since 0.13.0):
 
 | Seller evidence | Reason code | Option (environment variable) |
@@ -435,7 +435,7 @@ sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
 
 | Package | Pin | Description |
 |---|---|---|
-| `twzrd-x402-gate` | **@0.23.0** | Buyer-side gate SDK (`createBuyerFetch`) + pre-sign seat hooks |
+| `twzrd-x402-gate` | **@0.24.0** | Buyer-side gate SDK (`createBuyerFetch`) + pre-sign seat hooks |
 | `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
 | `twzrd-mcp-server` | **@0.6.3** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
@@ -459,7 +459,7 @@ sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
 
 ## Contributing and change control
 
-Issues and pull requests on this repository. A sample that does not run exactly as shown is a bug. The release policy for `twzrd-x402-gate` is the manual `publish` workflow with an `expected_version` check and npm provenance; the published 0.23.0 carries a provenance attestation from this repository (`npm view twzrd-x402-gate@0.23.0 dist.attestations`). Earlier releases did not all follow that path; [AGENTS.md](./AGENTS.md) records the fork history. A change to what the gate allows or refuses ships in a minor release with a `CHANGELOG.md` entry ([policy](./twzrd-x402-gate/CHANGELOG.md#versioning-policy-from-0110)). Artifact directories are resynced from the published tarball, never hand-edited ([AGENTS.md](./AGENTS.md)). Tests pin the documentation: the current install pin, the pay-path contract, the refusal-code tables and the generated ecosystem block are all asserted by `npm test`, so a doc that drifts from the code fails CI.
+Issues and pull requests on this repository. A sample that does not run exactly as shown is a bug. The release policy for `twzrd-x402-gate` is the manual `publish` workflow with an `expected_version` check and npm provenance; the published 0.24.0 carries a provenance attestation from this repository (`npm view twzrd-x402-gate@0.24.0 dist.attestations`). Earlier releases did not all follow that path; [AGENTS.md](./AGENTS.md) records the fork history. A change to what the gate allows or refuses ships in a minor release with a `CHANGELOG.md` entry ([policy](./twzrd-x402-gate/CHANGELOG.md#versioning-policy-from-0110)). Artifact directories are resynced from the published tarball, never hand-edited ([AGENTS.md](./AGENTS.md)). Tests pin the documentation: the current install pin, the pay-path contract, the refusal-code tables and the generated ecosystem block are all asserted by `npm test`, so a doc that drifts from the code fails CI.
 
 ## License
 

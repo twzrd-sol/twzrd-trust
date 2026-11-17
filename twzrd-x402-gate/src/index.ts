@@ -33,6 +33,10 @@ export {
   NETWORK_MALFORMED,
   BATCH_SETTLEMENT_REFUSED,
   isBatchSettlement,
+  AUTH_CAPTURE_REFUSED,
+  isAuthCapture,
+  SVM_UPTO_REFUSED,
+  isSvmUpto,
   SVM_SPLITS_REFUSED,
   hasSvmExactSplits,
   isBaseUnitAmount,
@@ -256,6 +260,8 @@ export {
   twzrd,
   spendControlSafeFetch,
   verifyOfferBindingAfterPay,
+  BIND_SELLER_MEMO_CONFLICT,
+  offerSetsSellerMemo,
   type OfferBindingCheck,
   type SpendControlOptions,
   type SpendControlPayResult,
@@ -479,6 +485,7 @@ export {
   type OutcomeVerdict,
 } from "./outcome-attestation.js";
 export {
+  counterpartyScope,
   createMemorySpendLedger,
   evaluateIntent,
   POLICY_VERSION,
@@ -597,9 +604,9 @@ export {
   type WashBeforePaymentContext,
   type WashBeforePaymentResult,
 } from "./wash-default.js";
-export { createTwzrdPayingFetch, TwzrdWashAbortError } from "./paying-fetch.js";
+export { createTwzrdPayingFetch, PAYMENT_REQUIRED_UNREADABLE, TwzrdWashAbortError } from "./paying-fetch.js";
 export type { CreateTwzrdPayingFetchInput } from "./paying-fetch.js";
-export { createTwzrdPolicyFetch, TwzrdPolicyAbortError } from "./policy-fetch.js";
+export { createTwzrdPolicyFetch, SPEND_LEDGER_UNAVAILABLE, TwzrdPolicyAbortError } from "./policy-fetch.js";
 export type { CreateTwzrdPolicyFetchInput } from "./policy-fetch.js";
 export {
   HOUSE_PAYER_PREFIXES,

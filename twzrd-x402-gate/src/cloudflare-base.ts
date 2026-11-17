@@ -427,6 +427,13 @@ function baseOffer(requirements: CloudflareBaseRequirements): { payTo: string; p
   if (typeof payTo !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(payTo)) {
     throw new OfferRefusal("twzrd_unidentifiable_payment_recipient", "[twzrd] Base x402 requirements lack a valid eip155:8453 payTo");
   }
+  // This check prices `amount` paid to `payTo`. Only the exact scheme signs
+  // exactly that: batch-settlement escrows a deposit, auth-capture signs fee
+  // terms from `extra`. A missing scheme is read as exact.
+  const scheme = (accept as { scheme?: unknown } | undefined)?.scheme;
+  if (scheme != null && String(scheme).trim().toLowerCase() !== "exact") {
+    throw new OfferRefusal("scheme_not_exact", "[twzrd] Base offer names a scheme other than exact");
+  }
   const a = accept?.amount;
   const m = accept?.maxAmountRequired;
   if (a != null && m != null && String(a) !== String(m)) {

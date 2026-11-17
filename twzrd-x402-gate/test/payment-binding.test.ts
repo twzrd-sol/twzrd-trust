@@ -36,7 +36,7 @@ import {
   approvedRequirementOf,
   paymentBindingRefusal,
 } from "../src/payment-binding.js";
-import { BATCH_SETTLEMENT_REFUSED, isBatchSettlement, resolveRequirementFields } from "../src/payto.js";
+import { BATCH_SETTLEMENT_REFUSED, SVM_UPTO_REFUSED, isBatchSettlement, resolveRequirementFields } from "../src/payto.js";
 import { createTwzrdPolicyFetch } from "../src/policy-fetch.js";
 import { spendControlSafeFetch } from "../src/spend-control.js";
 import { evaluateWashOnlyBeforePayment } from "../src/wash-default.js";
@@ -259,7 +259,8 @@ test("the reader refuses batch-settlement, however the scheme is spelled", () =>
   assert.equal(isBatchSettlement({ ...BATCH, scheme: "exact" }), false);
   assert.equal(resolveRequirementFields({ ...BATCH, scheme: "exact" }).conflict, undefined);
   assert.equal(resolveRequirementFields({ ...BATCH, scheme: undefined }).conflict, undefined);
-  assert.equal(resolveRequirementFields({ ...BATCH, scheme: "upto" }).conflict, undefined);
+  // The fixture is a Solana offer: upto there is refused under its own code (scheme-refusals.test.ts).
+  assert.equal(resolveRequirementFields({ ...BATCH, scheme: "upto" }).conflict, SVM_UPTO_REFUSED);
 });
 
 test("every capped seat refuses a batch-settlement offer before intel and before the payer", async () => {

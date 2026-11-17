@@ -513,7 +513,9 @@ async function run() {
     assert.notEqual(challengeHashV1({ ...CHALLENGE, network: SOLANA_MAINNET }), h,
       "the hash commits to the RAW network string the agent saw");
     assert.notEqual(challengeHashV1({ ...CHALLENGE, resource: "https://api.merchant.example/v1/weather?units=metric&city=paris" }), h);
-    assert.notEqual(challengeHashV1({ ...CHALLENGE, scheme: "upto" }), h);
+    assert.notEqual(challengeHashV1({ ...CHALLENGE, scheme: "exact-next" }), h);
+    // upto on Solana is a refused requirement: no hash is committed for it.
+    assert.throws(() => challengeHashV1({ ...CHALLENGE, scheme: "upto" }), /svm_upto_refused/);
     assert.notEqual(challengeHashV1({ ...CHALLENGE, payTo: "AttackerWa11etBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" }), h);
     // amount / pay_to aliases are accepted (x402 v1 vs v2 wire).
     const { maxAmountRequired, payTo, ...rest } = CHALLENGE;

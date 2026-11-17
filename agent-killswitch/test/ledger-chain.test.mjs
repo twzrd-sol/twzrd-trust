@@ -232,17 +232,18 @@ test("a torn tail is reported, not checked, and does not crash", () => {
   assert.equal(r.head_line, 2);
 });
 
-test("a row appended onto a torn tail stays in the chain as one unparseable line", () => {
+test("a row appended after a torn tail starts its own line and the chain still verifies", () => {
   const file = ledgerWith(1);
   fs.appendFileSync(file, '{"timestamp":"2026-'); // a crashed writer's fragment
   const ledger = new Ledger(file);
-  ledger.append(row(2)); // lands on the fragment's line, as before this change
-  ledger.append(row(3)); // commits to that whole line
+  ledger.append(row(2)); // the fragment is ended first: this row is line 3
+  ledger.append(row(3)); // commits to row 2
   const r = verifyLedgerFile(file);
   assert.equal(r.ok, true);
-  assert.deepEqual(r.unparseable, [2]);
-  assert.equal(r.chained, 2);
+  assert.deepEqual(r.unparseable, [2]); // the fragment alone
+  assert.equal(r.chained, 3);
   assert.deepEqual(r.breaks, []);
+  assert.equal(r.torn_tail, false);
 });
 
 test("the tail reader handles a line longer than its read chunk and skips empty lines", () => {

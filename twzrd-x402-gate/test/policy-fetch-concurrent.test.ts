@@ -155,15 +155,15 @@ test("a daily ceiling counts a payment that is still in flight", async () => {
   assert.equal(h.spent("policy:global"), 10_000n);
 });
 
-test("a payment that fails releases what it had reserved", async () => {
-  let fail = true;
-  const h = harness({ barrier: 1, policy: { dailyCeilingUsd: "0.015" }, failPaid: () => fail });
+test("a payment that was sent stays booked when the seller answers an error", async () => {
+  // The seller has the signed payment and can settle it whatever it answers,
+  // so the amount counts against the ceiling and the next call is refused.
+  const h = harness({ barrier: 1, policy: { dailyCeilingUsd: "0.015" }, failPaid: () => true });
   await assert.rejects(async () => {
     const r = await h.pf("https://origin.example/paid/10000");
     if (!r.ok) throw new Error(`status ${r.status}`);
   });
-  assert.equal(h.spent("policy:global"), 0n, "a failed payment is not booked");
-  fail = false;
-  assert.equal((await h.pf("https://origin.example/paid/10000")).status, 200, "the ceiling is whole again");
-  assert.equal(h.spent("policy:global"), 10_000n);
+  assert.equal(h.spent("policy:global"), 10_000n, "a payment that left is booked");
+  await assert.rejects(() => h.pf("https://origin.example/paid/10000"), TwzrdPolicyAbortError);
+  assert.equal(h.state.signs, 1, "the second payment must not reach the signer");
 });

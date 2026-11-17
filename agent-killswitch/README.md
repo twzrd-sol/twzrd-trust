@@ -517,11 +517,13 @@ try {
     { tool: "search", worstCaseUsd: 0.0005, requestId },
     async () => {
       if (!query) throw new ToolNotSentError("empty query"); // nothing left the process
+      if (query.length > 400) throw new RangeError("query too long"); // raised here, before the client is called
       const response = await search(query);
       return { result: response.results, billedUsd: response.billedUsd };
     },
-    // Optional: errors your client raises before it sends anything.
-    { isNotSent: (err) => err?.code === "ENOTFOUND" },
+    // Optional: true only for an error raised before any byte of the request
+    // could leave the process. Never decide it from a network error code.
+    { isNotSent: (err) => err instanceof RangeError && err.message === "query too long" },
   );
 } catch (err) {
   if (err instanceof ToolRefusedError) {
@@ -556,8 +558,14 @@ time is up; nobody has to clear it. To resume early, delete `.pause`.
 been billed, with one escape for a call that was never sent: throw a
 `ToolNotSentError`, or pass `isNotSent` and return exactly `true` for
 errors your client raises before it sends anything. The hold is then
-released, nothing is recorded and nothing is paused. Use it only when you
-are sure; a timeout or a dropped connection is not "never sent". The
+released, nothing is recorded and nothing is paused. The classifier must
+be true only when no byte of the request can have left the process: a
+refusal your own code raised before it called the client, or a
+connect-phase error from a client with redirects turned off. A DNS error
+(`ENOTFOUND`) or a refused connection from a client that follows redirects
+does not qualify: the first request can reach the tool and be billed
+before a later hop fails with the same code. A timeout or a dropped
+connection is not "never sent" either. The
 escape covers only what `fn` throws: once `fn` has resolved, the call
 counts as sent, whatever its result looks like.
 
