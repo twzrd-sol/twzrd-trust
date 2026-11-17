@@ -173,18 +173,18 @@ is published at `https://intel.twzrd.xyz/.well-known/twzrd-receipt-pubkey`.
 
 ## Versions
 
-Registry `latest` as read on 2026-11-11; killswitch container pin also rechecked on that date. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
+Registry `latest` as read on 2026-11-17; killswitch container pin also rechecked on that date. The tree column is what this checkout mirrors; a difference is a pending resync, not a second product.
 
 | Package | Registry | This tree | Role |
 |---|---|---|---|
 | `twzrd-x402-gate` | npm **0.25.0** | 0.25.0 | Buyer-side gate SDK and CLIs; the one package with source here |
 | `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
 | `twzrd-receipt-verifier` | npm and PyPI 1.4.6 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
-| `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.3 / PyPI 0.2.3 | 0.6.3 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
+| `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.3 / PyPI 0.2.4 | 0.6.3 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
 | `@wzrd_sol/eliza-plugin` | npm 0.10.2 | 0.10.2 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.12 | 0.3.12 (`dist/` mirror) | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.5.1 | separate repository | OpenClaw wrapped-fetch adapter |
-| `twzrd-agent-intel` | PyPI 0.5.13 | not in this repository | Server package behind the hosted checks |
+| `twzrd-agent-intel` | PyPI 0.5.14 | not in this repository | Server package behind the hosted checks |
 | `twzrd-log-verifier` | npm 0.5.4 | 0.5.4 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. 0.5.4 refuses a proof path entry that is not a string; 0.5.3 and later refuse a leaf that is not a string; 0.5.2 and later require a receipt checked beside an inclusion proof to name its own leaf; 0.5.1 and later do not follow redirects from the log. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
 | `@twzrd1111/agent-killswitch` | npm **0.5.0**; `ghcr.io/twzrd-sol/agent-killswitch:0.2.1` | 0.5.0 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
 
