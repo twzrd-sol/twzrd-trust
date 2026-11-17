@@ -56,8 +56,8 @@ KEY=Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS
 R=docs/proofs/intel-receipt
 ```
 
-The outputs shown were produced on 2026-11-14 with `twzrd-receipt-verifier` 1.4.4,
-`twzrd-log-verifier` 0.5.1 and Node 24.22.1.
+The outputs shown were produced with Node 24.22.1: step 2 on 2026-11-17 with
+`twzrd-receipt-verifier` 1.4.6, the other steps on 2026-11-14 with `twzrd-log-verifier` 0.5.1.
 
 ## 1. Pin the key
 
@@ -87,7 +87,7 @@ origin, so count them as one source. After the key is pinned, nothing below asks
 ## 2. Reference verifier
 
 ```bash
-npx -y twzrd-receipt-verifier@1.4.4 $R/receipt.json --pubkey $KEY
+npx -y twzrd-receipt-verifier@1.4.6 $R/receipt.json --pubkey $KEY
 ```
 
 ```text
@@ -103,7 +103,7 @@ BOUND     score   covered by Ed25519 over the signed payload
 BOUND     confidence_bps   covered by Ed25519 over the signed payload
 BOUND     timestamp_unix   covered by Ed25519 over the signed payload
 BOUND     payer   covered by Ed25519 over the signed payload
-BOUND     settlement_tx   covered by Ed25519 over the signed payload
+BOUND     settlement_tx   last 32 bytes covered by Ed25519 over the signed payload
 BOUND     reputation_score   covered by Ed25519 over the signed payload
 BOUND     reputation_confidence_bps   covered by Ed25519 over the signed payload
 BOUND     reputation_score_version   covered by Ed25519 over the signed payload
@@ -115,14 +115,18 @@ FRESHNESS score_decay_model   covered by the V7 leaf binding
 VERDICT   valid-signature
 trusted_due      : false
 trusted_allow    : false
-freshness_bound  : false
+freshness_bound  : true
 ```
 
 `leaf_valid` means the fields in `preimage` hash to `leaf`. `signature_valid` means the
 pinned key signed that leaf. The `BOUND` and `FRESHNESS` lines list the fields the leaf
-covers; change one and the leaf no longer matches. The last three lines are constants in
-this verifier version (it prints `false` for every receipt) and are not a result of the
-check. Exit code 0 means valid, 1 means invalid.
+covers; change one and the leaf no longer matches. For `settlement_tx` the leaf holds only
+the last 32 characters (`settlement_anchor`, see step 5), and the line says so.
+`trusted_due` and `trusted_allow` print `false` for every receipt: they are not a result
+of the check, and the verifier never grants a spend. `freshness_bound : true` means this run
+verified a V7 receipt, so the three freshness fields are the issuer's. It does not say the
+recheck date is still ahead. Versions through 1.4.5 printed `false` here on every receipt.
+Exit code 0 means valid, 1 means invalid.
 
 With `--pubkey` the verifier makes no network call. Without it, the verifier fetches the key
 from `https://intel.twzrd.xyz/.well-known/x402`, which trusts the server you are checking.
@@ -131,7 +135,7 @@ An edited copy fails. Change the score and run it again:
 
 ```bash
 jq '.preimage.score = 99' $R/receipt.json > /tmp/edited-receipt.json
-npx -y twzrd-receipt-verifier@1.4.4 /tmp/edited-receipt.json --pubkey $KEY; echo "exit $?"
+npx -y twzrd-receipt-verifier@1.4.6 /tmp/edited-receipt.json --pubkey $KEY; echo "exit $?"
 ```
 
 The output begins:
