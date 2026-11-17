@@ -55,7 +55,8 @@ SCHEMAS = {
         "description": (
             "Verify a saved TWZRD signed receipt JSON file (V7; V5 and V6 still verify) "
             "against the pinned TWZRD Ed25519 issuer key. The key is fixed by the plugin "
-            "and is not an argument; the result names it as issuer_pubkey. The check "
+            "and is not an argument; the result names it as issuer_pubkey. A receipt that "
+            "names another key id is refused. The check "
             "makes no network or RPC call; the first run installs the verifier from npm "
             "by lockfile. Requires Node.js 16+ with npm."
         ),
@@ -68,6 +69,7 @@ SCHEMAS = {
                 },
                 "max_age_seconds": {
                     "type": "integer",
+                    "minimum": 1,
                     "description": (
                         "Optional staleness policy: reject a receipt whose signed "
                         "timestamp is older than this many seconds."

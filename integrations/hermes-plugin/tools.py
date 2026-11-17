@@ -24,12 +24,18 @@ USER_AGENT = "twzrd-hermes-plugin/0.2.0"
 
 _MAX_BODY = 1_000_000
 
-# The verifier and every dependency are installed from verifier/package-lock.json, so the
-# code that runs is fixed by integrity hash and cannot change under the version pin.
+# The verifier and every dependency are installed from verifier/package-lock.json, and every
+# installed file is checked against verifier/files.sha256 before each run, so the code that
+# runs cannot change under the version pin or be swapped in the cache afterwards.
 _VERIFIER_DIR = Path(__file__).parent / "verifier"
 _VERIFIER_SCRIPT = ("node_modules", "twzrd-receipt-verifier", "verify_twzrd_receipt.js")
 _INSTALL_TIMEOUT = 120
 _VERIFY_TIMEOUT = 30
+_MAX_RECEIPT_BYTES = 1_000_000
+_MAX_AGE_LIMIT = 10**10
+# The verifier also accepts two retired keys for a receipt that names the v1 key id or no
+# key id. This plugin trusts ISSUER_PUBKEY only, so such a receipt is refused up front.
+ISSUER_KEY_ID = "twzrd-receipt-ed25519-v2"
 
 # The only variables the npm and node child processes receive. Nothing else in the host
 # environment (provider API keys, tokens) is passed down.
@@ -111,11 +117,59 @@ class _VerifierError(Exception):
     pass
 
 
-def _child_env() -> dict:
-    allowed = set(_CHILD_ENV) | set(_CHILD_ENV_NPM)
+def _child_env(npm: bool = False) -> dict:
+    """Environment for a child process: node gets the base set, npm also its own config."""
+    allowed = set(_CHILD_ENV)
+    if npm:
+        # npm reads these in upper or lower case; no other spelling is passed.
+        allowed |= set(_CHILD_ENV_NPM) | {name.lower() for name in _CHILD_ENV_NPM}
     if os.name == "nt":
         allowed |= set(_CHILD_ENV_WINDOWS)
-    return {k: v for k, v in os.environ.items() if k.upper() in allowed}
+        upper = {name.upper() for name in allowed}
+        return {k: v for k, v in os.environ.items() if k.upper() in upper}
+    return {k: v for k, v in os.environ.items() if k in allowed}
+
+
+def _expected_files() -> dict:
+    out = {}
+    for line in (_VERIFIER_DIR / "files.sha256").read_text(encoding="utf-8").splitlines():
+        digest, _, rel = line.partition("  ")
+        if rel:
+            out[rel] = digest
+    return out
+
+
+def _install_is_intact(root: Path) -> bool:
+    """True when node_modules holds exactly the files in files.sha256, byte for byte."""
+    modules = root / "node_modules"
+    if root.is_symlink() or not modules.is_dir() or modules.is_symlink():
+        return False
+    expected = _expected_files()
+    found = set()
+    for folder, dirs, files in os.walk(modules):
+        here = Path(folder)
+        if here == modules:
+            # npm's own bookkeeping; node never loads code from either.
+            dirs[:] = [d for d in dirs if d != ".bin"]
+            files = [f for f in files if f != ".package-lock.json"]
+        for name in dirs + files:
+            if (here / name).is_symlink():
+                return False
+        for name in files:
+            rel = (here / name).relative_to(root).as_posix()
+            if rel not in expected:
+                return False
+            if hashlib.sha256((here / name).read_bytes()).hexdigest() != expected[rel]:
+                return False
+            found.add(rel)
+    return found == set(expected)
+
+
+def _discard(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
 
 
 def _cache_root() -> Path:
@@ -127,7 +181,7 @@ def _ensure_verifier(npm: str, env: dict) -> Path:
     lock = (_VERIFIER_DIR / "package-lock.json").read_bytes()
     root = _cache_root() / f"verifier-{hashlib.sha256(lock).hexdigest()[:16]}"
     script = root.joinpath(*_VERIFIER_SCRIPT)
-    if script.is_file():
+    if _install_is_intact(root):
         return script
     root.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix="stage-", dir=root.parent))
@@ -147,17 +201,43 @@ def _ensure_verifier(npm: str, env: dict) -> Path:
                 f"verifier install failed (npm ci exit {proc.returncode}): "
                 f"{proc.stderr.strip()[-1000:]}"
             )
-        try:
+        if not _install_is_intact(stage):
+            raise _VerifierError("installed verifier files do not match verifier/files.sha256")
+        if not _install_is_intact(root):
+            # Absent, partial or altered: replace it. If another process finished the same
+            # install in between, the check above passed and its copy is kept.
+            _discard(root)
             os.replace(stage, root)
-        except OSError:
-            # Another process finished the same install first.
-            if not script.is_file():
-                raise
     finally:
         shutil.rmtree(stage, ignore_errors=True)
-    if not script.is_file():
-        raise _VerifierError("verifier install did not produce the verifier script")
     return script
+
+
+def _issuer_refusal(raw: bytes) -> str | None:
+    """Why this receipt cannot be checked against ISSUER_PUBKEY alone, or None if it can."""
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return "Receipt file is not valid JSON"
+    if not isinstance(doc, dict):
+        return "Receipt file is not a JSON object"
+    # API responses nest the receipt under twzrd_receipt, and the verifier unwraps that. A file
+    # that carries both a nested and a top-level receipt is refused, so the object checked
+    # here is always the one the verifier checks.
+    inner = doc.get("twzrd_receipt")
+    if isinstance(inner, dict):
+        if "preimage" in doc or "anchor" in doc:
+            return "Receipt file holds both a top-level receipt and a nested twzrd_receipt"
+        doc = inner
+    if doc.get("key_id") != ISSUER_KEY_ID:
+        return (
+            f"receipt key_id must be {ISSUER_KEY_ID}: this plugin trusts the pinned issuer "
+            f"key {ISSUER_PUBKEY} only, not retired keys"
+        )
+    embedded = doc.get("signing_pubkey")
+    if embedded is not None and embedded != ISSUER_PUBKEY:
+        return f"receipt signing_pubkey is not the pinned issuer key {ISSUER_PUBKEY}"
+    return None
 
 
 def handle_verify_receipt(args: dict, **kwargs) -> str:
@@ -173,25 +253,41 @@ def handle_verify_receipt(args: dict, **kwargs) -> str:
             valid=False,
             issuer_pubkey=ISSUER_PUBKEY,
         )
+    # A staleness policy that cannot be applied is refused, never silently dropped.
+    max_age = args.get("max_age_seconds")
+    if max_age is not None and not (
+        isinstance(max_age, int) and not isinstance(max_age, bool) and 0 < max_age <= _MAX_AGE_LIMIT
+    ):
+        return _fail("max_age_seconds must be a positive integer number of seconds", valid=False)
     path = Path(raw_path.strip()).expanduser().resolve()
     if not path.is_file():
         return _fail(f"Receipt file not found: {path}", valid=False)
+    # Read the file once. The same bytes are checked here and piped to the verifier, so the
+    # file cannot change between the key check and the signature check.
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(_MAX_RECEIPT_BYTES + 1)
+    except OSError as exc:
+        return _fail(f"Receipt file could not be read: {exc}", valid=False)
+    if len(raw) > _MAX_RECEIPT_BYTES:
+        return _fail("Receipt file is larger than 1 MB", valid=False)
+    refusal = _issuer_refusal(raw)
+    if refusal is not None:
+        return _fail(refusal, valid=False, issuer_pubkey=ISSUER_PUBKEY)
     node, npm = shutil.which("node"), shutil.which("npm")
     if node is None or npm is None:
         return _fail("Node.js 16+ with npm is required to run the pinned verifier", valid=False)
-    env = _child_env()
     try:
-        script = _ensure_verifier(npm, env)
+        script = _ensure_verifier(npm, _child_env(npm=True))
     except (_VerifierError, OSError) as exc:
         return _fail(f"{exc}", valid=False)
-    cmd = [node, str(script), str(path), "--pubkey", ISSUER_PUBKEY]
-    max_age = args.get("max_age_seconds")
-    if isinstance(max_age, int) and not isinstance(max_age, bool) and max_age > 0:
+    cmd = [node, str(script), "-", "--pubkey", ISSUER_PUBKEY]
+    if max_age is not None:
         cmd += ["--max-age", str(max_age)]
     try:
         proc = subprocess.run(
-            cmd, env=env, capture_output=True, text=True, timeout=_VERIFY_TIMEOUT,
-            check=False, stdin=subprocess.DEVNULL,
+            cmd, env=_child_env(), input=raw, capture_output=True,
+            timeout=_VERIFY_TIMEOUT, check=False,
         )
     except subprocess.TimeoutExpired:
         return _fail(f"verifier timed out after {_VERIFY_TIMEOUT} s", valid=False)
@@ -205,7 +301,7 @@ def handle_verify_receipt(args: dict, **kwargs) -> str:
             "issuer_pubkey": ISSUER_PUBKEY,
             "verifier": VERIFIER_PACKAGE,
             "exit_code": proc.returncode,
-            "stdout": proc.stdout.strip()[-4000:],
-            "stderr": proc.stderr.strip()[-2000:],
+            "stdout": proc.stdout.decode("utf-8", errors="replace").strip()[-4000:],
+            "stderr": proc.stderr.decode("utf-8", errors="replace").strip()[-2000:],
         }
     )

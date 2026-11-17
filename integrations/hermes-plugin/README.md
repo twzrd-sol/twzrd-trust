@@ -32,14 +32,27 @@ itself.
 - The trusted key is fixed in the plugin (`ISSUER_PUBKEY` in `schemas.py`). It is not a tool
   argument, so the model cannot choose it; a call that passes `pubkey` is refused. Every result
   carries `issuer_pubkey`, the key the receipt was checked against.
+- Only that key is trusted. The verifier CLI also accepts two retired TWZRD keys for a receipt
+  that names the old key id or none, so the plugin refuses any receipt whose `key_id` is not
+  `twzrd-receipt-ed25519-v2` before the verifier runs. Receipts signed by a retired key, and cNFT
+  anchor receipts, are out of scope: check those with the CLI directly.
+- The receipt file is read once (1 MB limit) and those bytes are piped to the verifier, so the
+  file cannot change between the key check and the signature check.
 - `verifier/package-lock.json` pins `twzrd-receipt-verifier@1.4.4` and its five dependencies by
   version and integrity hash. The first call runs `npm ci --ignore-scripts` on a copy of that
   lockfile under `~/.cache/twzrd-hermes-plugin/`; later calls run the installed script with `node`
   and make no network call.
-- The `npm` and `node` child processes get a minimal environment: `PATH`, `HOME`, and
+- Before every run, each installed file is compared with `verifier/files.sha256`. A cache
+  directory with a changed, missing, extra or symlinked file is discarded and reinstalled, and an
+  install that does not match the list is never run.
+- The child processes get a minimal environment. `node` gets `PATH` and `HOME`. `npm` also gets
   `NPM_CONFIG_CACHE`, `NPM_CONFIG_REGISTRY`, `NPM_CONFIG_USERCONFIG` and `NPM_CONFIG_GLOBALCONFIG`
-  when set (plus the system variables Node.js needs on Windows). Provider API keys and every other
-  variable in the Hermes environment are not passed down.
+  when set, in upper or lower case. On Windows both also get the system variables Node.js needs.
+  Provider API keys and every other variable in the Hermes environment are not passed down. That
+  includes proxy and CA variables: behind a proxy, set `proxy`, `https-proxy` or `cafile` in your
+  `.npmrc` for the first run.
+- `max_age_seconds` must be a positive integer. A value that cannot be applied is refused, not
+  ignored.
 
 ## What leaves your machine
 
@@ -63,4 +76,9 @@ hermes plugins validate integrations/hermes-plugin           # catalog admission
 ```
 
 The tests replace the Intel host with a loopback stub and the `npm` and `node` child processes
-with recorded exit codes. CI runs the first command on every pull request.
+with recorded exit codes.
+
+Moving the verifier pin: change `VERIFIER_PACKAGE` in `tools.py` and `verifier/package.json`,
+regenerate `verifier/package-lock.json` (`npm install --package-lock-only --ignore-scripts`), run
+`npm ci --ignore-scripts` in a scratch copy and regenerate `verifier/files.sha256` from its
+`node_modules` (`sha256sum` of every file except `.package-lock.json` and `.bin/`). CI runs the first command on every pull request.

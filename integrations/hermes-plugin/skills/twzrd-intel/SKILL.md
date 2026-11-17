@@ -26,7 +26,7 @@ metadata:
 3. Call `twzrd_merchant_card(pay_to=...)` and route on `data.decision` (`refuse`, `insufficient_evidence` or `no_negative_signal`).
    - `decision: refuse` or `wash_flagged: true`: refuse. It never soft-allows.
    - `wash_flagged: null`: never evaluated. That is not clean: do not report the seller as clean, and keep to the preflight decision and cap.
-4. After a paid trust call, `twzrd_verify_receipt(receipt_path=..., max_age_seconds=...)` checks the Ed25519 signature against the pinned issuer key `Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`. The key is fixed by the plugin: do not pass a `pubkey`. The result names the key it used as `issuer_pubkey`; `valid: false` or `ok: false` means the receipt is not verified. The check makes no network or RPC call. The first run installs the verifier from npm by lockfile, so Node.js 16+ with `npm` is required.
+4. After a paid trust call, `twzrd_verify_receipt(receipt_path=..., max_age_seconds=...)` checks the Ed25519 signature against the pinned issuer key `Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`. The key is fixed by the plugin: do not pass a `pubkey`. A receipt whose `key_id` is not `twzrd-receipt-ed25519-v2` is refused. The result names the key it used as `issuer_pubkey`; `valid: false` or `ok: false` means the receipt is not verified. The check makes no network or RPC call. The first run installs the verifier from npm by lockfile, so Node.js 16+ with `npm` is required.
 
 ## Limits
 
