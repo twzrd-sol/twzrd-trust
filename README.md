@@ -179,7 +179,7 @@ Registry `latest` as read on 2026-11-11; killswitch container pin also rechecked
 |---|---|---|---|
 | `twzrd-x402-gate` | npm **0.25.0** | 0.25.0 | Buyer-side gate SDK and CLIs; the one package with source here |
 | `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
-| `twzrd-receipt-verifier` | npm and PyPI 1.4.4 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
+| `twzrd-receipt-verifier` | npm and PyPI 1.4.6 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
 | `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.3 / PyPI 0.2.3 | 0.6.3 (`dist/` mirror) | Local spend-capped MCP client; prefer the hosted MCP |
 | `@wzrd_sol/eliza-plugin` | npm 0.10.2 | 0.10.2 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.12 | 0.3.12 (`dist/` mirror) | elizaOS and facilitator settle hook |
