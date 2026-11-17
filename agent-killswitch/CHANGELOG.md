@@ -1,22 +1,36 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-11-17)
+
+An addition to the programmatic API. Nothing changes for the proxy or for
+a caller that does not create a guard.
 
 ### Added
 
 - `createToolGuard`: a hard spend guard for paid tool calls (a search API,
   a scraper, an x402 or MPP resource), exported beside `createBudgetGate`.
-  It uses the proxy's ledger, `.kill` and `.pause`, so tool spend and
-  inference spend share one hourly and one daily budget. It refuses a call
-  before it is sent when the kill file exists, a pause is in force, the
-  tool is not on the required allow-list, the caller states no finite
-  worst-case cost, the worst case is over the per-call cap, or it would
-  take the hour or the day over its limit. An allowed call holds its worst
-  case until it settles. A bill above the worst case, or a call with no
-  readable bill, trips the guard: it writes `.pause` (default one hour) and
-  a `trip` line. Every decision is a ledger line with `model` `"(tool)"`
-  and a new optional `tool` object. Nothing changes for the proxy or for a
-  caller that does not create a guard.
+  It reads the proxy's ledger, `.kill` and `.pause`, and writes the ledger
+  and `.pause`, so tool spend and inference spend share one hourly and one
+  daily budget. It refuses a call before it is sent when the kill file
+  exists, a pause is in force, the tool is not on the required allow-list,
+  the caller states no finite worst-case cost, the worst case is over the
+  per-call cap, it would take the hour or the day over its limit, or the
+  spend on the ledger cannot be read as a non-negative number.
+- An allowed call holds its worst case until it is settled or released.
+  The hold counts in full for as long as it is open, and every guard in a
+  process that uses the same ledger file sees it.
+- A bill above the worst case, or a call with no readable bill, trips the
+  guard: it writes `.pause` (`tripPauseMs`, default one hour, one second to
+  one day) and a `trip` line. If the ledger cannot be written at that
+  moment the pause is still put in force, the spend keeps counting in
+  memory, and the hold stays open so the write can be retried.
+- `run()` fails closed on any error from the tool function, with one
+  escape: a `ToolNotSentError`, or an error for which the caller's
+  `isNotSent` classifier returns exactly `true`, releases the hold without
+  recording spend or pausing.
+- Ledger lines the guard writes have `model` `"(tool)"` and a new optional
+  `tool` object: one for each refusal, each settled call and each trip. A
+  released hold writes no line.
 
 ## 0.3.0 (2026-11-16)
 

@@ -21,10 +21,12 @@ export type {
 export type { ModelPrice, ModelRates } from "./pricing.js";
 export {
   createToolGuard,
+  ToolNotSentError,
   ToolRefusedError,
   TOOL_GUARD_PAUSE_REASON,
   TOOL_LEDGER_MODEL,
   DEFAULT_TOOL_TRIP_PAUSE_MS,
+  MIN_TOOL_TRIP_PAUSE_MS,
   MAX_TOOL_TRIP_PAUSE_MS,
 } from "./tool-guard.js";
 export type {
@@ -34,6 +36,7 @@ export type {
   ToolGuard,
   ToolGuardOptions,
   ToolHold,
+  ToolRunOptions,
   ToolSettlement,
   ToolVetoCode,
 } from "./tool-guard.js";
