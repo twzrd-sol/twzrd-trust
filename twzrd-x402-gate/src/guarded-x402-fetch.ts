@@ -340,9 +340,15 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   // One store per call of the returned fetch: whether the pre-sign hook ran in
   // it, and the requirement the hook approved. The approval is for one payment;
   // the transport checks the payment header against it before the request is made.
-  const calls = new AsyncLocalStorage<{ checked: boolean; approved?: ApprovedRequirement }>();
+  const calls = new AsyncLocalStorage<{ checked: boolean; approved?: ApprovedRequirement; signal?: AbortSignal }>();
   const bound: typeof fetch = async (input, init) => {
     const call = calls.getStore();
+    // Every request of this call goes out under the caller's own AbortSignal.
+    // @x402/fetch sends the paid leg as a clone of a clone of the caller's
+    // Request, and on Node 24 a cloned Request stops following its source's
+    // signal after a garbage collection: the caller's timeout is then ignored
+    // and a paid request that never answers hangs until the transport gives up.
+    if (call?.signal) init = { ...init, signal: call.signal };
     // A header on a call the hook never ran in is the caller's own; it is not ours to judge.
     if (call?.checked) {
       const payments = paymentHeadersOf(requestHeadersOf(input, init));
@@ -433,6 +439,9 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       // this read and the go-ahead the scheme signs on.
       const haltedAtGoAhead = sentinelAbort();
       if (haltedAtGoAhead) return haltedAtGoAhead;
+      // The caller already gave up on this call (its signal fired while the
+      // checks above were running): sign nothing and charge nothing for it.
+      if (calls.getStore()?.signal?.aborted) return abort("request_aborted");
 
       if (hourlyCap !== undefined && amountMicro !== undefined) {
         entries.push({ at: recordedAt, micro: amountMicro });
@@ -530,6 +539,12 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
         throw new Error(`[twzrd-guarded-fetch] ${verdict.reason}`);
       }
     }
+    // The caller's signal: init wins over a Request's own, as in fetch itself.
+    // As in fetch itself: init wins over a Request's own signal, an explicit
+    // `signal: null` means no signal, and `undefined` falls back to the Request's.
+    const signal =
+      (init?.signal !== undefined ? init.signal : input instanceof Request ? input.signal : undefined) ?? undefined;
+    signal?.throwIfAborted();
     const paying = await getPayingFetch();
     const run = async () => {
       try {
@@ -540,7 +555,27 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
     };
     // With a ledger, the caller's own {url, method, body} is bound to this call so the
     // pre-sign hook and the paid leg record the request actually being paid for.
-    return calls.run({ checked: false }, () => (outcome ? outcome.bindCall(input, init, run) : run()));
+    const settled = calls.run({ checked: false, signal }, () =>
+      outcome ? outcome.bindCall(input, init, run) : run(),
+    );
+    if (!signal) return settled;
+    // Reject with the signal's own reason the moment it fires, whatever the
+    // layers underneath do with it. The transport is cancelled by the same
+    // signal (see `bound`); this is the caller-facing guarantee. A payment the
+    // signer already produced stays counted against the budget.
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    // The call may settle after the abort won the race; that late rejection is
+    // already reported to the caller as the abort.
+    settled.catch(() => {});
+    try {
+      return await Promise.race([settled, aborted]);
+    } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+    }
   };
 }
 
