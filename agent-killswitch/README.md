@@ -498,7 +498,7 @@ and tool spend and inference spend share one hourly and one daily budget,
 one kill file and one hash-chained ledger.
 
 ```ts
-import { createToolGuard, ToolNotSentError, ToolRefusedError } from "@twzrd1111/agent-killswitch";
+import { createToolGuard, ToolNotSentError, ToolRefusedError, ToolSettleError } from "@twzrd1111/agent-killswitch";
 
 const guard = createToolGuard({
   ledgerPath: "/var/lib/killswitch/ledger.jsonl",
@@ -539,7 +539,7 @@ Before the call the guard refuses, and `fn` never runs, when:
 | `tool_not_allowed` | the tool is not on `allowedTools` |
 | `unbounded_cost` | `worstCaseUsd` is not a finite non-negative number |
 | `per_request_cap` | the worst case is over `maxCostPerCallUsd` |
-| `budget_exceeded` | the worst case would take the hour or the day over its limit, or the spend on the ledger cannot be read as a non-negative number |
+| `budget_exceeded` | the worst case would take the hour or the day over its limit, or an allowed line in the last 24 hours has a cost that is not a finite non-negative number |
 
 An allowed call holds its worst case until it settles, so parallel calls
 cannot both pass on the same unspent budget. After the call the guard
@@ -557,12 +557,34 @@ been billed, with one escape for a call that was never sent: throw a
 `ToolNotSentError`, or pass `isNotSent` and return exactly `true` for
 errors your client raises before it sends anything. The hold is then
 released, nothing is recorded and nothing is paused. Use it only when you
-are sure; a timeout or a dropped connection is not "never sent".
+are sure; a timeout or a dropped connection is not "never sent". The
+escape covers only what `fn` throws: once `fn` has resolved, the call
+counts as sent, whatever its result looks like.
 
 If the ledger cannot be written when a call settles, `settle()` throws,
-the guard still pauses (on disk if it can, and in memory for this guard),
-the spend keeps counting in memory at the larger of the bill and the worst
-case, and the hold stays open so you can call `settle()` again.
+the guard still pauses (on disk if it can, and in memory for every guard
+in the process on that ledger file), the spend keeps counting in memory at
+the larger of the bill and the worst case, and the hold stays open so you
+can call `settle()` again. The bill is fixed at that first attempt: a
+retry records it whatever you pass, and the hold can no longer be
+released. From `run()` this arrives as a `ToolSettleError` carrying the
+tool's `result` and the `hold`, so a result you paid for is not lost:
+
+```js
+try {
+  const { result } = await guard.run(call, fn);
+} catch (err) {
+  if (err instanceof ToolSettleError) {
+    use(err.result);
+    // later, once the ledger is writable again:
+    err.hold.settle();
+  }
+}
+```
+
+Before each line it writes, the guard ends a torn last line (a write cut
+short by a full disk or a crash), so the new line is not glued to the
+fragment and lost.
 
 `guard.authorize(call)` is the synchronous form: it returns the decision
 and, when allowed, a `hold` with `settle(billedUsd)` and `release()`. Call
@@ -585,7 +607,8 @@ Limits of the guard:
 - An open hold counts in full until it is settled or released, however
   long the call takes. A hold you never close keeps its budget until the
   process exits.
-- Guards in one process that use the same ledger file share their holds.
+- Guards in one process that use the same ledger file (by its real path,
+  so through a symlink too) share their holds and any pause held in memory.
   The proxy's own holds, and holds in another process, are not visible:
   those callers see each other's settled spend only.
 - The ledger's sliding windows use the wall clock. A clock that steps
