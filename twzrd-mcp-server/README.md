@@ -66,8 +66,8 @@ Paid tools are **opt-in on both runtimes**: they sign only when you set
 both — the server runs read-only and never signs. Spend is bounded by per-call and
 session caps.
 
-Before any Solana signature the Node server runs `twzrd-x402-gate@0.20.2` wash
-default (Python `twzrd-mcp` 0.2.2 does the same `merchant_card` check on the 402
+Before any Solana signature the Node server runs `twzrd-x402-gate@0.26.0` wash
+default (the Python `twzrd-mcp` client does the same `merchant_card` check on the 402
 `payTo`): abort iff `wash_flagged===true`, and fail closed if intel cannot answer
 (timeout, 5xx/429, unreadable body): an outage is never read as clean. That is
 the paying-client brake, not a Path A shop.
