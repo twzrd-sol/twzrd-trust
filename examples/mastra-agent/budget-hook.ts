@@ -13,11 +13,11 @@
  * calls cannot both read a stale window. For the JSONL ledger, the kill
  * file and the upstream lifecycle, run the proxy itself instead.
  *
- * Written against @twzrd1111/agent-killswitch 0.1.11. Since 0.1.11 the
- * estimate counts the prompt: give `promptBytes` and `promptTextOnly` for
- * the model call a tool makes (`budgetInputForChatRequest(text)` reads both
- * from the request text). Without them every call holds at least
- * `maxCostPerRequestUsd`.
+ * Pinned to @twzrd1111/agent-killswitch 0.5.0 (written against 0.1.11; the
+ * tests pass unchanged on 0.5.0). Since 0.1.11 the estimate counts the
+ * prompt: give `promptBytes` and `promptTextOnly` for the model call a tool
+ * makes (`budgetInputForChatRequest(text)` reads both from the request
+ * text). Without them every call holds at least `maxCostPerRequestUsd`.
  */
 import { createBudgetGate } from "@twzrd1111/agent-killswitch";
 import type { BudgetGate, BudgetGateEstimateInput, BudgetGateRequest } from "@twzrd1111/agent-killswitch";
