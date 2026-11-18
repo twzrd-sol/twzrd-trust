@@ -92,6 +92,8 @@ function world(seller: Seller, opts: {
   }) as typeof fetch;
   const common = {
     fetch: cleanCard, rawFetch, wrapPay,
+    // Fallback is opt-in since 0.27.0; on here, so "no fallback route" cases stay meaningful.
+    fallbackEnabled: true, allowedFallbackHosts: ["origin.example"],
     topUrl: "https://origin.example/free", routeUrl: "https://origin.example/free",
     deliveryCapture: false,
   };
