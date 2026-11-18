@@ -11,6 +11,6 @@
     "test": "node --test __tests__/*.test.ts"
   },
   "dependencies": {
-    "@twzrd1111/agent-killswitch": "0.1.11"
+    "@twzrd1111/agent-killswitch": "0.5.0"
   }
 }

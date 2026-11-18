@@ -8,7 +8,9 @@
  * lookup (SDK 0.4 read it as warn and allowed it), and the gate pin moves to
  * 0.14.0, the first release that exports createDemandDeskWallet. Those 0.13
  * refusal defaults are unchanged on 0.14.0. 0.10.2: the gate pin moves to
- * 0.20.2, which also refuses a 402 whose payTo or asset is not a string.
+ * 0.20.2, which also refuses a 402 whose payTo or asset is not a string. 0.10.3: the gate
+ * pin moves to 0.26.0 (GHSA-c24w-mgfj-c8p8, GHSA-c6g3-6gf7-qc37, GHSA-c7fj-pv9m-pjq4); the
+ * refusal defaults tested below are unchanged.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -153,8 +155,8 @@ describe('merchant_card is fail-closed', () => {
         cb,
       );
       assert.ok(headers);
-      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.10.2@${GATE_PIN}`);
-      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.10.2');
+      assert.equal(headers.get('X-Twzrd-Caller'), `eliza-plugin/0.10.3@${GATE_PIN}`);
+      assert.equal(headers.get('X-TWZRD-Integration'), 'eliza-plugin/0.10.3');
       assert.equal(headers.get('X-TWZRD-Client'), `twzrd-x402-gate/${GATE_PIN}`);
       assert.ok((headers.get('X-TWZRD-Run-Id') ?? '').length > 0);
     } finally {
@@ -334,12 +336,12 @@ describe('paid trust needs a spend confirmation', () => {
 });
 
 describe('gate pin', () => {
-  it('depends on twzrd-x402-gate exactly 0.20.2', () => {
+  it('depends on twzrd-x402-gate exactly 0.26.0', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.20.2');
-    assert.equal(GATE_PIN, '0.20.2');
+    assert.equal(pkg.dependencies['twzrd-x402-gate'], '0.26.0');
+    assert.equal(GATE_PIN, '0.26.0');
   });
 });
 
@@ -359,7 +361,7 @@ describe('installTwzrdAutoGate attribution', () => {
   });
 });
 
-describe('installTwzrdAutoGate on gate 0.20.2 defaults', () => {
+describe('installTwzrdAutoGate on gate 0.26.0 defaults', () => {
   const RESOURCE = 'https://merchant.example/paid';
 
   function merchant402(offer?: Record<string, unknown>): typeof fetch {
