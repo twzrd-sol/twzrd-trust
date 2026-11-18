@@ -334,12 +334,30 @@ test("Hole 5: hitting the cap in agent-killswitch writes .pause for the cap wind
 
 const SELLER = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+// The fallback board as the gate sees it: an https host on the allowlist (gate 0.27.0).
+const FALLBACK_HOST = "route.test";
+const FALLBACK_BASE = `https://${FALLBACK_HOST}`;
+
+/**
+ * Wrap `fetchImpl` so a request to `FALLBACK_BASE` goes to the loopback stub
+ * at `base` instead (same path and query). Nothing else is changed.
+ */
+function toLoopback(base, fetchImpl) {
+  return (input, init) => {
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(href);
+    if (url.origin !== FALLBACK_BASE) return fetchImpl(input, init);
+    return fetchImpl(`${base}${url.pathname}${url.search}`, input instanceof Request ? new Request(input, init) : init);
+  };
+}
 
 /**
  * Stub x402 seller and fallback board on 127.0.0.1. `/paid` and `/route`
  * answer an unpaid request 402 with an invoice and a paid one (any
- * x-payment header) 200; a paid `/route` names `/paid` as the url to call.
- * `/top` is the free peek. `hits` lists every request in order.
+ * x-payment header) 200; a paid `/route` names `${FALLBACK_BASE}/paid` as
+ * the url to call (gate 0.27.0 pays only an https, allowlisted route url;
+ * `toLoopback` carries it to this stub). `/top` is the free peek. `hits`
+ * lists every request in order.
  */
 function startSeller() {
   const hits = [];
@@ -356,7 +374,7 @@ function startSeller() {
       if (pathname === "/top") return json(200, { top: [] });
       if (pathname !== "/paid" && pathname !== "/route") return json(404, {});
       if (!paid) return json(402, { accepts: [{ payTo: SELLER, amount: "10000", network: "solana", asset: USDC }] });
-      if (pathname === "/route") return json(200, { url: `http://127.0.0.1:${server.address().port}/paid` });
+      if (pathname === "/route") return json(200, { url: `${FALLBACK_BASE}/paid` });
       return json(200, { ok: true });
     });
   });
@@ -450,16 +468,33 @@ for (const breaker of [
     await loopbackOnly(async () => {
       const paid = { n: 0 };
       const intelCalls = { n: 0 };
+      const rawFetch = toLoopback(seller.base, (input, init) => globalThis.fetch(input, init));
+      const board = { topUrl: `${FALLBACK_BASE}/top`, routeUrl: `${FALLBACK_BASE}/route` };
+
+      // Gate 0.27.0: fallback is opt-in. With the board's urls set but fallbackEnabled
+      // absent, a dead origin's error is the answer and the board is never contacted.
+      const noFallback = createTwzrdPayingFetch({
+        fetch: intelStub(intelCalls),
+        rawFetch,
+        wrapPay: countingPayWrap(paid),
+        ...board,
+        deliveryCapture: false,
+      });
+      await assert.rejects(() => noFallback(dead), (e) => e instanceof TypeError && e.message === "fetch failed");
+      assert.equal(paid.n, 0);
+      assert.deepEqual(seller.hits, [], "no /top or /route request without fallbackEnabled");
+
       const pay = createTwzrdPayingFetch({
         fetch: intelStub(intelCalls),
-        rawFetch: (input, init) => globalThis.fetch(input, init),
+        rawFetch,
         wrapPay: countingPayWrap(paid),
-        topUrl: `${seller.base}/top`,
-        routeUrl: `${seller.base}/route`,
+        fallbackEnabled: true,
+        allowedFallbackHosts: [FALLBACK_HOST],
+        ...board,
         deliveryCapture: false,
       });
 
-      // Controls, before any trip: the seller is paid, and a dead origin falls back to the board.
+      // Controls, before any trip: the seller is paid, and a dead origin falls back to the opted-in board.
       assert.equal((await pay(`${seller.base}/paid`)).status, 200);
       assert.equal(paid.n, 1);
       assert.equal((await pay(dead)).status, 200);
