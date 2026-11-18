@@ -50,7 +50,7 @@ top-level is a published artifact mirrored in, or meta-infrastructure.
 
 | Path | Mirrors | Resync |
 |---|---|---|
-| `eliza-plugin/` | `@wzrd_sol/eliza-plugin@0.10.2` (dist only) | `npm run resync:eliza` from the live tarball |
+| `eliza-plugin/` | `@wzrd_sol/eliza-plugin@0.10.3` (dist only) | `npm run resync:eliza` from the live tarball |
 | `plugin-trustgate/` | `@wzrd_sol/plugin-trustgate@0.3.12` (dist only) | resync from live tarball |
 | `twzrd-mcp-server/` | `twzrd-mcp-server@0.6.4` (dist only; npm 0.6.3 until publish) | resync from live tarball |
 | `server/` | The hosted site's public static files: `llms.txt`, `.well-known/`, `agent-card.md` | `.github/workflows/intel-mirror-sync.yml` |
