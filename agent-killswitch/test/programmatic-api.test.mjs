@@ -57,6 +57,29 @@ test("createBudgetGate returns the same budget_exceeded contract as the proxy", 
   assert.equal(decision.limitUsd, 0.1);
 });
 
+test("refusal messages show a sub-cent limit instead of rounding it to $0.00", () => {
+  const modelRates = { demo: { inputPerMTok: 1, outputPerMTok: 1 } };
+  const request = {
+    model: "demo",
+    maxTokens: 1_000,
+    promptBytes: 500,
+    promptTextOnly: true,
+    window: { minuteTokens: 0, hourUsd: 0, dayUsd: 0 },
+  };
+
+  const capped = createBudgetGate({ ...limits, maxCostPerRequestUsd: 0.0005, modelRates }).evaluate(request);
+  assert.equal(capped.code, "per_request_cap");
+  assert.equal(capped.message, "Request could cost $0.0015, over the per-request cap $0.0005");
+  assert.equal(capped.limitUsd, 0.0005);
+
+  const hourly = createBudgetGate({ ...limits, maxUsdPerHour: 0.0025, maxCostPerRequestUsd: 1, modelRates }).evaluate({
+    ...request,
+    window: { minuteTokens: 0, hourUsd: 0.002, dayUsd: 0.002 },
+  });
+  assert.equal(hourly.code, "budget_exceeded");
+  assert.equal(hourly.message, "Hourly limit $0.0025 would be exceeded");
+});
+
 test("createBudgetGate snapshots limits and model rates at construction", () => {
   const modelRates = {
     demo: { inputPerMTok: 1, outputPerMTok: 1 },

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Refusal messages no longer round a sub-cent limit to $0.00.** The
+  hourly, daily and per-request messages printed limits with two decimals,
+  so a $0.0005 per-request cap read "$0.00". Dollar amounts in messages now
+  show two to six decimals (USDC precision). The numeric `spentUsd` and
+  `limitUsd` fields are unchanged.
+
 ## 0.5.0 (2026-11-17)
 
 Security release: proxy and ledger fixes. Each one is spend the proxy

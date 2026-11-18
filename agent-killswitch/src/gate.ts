@@ -505,6 +505,17 @@ export function requestEstimate(
 }
 
 /**
+ * A dollar amount for a refusal message: at least two decimals and up to six
+ * (USDC precision), so a sub-cent limit such as $0.0005 does not read as
+ * $0.00. The numeric spentUsd and limitUsd fields carry the exact values.
+ */
+function formatUsd(n: number): string {
+  if (!Number.isFinite(n) || Math.abs(n) >= 1e21) return String(n);
+  const [whole, frac = ""] = n.toFixed(6).replace(/0+$/, "").split(".");
+  return `${whole}.${frac.padEnd(2, "0")}`;
+}
+
+/**
  * The hourly and daily refusals. Each carries its long pause, which is what
  * halts the sibling payment gate.
  *
@@ -522,7 +533,7 @@ function hourlyRefusal(input: GateInput, state: "would be exceeded" | "hit"): Ga
     allowed: false,
     status: 429,
     code: "budget_exceeded",
-    message: `Hourly limit $${input.maxUsdPerHour.toFixed(2)} ${state}`,
+    message: `Hourly limit $${formatUsd(input.maxUsdPerHour)} ${state}`,
     spentUsd: input.window.hourUsd,
     limitUsd: input.maxUsdPerHour,
     pauseWindowMs: 3_600_000,
@@ -534,7 +545,7 @@ function dailyRefusal(input: GateInput, state: "would be exceeded" | "hit"): Gat
     allowed: false,
     status: 429,
     code: "budget_exceeded",
-    message: `Daily limit $${input.maxUsdPerDay.toFixed(2)} ${state}`,
+    message: `Daily limit $${formatUsd(input.maxUsdPerDay)} ${state}`,
     spentUsd: input.window.dayUsd,
     limitUsd: input.maxUsdPerDay,
     pauseWindowMs: 86_400_000,
@@ -656,7 +667,7 @@ export function evaluateGate(input: GateInput): GateDecision {
       allowed: false,
       status: 429,
       code: "per_request_cap",
-      message: `Request could cost $${est.usd.toFixed(4)}, over the per-request cap $${input.maxCostPerRequestUsd.toFixed(2)}`,
+      message: `Request could cost $${formatUsd(est.usd)}, over the per-request cap $${formatUsd(input.maxCostPerRequestUsd)}`,
       spentUsd: est.usd,
       limitUsd: input.maxCostPerRequestUsd,
     };
