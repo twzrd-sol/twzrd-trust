@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 (2026-11-18)
+
+Security: depends on `twzrd-x402-gate` 0.26.0. 0.1.0 pinned 0.24.0, which is
+inside GHSA-c6g3-6gf7-qc37 and GHSA-c7fj-pv9m-pjq4 (high) and is deprecated
+on npm. The mandate's own code is unchanged since 0.1.0; the gate's CHANGELOG
+(0.25.0 to 0.26.0) lists what changes underneath.
+
 ## 0.1.0 (2026-11-17)
 
 First release.
