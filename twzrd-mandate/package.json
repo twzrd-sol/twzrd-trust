@@ -61,7 +61,7 @@
   "dependencies": {
     "@twzrd1111/agent-killswitch": "0.5.0",
     "twzrd-log-verifier": "0.5.4",
-    "twzrd-x402-gate": "0.24.0"
+    "twzrd-x402-gate": "0.26.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
