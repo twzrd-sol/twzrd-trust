@@ -128,7 +128,7 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 `payWrap` receives the **guarded** fetch. Opt out with `TWZRD_AUTO_GATE=0` or `{ disabled: true }`.
 Lookups carry `X-TWZRD-Integration: eliza-plugin/<version>` unless you pass your own `attribution`.
 
-On `twzrd-x402-gate` 0.20.2 the guard refuses each of these before `payWrap` signs (the 0.13 defaults, unchanged since):
+On `twzrd-x402-gate` 0.26.0 the guard refuses each of these before `payWrap` signs (the 0.13 defaults, unchanged since):
 
 | Refused by default | Reason | Opt out (restores the 0.12.5 outcome) |
 |---|---|---|
@@ -158,6 +158,34 @@ const agent = new AgentRuntime({ plugins: [wzrdPlugin] });
 ```
 
 Without a paying fetch, `WZRD_INTEL_TRUST` returns the HTTP 402 requirements.
+
+## 0.10.3 changes
+
+Security release: the `twzrd-x402-gate` pin moves from `0.20.2` to `0.26.0`. Gate 0.20.2 is inside
+GHSA-c24w-mgfj-c8p8 (critical), GHSA-c6g3-6gf7-qc37 and GHSA-c7fj-pv9m-pjq4 (high), and
+GHSA-3v2v-wcw4-25q9 (medium). npm marks gate 0.20.2 deprecated, so installing plugin 0.10.2 prints
+that warning.
+
+- The pin is exact, so this plugin installs its own copy of the gate. Upgrading `twzrd-x402-gate`
+  in your app does not change the copy the plugin calls: upgrade the plugin.
+- The move crosses gate 0.21.0 to 0.26.0. On `installTwzrdAutoGate`, each of these could be approved
+  on gate 0.20.2 and is now refused before `payWrap` signs:
+  - a `PAYMENT-REQUIRED` header that is not canonical base64 (the guard throws
+    `payment blocked: undecodable PAYMENT-REQUIRED header`);
+  - a `network` that is a non-canonical `eip155:` id such as `eip155:08453` (`network_malformed`);
+  - an `auth-capture` offer (`auth_capture_refused`) and a Solana `upto` offer (`svm_upto_refused`);
+  - a Circle Gateway batching offer (`extra.name: "GatewayWalletBatched"`) whose `verifyingContract`
+    is not a Gateway wallet contract, whose `version` is not `"1"` or `"2"`, or whose
+    `maxTimeoutSeconds` is above 8 days or not a non-negative integer
+    (`gateway_verifying_contract_refused`, `gateway_version_refused`, `gateway_timeout_refused`);
+  - on a chain TWZRD does not score (Arc, Base Sepolia, Polygon and others), in the default
+    `observe` mode: a named asset that is not that network's USDC (`twzrd_non_usdc_asset`), an
+    unknown price (`twzrd_unscored_price_unknown`), a price above 0.10 USDC per call
+    (`twzrd_over_unscored_cap_<price>_gt_<cap>`; `TWZRD_UNSCORED_MAX_USDC` moves the ceiling), and a
+    merchant card that does not answer (`twzrd_card_unreachable_fail_closed`, unless `failOpen`).
+- The refusal defaults in the table above are unchanged. The gate's CHANGELOG has the full list of
+  changes from 0.21.0 to 0.26.0.
+- No other source change. `X-Twzrd-Caller` reads `eliza-plugin/0.10.3@0.26.0`.
 
 ## 0.10.2 changes
 
