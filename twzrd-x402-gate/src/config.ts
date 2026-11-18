@@ -18,6 +18,8 @@ export type ResolvedTwzrdGateConfig = {
   refuseWashUnknown: boolean;
   /** Soft cap USDC when wash_flagged; null = hard refuse */
   washMaxUsdc: number | null;
+  /** Default 0.10 (0.26.0): per-call ceiling for an observe allow on an unscored network; null = none. */
+  unscoredMaxUsdc: number | null;
   /**
    * Policy for networks that are not scored. Solana mainnet and Base mainnet
    * (`eip155:8453`) are scored. Other EVM networks are not. Default observe.
@@ -94,6 +96,8 @@ function defaultOnFlag(override: unknown, env: string | undefined): boolean {
 }
 
 const DEFAULT_INTEL_TIMEOUT_MS = 2000;
+/** Per-call USDC ceiling for an observe allow on a network TWZRD does not score (0.26.0). */
+export const DEFAULT_UNSCORED_MAX_USDC = 0.1;
 function intelTimeout(override: unknown, env: string | undefined): number {
   const raw = override ?? env;
   const n = typeof raw === "number" ? raw : raw == null || raw === "" ? NaN : Number(raw);
@@ -170,6 +174,27 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     if (Number.isFinite(n) && n >= 0) washMaxUsdc = n;
   }
 
+  // Default 0.10 (0.26.0): observe on an unscored network pays at most this per
+  // call, in USDC. Before 0.26.0 it had no ceiling (an Arc offer for 1e16 base
+  // units signed). An explicit null is a decision (no ceiling, env not read); a
+  // negative or non-finite value is ignored and the default applies.
+  let unscoredMaxUsdc: number | null = DEFAULT_UNSCORED_MAX_USDC;
+  if (overrides?.unscoredMaxUsdc === null) {
+    unscoredMaxUsdc = null;
+  } else if (
+    typeof overrides?.unscoredMaxUsdc === "number" &&
+    Number.isFinite(overrides.unscoredMaxUsdc) &&
+    overrides.unscoredMaxUsdc >= 0
+  ) {
+    unscoredMaxUsdc = overrides.unscoredMaxUsdc;
+  } else if (overrides?.unscoredMaxUsdc === undefined) {
+    const raw = process.env.TWZRD_UNSCORED_MAX_USDC;
+    if (raw != null && raw.trim() !== "") {
+      const n = Number(raw);
+      if (Number.isFinite(n) && n >= 0) unscoredMaxUsdc = n;
+    }
+  }
+
   // Default observe for unscored networks. Solana mainnet and Base mainnet
   // are scored, so they run the preflight. Other EVM networks skip that
   // preflight and are marked decision=unknown (policy allow ≠ reputation
@@ -224,6 +249,7 @@ export function resolveConfig(overrides?: TwzrdGateConfig): ResolvedTwzrdGateCon
     refuseWashFlagged,
     refuseWashUnknown,
     washMaxUsdc,
+    unscoredMaxUsdc,
     unsupportedNetworkMode,
     fetch: fetchFn,
     onWarnUpsell: overrides?.onWarnUpsell,

@@ -2,7 +2,55 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
-## 0.25.1 (2026-11-17)
+## 0.26.0 (2026-11-18)
+
+Minor release, because allows become refusals. Scored-chain decisions on a single-offer 402 are
+unchanged. Each item below names the stress finding it closes.
+
+- **`safeFetch` checks every `accepts[]` entry the payer could pay.** The AgentCash CLI re-fetches
+  the 402 and pays an entry it picks itself, so approving only the first entry let a mixed 402 (a
+  Base offer first, an Arc or attacker offer after it) pay the entry nobody checked. Every distinct
+  entry now goes through the policy, with the same deduplication and eight-entry limit the fetch
+  wrappers use (`src/all-offers.ts`). A refused entry blocks the call with
+  `alternate_offer_refused:<reason>`; more than eight distinct entries block with
+  `too_many_payment_options`. `paymentNetwork` narrows the candidates, and a network no entry offers
+  blocks with `payment_network_not_offered`. The result carries `requirementsEvaluated`.
+
+- **`observe` on an unscored network pays only listed USDC, under a 0.10 ceiling.** An Arc offer for
+  1e16 base units reached the signer, and any ERC-20 on an unscored EVM chain was allowed.
+  - A named asset that the USDC table does not list for that network refuses on every unscored
+    network (`twzrd_non_usdc_asset`), as Solana labels already did.
+  - New `unscoredMaxUsdc` option: default `0.10` per call, `TWZRD_UNSCORED_MAX_USDC` where env is
+    read, an explicit `null` for no ceiling. Above it the gate refuses with
+    `twzrd_over_unscored_cap_<price>_gt_<cap>`. An unknown price refuses with
+    `twzrd_unscored_price_unknown`.
+  - A merchant card that answers 404 stays an allow, now under that ceiling.
+  - `createTwzrdMppIntegration` with `allowUnscoredNetwork` uses its required
+    `policy.maxAmountUsd` as the ceiling unless `unscoredMaxUsdc` is set. Tempo assets on the MPP
+    guard's USD list are no longer checked against the x402 USDC table.
+  - `strict` and `createBuyerFetch` are unchanged: they refuse unscored chains before intel.
+
+- **Circle Gateway batching offers are pinned to Gateway.** Circle's batching scheme signs the
+  EIP-712 domain with the `extra.verifyingContract` and `extra.version` the seller names, and
+  stretches `validBefore` with `maxTimeoutSeconds`. An offer with `extra.name:
+  "GatewayWalletBatched"` now refuses before intel, in every mode and at every seat that checks
+  requirement fields, when:
+  - its `verifyingContract` is not one of Gateway's wallet contracts
+    (`gateway_verifying_contract_refused`);
+  - its `version` is not `"1"` or `"2"` (`gateway_version_refused`);
+  - its `maxTimeoutSeconds` is above 8 days or is not a non-negative integer
+    (`gateway_timeout_refused`).
+
+  Offers without that name are untouched.
+
+- **`createTwzrdPayingFetch` and `createTwzrdPolicyFetch` refuse a 402 nobody can read.** A 402 with
+  no `PAYMENT-REQUIRED` header and a body that is not JSON was handed to the x402 payer. The payer
+  threw a plain error, and the paying fetch took that for a dead origin and paid its fallback route.
+  It now throws `twzrd_payment_required_unreadable` as a wash abort, as an undecodable header
+  already did. `withTwzrdGuard` and `wrapFetchWithTwzrdGate` still pass such a 402 on, because the
+  payers they wrap may read another dialect.
+
+## 0.25.1 (2026-11-18)
 
 Patch release. Two allows become refusals on the unscored-network `observe` path, the default for
 entry points other than `createBuyerFetch`. Neither changes a scored-chain decision.

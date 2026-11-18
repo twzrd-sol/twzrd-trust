@@ -38,7 +38,8 @@ function blockingIntel() {
 }
 
 const offer = (network: string, asset: string | undefined) =>
-  ({ payTo: SELLER, network, amount: "1000000", resource: PAID_URL, ...(asset === undefined ? {} : { asset }) });
+  // $0.01: under the 0.26.0 unscored ceiling, so these cases test the asset rule alone.
+  ({ payTo: SELLER, network, amount: "10000", resource: PAID_URL, ...(asset === undefined ? {} : { asset }) });
 const aborted = (r: { abort?: boolean } | void | undefined) => Boolean(r && r.abort === true);
 
 test("control: the same seller is blocked by preflight under the mainnet label", async () => {
@@ -104,11 +105,12 @@ test("strict mode and other chains are unchanged", async () => {
   assert.equal(strict.approved, false);
   assert.equal(strict.reason, "network_not_scored");
 
-  // An unscored EVM chain keeps its observe allow whatever the asset: the signature names the chain.
+  // 0.26.0 (F2): an unscored EVM chain no longer keeps its observe allow for any
+  // asset. Observe pays only that network's listed USDC; Polygon has no table.
   const polygon = await createTwzrdGate({ fetch: intel.fetch, refuseWashFlagged: false }).approvePayment({
-    payTo: "0x1111111111111111111111111111111111111111", chain: "eip155:137", priceUsdc: 1,
+    payTo: "0x1111111111111111111111111111111111111111", chain: "eip155:137", priceUsdc: 0.01,
     asset: "0x2222222222222222222222222222222222222222",
   });
-  assert.equal(polygon.approved, true);
-  assert.equal(polygon.reason, "network_not_scored");
+  assert.equal(polygon.approved, false);
+  assert.equal(polygon.reason, "twzrd_non_usdc_asset");
 });

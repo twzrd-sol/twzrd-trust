@@ -584,18 +584,11 @@ export async function twzrdApprovePayment(
     // mint. Any other named asset is refused here, where observe would allow
     // it with no preflight: a seller that labels a mainnet USDC requirement
     // `solana-devnet` would otherwise be paid on mainnet unscreened. Same rule
-    // as the MPP guard (mpp-hook.ts). EVM labels are not checked: an EVM
-    // signature commits to its chain id.
-    if (
-      undecided.policyAction !== "block" &&
-      netCls.kind === "solana" &&
-      context.asset &&
-      !isUsdcRequirement({
-        network: context.chain ?? netCls.network,
-        asset: context.asset,
-        payTo: context.payTo ?? context.sellerWallet,
-      })
-    ) {
+    // as the MPP guard (mpp-hook.ts).
+    // From 0.26.0 the same holds on every unscored network (F2): observe pays
+    // only an asset the USDC table lists for that network, because every
+    // ceiling is in USDC. An EVM chain with no USDC table has no such asset.
+    const observeBlock = (reason: string) => {
       unsupportedLog("block");
       return finalize({
         decisionId,
@@ -603,12 +596,34 @@ export async function twzrdApprovePayment(
         verdict: "block",
         score: null,
         card: {},
-        reason: "twzrd_non_usdc_asset",
+        reason,
         network: undecided.network,
         networkSupported: undecided.networkSupported,
         reputationScored: false,
         policyAction: "block",
       });
+    };
+    if (
+      undecided.policyAction !== "block" &&
+      context.asset &&
+      !isUsdcRequirement({
+        network: context.chain ?? netCls.network,
+        asset: context.asset,
+        payTo: context.payTo ?? context.sellerWallet,
+      })
+    ) {
+      return observeBlock("twzrd_non_usdc_asset");
+    }
+    // Observe on an unscored network has no reputation answer, so it pays only
+    // up to a per-call ceiling (0.26.0, default 0.10 USDC; null turns it off).
+    // A merchant card that answers 404 is a capped allow, not a refusal.
+    if (undecided.policyAction !== "block" && cfg.unscoredMaxUsdc !== null) {
+      if (typeof context.priceUsdc !== "number" || !Number.isFinite(context.priceUsdc)) {
+        return observeBlock("twzrd_unscored_price_unknown");
+      }
+      if (context.priceUsdc > cfg.unscoredMaxUsdc) {
+        return observeBlock(`twzrd_over_unscored_cap_${context.priceUsdc}_gt_${cfg.unscoredMaxUsdc}`);
+      }
     }
     // Strict: block before intel. Wash opt-out: keep the observe allow.
     // Observe + refuseWashFlagged (default): still GET merchant_card.

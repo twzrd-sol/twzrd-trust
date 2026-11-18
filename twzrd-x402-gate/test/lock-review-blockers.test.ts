@@ -860,6 +860,7 @@ const APPROVE_CFG = {
   refuseWashFlagged: false,
   refuseWashUnknown: false,
   washMaxUsdc: null,
+  unscoredMaxUsdc: 0.1,
   unsupportedNetworkMode: "observe" as const,
 };
 

@@ -100,6 +100,66 @@ export const AMOUNT_MALFORMED = "amount_malformed";
  */
 export const SVM_SPLITS_REFUSED = "svm_splits_refused";
 /**
+ * A Circle Gateway batching offer (`extra.name` "GatewayWalletBatched") whose
+ * `extra.verifyingContract` is not one of Gateway's two wallet contracts
+ * (0.26.0). Circle's BatchEvmScheme signs the EIP-712 domain with whatever
+ * contract the seller names, so an unpinned offer signed an authorization for
+ * an arbitrary contract, in strict mode too (stress finding F3).
+ */
+export const GATEWAY_CONTRACT_REFUSED = "gateway_verifying_contract_refused";
+/** A Gateway batching offer whose `extra.version` is not one Circle signs ("1" or "2") (0.26.0). */
+export const GATEWAY_VERSION_REFUSED = "gateway_version_refused";
+/**
+ * A Gateway batching offer whose `maxTimeoutSeconds` is above 8 days, or not a
+ * non-negative integer (0.26.0, F4). Circle's client signs validBefore =
+ * now + max(maxTimeoutSeconds, 7 days + 100 s), so the seller sets how long the
+ * authorization stays spendable.
+ */
+export const GATEWAY_TIMEOUT_REFUSED = "gateway_timeout_refused";
+
+/** Circle Gateway wallet contracts (mainnet, testnet), lowercased. @circle-fin/x402-batching 4.0.0. */
+export const GATEWAY_WALLET_CONTRACTS: ReadonlySet<string> = new Set([
+  "0x77777777dcc4d5a8b6e418fd04d8997ef11000ee",
+  "0x0077777d7eba4688bdef3e311b846f25870a19b9",
+]);
+const GATEWAY_BATCHING_VERSIONS: ReadonlySet<string> = new Set(["1", "2"]);
+/** Longest maxTimeoutSeconds a Gateway batching offer may ask for: 8 days. */
+export const GATEWAY_MAX_TIMEOUT_SECONDS = 8 * 24 * 60 * 60;
+
+/**
+ * Why a Circle Gateway batching offer is refused, or undefined when it is not
+ * one or passes. Detection matches Circle's client (`extra.name` exactly
+ * "GatewayWalletBatched"), so an offer this misses is one that client will not
+ * sign as a batch.
+ */
+export function gatewayBatchRefusal(req: unknown):
+  | typeof GATEWAY_CONTRACT_REFUSED
+  | typeof GATEWAY_VERSION_REFUSED
+  | typeof GATEWAY_TIMEOUT_REFUSED
+  | undefined {
+  if (req === null || typeof req !== "object") return undefined;
+  const r = req as Record<string, unknown>;
+  const extra = r.extra;
+  if (extra === null || typeof extra !== "object" || Array.isArray(extra)) return undefined;
+  const x = extra as Record<string, unknown>;
+  if (x.name !== "GatewayWalletBatched") return undefined;
+  const vc = x.verifyingContract;
+  if (typeof vc !== "string" || !GATEWAY_WALLET_CONTRACTS.has(vc.trim().toLowerCase())) {
+    return GATEWAY_CONTRACT_REFUSED;
+  }
+  // Circle's client reads a missing version as "1".
+  if (x.version !== undefined && (typeof x.version !== "string" || !GATEWAY_BATCHING_VERSIONS.has(x.version))) {
+    return GATEWAY_VERSION_REFUSED;
+  }
+  const t = r.maxTimeoutSeconds;
+  if (t !== undefined && t !== null) {
+    if (typeof t !== "number" || !Number.isInteger(t) || t < 0 || t > GATEWAY_MAX_TIMEOUT_SECONDS) {
+      return GATEWAY_TIMEOUT_REFUSED;
+    }
+  }
+  return undefined;
+}
+/**
  * A recipient, asset or network that is present but is not a string (0.20.2).
  * The gate used to read these with `String(value)` or skip a non-string, while
  * the Solana clients read the raw value as a public key: `payTo: []` was
@@ -161,7 +221,10 @@ export type RequirementFieldConflict =
   | typeof BATCH_SETTLEMENT_REFUSED
   | typeof AUTH_CAPTURE_REFUSED
   | typeof SVM_UPTO_REFUSED
-  | typeof SVM_SPLITS_REFUSED;
+  | typeof SVM_SPLITS_REFUSED
+  | typeof GATEWAY_CONTRACT_REFUSED
+  | typeof GATEWAY_VERSION_REFUSED
+  | typeof GATEWAY_TIMEOUT_REFUSED;
 
 /**
  * Whether a requirement is on Solana, read through the shared
@@ -329,7 +392,7 @@ export function resolveRequirementFields(req: unknown): {
                       ? SVM_UPTO_REFUSED
                       : hasSvmExactSplits(r)
                         ? SVM_SPLITS_REFUSED
-                        : undefined,
+                        : gatewayBatchRefusal(r),
   };
 }
 

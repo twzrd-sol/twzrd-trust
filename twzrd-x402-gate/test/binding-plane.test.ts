@@ -158,6 +158,7 @@ test("Hole 5: tripPauseOnBlockMs is opt-in; when set, a fatal refusal writes .pa
         refuseWashFlagged: false,
         refuseWashUnknown: false,
         washMaxUsdc: null,
+        unscoredMaxUsdc: 0.1,
         unsupportedNetworkMode: "observe",
         stateDir: dir,
         tripPauseOnBlockMs: 60_000,
@@ -192,6 +193,7 @@ test("Hole 5: tripPauseOnBlockMs is opt-in; when set, a fatal refusal writes .pa
       refuseWashFlagged: false,
       refuseWashUnknown: false,
       washMaxUsdc: null,
+        unscoredMaxUsdc: 0.1,
       unsupportedNetworkMode: "observe" as const,
       stateDir: dir,
     };
@@ -241,6 +243,7 @@ test("Hole 5: tripPauseOnBlockMs is opt-in; when set, a fatal refusal writes .pa
         refuseWashFlagged: false,
         refuseWashUnknown: false,
         washMaxUsdc: null,
+        unscoredMaxUsdc: 0.1,
         unsupportedNetworkMode: "observe",
         stateDir: dir,
       },

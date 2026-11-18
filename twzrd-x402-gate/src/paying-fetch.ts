@@ -121,7 +121,10 @@ export function createTwzrdPayingFetch(opts: CreateTwzrdPayingFetchInput): typeo
     try {
       challenge = await paymentRequiredFromResponse(resp);
     } catch { throw new TwzrdWashAbortError(PAYMENT_REQUIRED_UNREADABLE); }
-    if (challenge == null) return handOver(resp);
+    // No header and no JSON body: the x402 payer cannot pay it, and handing it
+    // over made the payer throw a plain error that sent this fetch to its
+    // fallback route. Refused like an unreadable header (0.26.0).
+    if (challenge == null) throw new TwzrdWashAbortError(PAYMENT_REQUIRED_UNREADABLE);
     lastChallenge = challenge;
     const accepts = (challenge as { accepts?: Array<Record<string, unknown>> }).accepts;
     const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;

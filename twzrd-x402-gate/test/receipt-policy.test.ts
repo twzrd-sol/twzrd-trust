@@ -317,11 +317,14 @@ async function main() {
     }) as unknown as typeof fetch;
     const r = await evaluate_x402_resource(
       "https://merchant.example/paid",
-      unscoredReqs("11000000"),
+      // No asset named and no unscored ceiling (0.26.0 defaults would refuse
+      // first): this case is about the receipt fetch alone.
+      { ...unscoredReqs("11000000"), asset: undefined },
       {
         fetch: (async () => {
           throw new Error("preflight must not run on an unscored network");
         }) as unknown as typeof fetch,
+        unscoredMaxUsdc: null,
         requireReceipt: true,
         x402Fetch,
         refuseWashFlagged: false,
@@ -396,8 +399,9 @@ async function main() {
       refuseWashFlagged: false,
       gateOnCanSpend: false,
     });
-    const resp = await guarded("https://merchant.example/paid");
-    assert.equal(resp.status, 402, "observe still returns the 402");
+    // 0.26.0 (F2): Base's USDC address on Polygon is not USDC, so observe now
+    // refuses this 402 instead of passing it on. Path A is still never bought.
+    await assert.rejects(guarded("https://merchant.example/paid"), /twzrd_non_usdc_asset/);
     assert.equal(paidCalls, 0, "AutoGate fetch seat must not buy Path A on an unscored chain");
   }
 

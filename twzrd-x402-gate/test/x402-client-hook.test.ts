@@ -333,6 +333,7 @@ async function run() {
     installTwzrdX402ClientHook(client, {
       gateOnCanSpend: false,
       refuseWashFlagged: false,
+      unscoredMaxUsdc: null, // 0.26.0: no unscored ceiling; this case is about the receipt fetch
       requireReceipt: true, // minSpendUsdc 10, hard
       fetch: (async () => {
         throw new Error("preflight must not run on an unscored network");
@@ -352,7 +353,7 @@ async function run() {
         // Base now has one. Using Base here would exercise fail-closed instead.
         network: "eip155:137",
         amount: "11000000", // 11 USDC > minSpendUsdc -> receipt required
-        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        // No asset: Base's USDC address on Polygon is not USDC (0.26.0 F2 refuses it).
         resource: "https://merchant.example/paid",
       },
     });

@@ -180,6 +180,16 @@ export type TwzrdGateConfig = {
    */
   washMaxUsdc?: number | null;
   /**
+   * Per-call USDC ceiling for a payment that observe allows on a network TWZRD
+   * does not score (0.26.0). Default 0.10. Above it, or at an unknown price,
+   * refuse (twzrd_over_unscored_cap_* / twzrd_unscored_price_unknown). A named
+   * asset that is not that network's USDC refuses in every case
+   * (twzrd_non_usdc_asset). `null` means no ceiling and TWZRD_UNSCORED_MAX_USDC
+   * is not read; left out, the env variable applies, then the default. Strict
+   * mode refuses unscored networks before this.
+   */
+  unscoredMaxUsdc?: number | null;
+  /**
    * How to handle payments on networks TWZRD does not reputation-score.
    * Solana mainnet and Base mainnet (`eip155:8453`) are scored and do not use
    * this mode. Other EVM networks do not run the scored preflight.

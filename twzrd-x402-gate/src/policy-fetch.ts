@@ -167,7 +167,9 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
         let challenge: unknown;
         try { challenge = await paymentRequiredFromResponse(resp); }
         catch { throw new TwzrdWashAbortError(PAYMENT_REQUIRED_UNREADABLE); }
-        if (challenge == null) return handOver(resp);
+        // No header and no JSON body: refused like an unreadable header (0.26.0), not
+        // handed to the x402 payer, whose plain error would reach the fallback route.
+        if (challenge == null) throw new TwzrdWashAbortError(PAYMENT_REQUIRED_UNREADABLE);
         const accepts = (challenge as { accepts?: Array<Record<string, unknown>> }).accepts;
         const offers = distinctOffers(accepts);
         if (offers.length === 0 || offers.length > MAX_DISTINCT_OFFERS) {

@@ -42,7 +42,7 @@ type Seller = {
   /** The accepts[] of the 402. */
   offers: () => Offer[];
   /** How the 402 carries them: in the body, in a canonical header, or in a header a strict reader refuses. */
-  carry?: "body" | "header" | "header-unpadded";
+  carry?: "body" | "header" | "header-unpadded" | "garbage";
   /** What the seller answers a request that carries a payment. */
   afterPay?: () => Response | Promise<Response>;
 };
@@ -67,6 +67,7 @@ function world(seller: Seller, opts: {
     }
     state.unpaid += 1;
     const body = { x402Version: 2, accepts: seller.offers() };
+    if (seller.carry === "garbage") return new Response("not json", { status: 402 });
     if (seller.carry === "header" || seller.carry === "header-unpadded") {
       // Pad the JSON so its base64 ends in "=" and stripping it changes the text.
       let text = JSON.stringify(body);
@@ -130,6 +131,18 @@ test("paying fetch: a PAYMENT-REQUIRED header the gate cannot read is not handed
   assert.equal(w.state.signs, 0);
   assert.equal(w.state.delivered.length, 0);
 });
+
+// 0.26.0: a 402 with no header and a body that is not JSON was handed to the
+// payer, which threw a plain error, and the paying fetch then treated the origin
+// as dead and paid its fallback route (stress finding paying-unreadable-body-skips).
+for (const seat of ["policyFetch", "payingFetch"] as const) {
+  test(`${seat}: a 402 body that is not JSON refuses and does not go to the fallback route`, async () => {
+    const w = world({ offers: () => [offer(SELLER, "10000")], carry: "garbage" }, { policy: { maxAmountUsd: "0.01", dailyCeilingUsd: "0.05" } });
+    await assert.rejects(() => w[seat](URL_PAID), (err: unknown) => err instanceof TwzrdWashAbortError && /twzrd_payment_required_unreadable/.test(err.message));
+    assert.equal(w.state.signs, 0);
+    assert.equal(w.state.unpaid, 1, "only the first request was sent: no fallback route");
+  });
+}
 
 test("control: the same challenge in a canonical header is checked and paid within the policy", async () => {
   const w = world({ offers: () => [offer(SELLER, "10000")], carry: "header" }, { policy: { maxAmountUsd: "0.01", dailyCeilingUsd: "0.05" } });

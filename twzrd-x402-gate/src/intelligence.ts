@@ -9,6 +9,7 @@
  * its behavior.
  */
 
+import { isTempoUsdAsset } from "./tempo-assets.js";
 import { resolveConfig } from "./config.js";
 import { twzrdApprovePayment } from "./policy.js";
 import type { PaymentIntent } from "./intent.js";
@@ -134,7 +135,14 @@ export function createTwzrdIntelligenceProvider(
         priceUsdc: intentAmountToPriceUsd(intent.amount),
         agentIntent: `${intent.protocol}_payment_control`,
         chain: intent.network,
-        asset: intent.asset || undefined,
+        // The MPP guard has already refused any Tempo currency off its USD
+        // list, and the x402 USDC table has no Tempo entry, so an MPP Tempo
+        // asset that is on that list is not handed to the USDC-table rule
+        // (0.26.0: observe refuses a named asset that table does not list).
+        asset:
+          intent.protocol === "mpp" && isTempoUsdAsset(intent.network, intent.asset)
+            ? undefined
+            : intent.asset || undefined,
       },
       cfg,
     );

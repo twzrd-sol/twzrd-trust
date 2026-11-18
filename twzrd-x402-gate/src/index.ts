@@ -39,6 +39,12 @@ export {
   isSvmUpto,
   SVM_SPLITS_REFUSED,
   hasSvmExactSplits,
+  GATEWAY_CONTRACT_REFUSED,
+  GATEWAY_VERSION_REFUSED,
+  GATEWAY_TIMEOUT_REFUSED,
+  GATEWAY_WALLET_CONTRACTS,
+  GATEWAY_MAX_TIMEOUT_SECONDS,
+  gatewayBatchRefusal,
   isBaseUnitAmount,
   TWZRD_FEE_PAYER,
 } from "./payto.js";

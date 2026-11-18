@@ -90,6 +90,7 @@ import {
   createTwzrdIntelligenceProvider,
   type TwzrdIntelligenceOptions,
 } from "./intelligence.js";
+import { TEMPO_USD_ASSETS } from "./tempo-assets.js";
 import {
   evaluateIntent,
   type IntelligenceProvider,
@@ -190,21 +191,6 @@ const DEVNET_MINTS = new Set([
   "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
   "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr",
 ]);
-
-/** Tempo chain ids accepted by the client and the gate's known USD TIP-20 list. */
-const TEMPO_USD_ASSETS: Readonly<Record<number, ReadonlySet<string>>> = {
-  // mppx 0.17's default Tempo charge offers (OUSD, USDC.e) on mainnet and
-  // (OUSD, pathUSD) on Moderato. pathUSD is also deployed on mainnet.
-  4217: new Set([
-    "0x20c0000000000000000000006a37da5c996874be", // OUSD
-    "0x20c000000000000000000000b9537d11c60e8b50", // USDC.e
-    "0x20c0000000000000000000000000000000000000", // pathUSD
-  ]),
-  42431: new Set([
-    "0x20c0000000000000000000006a37da5c996874be", // OUSD
-    "0x20c0000000000000000000000000000000000000", // pathUSD
-  ]),
-};
 
 const TEMPO_REQUEST_FIELDS = new Set([
   "amount",
@@ -995,6 +981,12 @@ export function createTwzrdMppIntegration(
       ...intelligenceOptions,
       failOpen: false,
       unsupportedNetworkMode: allowUnscoredNetwork ? "observe" : "strict",
+      // The unscored opt-in already demands an explicit maxAmountUsd; that is
+      // the per-call ceiling here unless the caller set unscoredMaxUsdc itself.
+      ...(allowUnscoredNetwork && intelligenceOptions?.unscoredMaxUsdc === undefined &&
+      Number.isFinite(Number(options.policy?.maxAmountUsd))
+        ? { unscoredMaxUsdc: Number(options.policy?.maxAmountUsd) }
+        : {}),
     }),
   };
   return {

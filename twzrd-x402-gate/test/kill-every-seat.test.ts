@@ -821,8 +821,16 @@ test("a 402 the gate cannot parse is not handed to a payer while halted", async 
         }),
       ],
     ];
+    // The paying and policy fetches front the x402 payer, which cannot pay a 402
+    // nobody can read: from 0.26.0 they refuse it outright. The generic wrappers
+    // pass it on (another payment dialect may read it).
+    const x402Only = new Set(["createTwzrdPayingFetch", "createTwzrdPolicyFetch"]);
     for (const [name, seat] of seats) {
-      assert.equal((await seat(RESOURCE)).status, 402, `${name}: control, an unread 402 passes through with no file`);
+      if (x402Only.has(name)) {
+        await assert.rejects(() => seat(RESOURCE), /twzrd_payment_required_unreadable/, `${name}: control`);
+      } else {
+        assert.equal((await seat(RESOURCE)).status, 402, `${name}: control, an unread 402 passes through with no file`);
+      }
     }
     dropKill(dir);
     for (const [name, seat] of seats) {

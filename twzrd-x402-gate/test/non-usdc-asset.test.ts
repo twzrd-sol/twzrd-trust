@@ -107,13 +107,15 @@ async function run() {
       assert.ok(!result || result.abort !== true, `asset ${asset}: unexpected abort ${JSON.stringify(result)}`);
       assert.ok(f.calls.length >= 1, "intel consulted");
     }
-    // Unchanged: an unscored network keeps its observe allow whatever the asset.
+    // 0.26.0 (F2): an unscored network no longer keeps its observe allow whatever
+    // the asset. A named asset off that network's USDC table refuses before intel.
     const f = intel(allowCard);
     const polygon = await evaluateBeforePaymentCreation(req(POLYGON, OTHER_ERC20), {
       fetch: f,
       refuseWashFlagged: false,
     });
-    assert.ok(!polygon || polygon.abort !== true, `polygon observe: ${JSON.stringify(polygon)}`);
+    assert.equal(polygon?.abort, true, `polygon observe: ${JSON.stringify(polygon)}`);
+    assert.match(String(polygon?.reason), /twzrd_non_usdc_asset/);
     assert.equal(f.calls.length, 0);
   }
 

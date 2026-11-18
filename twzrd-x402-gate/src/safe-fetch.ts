@@ -34,11 +34,13 @@ import {
   classifyNetwork,
 } from "./network.js";
 import {
+  offerObjects,
   payToFromRequirements,
   pickRequirements,
   priceUsdcFromAmountMicro,
   requirementAsset,
 } from "./payto.js";
+import { distinctOffers, firstRefusedOffer, sameOffer, TOO_MANY_PAYMENT_OPTIONS } from "./all-offers.js";
 import { twzrdApprovePayment } from "./policy.js";
 import type { TwzrdApprovalResult, X402PaymentRequiredBody } from "./types.js";
 
@@ -57,6 +59,8 @@ export type SafeFetchOptions = {
   refuseWashUnknown?: boolean;
   /** Refuse every unevaluated seller (default true from 0.13.0); false allows up to its cap. See TwzrdGateConfig. */
   refuseUnevaluated?: boolean;
+  /** Per-call USDC ceiling for an observe allow on an unscored network (0.26.0, default 0.10). See TwzrdGateConfig. */
+  unscoredMaxUsdc?: number | null;
   preflightMinScore?: number;
   intelBase?: string;
   /** If true, stop after preflight; never invoke AgentCash */
@@ -81,6 +85,10 @@ export type SafeFetchOptions = {
     body?: string;
     headers: string[];
     paymentNetwork?: string;
+    /** The entry TWZRD scored first (pickRequirements over the candidates). */
+    requirement?: PaymentRequirementSnapshot;
+    /** Every distinct entry the payer could pay; each was checked and approved. */
+    requirementsEvaluated?: PaymentRequirementSnapshot[];
   }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
   onEvent?: (event: string, detail?: Record<string, unknown>) => void;
 };
@@ -119,6 +127,11 @@ export type SafeFetchResult = {
    */
   requirementSigned?: PaymentRequirementSnapshot;
   /**
+   * Every distinct accepts[] entry the payer could pay (narrowed by paymentNetwork),
+   * the scored one first. Each was preflighted; any refusal blocks the call.
+   */
+  requirementsEvaluated?: PaymentRequirementSnapshot[];
+  /**
    * Always false for the shell-out AgentCash adapter (two independent HTTP requests).
    * True only if a future challenge-bound integration proves equality.
    */
@@ -137,6 +150,17 @@ export type SafeFetchResult = {
    */
   deliveryCapture?: DeliveryCaptureResult;
 };
+
+/**
+ * AgentCash's --payment-network names a network family ("solana", "base") or a full
+ * id. An entry matches on the exact id, a "<family>:" prefix, or base = eip155:8453.
+ */
+export function offerMatchesPaymentNetwork(entry: Record<string, unknown>, paymentNetwork: string): boolean {
+  const n = String(entry.network ?? "").trim().toLowerCase();
+  const p = paymentNetwork.trim().toLowerCase();
+  if (!n || !p) return false;
+  return n === p || n.startsWith(p + ":") || (p === "base" && n === "eip155:8453");
+}
 
 function emit(
   opts: SafeFetchOptions,
@@ -297,7 +321,27 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
     };
   }
 
-  const first = pickRequirements(body.accepts as Array<Record<string, unknown>> | undefined);
+  // The payer pays an entry of its own choosing, so every entry it could pay is a
+  // candidate. A caller-set paymentNetwork narrows the candidates to that network.
+  const allOffers = offerObjects(body.accepts);
+  const candidates = opts.paymentNetwork
+    ? allOffers.filter((e) => offerMatchesPaymentNetwork(e, opts.paymentNetwork as string))
+    : allOffers;
+  if (opts.paymentNetwork && allOffers.length > 0 && candidates.length === 0) {
+    emit(opts, eventOrder, "payment_network_not_offered", { paymentNetwork: opts.paymentNetwork });
+    return {
+      ok: false,
+      phase: "blocked",
+      initialStatus: 402,
+      eventOrder,
+      error: "payment_network_not_offered",
+      requirementScoredMatchesRequirementSigned: false,
+      targetRequestCount: 1,
+      cliSecurityClassification: "advisory_precheck",
+    };
+  }
+
+  const first = pickRequirements(candidates);
   const { payTo, amountMicro, resource, conflict } = payToFromRequirements(first);
   const priceUsdc = priceUsdcFromAmountMicro(amountMicro, first);
   const network = first.network;
@@ -365,6 +409,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
     refuseWashFlagged: opts.refuseWashFlagged,
     refuseWashUnknown: opts.refuseWashUnknown,
     refuseUnevaluated: opts.refuseUnevaluated,
+    unscoredMaxUsdc: opts.unscoredMaxUsdc,
     preflightMinScore: opts.preflightMinScore,
     fetch: fetchFn,
   });
@@ -418,6 +463,53 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
     };
   }
 
+  // AgentCash re-fetches the target and may pay any candidate entry, not the one
+  // scored above. Every other distinct candidate gets the same check; one refusal
+  // refuses the call, so whatever the payer picks was evaluated and approved.
+  const snapshotOf = (e: Record<string, unknown>): PaymentRequirementSnapshot => {
+    const r = payToFromRequirements(e);
+    return {
+      payTo: r.payTo,
+      network: typeof e.network === "string" ? e.network : undefined,
+      amountMicro: r.amountMicro,
+      asset: typeof e.asset === "string" ? e.asset : undefined,
+      resource: r.resource ?? opts.url,
+    };
+  };
+  const offers = distinctOffers(candidates);
+  const refused = await firstRefusedOffer(offers, {
+    config: cfg,
+    resourceUrl: resource ?? opts.url,
+    agentIntent: "twzrd_safe_fetch",
+    skip: first,
+  });
+  const requirementsEvaluated: PaymentRequirementSnapshot[] = refused
+    ? [requirementScored]
+    : [requirementScored, ...offers.filter((e) => !sameOffer(e, first)).map(snapshotOf)];
+  if (refused) {
+    const error = refused.reason === TOO_MANY_PAYMENT_OPTIONS
+      ? TOO_MANY_PAYMENT_OPTIONS
+      : `alternate_offer_refused:${refused.reason}`;
+    emit(opts, eventOrder, "payment_blocked", { reason: error, alternate: snapshotOf(refused.offer) });
+    return {
+      ok: false,
+      phase: "blocked",
+      initialStatus: 402,
+      payTo,
+      network,
+      amountMicro,
+      priceUsdc,
+      approval,
+      eventOrder,
+      error,
+      requirementScored,
+      requirementsEvaluated,
+      requirementScoredMatchesRequirementSigned: false,
+      targetRequestCount: 1,
+      cliSecurityClassification: "advisory_precheck",
+    };
+  }
+
   const dry = opts.dryRun || opts.preflightOnly;
   if (dry) {
     emit(opts, eventOrder, "dry_run_stop_before_pay");
@@ -432,6 +524,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
       approval,
       eventOrder,
       requirementScored,
+      requirementsEvaluated,
       requirementScoredMatchesRequirementSigned: false,
       targetRequestCount: 1,
       cliSecurityClassification: "advisory_precheck",
@@ -463,6 +556,8 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
     body: opts.body,
     headers: opts.headers ?? [],
     paymentNetwork: opts.paymentNetwork,
+    requirement: requirementScored,
+    requirementsEvaluated,
   });
   const payerLatencyMs = Date.now() - payerStartedAt;
 
@@ -485,6 +580,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
       payer,
       error: `agentcash_exit_${payer.exitCode}`,
       requirementScored,
+      requirementsEvaluated,
       // AgentCash made its own request; we cannot prove signed === scored
       requirementScoredMatchesRequirementSigned: false,
       targetRequestCount: 2,
@@ -543,6 +639,7 @@ export async function safeFetch(opts: SafeFetchOptions): Promise<SafeFetchResult
     resourceStatus: 200,
     resourceBody,
     requirementScored,
+    requirementsEvaluated,
     requirementSigned: undefined,
     requirementScoredMatchesRequirementSigned: false,
     targetRequestCount: 2,
