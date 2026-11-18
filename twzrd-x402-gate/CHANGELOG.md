@@ -2,6 +2,31 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.25.1 (2026-11-17)
+
+Patch release. Two allows become refusals on the unscored-network `observe` path, the default for
+entry points other than `createBuyerFetch`. Neither changes a scored-chain decision.
+
+- **A non-canonical `eip155:` network is refused in every mode (`network_malformed`).** An id whose
+  chain reference is not a plain decimal (`eip155:08453`, `eip155:0x2105`, `eip155:8453.0`, a sign,
+  a suffix, whitespace, full-width digits) counted as an unscored chain, so `observe` allowed it,
+  while payment clients read the number leniently and could sign for the scored chain it names
+  (Base, 8453). Such an offer could carry a seller the scored path would block. It now refuses in
+  `observe` and `strict` alike, before intel is called.
+
+- **A merchant-card outage refuses on the unscored-network `observe` path.** On a chain TWZRD does
+  not score (Arc, Arc testnet, Base Sepolia, Polygon and others), `observe` mode still GETs the
+  payee's merchant card for the wash check. When that card did not answer (5xx, 429, non-JSON body,
+  thrown or timed-out fetch), 0.25.0 and earlier kept the observe allow even under the default
+  `failOpen: false`, so the default config signed for a seller whose wash check never ran. It now
+  refuses with `twzrd_card_unreachable_fail_closed`, as the scored path already did.
+  - `failOpen: true` (or `TWZRD_FAIL_OPEN=true` where read) keeps the old allow and reports
+    `cardUnreachable: true`.
+  - A card that answers without a wash signal is unchanged on `observe`: no `twzrd_wash_unknown`
+    there. `strict` (and `createBuyerFetch`) is unchanged: it refuses unscored chains before intel.
+  - `createTwzrdMppIntegration` with `allowUnscoredNetwork` now refuses a card outage too; that
+    integration pins `failOpen: false`.
+
 ## 0.25.0 (2026-11-17)
 
 Minor release. Pricing Arc USDC changes what a guarded fetch with a spend rule accepts or refuses

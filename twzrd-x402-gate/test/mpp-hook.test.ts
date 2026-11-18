@@ -692,7 +692,8 @@ async function run() {
     // (never collapsed to false): the result is a plain ALLOW, not a
     // reputation_unchecked warning. The provider still GETs the payee's
     // merchant card for the wash check only: wash_flagged=true refuses, and a
-    // card outage keeps the allow (the observe path does not fail closed).
+    // card outage refuses (0.25.1; before, the observe path kept the allow on
+    // an outage). This integration pins failOpen:false, so there is no opt-out.
     const defaultProviderOptIn = async (card: () => Promise<Response>) => {
       const urls: string[] = [];
       const integration = createTwzrdMppIntegration({
@@ -729,8 +730,7 @@ async function run() {
     const outage = await defaultProviderOptIn(async () => {
       throw new Error("intel unreachable");
     });
-    assert.equal(outage.decision.disposition, "allow", "a card outage keeps the opt-in allow");
-    assert.deepEqual([...(outage.decision.reasonCodes ?? [])], ["ALLOW"]);
+    assert.equal(outage.decision.disposition, "block", "a card outage refuses, even with allowUnscoredNetwork");
 
     const washed = await defaultProviderOptIn(cardJson({ wash_flagged: true }));
     assert.equal(washed.decision.disposition, "block", "a wash-flagged payee still refuses");

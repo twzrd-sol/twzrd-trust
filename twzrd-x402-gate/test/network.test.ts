@@ -111,6 +111,14 @@ async function run() {
       fetch: (async (input) => {
         const url = String(input);
         if (url.includes("/v1/intel/preflight")) preflightHits += 1;
+        // The card answers clean. A card OUTAGE on this path refuses under the
+        // default failOpen:false (0.25.1); card-unreachable-failopen.test.ts pins it.
+        if (url.includes("/v1/intel/merchant_card/")) {
+          return new Response(JSON.stringify({ wash_flagged: false }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
         return new Response("{}", { status: 500 });
       }) as typeof fetch,
     });
@@ -126,7 +134,7 @@ async function run() {
     assert.equal(preflightHits, 0, "an unscored chain must not hit the preflight");
     assert.equal(r.verdict, "unknown");
     assert.equal(r.reason, "network_not_scored");
-    assert.equal(r.approved, true, "observe allows unscored (wash fail-open on 500)");
+    assert.equal(r.approved, true, "observe allows unscored when the card answers clean");
     assert.equal(r.reputationScored, false);
     assert.equal(r.policyAction, "allow");
     assert.equal(r.score, null);

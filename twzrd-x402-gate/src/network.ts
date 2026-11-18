@@ -22,6 +22,9 @@ export type NetworkKind = "solana" | "evm" | "other" | "unknown";
  */
 export const SCORED_EVM_NETWORKS: ReadonlySet<string> = new Set(["eip155:8453"]);
 
+/** A canonical eip155 CAIP-2 id: decimal chain reference, no leading zero, no suffix. */
+export const EIP155_CANONICAL_RE = /^eip155:(0|[1-9][0-9]*)$/;
+
 /** Canonical CAIP-2 id for a scored EVM alias, or undefined. */
 export function canonicalEvmNetwork(n: string): string | undefined {
   const s = n.trim().toLowerCase();
@@ -147,6 +150,21 @@ export function classifyNetwork(
     };
   }
 
+  // A malformed eip155 reference is refused in every mode. Payment clients
+  // read the chain id leniently (parseInt, or /^eip155:(\d+)$/), so
+  // "eip155:08453", "eip155:8453x" or "eip155:+8453" sign for Base chain id
+  // 8453 while the exact-string match below would call them unscored and
+  // observe mode would allow them with no preflight or price cap.
+  if (n.startsWith("eip155:") && !EIP155_CANONICAL_RE.test(n)) {
+    return {
+      network: raw,
+      kind: "evm",
+      reputationScored: false,
+      networkSupported: false,
+      reason: "network_malformed",
+    };
+  }
+
   // Base mainnet has its own corpus, so it is scored like Solana is.
   // Testnets are excluded: base-sepolia is recognized but has no corpus.
   const canonical =
@@ -216,10 +234,11 @@ export function decideUnsupportedNetwork(
   cls: NetworkClass,
   mode: UnsupportedNetworkMode,
 ): UnsupportedNetworkDecision {
-  const policyAction = mode === "strict" ? "block" : "allow";
+  const malformed = cls.reason === "network_malformed";
+  const policyAction = mode === "strict" || malformed ? "block" : "allow";
   return {
     decision: "unknown",
-    reason: cls.reason === "network_missing" ? "network_missing" : "network_not_scored",
+    reason: malformed ? "network_malformed" : cls.reason === "network_missing" ? "network_missing" : "network_not_scored",
     policyAction,
     approved: policyAction === "allow",
     network: cls.network,

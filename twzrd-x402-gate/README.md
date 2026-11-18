@@ -78,7 +78,7 @@ sentinels: an install with evaluation off still refuses while one is in force.
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.25.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.25.1 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -366,7 +366,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.25.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.25.1 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -405,7 +405,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.25.0
+npm install twzrd-x402-gate@0.25.1
 ```
 
 ```typescript
@@ -450,7 +450,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.25.0
+npm install twzrd-x402-gate@0.25.1
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -472,7 +472,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.25.0 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.25.1 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -603,9 +603,9 @@ Canonical path for every agent that spends USDC on Solana x402:
 
 **Outages and unknowns (fail-closed by default):**
 - Preflight HTTP/network error → refuse (`twzrd_fail_closed`). `TWZRD_FAIL_OPEN=true` restores the legacy allow-on-outage on the entry points that read it; `createBuyerFetch` does not read it.
-- Merchant card **outage** on a reputation-scored path (5xx, 429, thrown fetch, non-JSON 200) → refuse with `twzrd_card_unreachable_fail_closed`; the same `failOpen` switch opens it. This is tighten-only: an already-blocked payment keeps its more specific reason.
+- Merchant card **outage** (5xx, 429, thrown fetch, non-JSON 200), on a reputation-scored path and, from 0.25.1, on the unscored-network `observe` path → refuse with `twzrd_card_unreachable_fail_closed`; the same `failOpen` switch opens it. This is tighten-only: an already-blocked payment keeps its more specific reason.
 - Merchant card **reachable** but without a full wash answer → refuse with `twzrd_wash_unknown` (the default from 0.13.0, `refuseWashUnknown`; 0.12.x allowed this case). That is: no card (including a 4xx), no `wash_flagged` boolean (missing or `null`), wash confidence other than `full`, `ring_evaluated: false`, or `wash_stale: true`. It is intel answering, not an outage, so `failOpen` does not open it. Opt out with `refuseWashUnknown: false` or `TWZRD_REFUSE_WASH_UNKNOWN=0`; `createBuyerFetch` pins it on and does not read that variable.
-- Unscored-network `observe`: a card outage keeps the observe allow, and `twzrd_wash_unknown` is not applied (scored networks only); `wash_flagged: true` still refuses.
+- Unscored-network `observe`: a card outage refuses unless `failOpen` is set (0.25.1; before, it kept the observe allow). `twzrd_wash_unknown` is not applied (scored networks only); `wash_flagged: true` still refuses.
 - `wash_flagged: true` on a reachable card triggers the wash refuse or the soft cap. Nothing is invented for a field the card does not carry: a missing `wash_flagged` is reported as `washFlagged=null`, and by default it is refused as unknown, not read as clean.
 
 **Wash policy (exact, in this order):**
@@ -1453,6 +1453,7 @@ On the x402 client hooks (`createTwzrdBeforePaymentHook`, `installTwzrdAutoGate`
 | `twzrd_invalid_price` | A caller passed a `priceUsdc` that is negative or not finite. Intel is not called. | always (0.11.2+) |
 | `twzrd_non_usdc_asset` | On Solana or Base, the requirement names an asset that is not USDC on that network. Intel is not called; `failOpen` does not apply. | always (0.11.1+) |
 | `network_not_scored`, `network_missing` | The network is not scored (not Solana or Base mainnet). A name containing `devnet`, `testnet`, or `sepolia`, including Base Sepolia, is unscored. A Solana devnet named only by its CAIP-2 genesis id is still scored. | refused when `unsupportedNetworkMode` is `strict`. The shared default is `observe` (allow). `createBuyerFetch` sets `strict` |
+| `network_malformed` | An `eip155:` network whose chain reference is not a plain decimal (a leading zero, a sign, a suffix, hex). Payment clients read such ids leniently, so `eip155:08453` would sign for Base chain id 8453 while counting as unscored. | always refused, in `observe` as well as `strict`, before any intel call |
 | `twzrd_decision_<decision>` | Intel's card decision is in `blockDecisions`. | `twzrd_decision_block` |
 | `twzrd_unevaluated_subject_<null_reason>` | Intel has never evaluated the seller, and `refuseUnevaluated` is on (the default from 0.13.0) or the decision is not `allow`/`warn`. | default from 0.13.0 (`refuseUnevaluated: false` opts out) |
 | `twzrd_unevaluated_no_cap_<null_reason>` | Never evaluated, and the card has no finite `recommended_cap_usdc`. | always |

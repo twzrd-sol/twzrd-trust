@@ -332,7 +332,8 @@ export async function twzrdPreflight(
  * An UNREACHABLE card (5xx/429, non-JSON body, thrown/aborted fetch) is an
  * outage and is decided by `cfg.failOpen`, exactly like a preflight outage:
  * fail-closed by default, allow only when the caller opted into failOpen —
- * subject to `failClosedOnOutage` and to only-ever-tightening (see below).
+ * subject to only-ever-tightening (see below). This holds on the unscored
+ * observe path too (0.25.1).
  * A REACHABLE card carrying no wash_flagged is a genuine unknown and still fails
  * open — that is the no-invent rule and is unchanged. A 4xx is the service
  * answering, not an outage; see fetchMerchantCardResult.
@@ -352,16 +353,16 @@ async function tightenWithMerchantCardWash(input: {
   priceUsdc?: number;
   cfg: ResolvedTwzrdGateConfig;
   /**
-   * Whether a card OUTAGE on this path may refuse under `failOpen: false`.
+   * True on the reputation-scored path, false on the unsupported-network
+   * `observe` path. Only the scored path refuses a card that answered without
+   * full wash coverage (`refuseWashUnknown`): observe already allows what it
+   * cannot score, so thin coverage on an unscored chain is not a refusal.
    *
-   * True only on the reputation-scored path, where the gate claims a verdict and
-   * "could not evaluate" is the failure `failOpen` exists to decide. False on the
-   * unsupported-network `observe` path: there the operator has already said
-   * "allow what you cannot score" for a chain that gets no trust signal at all,
-   * so refusing it on a wash-lookup hiccup is over-refusal, not fail-closed
-   * safety (`strict` blocks that path before intel is ever called).
+   * A card OUTAGE is decided by `cfg.failOpen` on both paths (0.25.1). Before,
+   * the observe path kept its allow on an outage even under `failOpen: false`,
+   * so the default config signed for a seller whose wash check never ran.
    */
-  failClosedOnOutage: boolean;
+  scoredPath: boolean;
 }): Promise<{
   approved: boolean;
   reason: string;
@@ -388,7 +389,7 @@ async function tightenWithMerchantCardWash(input: {
     // payment already refused for a more specific reason (`input.approved`) —
     // the caller needs to see WHY it was blocked, and a denied payment is
     // denied either way.
-    if (!lookup.reachable && !input.cfg.failOpen && input.failClosedOnOutage && input.approved) {
+    if (!lookup.reachable && !input.cfg.failOpen && input.approved) {
       // Outage, and the caller did not opt into failOpen. Refuse before the
       // signer, and say which of the two unknowns this was.
       console.warn(
@@ -438,7 +439,7 @@ async function tightenWithMerchantCardWash(input: {
   if (
     approved &&
     input.cfg.refuseWashUnknown &&
-    input.failClosedOnOutage &&
+    input.scoredPath &&
     coverageAdequate === false
   ) {
     approved = false;
@@ -633,9 +634,10 @@ export async function twzrdApprovePayment(
       verdict: "unknown",
       priceUsdc: context.priceUsdc,
       cfg,
-      // observe on an unscored chain: a wash_flagged=true payTo still refuses,
-      // but a card OUTAGE keeps the observe allow. See failClosedOnOutage.
-      failClosedOnOutage: false,
+      // observe on an unscored chain: a wash_flagged=true payTo refuses, and a
+      // card OUTAGE refuses unless the caller opted into failOpen (0.25.1).
+      // Thin coverage alone does not refuse here. See scoredPath.
+      scoredPath: false,
     });
     unsupportedLog(wash.approved ? "allow" : "block");
     return finalize({
@@ -755,9 +757,9 @@ export async function twzrdApprovePayment(
       verdict: result.verdict,
       priceUsdc: context.priceUsdc,
       cfg,
-      // Scored path: the gate claims a verdict here, so a card outage is the
-      // "could not evaluate" that failOpen:false is documented to refuse.
-      failClosedOnOutage: true,
+      // Scored path: a card outage is decided by failOpen, and a card without
+      // full wash coverage is decided by refuseWashUnknown.
+      scoredPath: true,
     });
 
     return finalize({

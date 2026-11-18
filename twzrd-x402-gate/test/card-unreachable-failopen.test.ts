@@ -304,13 +304,12 @@ async function run() {
   }
   console.log("ok  an outage never relabels a payment already refused (only tightens)");
 
-  // --- 7. unscored network in observe mode: a card OUTAGE keeps the observe
-  //        allow. The operator chose "allow what you cannot score" for a chain
-  //        that gets no trust signal at all, so refusing it on a wash-lookup
-  //        hiccup is over-refusal, not safety. strict blocks that path before
-  //        intel is called. Pinned by network.test.ts ("wash fail-open on 500").
-  //        A wash_flagged=true payTo on that same path still refuses -- wash is
-  //        wallet-keyed and chain-neutral -- which is what keeps this narrow. ---
+  // --- 7. unscored network in observe mode: a card OUTAGE refuses under the
+  //        default failOpen:false, as it does on the scored path (0.25.1).
+  //        Before 0.25.1 the observe path kept its allow, so the default config
+  //        signed for a seller whose wash check never ran. failOpen:true still
+  //        allows it and says so (cardUnreachable). A wash_flagged=true payTo on
+  //        that path refuses either way: wash is wallet-keyed and chain-neutral. ---
   {
     const base = "0x3803A19280DeeFe533D177C4A169412BD341101b";
     // Polygon, not Base: Base is scored now, so it no longer takes the
@@ -325,9 +324,58 @@ async function run() {
         fetch: (async () => new Response("upstream down", { status: 503 })) as unknown as typeof fetch,
       }),
     );
-    assert.equal(r.approved, true, "observe on an unscored chain keeps its allow on a card outage");
-    assert.equal(r.verdict, "unknown", "and does not invent a block verdict");
-    assert.equal(r.reason, "network_not_scored", `reason stays the network one (got ${r.reason})`);
+    assert.equal(r.approved, false, "observe on an unscored chain refuses a card outage under failOpen:false");
+    assert.equal(r.verdict, "block");
+    assert.match(r.reason, /^twzrd_card_unreachable_fail_closed/, `outage reason (got ${r.reason})`);
+
+    // Each outage shape refuses: 5xx, 429, non-JSON body, thrown fetch, abort.
+    const outages: Array<[string, () => Promise<Response>]> = [
+      ["502", async () => new Response("bad gateway", { status: 502 })],
+      ["429", async () => new Response("slow down", { status: 429 })],
+      ["non-JSON 200", async () => new Response("<html>", { status: 200 })],
+      ["thrown fetch", async () => { throw new Error("ECONNREFUSED"); }],
+      ["abort", async () => { throw new DOMException("aborted", "AbortError"); }],
+    ];
+    for (const [label, reply] of outages) {
+      const o = await twzrdApprovePayment(
+        { payTo: base, chain: "eip155:137", priceUsdc: 0.01 },
+        resolveConfig({
+          unsupportedNetworkMode: "observe",
+          failOpen: false,
+          fetch: reply as unknown as typeof fetch,
+        }),
+      );
+      assert.equal(o.approved, false, `observe outage (${label}) refuses by default`);
+    }
+
+    // failOpen:true is the opt-in that keeps the observe allow on an outage.
+    const open = await twzrdApprovePayment(
+      { payTo: base, chain: "eip155:137", priceUsdc: 0.01 },
+      resolveConfig({
+        unsupportedNetworkMode: "observe",
+        refuseWashFlagged: true,
+        failOpen: true,
+        fetch: (async () => new Response("upstream down", { status: 503 })) as unknown as typeof fetch,
+      }),
+    );
+    assert.equal(open.approved, true, "failOpen:true keeps the observe allow on an outage");
+    assert.equal(open.reason, "network_not_scored");
+    assert.equal(open.cardUnreachable, true, "and reports that the wash check did not run");
+
+    // A card that answers without a wash signal still does not refuse on observe.
+    const thin = await twzrdApprovePayment(
+      { payTo: base, chain: "eip155:137", priceUsdc: 0.01 },
+      resolveConfig({
+        unsupportedNetworkMode: "observe",
+        failOpen: false,
+        fetch: (async () =>
+          new Response(JSON.stringify({ merchant: base }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })) as unknown as typeof fetch,
+      }),
+    );
+    assert.equal(thin.approved, true, "a reachable card without a wash answer is not an outage on observe");
 
     // ...but a wash_flagged=true seller on the same unscored path still refuses.
     const flagged = await twzrdApprovePayment(
@@ -348,7 +396,7 @@ async function run() {
     assert.equal(flagged.approved, false, "a wash_flagged payTo refuses on any chain");
     assert.equal(flagged.washFlagged, true);
   }
-  console.log("ok  unscored+observe keeps its allow on an outage, still refuses a flagged payTo");
+  console.log("ok  unscored+observe refuses a card outage by default, allows it only with failOpen, refuses a flagged payTo");
 
   // --- 8. stock beforePayment seat (the ClawRouter / PayAI path): a card
   //        outage under the default failOpen=false must abort BEFORE sign.

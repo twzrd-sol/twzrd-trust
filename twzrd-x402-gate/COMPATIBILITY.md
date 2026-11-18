@@ -1,6 +1,6 @@
 # Compatibility notes — twzrd-x402-gate (current release first; the 0.9.3 → 0.9.4 default change follows)
 
-0.25.0 is the released identity of this package. It is a minor release on 0.24.0: Arc USDC is now priced, and the caller's `AbortSignal` now governs a guarded call through the paid retry (see `CHANGELOG.md`). 0.24.0, the release before it, is a security release, and a minor one because it turns allows into refusals. Upgrade from 0.23.0 or earlier if you use `createTwzrdPolicyFetch` or `createTwzrdPayingFetch`. What changes for a caller:
+0.25.1 is the released identity of this package. It is a patch release on 0.25.0: an `eip155:` network whose chain reference is not a plain decimal is refused in every mode (`network_malformed`), and on the unscored-network `observe` path a merchant-card outage now refuses (`twzrd_card_unreachable_fail_closed`) unless `failOpen` is set, as it already did on the scored path. 0.25.0 is a minor release on 0.24.0: Arc USDC is now priced, and the caller's `AbortSignal` now governs a guarded call through the paid retry (see `CHANGELOG.md`). 0.24.0, the release before it, is a security release, and a minor one because it turns allows into refusals. Upgrade from 0.23.0 or earlier if you use `createTwzrdPolicyFetch` or `createTwzrdPayingFetch`. What changes for a caller:
 
 - A 402 whose `PAYMENT-REQUIRED` header cannot be read as canonical base64 throws `TwzrdWashAbortError` with `twzrd_payment_required_unreadable`. 0.23.0 and earlier handed it to the payer with no check.
 - `createTwzrdPolicyFetch` writes the payment to the spend ledger before the paid request leaves, whatever the seller answers, and names the recipient that was paid. A payment that never reached the seller is counted too. If the ledger cannot be written, the paid request is not sent (`spend_ledger_unavailable`).
@@ -111,12 +111,12 @@ twzrd-x402-gate/<version>`. `attribution: { integration, runId }` adds
 
 ## Registry state
 
-- `latest` dist-tag: **0.25.0**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
+- `latest` dist-tag: **0.25.1**. `paying-client-fail-closed` is moved by hand after a publish (it pointed at 0.12.0 on 2026-10-20). `0.10.0` and `0.10.1` are deprecated as
   unreproducible. Their deprecation text previously read "pin 0.9.3", which
   pointed integrators away from the maintained line; registry `latest` and the
-  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.25.0 as the
+  public trust source were re-verified on 2026-09-12 (maintained line then: 0.9.7). Treat 0.25.1 as the
   maintained line (0.11.2 and 0.11.3 are deprecated on npm for security fixes).
 - From 0.11.0, a change to what the gate allows or refuses ships only in a minor
   release with a `CHANGELOG.md` entry. `^0.11.0` therefore takes fixes but never a
-  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.25.0`) if you want
+  new refusal policy; 0.12.0 is such a policy change. Pin the exact version (`twzrd-x402-gate@0.25.1`) if you want
   no change at all.
