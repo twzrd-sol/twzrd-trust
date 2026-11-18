@@ -438,7 +438,7 @@ sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
 | `twzrd-x402-gate` | **@0.26.0** | Buyer-side gate SDK (`createBuyerFetch`) + pre-sign seat hooks |
 | `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
-| `twzrd-mcp-server` | **@0.6.3** (0.6.4 publish pending) | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
+| `twzrd-mcp-server` | **@0.6.4** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.12** | Eliza / facilitator adapter |
 
 - **Document index (what is current, what is history):** [docs/README.md](./docs/README.md)
