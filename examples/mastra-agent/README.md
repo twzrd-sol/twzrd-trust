@@ -5,7 +5,7 @@ tool executes — no proxy, no daemon, no file I/O in the hook itself.
 
 Requires `@mastra/core` **1.49.0 or later** (agent-level `hooks`, documented
 at <https://mastra.ai/docs/agents/tools>) and the published
-`@twzrd1111/agent-killswitch` **0.1.11**. The example itself does not
+`@twzrd1111/agent-killswitch` **0.5.0**. The example itself does not
 depend on `@mastra/core`; the hook is a plain function Mastra calls, and
 `createAgentKillswitchHooks()` type-checks as Mastra's `ToolHooks`.
 
@@ -13,7 +13,7 @@ depend on `@mastra/core`; the hook is a plain function Mastra calls, and
 
 ```sh
 cd examples/mastra-agent
-npm ci        # @twzrd1111/agent-killswitch@0.1.11 from the npm registry
+npm ci        # @twzrd1111/agent-killswitch@0.5.0 from the npm registry
 npm test      # node --test __tests__/ (offline; Node 22.18+ runs the .ts directly)
 ```
 
@@ -73,13 +73,13 @@ export const agent = new Agent({
   with `code` one of `budget_exceeded | kill_switch | payment_gate_halt |
   per_request_cap | model_not_allowed` (429-equivalent for budgets, 403 for
   the kill switch and disallowed models).
-- **Prompt size** (0.1.11): the estimate bounds the prompt at one token per
+- **Prompt size** (since 0.1.11): the estimate bounds the prompt at one token per
   byte of the request text. Unless a call gives both `promptBytes` and
   `promptTextOnly: true`, it is held at `maxCostPerRequestUsd` or more, so an
   hourly budget smaller than that cap refuses every such call.
   `budgetInputForChatRequest(text)` returns `model`, `maxTokens`,
   `promptBytes` and `promptTextOnly` for the exact text you send.
-- **Spent windows** (0.1.11): while the hour or day is at or over its limit,
+- **Spent windows** (since 0.1.11): while the hour or day is at or over its limit,
   every call that passes the kill switch and pause checks is refused with
   `budget_exceeded`, the daily refusal first when both are spent.
 - **Hold before await, synchronously**: the estimate hold is added to
