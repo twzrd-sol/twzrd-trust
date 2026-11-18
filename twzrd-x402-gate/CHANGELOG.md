@@ -5,7 +5,7 @@ All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 ## 0.26.0 (2026-11-18)
 
 Minor release, because allows become refusals. Scored-chain decisions on a single-offer 402 are
-unchanged. Each item below names the stress finding it closes.
+unchanged.
 
 - **`safeFetch` checks every `accepts[]` entry the payer could pay.** The AgentCash CLI re-fetches
   the 402 and pays an entry it picks itself, so approving only the first entry let a mixed 402 (a
