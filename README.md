@@ -181,7 +181,7 @@ Registry `latest` as read on 2026-11-18; killswitch container pin last rechecked
 | `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
 | `twzrd-receipt-verifier` | npm and PyPI 1.4.6 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
 | `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.4 / PyPI 0.2.4 | 0.6.5 (`dist/` mirror; gate 0.26.0, npm publish pending) | Local spend-capped MCP client; prefer the hosted MCP |
-| `@wzrd_sol/eliza-plugin` | npm 0.10.2 | 0.10.2 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
+| `@wzrd_sol/eliza-plugin` | npm 0.10.3 | 0.10.3 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.12 | 0.3.12 (`dist/` mirror) | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.5.1 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.14 | not in this repository | Server package behind the hosted checks |
