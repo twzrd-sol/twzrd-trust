@@ -12,9 +12,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createLocalDecisionSigner, type PaymentDecision } from "../src/decision-token.js";
+import { createLocalDecisionSigner } from "../src/decision-token.js";
 import type { PaymentIntent } from "../src/intent.js";
-import { createTwzrdPolicyFetch, TwzrdPolicyAbortError } from "../src/policy-fetch.js";
+import { TwzrdWashAbortError } from "../src/paying-fetch.js";
+import { createTwzrdPolicyFetch, SPEND_LEDGER_UNAVAILABLE } from "../src/policy-fetch.js";
 import {
   createMemorySpendLedger,
   evaluateIntent,
@@ -90,28 +91,69 @@ test("caps that need no ledger are unchanged without one", async () => {
   assert.equal((await evaluateIntent(intent(), { signer })).decision, "allow");
 });
 
-test("the fetch wrapper refuses before paying when a daily ceiling has no ledger", async () => {
+test("the fetch wrapper refuses a daily ceiling with no ledger at construction (0.27.0)", async () => {
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   let paid = 0;
-  const audits: PaymentDecision[] = [];
+  let fetched = 0;
+  assert.throws(
+    () =>
+      createTwzrdPolicyFetch({
+        signer,
+        fetch: (async () => json({ wash_flagged: false, wash_confidence: "full" })) as unknown as typeof fetch,
+        rawFetch: (async () => {
+          fetched += 1;
+          return json({ accepts: [{ payTo: SELLER, amount: "10000", network: "solana", asset: USDC }] }, 402);
+        }) as unknown as typeof fetch,
+        wrapPay: (gated) => async (input, init) => {
+          const r = await gated(input, init);
+          if (r.status !== 402) return r;
+          paid += 1;
+          return new Response("paid", { status: 200 });
+        },
+        policy: { dailyCeilingUsd: "0.05" },
+      }),
+    (err: unknown) => err instanceof TypeError && /dailyCeilingUsd needs a ledger/.test((err as Error).message),
+  );
+  assert.equal(paid, 0);
+  assert.equal(fetched, 0);
+});
+
+test("the fetch wrapper refuses, without a fallback, when the ledger cannot be read", async () => {
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  let paid = 0;
+  const seen: string[] = [];
+  const inner = createMemorySpendLedger();
+  const unreadable = { ...inner, spentMicro: () => { throw new Error("ledger read failed"); } };
   const pay = createTwzrdPolicyFetch({
     signer,
+    ledger: unreadable,
+    policy: { dailyCeilingUsd: "1.00" },
     fetch: (async () => json({ wash_flagged: false, wash_confidence: "full" })) as unknown as typeof fetch,
-    rawFetch: (async () =>
-      json({ accepts: [{ payTo: SELLER, amount: "10000", network: "solana", asset: USDC }] }, 402)) as unknown as typeof fetch,
+    rawFetch: (async (input: unknown) => {
+      seen.push(String(input));
+      return json({ accepts: [{ payTo: SELLER, amount: "10000", network: "solana", asset: USDC }] }, 402);
+    }) as unknown as typeof fetch,
     wrapPay: (gated) => async (input, init) => {
       const r = await gated(input, init);
       if (r.status !== 402) return r;
       paid += 1;
       return new Response("paid", { status: 200 });
     },
-    policy: { dailyCeilingUsd: "0.05" },
-    onAudit: (d: PaymentDecision) => audits.push(d),
+    // Even with fallback on, an unreadable ledger is an abort: the route is never paid.
+    fallbackEnabled: true,
+    allowedFallbackHosts: ["router.example"],
+    routeUrl: "https://router.example/route",
+    deliveryCapture: false,
   });
-  await assert.rejects(pay("https://store.example/item"), TwzrdPolicyAbortError);
+  await assert.rejects(
+    pay("https://store.example/item"),
+    (err: unknown) => err instanceof TwzrdWashAbortError && err.message === SPEND_LEDGER_UNAVAILABLE,
+  );
   assert.equal(paid, 0);
-  assert.ok(audits.at(-1)?.reasonCodes.includes(SPEND_CAP_NEEDS_LEDGER));
+  assert.deepEqual(seen, ["https://store.example/item"]);
+  assert.equal(inner.spentMicro("policy:global", 86_400_000, Date.now()), 0n);
 });
 
 /* ---- The ledger is there but cannot be read or written ---------------- */
