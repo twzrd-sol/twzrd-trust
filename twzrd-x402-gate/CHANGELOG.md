@@ -27,6 +27,11 @@ the implicit `outbid.sh` defaults are removed.
   - Headers stripped from the fallback hop widen from four names to `authorization`, `cookie`,
     `proxy-*`, `x-payment`, `payment`, `payment-signature`, `payment-response` and `host`, for the
     caller's headers and the route's `forward_headers` alike.
+  - Fallback requests (the peek, the route and the hop, including the payer's signed retry) are
+    sent with `redirect: "manual"`. A 3xx or opaque-redirect answer, or a response marked
+    `redirected` is refused with a `TwzrdWashAbortError`
+    whose message is `twzrd_fallback_redirect_refused` (exported as `FALLBACK_REDIRECT_REFUSED`)
+    before the payer sees a 402, so an allowlisted host cannot redirect the payment elsewhere.
 
 - **`createTwzrdPolicyFetch` refuses `policy.dailyCeilingUsd` without a `ledger` at construction.**
   Since 0.23.0 every call through such a fetch was refused with `SPEND_CAP_NEEDS_LEDGER`; the

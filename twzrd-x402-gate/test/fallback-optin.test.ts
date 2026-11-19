@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createTwzrdPayingFetch, type CreateTwzrdPayingFetchInput } from "../src/paying-fetch.js";
+import { createTwzrdPayingFetch, FALLBACK_REDIRECT_REFUSED, type CreateTwzrdPayingFetchInput } from "../src/paying-fetch.js";
 
 const CLEAN = "GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs";
 const ORIGIN = "https://origin.example/paid";
@@ -193,4 +193,92 @@ test("sensitive headers never reach the fallback hop", async () => {
   }
   assert.equal(got.get("x-outbid-rank"), "1");
   assert.equal(got.get("x-caller-trace"), "keep-me");
+});
+
+/**
+ * Redirects on fallback hops (0.27.0). Hops are sent with redirect: "manual";
+ * a 3xx, an opaque redirect, or a response marked redirected is refused before the payer sees a 402, so nothing is paid there.
+ */
+type HopAnswer = (u: string) => Response | undefined;
+
+function redirectHarness(answer: HopAnswer) {
+  const rec = { raw: [] as Array<[string, RequestInit["redirect"]]>, peeks: [] as Array<RequestInit["redirect"]>, paid: [] as string[] };
+  const rawFetch = (async (input: unknown, init?: RequestInit) => {
+    const u = String(input);
+    rec.raw.push([u, init?.redirect]);
+    if (u.startsWith(ORIGIN)) throw new TypeError("fetch failed");
+    return answer(u) ?? invoice();
+  }) as unknown as typeof fetch;
+  const wrapPay = (g: typeof fetch): typeof fetch => async (input, init) => {
+    const u = String(input);
+    const r = await g(input, init);
+    if (r.status !== 402) return r;
+    rec.paid.push(u);
+    return u.startsWith(ROUTE) ? json({ url: HOP }) : new Response("paid", { status: 200 });
+  };
+  const peekFetch = (async (_input: unknown, init?: RequestInit) => {
+    rec.peeks.push(init?.redirect);
+    return json({});
+  }) as unknown as typeof fetch;
+  const pay = createTwzrdPayingFetch({ fetch: cleanCard, rawFetch, wrapPay, peekFetch, deliveryCapture: false, ...ENABLED });
+  return { pay, rec };
+}
+
+/** A response as a fetch that followed a redirect would return it. */
+function followed(res: Response, url: string, redirected: boolean): Response {
+  Object.defineProperty(res, "url", { value: url });
+  Object.defineProperty(res, "redirected", { value: redirected });
+  return res;
+}
+
+const refusedRedirect = (err: unknown) => (err as Error).message.includes(FALLBACK_REDIRECT_REFUSED);
+
+test("fallback hops are sent with redirect: manual; the origin request is left alone", async () => {
+  const { pay, rec } = redirectHarness(() => undefined);
+  assert.equal((await pay(ORIGIN)).status, 200);
+  assert.deepEqual(rec.raw, [[ORIGIN, undefined], [ROUTE, "manual"], [HOP, "manual"]]);
+  assert.deepEqual(rec.peeks, ["manual"]);
+  assert.deepEqual(rec.paid, [ROUTE, HOP]);
+});
+
+test("a redirect from the route is refused and the route is never paid", async () => {
+  const { pay, rec } = redirectHarness((u) => (u.startsWith(ROUTE) ? Response.redirect("https://attacker.example/route", 302) : undefined));
+  await assert.rejects(pay(ORIGIN), refusedRedirect);
+  assert.deepEqual(rec.paid, []);
+  assert.equal(rec.raw.some(([u]) => u.includes("attacker.example")), false);
+});
+
+for (const status of [301, 302, 303, 307, 308] as const) {
+  test(`a ${status} from the allowlisted hop is refused and the hop is never paid`, async () => {
+    const { pay, rec } = redirectHarness((u) => (u.startsWith(HOP) ? Response.redirect("https://attacker.example/drain", status) : undefined));
+    await assert.rejects(pay(ORIGIN), refusedRedirect);
+    assert.deepEqual(rec.paid, [ROUTE]);
+  });
+}
+
+test("a browser-style opaque redirect from a hop is refused", async () => {
+  const opaque = new Response(null, { status: 200 });
+  Object.defineProperty(opaque, "type", { value: "opaqueredirect" });
+  Object.defineProperty(opaque, "status", { value: 0 });
+  const { pay, rec } = redirectHarness((u) => (u.startsWith(HOP) ? opaque : undefined));
+  await assert.rejects(pay(ORIGIN), refusedRedirect);
+  assert.deepEqual(rec.paid, [ROUTE]);
+});
+
+test("a rawFetch that follows redirects anyway: a 402 from off the allowlist is never paid", async () => {
+  const { pay, rec } = redirectHarness((u) => (u.startsWith(HOP) ? followed(invoice(), "https://attacker.example/drain", true) : undefined));
+  await assert.rejects(pay(ORIGIN), refusedRedirect);
+  assert.deepEqual(rec.paid, [ROUTE]);
+});
+
+test("a followed redirect is refused even when it lands on an allowlisted host", async () => {
+  const { pay, rec } = redirectHarness((u) => (u.startsWith(HOP) ? followed(invoice(), "https://router.example/other", true) : undefined));
+  await assert.rejects(pay(ORIGIN), refusedRedirect);
+  assert.deepEqual(rec.paid, [ROUTE]);
+});
+
+test("a rawFetch that rewrites the host without a redirect (proxy, test double) is still paid", async () => {
+  const { pay, rec } = redirectHarness((u) => (u.startsWith(HOP) ? followed(invoice(), "http://127.0.0.1:8080/item", false) : undefined));
+  assert.equal((await pay(ORIGIN)).status, 200);
+  assert.deepEqual(rec.paid, [ROUTE, HOP]);
 });

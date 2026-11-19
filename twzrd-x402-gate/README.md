@@ -781,6 +781,10 @@ and name an allowlisted host; otherwise the call throws
 caller's headers and the route's `x-outbid-*` `forward_headers`, minus `authorization`, `cookie`,
 `proxy-*`, `x-payment`, `payment`, `payment-signature`, `payment-response` and `host`.
 
+Fallback requests are sent with `redirect: "manual"` and redirects are never followed: a 3xx or
+opaque-redirect answer, or a response marked `redirected` throws a `TwzrdWashAbortError` (`FALLBACK_REDIRECT_REFUSED`, `twzrd_fallback_redirect_refused`)
+before the payer sees a 402, so nothing is paid on the far side of a redirect.
+
 ```typescript
 createTwzrdPayingFetch({
   wallet,

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { distinctOffers, MAX_DISTINCT_OFFERS, TOO_MANY_PAYMENT_OPTIONS } from "./all-offers.js";
 import { wrapFetchEchoTwzrdAttempt, wrapX402ClientEchoAttempt } from "./attempt-echo.js";
 import { twzrdSentinelRefusal } from "./binding-plane.js";
@@ -47,6 +49,13 @@ const STRIP = /^(authorization|cookie|proxy-.*|x-payment|payment|payment-signatu
  * `createTwzrdPayingFetch` (and so `createTwzrdPolicyFetch`) at construction.
  */
 const FALLBACK_CONFIG = "[twzrd-x402-gate] fallback routing";
+
+/**
+ * A fallback hop answered with a redirect (0.27.0). Fallback requests are sent with
+ * `redirect: "manual"`; a redirect is refused before anything is handed to
+ * the payer, so an allowlisted host cannot point the payment elsewhere.
+ */
+export const FALLBACK_REDIRECT_REFUSED = "twzrd_fallback_redirect_refused";
 
 export type CreateTwzrdPayingFetchInput = WashDefaultOptions & {
   wallet?: unknown;
@@ -172,8 +181,24 @@ export function createTwzrdPayingFetch(opts: CreateTwzrdPayingFetchInput): typeo
     if (halted !== undefined) throw new TwzrdWashAbortError(`[twzrd] ${halted}`);
     return resp;
   };
+  // Set while a fallback hop runs, so `guarded` sees the hop's requests,
+  // including the payer's signed retry, and refuses any redirect.
+  const fallbackHop = new AsyncLocalStorage<ReadonlySet<string>>();
+  const refuseRedirect = (resp: Response): Response => {
+    const status = resp.status;
+    if (resp.type === "opaqueredirect" || resp.redirected || (status >= 300 && status < 400)) {
+      throw new TwzrdWashAbortError(FALLBACK_REDIRECT_REFUSED);
+    }
+    // `redirected` also catches a rawFetch that ignored `redirect: "manual"`.
+    // resp.url is not checked: a rawFetch may legitimately rewrite the host
+    // (proxy, loopback test double), and the request URL was already allowlisted.
+    return resp;
+  };
   const guarded: typeof fetch = async (input, init) => {
-    const resp = await raw(input, init);
+    const hopHosts = fallbackHop.getStore();
+    const resp = hopHosts
+      ? refuseRedirect(await raw(input, { ...init, redirect: "manual" }))
+      : await raw(input, init);
     if (resp.status !== 402) return resp;
     handOver(resp); // on entry: no card lookups for a payment that cannot happen
     let challenge: unknown;
@@ -225,17 +250,21 @@ export function createTwzrdPayingFetch(opts: CreateTwzrdPayingFetchInput): typeo
       if (err instanceof TwzrdWashAbortError || (err as { name?: string } | null)?.name === "TwzrdPolicyAbortError" || abort) throw err;
       // Fallback is opt-in (0.27.0): off, the original error is the answer and nothing else is fetched.
       if (!fallback) throw err;
+      const hop = <T>(fn: () => Promise<T>): Promise<T> => fallbackHop.run(fallback.hosts, fn);
+      const payHop = pay;
       if (fallback.topUrl !== undefined) {
-        try { await peek(fallback.topUrl); } catch { /* peek is free */ }
+        const topUrl = fallback.topUrl;
+        try { await peek(topUrl, { redirect: "manual" }); } catch { /* peek is free */ }
       }
-      const body = (await (await pay(fallback.routeUrl, {
+      const body = (await (await hop(() => payHop(fallback.routeUrl, {
         headers: { accept: "application/json" },
-      })).json()) as { url?: unknown; forward_headers?: Record<string, unknown> };
+      }))).json()) as { url?: unknown; forward_headers?: Record<string, unknown> };
       if (typeof body.url !== "string") throw new Error("[twzrd-x402-gate] fallback route answer has no url");
       // The route names where the next payment goes: only an allowlisted https host is paid.
       const refused = fallbackUrlRefusal(body.url, fallback.hosts);
       if (refused) throw new Error(`[twzrd-x402-gate] fallback route url refused: ${refused}`);
-      return after(await pay(body.url, { ...init, headers: fwd(init?.headers, body.forward_headers) }));
+      const hopUrl = body.url;
+      return after(await hop(() => payHop(hopUrl, { ...init, headers: fwd(init?.headers, body.forward_headers) })));
     }
   };
 }
