@@ -70,6 +70,9 @@ function harness(opts: {
     },
     ledger,
     policy: opts.policy,
+    // Fallback is opt-in since 0.27.0; kept on as before this release.
+    fallbackEnabled: true,
+    allowedFallbackHosts: ["origin.example"],
     topUrl: "https://origin.example/free",
     routeUrl: "https://origin.example/free",
     deliveryCapture: false,

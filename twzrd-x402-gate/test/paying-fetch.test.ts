@@ -8,8 +8,10 @@ import {
 const WASH = "7G73PLhKvAPBGTzG5ESAE4coE7QrVeTTKfhTxQZbyGgC";
 const CLEAN = "GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs";
 const ORIGIN = "https://origin.example/paid";
-const TOP = "https://outbid.sh/top";
-const ROUTE = "https://outbid.sh/route";
+const TOP = "https://router.example/top";
+const ROUTE = "https://router.example/route";
+// Fallback is opt-in since 0.27.0; the fallback case below turns it on.
+const FALLBACK = { fallbackEnabled: true, allowedFallbackHosts: ["router.example", "fallback.example"], topUrl: TOP, routeUrl: ROUTE };
 const HOP = "https://fallback.example/";
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -45,7 +47,7 @@ async function run() {
       : new Response("paid", { status: 200 });
   };
   const mk = (raw: typeof fetch, intel: boolean | "down", extra?: object) =>
-    createTwzrdPayingFetch({ fetch: card(intel), rawFetch: raw, wrapPay, ...extra });
+    createTwzrdPayingFetch({ fetch: card(intel), rawFetch: raw, wrapPay, ...FALLBACK, ...extra });
 
   await assert.rejects(() => mk(asFetch(async () => invoice(WASH)), true)(ORIGIN), TwzrdWashAbortError);
   assert.equal(seen.some((u) => u.includes("/route")), false);
@@ -75,7 +77,7 @@ async function run() {
       return u === ROUTE ? invoice(CLEAN) : json({ ok: true });
     }),
     false,
-    { peekFetch: asFetch(async (i) => { peeks.push(String(i)); return json({}); }) },
+    { ...FALLBACK, peekFetch: asFetch(async (i) => { peeks.push(String(i)); return json({}); }) },
   )(ORIGIN, { headers: { Authorization: "secret" } });
   assert.equal(r.status, 200);
   assert.deepEqual(peeks, [TOP]);

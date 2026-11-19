@@ -69,7 +69,9 @@ const SELLER = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
 const SOL = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const RESOURCE = "https://merchant.example/api/v1";
-const ROUTE = "https://outbid.sh/route";
+const ROUTE = "https://router.example/route";
+// Fallback is opt-in since 0.27.0. These cases turn it on so "the route is never paid" still means something.
+const FALLBACK = { fallbackEnabled: true, allowedFallbackHosts: ["router.example"], routeUrl: ROUTE };
 const BASE_PAY_TO = "0x3803A19280DeeFe533D177C4A169412BD341101b";
 const KILL = /twzrd_kill_switch/;
 const PAUSED = /twzrd_payment_paused/;
@@ -504,6 +506,7 @@ test("paying fetch: a 402 is never handed to the payer past .kill, and no fallba
         fetch: card,
         rawFetch: (async () => invoice()) as unknown as typeof fetch,
         wrapPay: countingPayWrap(paid, seen),
+        ...FALLBACK,
       });
 
     assert.equal((await mk(cleanCard())(RESOURCE)).status, 200, "control");
@@ -551,6 +554,7 @@ test("policy fetch: a .kill that lands while the decision is signed stops the ha
       wrapPay: countingPayWrap(paid, seen),
       policy: { maxAmountUsd: "1.00" },
       ledger,
+      ...FALLBACK,
     });
 
     assert.equal((await pay(RESOURCE)).status, 200, "control");

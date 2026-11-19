@@ -56,6 +56,14 @@ type ClearedOffer = { payTo: string; micro: bigint; decision: PaymentDecision; a
 type CallSlot = { cleared?: ClearedOffer[]; reserved?: Array<[scope: string, micro: bigint]>; seen?: boolean };
 
 export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeof fetch {
+  // A daily ceiling is read from the spend ledger. Without one every payment
+  // would be refused at call time (SPEND_CAP_NEEDS_LEDGER); since 0.27.0 the
+  // misconfiguration is refused here, before any fetch exists.
+  if (opts.policy?.dailyCeilingUsd !== undefined && !opts.ledger) {
+    throw new TypeError(
+      "[twzrd-x402-gate] createTwzrdPolicyFetch: policy.dailyCeilingUsd needs a ledger (createMemorySpendLedger() or createFileSpendLedger(path))",
+    );
+  }
   // One slot per call, carried on the call's async context. A single shared
   // slot let concurrent calls overwrite each other's offer: the first call to
   // finish booked the other's amount and cleared the slot, so the second paid
@@ -77,11 +85,16 @@ export function createTwzrdPolicyFetch(opts: CreateTwzrdPolicyFetchInput): typeo
     slot.cleared = undefined;
   };
   const base = opts.ledger;
+  // A ledger that cannot be read is an abort, not a dead origin (0.27.0): the
+  // payment is refused and the paying fetch never goes on to a fallback route.
+  const readLedger = <T>(read: () => T): T => {
+    try { return read(); } catch (cause) { throw new TwzrdWashAbortError(SPEND_LEDGER_UNAVAILABLE, { cause }); }
+  };
   const ledgerView: SpendLedger | undefined = base && {
     ...base,
-    spentMicro: (scope, windowMs, now) => base.spentMicro(scope, windowMs, now) + (inflight.get(scope) ?? 0n),
+    spentMicro: (scope, windowMs, now) => readLedger(() => base.spentMicro(scope, windowMs, now)) + (inflight.get(scope) ?? 0n),
     record: (scope, micro, at) => base.record(scope, micro, at),
-    firstSeen: (scope) => base.firstSeen(scope),
+    firstSeen: (scope) => readLedger(() => base.firstSeen(scope)),
   };
   /**
    * What a set of offers holds or books: each recipient at its own costliest

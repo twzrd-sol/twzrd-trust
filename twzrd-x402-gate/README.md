@@ -78,7 +78,7 @@ sentinels: an install with evaluation off still refuses while one is in force.
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.26.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.27.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -366,7 +366,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.26.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.27.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -405,7 +405,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.26.0
+npm install twzrd-x402-gate@0.27.0
 ```
 
 ```typescript
@@ -450,7 +450,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.26.0
+npm install twzrd-x402-gate@0.27.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -472,7 +472,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.26.0 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.27.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -743,6 +743,9 @@ Cumulative caps (`policy.dailyCeilingUsd`, `policy.newCounterpartyCap`, `mandate
 are read from a spend ledger: pass `ledger` (`createMemorySpendLedger()`, or
 `createFileSpendLedger(path)` to survive a restart) beside them. A cumulative cap set without
 a ledger blocks every payment with `SPEND_CAP_NEEDS_LEDGER`; it is never silently off.
+`createTwzrdPolicyFetch` (0.27.0+) refuses `policy.dailyCeilingUsd` without a `ledger` at
+construction with a `TypeError`, before any fetch exists. Inside that fetch a ledger that throws
+while it is read or written refuses the payment (`TwzrdWashAbortError`, `spend_ledger_unavailable`).
 
 - **Tighten-only composition:** a `paymentControl` block aborts even when the
   legacy preflight allowed; it never loosens a legacy denial.
@@ -753,6 +756,43 @@ a ledger blocks every payment with `SPEND_CAP_NEEDS_LEDGER`; it is never silentl
   are not mis-scaled.
 - Hook binding test:
   [`test/intent-binding.test.ts`](./test/intent-binding.test.ts).
+
+### Paying and policy fetch: fallback routing (opt-in, 0.27.0)
+
+`createTwzrdPayingFetch` and `createTwzrdPolicyFetch` rethrow a failed payment's original error.
+A wash, policy, halt or abort refusal is always rethrown. Through 0.26.0 any other failure peeked
+`https://outbid.sh/top`, paid `https://outbid.sh/route`, and then paid whatever `url` that route
+answered with. That is now off unless you turn it on, and there is no default route:
+
+| Option | Default | Meaning |
+|---|---|---|
+| `fallbackEnabled` | `false` | Opt in. Anything but `true` leaves fallback off: the original error is rethrown and no fallback request is made. `topUrl` and `routeUrl` on their own do not turn it on. |
+| `allowedFallbackHosts` | none | Required when enabled: a non-empty array of non-empty hostnames. Matching is exact and case-insensitive, with no wildcards (`api.example` does not admit `x.api.example`). |
+| `routeUrl` | none | Required when enabled: an `https:` URL with no userinfo, on an allowlisted host. Paid on failure; its JSON answer names `url`. |
+| `topUrl` | none | Optional free peek before the route is paid; if set, `https:` and allowlisted. |
+
+With `fallbackEnabled: true`, the factory throws a `TypeError` at construction when the allowlist is
+missing, empty or holds a non-string or blank entry, when `routeUrl` is missing, not `https:`,
+carries userinfo or names a host off the list, or when a given `topUrl` fails the same checks.
+
+When the fallback runs, the `url` the route answers with must parse, be `https:`, carry no userinfo
+and name an allowlisted host; otherwise the call throws
+`[twzrd-x402-gate] fallback route url refused: <why>` and that url is not paid. The hop gets the
+caller's headers and the route's `x-outbid-*` `forward_headers`, minus `authorization`, `cookie`,
+`proxy-*`, `x-payment`, `payment`, `payment-signature`, `payment-response` and `host`.
+
+Fallback requests are sent with `redirect: "manual"` and redirects are never followed: a 3xx or
+opaque-redirect answer, or a response marked `redirected` throws a `TwzrdWashAbortError` (`FALLBACK_REDIRECT_REFUSED`, `twzrd_fallback_redirect_refused`)
+before the payer sees a 402, so nothing is paid on the far side of a redirect.
+
+```typescript
+createTwzrdPayingFetch({
+  wallet,
+  fallbackEnabled: true,
+  allowedFallbackHosts: ["router.example", "mirror.example"],
+  routeUrl: "https://router.example/route",
+});
+```
 
 ### On MPP (Machine Payments Protocol)
 
@@ -1488,7 +1528,7 @@ From 0.20.0 the same two reads apply to every entry point in this package that c
 | `installTwzrdAutoGate("mpp")` with evaluation off, and the MPP `allowUnevaluated` opt-out | Throws `PAYMENT_CONTROL_BLOCK` before `createCredential`. The opt-out reads again after its decision-log write. |
 | `installTwzrdAutoGate(payWrap)` with evaluation off | The fetch given to `payWrap` throws `[twzrd-guard] payment blocked: <code> url=…` on a 402. |
 | `withTwzrdGuard`, `wrapFetchWithTwzrdGate` | Also on a 402 they cannot parse, which is otherwise returned to the caller as received: throws `payment blocked: <code> url=…`. |
-| `createTwzrdPayingFetch`, `createTwzrdPolicyFetch` | Throws `TwzrdWashAbortError` (`[twzrd] <code>`) at every point a 402 would reach the payer, an unparseable one included. The outbid fallback route is not paid either. |
+| `createTwzrdPayingFetch`, `createTwzrdPolicyFetch` | Throws `TwzrdWashAbortError` (`[twzrd] <code>`) at every point a 402 would reach the payer, an unparseable one included. A configured fallback route is not paid either. |
 | `evaluateWashOnlyBeforePayment`, `createTwzrdWashBeforePaymentHook`, `createTwzrdPayingClient` | `{ abort: true, reason: "[twzrd] <code> payTo=…" }`, also with `refuseWashFlagged: false`, with no `payTo`, and on the `failOpen` outage path. |
 | `createGuardedX402Fetch` | The hook aborts `[twzrd-guarded-fetch] <code>` on entry (no budget reserved) and again right before the amount is recorded. |
 | `evaluateIntent` | A `block` decision whose `reasonCodes` include `<code>`; no spend is recorded. |

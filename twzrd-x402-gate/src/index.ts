@@ -610,7 +610,7 @@ export {
   type WashBeforePaymentContext,
   type WashBeforePaymentResult,
 } from "./wash-default.js";
-export { createTwzrdPayingFetch, PAYMENT_REQUIRED_UNREADABLE, TwzrdWashAbortError } from "./paying-fetch.js";
+export { createTwzrdPayingFetch, FALLBACK_REDIRECT_REFUSED, PAYMENT_REQUIRED_UNREADABLE, TwzrdWashAbortError } from "./paying-fetch.js";
 export type { CreateTwzrdPayingFetchInput } from "./paying-fetch.js";
 export { createTwzrdPolicyFetch, SPEND_LEDGER_UNAVAILABLE, TwzrdPolicyAbortError } from "./policy-fetch.js";
 export type { CreateTwzrdPolicyFetchInput } from "./policy-fetch.js";

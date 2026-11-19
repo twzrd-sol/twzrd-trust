@@ -7,7 +7,9 @@ import { createMemorySpendLedger } from "../src/policy-runtime.js";
 const WASH = "7G73PLhKvAPBGTzG5ESAE4coE7QrVeTTKfhTxQZbyGgC";
 const CLEAN = "GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs";
 const ORIGIN = "https://origin.example/paid";
-const ROUTE = "https://outbid.sh/route";
+const ROUTE = "https://router.example/route";
+// Fallback is opt-in since 0.27.0. These cases turn it on so "the route is never paid" still means something.
+const FALLBACK = { fallbackEnabled: true, allowedFallbackHosts: ["router.example"], routeUrl: ROUTE };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const invoice = (payTo: string) =>
@@ -30,7 +32,7 @@ async function run() {
     return r.status === 402 ? new Response("paid", { status: 200 }) : r;
   };
   const mk = (raw: typeof fetch, wash: boolean, extra: object) =>
-    createTwzrdPolicyFetch({ signer, fetch: card(wash), rawFetch: raw, wrapPay, policy: { maxAmountUsd: "1.00" }, ...extra });
+    createTwzrdPolicyFetch({ signer, fetch: card(wash), rawFetch: raw, wrapPay, policy: { maxAmountUsd: "1.00" }, ...FALLBACK, ...extra });
 
   await assert.rejects(() => mk(asFetch(async () => invoice(WASH)), true, {})(ORIGIN), TwzrdWashAbortError);
   assert.equal(seen.some((u) => u.includes("/route")), false);

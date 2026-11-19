@@ -2,6 +2,47 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.27.0 (2026-11-18)
+
+Minor release. **BREAKING** for callers that relied on the fallback route: it is now opt-in, and
+the implicit `outbid.sh` defaults are removed.
+
+- **BREAKING: fallback routing in `createTwzrdPayingFetch` and `createTwzrdPolicyFetch` is opt-in
+  and host-allowlisted.** On any payment failure that was not a wash, policy, halt or abort refusal,
+  the paying fetch peeked `topUrl` (default `https://outbid.sh/top`), paid `routeUrl` (default
+  `https://outbid.sh/route`), then paid whatever `url` that route answered with, forwarding the
+  route's `x-outbid-*` headers. It was on by default with no allowlist, so whoever held the route's
+  top slot chose where every client's failed fetch was paid again.
+  - New `fallbackEnabled` (default `false`). Off, the original error is rethrown and no fallback
+    request is made. Setting `topUrl` or `routeUrl` alone does not turn it on.
+  - New `allowedFallbackHosts`. With `fallbackEnabled: true` the factory throws a `TypeError` at
+    construction unless it is a non-empty array of non-empty hostnames, `routeUrl` is set, is
+    `https:`, has no userinfo and names an allowlisted host, and a given `topUrl` passes the same
+    checks.
+  - `topUrl` and `routeUrl` have no defaults. To keep the old behavior, set
+    `fallbackEnabled: true`, `allowedFallbackHosts`, and `routeUrl` yourself.
+  - The `url` a route answers with is paid only if it parses, is `https:`, carries no userinfo and
+    its hostname is on the allowlist (exact, case-insensitive, no wildcards). Otherwise the call
+    throws `[twzrd-x402-gate] fallback route url refused: <why>` and that url is not paid.
+  - Headers stripped from the fallback hop widen from four names to `authorization`, `cookie`,
+    `proxy-*`, `x-payment`, `payment`, `payment-signature`, `payment-response` and `host`, for the
+    caller's headers and the route's `forward_headers` alike.
+  - Fallback requests (the peek, the route and the hop, including the payer's signed retry) are
+    sent with `redirect: "manual"`. A 3xx or opaque-redirect answer, or a response marked
+    `redirected` is refused with a `TwzrdWashAbortError`
+    whose message is `twzrd_fallback_redirect_refused` (exported as `FALLBACK_REDIRECT_REFUSED`)
+    before the payer sees a 402, so an allowlisted host cannot redirect the payment elsewhere.
+
+- **`createTwzrdPolicyFetch` refuses `policy.dailyCeilingUsd` without a `ledger` at construction.**
+  Since 0.23.0 every call through such a fetch was refused with `SPEND_CAP_NEEDS_LEDGER`; the
+  misconfiguration now throws a `TypeError` before any fetch exists. `evaluateIntent` and the client
+  and MPP hooks keep their per-call signed block.
+
+- **A spend ledger that throws while it is read refuses the payment in `createTwzrdPolicyFetch`.**
+  A failed `spentMicro` or `firstSeen` now throws `TwzrdWashAbortError` with
+  `spend_ledger_unavailable`, as a failed write already did, so it is never taken for a dead origin
+  and sent to the fallback route.
+
 ## 0.26.0 (2026-11-18)
 
 Minor release, because allows become refusals. Scored-chain decisions on a single-offer 402 are

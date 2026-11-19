@@ -117,18 +117,18 @@ test("stage 4: a ceiling with no ledger to enforce it is refused when the pipeli
   assert.equal(signer.signs, 0);
 });
 
-test("stage 4: the gate itself refuses a ceiling with no ledger, before the signer", async () => {
-  const p = pipeline({ gateLedger: false, skipLedgerCheck: true, policy: { dailyCeilingUsd: "0.05" } });
-  await assert.rejects(
-    p.buy(),
+test("stage 4: the gate itself refuses a ceiling with no ledger, before the signer", () => {
+  // Gate 0.27.0 refuses the misconfiguration when createTwzrdPolicyFetch is built, so no
+  // paying fetch exists to call: nothing reaches the signer, the seller or a ledger.
+  assert.throws(
+    () => pipeline({ gateLedger: false, skipLedgerCheck: true, policy: { dailyCeilingUsd: "0.05" } }),
     (err) =>
-      err instanceof ToolNotSentError &&
-      /SPEND_CAP_NEEDS_LEDGER/.test(err.message) &&
-      /NEEDS_LEDGER_DAILY_CEILING/.test(err.message),
+      err instanceof TypeError &&
+      err.message ===
+        "[twzrd-x402-gate] createTwzrdPolicyFetch: policy.dailyCeilingUsd needs a ledger (createMemorySpendLedger() or createFileSpendLedger(path))",
   );
   assert.equal(signer.signs, 0);
   assert.equal(world.paidCount, 0);
-  assert.equal(p.guard.spend().dayUsd, 0, "the hold was released: nothing was sent");
   assert.equal(fs.existsSync(state.gateLedger), false);
 });
 
