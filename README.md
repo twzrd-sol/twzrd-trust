@@ -180,7 +180,7 @@ Registry `latest` as read on 2026-11-18; killswitch container pin last rechecked
 | `twzrd-x402-gate` | npm **0.27.0** | 0.27.0 | Buyer-side gate SDK and CLIs; the one package with source here |
 | `x402-solana` | npm 3.0.1 | peer | Compatible Solana client seat |
 | `twzrd-receipt-verifier` | npm and PyPI 1.4.6 | floor `^1.4.0` | Offline V5/V6/V7 receipt verifier (separate repository) |
-| `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.4 / PyPI 0.2.4 | 0.6.5 (`dist/` mirror; gate 0.26.0, npm publish pending) | Local spend-capped MCP client; prefer the hosted MCP |
+| `twzrd-mcp-server` / `twzrd-mcp` | npm 0.6.5 / PyPI 0.2.4 | 0.6.6 (`dist/` mirror; gate 0.27.0, npm publish pending) | Local spend-capped MCP client; prefer the hosted MCP |
 | `@wzrd_sol/eliza-plugin` | npm 0.10.3 | 0.10.3 (`dist/` mirror; source in `eliza-plugin-source/`) | elizaOS actions |
 | `@wzrd_sol/plugin-trustgate` | npm 0.3.12 | 0.3.12 (`dist/` mirror) | elizaOS and facilitator settle hook |
 | `twzrd-preflight` | npm 0.5.1 | separate repository | OpenClaw wrapped-fetch adapter |
@@ -438,7 +438,7 @@ sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
 | `twzrd-x402-gate` | **@0.27.0** | Buyer-side gate SDK (`createBuyerFetch`) + pre-sign seat hooks |
 | `x402-solana` | **@3.0.1** | Compatible Solana client seat for the pre-payment gate |
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
-| `twzrd-mcp-server` | **@0.6.5** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
+| `twzrd-mcp-server` | **@0.6.6** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.12** | Eliza / facilitator adapter |
 
 - **Document index (what is current, what is history):** [docs/README.md](./docs/README.md)
