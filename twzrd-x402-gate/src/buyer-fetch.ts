@@ -45,11 +45,14 @@ export type BuyerFetchOptions = {
   hourlyBudgetCap?: string;
   /** Defaults to .twzrd/decisions.jsonl. One process must own each file. */
   decisionFile?: string;
-  /** Defaults to .twzrd/spend.jsonl. One process must own each file. */
+  /**
+   * Defaults to .twzrd/spend-v2.jsonl. Processes may share one file: holds are
+   * written under a cross-process lock, so the hourly cap holds across them.
+   */
   spendLedgerFile?: string;
-  /** Optional base58 buyer wallet; omitted for EVM addresses rejected by Intel's base58 schema. */
+  /** Optional buyer wallet sent to Intel preflight as-is (base58 or EVM 0x; Intel scores only a base58 wallet's history). */
   buyerWallet?: string;
-  /** Proceed on Intel warn only when explicitly enabled. */
+  /** Proceed on a bounded Intel warn. Defaults to true; "block" always refuses. */
   allowWarn?: boolean;
   /** Shared budget scope within the spend ledger. Default: default. */
   budgetScope?: string;
@@ -216,7 +219,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
   }
   async function refuse(attempt: Attempt, reason: string, cause?: unknown): Promise<never> {
     if (attempt.reservationId) {
-      try { ledger.release(attempt.reservationId); } catch { /* fail closed below on decision write */ }
+      try { await ledger.releaseAsync(attempt.reservationId); } catch { /* fail closed below on decision write */ }
       attempt.reservationId = undefined;
     }
     await record(attempt, "block", reason);
@@ -255,7 +258,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
     const now = Date.now();
     const holdId = randomUUID();
     try {
-      if (!ledger.reserve(scope, micro, holdId, hourly, HOUR_MS, now)) return refuse(attempt, "hourly_budget_exceeded");
+      if (!await ledger.reserveAsync(scope, micro, holdId, hourly, HOUR_MS, now)) return refuse(attempt, "hourly_budget_exceeded");
     } catch (cause) { return refuse(attempt, "spend_ledger_unavailable", cause); }
     attempt.reservationId = holdId;
     inFlight.set(scope, (inFlight.get(scope) ?? 0n) + micro);
@@ -275,6 +278,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
         if (micro > (capMicro < max ? capMicro : max)) return refuse(attempt, "intel_recommended_cap_exceeded");
       }
       if (approval.card.decision === "block") return refuse(attempt, "intel_decision_block");
+      if (approval.card.decision === "warn" && options.allowWarn === false) return refuse(attempt, "intel_warn_not_allowed");
       if (approval.card.decision !== "allow" && approval.card.decision !== "warn") {
         return refuse(attempt, "invalid_preflight_decision");
       }
@@ -312,7 +316,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
         if (differs !== undefined) return refuse(current, differs);
       }
       if (current.reservationId) {
-        try { ledger.markSigned(current.reservationId); }
+        try { await ledger.markSignedAsync(current.reservationId); }
         catch (cause) { return refuse(current, "spend_ledger_unavailable", cause); }
       }
     }
@@ -323,13 +327,13 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
         : typeof settle?.reference === "string" ? settle.reference : undefined;
       try {
         if (settle?.success === true && ref) {
-          ledger.commit(current.reservationId, ref);
+          await ledger.commitAsync(current.reservationId, ref);
           current.reservationId = undefined;
         } else if (!response.ok && !response.headers.has("PAYMENT-RESPONSE") && !response.headers.has("X-PAYMENT-RESPONSE")) {
-          ledger.release(current.reservationId);
+          await ledger.releaseAsync(current.reservationId);
           current.reservationId = undefined;
         } else if (settle?.success === false) {
-          ledger.release(current.reservationId);
+          await ledger.releaseAsync(current.reservationId);
           current.reservationId = undefined;
         }
       } catch { /* preserve the already-paid response; the unresolved hold is conservative */ }

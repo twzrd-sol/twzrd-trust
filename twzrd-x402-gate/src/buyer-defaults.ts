@@ -8,12 +8,13 @@
  * Ladder (when x402Fetch is present and flags are unset):
  *   block                         → free refuse
  *   warn (any price)              → $0.001 GET /quick (escalateOnWarn)
- *   allow + price >= $2.50        → optional V7 $0.05 GET /trust (requireReceipt)
- *   allow + price <  $2.50        → free proceed
+ *   allow (any price)             → free proceed
  *
- * First paid hop is always /quick on warn. $0.05 /trust is opt-in V7
- * (material allow, autoReceipt, or escalateOnWarn: false + requireReceipt).
- * Opt out: `requireReceipt: false` and/or `escalateOnWarn: false`.
+ * First paid hop is always /quick on warn. $0.05 /trust is opt-in V7: pass
+ * `requireReceipt` (DEFAULT_BUYER_REQUIRE_RECEIPT restores the pre-0.28 rule:
+ * allow at or above $2.50 buys /trust, hard) or `autoReceipt`. Until 0.28.0
+ * `requireReceipt` defaulted to that rule. Opt out of the warn hop with
+ * `escalateOnWarn: false`.
  */
 
 import type { RequireReceiptPolicy } from "./receipt-policy.js";

@@ -365,18 +365,23 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       }
     }
     const holdId = call?.holdId;
-    if (holdId && payments.length > 0) { spendLedger.markSigned(holdId); if (call) call.signed = true; }
+    if (holdId && payments.length > 0) { await spendLedger.markSignedAsync(holdId); if (call) call.signed = true; }
     const response = await fulfilled(input, init);
-    if (holdId && payments.length > 0) {
-      const raw = response.headers.get("PAYMENT-RESPONSE");
-      if (raw) {
-        let receipt: Record<string, unknown> | undefined;
-        try { receipt = JSON.parse(base64ToUtf8Strict(raw)) as Record<string, unknown>; } catch { /* preserve the response; unresolved signed hold recovers conservatively */ }
-        const reference = receipt && (typeof receipt.transaction === "string" ? receipt.transaction : typeof receipt.reference === "string" ? receipt.reference : typeof receipt.settlement_ref === "string" ? receipt.settlement_ref : undefined);
-        if (receipt?.success === true && reference) spendLedger.commit(holdId, reference);
-        else if (receipt?.success === false) spendLedger.release(holdId);
-      } else if (!response.ok) spendLedger.release(holdId);
-    } else if (holdId && !response.ok) spendLedger.release(holdId);
+    // The response may already be paid: a ledger write that fails here must not
+    // cost the caller that response. An unresolved signed hold stays counted.
+    try {
+      if (holdId && payments.length > 0) {
+        // v2 names the settlement header PAYMENT-RESPONSE, v1 X-PAYMENT-RESPONSE.
+        const raw = response.headers.get("PAYMENT-RESPONSE") ?? response.headers.get("X-PAYMENT-RESPONSE");
+        if (raw) {
+          let receipt: Record<string, unknown> | undefined;
+          try { receipt = JSON.parse(base64ToUtf8Strict(raw)) as Record<string, unknown>; } catch { /* preserve the response; unresolved signed hold recovers conservatively */ }
+          const reference = receipt && (typeof receipt.transaction === "string" ? receipt.transaction : typeof receipt.reference === "string" ? receipt.reference : typeof receipt.settlement_ref === "string" ? receipt.settlement_ref : undefined);
+          if (receipt?.success === true && reference) await spendLedger.commitAsync(holdId, reference);
+          else if (receipt?.success === false) await spendLedger.releaseAsync(holdId);
+        } else if (!response.ok) await spendLedger.releaseAsync(holdId);
+      } else if (holdId && !response.ok) await spendLedger.releaseAsync(holdId);
+    } catch { /* see above */ }
     return response;
   };
   const fetchImpl = outcome ? outcome.wrapTransport(bound) : bound;
@@ -448,7 +453,7 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       // signing. The lock is released immediately; network work never holds it.
       if (amountMicro !== undefined && isUsdcRequirement(selected as Record<string, unknown>)) {
         const id = randomUUID();
-        if (!spendLedger.reserve(`guarded:${options.budgetScope ?? "default"}`, amountMicro, id, hourlyCap, HOUR_MS, recordedAt)) return abort("hourly_budget_exceeded");
+        if (!await spendLedger.reserveAsync(`guarded:${options.budgetScope ?? "default"}`, amountMicro, id, hourlyCap, HOUR_MS, recordedAt)) return abort("hourly_budget_exceeded");
         durableHold = id;
         const activeCall = calls.getStore();
         if (activeCall) activeCall.holdId = id;
@@ -474,7 +479,7 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       hookPassed = true;
       return undefined;
     } finally {
-      if (durableHold && !hookPassed) spendLedger.release(durableHold);
+      if (durableHold && !hookPassed) await spendLedger.releaseAsync(durableHold);
     }
   };
 
@@ -574,7 +579,10 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
         return await paying(input, init);
       } catch (error) {
         const activeCall = calls.getStore();
-        if (activeCall?.holdId && !activeCall.signed) spendLedger.release(activeCall.holdId);
+        // An unsigned hold paid nothing. A failed release leaves it to orphan resolution (released once this process exits); the caller still gets the payment error.
+        if (activeCall?.holdId && !activeCall.signed) {
+          try { await spendLedger.releaseAsync(activeCall.holdId); } catch { /* see above */ }
+        }
         throw explainCoreSpendControls(error);
       }
     };

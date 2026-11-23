@@ -4,11 +4,17 @@ import { DEFAULT_SPEND_LEDGER_FILE, sharedFileSpendLedger, tokenAmountToMicroUsd
 
 export type MppSpendKind = "charge" | "session";
 export type MppSpendHold = { holdId: string; scope: string; amountMicro: bigint; decimals: number; kind: MppSpendKind; channelId?: string; voucherTotalMicro?: bigint; previousHighWaterMicro?: bigint };
+export type MppSpendOutcome = "committed" | "released" | "pending" | "duplicate";
+/**
+ * Every method writes the shared spend ledger under its cross-process file lock
+ * and resolves once the row is durable. Each rejects if the lock stays busy for
+ * 3 s; `reserveCharge`/`reserveSession` also reject with `mpp_spend_cap_exceeded`.
+ */
 export type MppSpendAccounting = {
-  reserveCharge(input: { scope?: string; amount: string; decimals: number; capMicro?: bigint; holdId?: string }): MppSpendHold;
-  reserveSession(input: { scope?: string; channelId: string; voucherTotalBaseUnits: string; decimals: number; capMicro?: bigint; holdId?: string }): MppSpendHold;
-  markSigned(hold: MppSpendHold): boolean;
-  recordResponse(hold: MppSpendHold, response: Response): "committed" | "released" | "pending" | "duplicate";
+  reserveCharge(input: { scope?: string; amount: string; decimals: number; capMicro?: bigint; holdId?: string }): Promise<MppSpendHold>;
+  reserveSession(input: { scope?: string; channelId: string; voucherTotalBaseUnits: string; decimals: number; capMicro?: bigint; holdId?: string }): Promise<MppSpendHold>;
+  markSigned(hold: MppSpendHold): Promise<boolean>;
+  recordResponse(hold: MppSpendHold, response: Response): Promise<MppSpendOutcome>;
   ledger: FileSpendLedger;
 };
 
@@ -37,36 +43,38 @@ export function createMppSpendAccounting(options: { spendLedgerFile?: string; sc
   const ledger = sharedFileSpendLedger(options.spendLedgerFile ?? DEFAULT_SPEND_LEDGER_FILE);
   const defaultScope = `mpp:${options.scope ?? "default"}`;
   const now = options.now ?? Date.now;
-  const makeHold = (scope: string, amountMicro: bigint, decimals: number, capMicro: bigint | undefined, holdId: string, kind: MppSpendKind, channelId?: string, voucherTotalMicro?: bigint, previousHighWaterMicro?: bigint): MppSpendHold => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const makeHold = async (scope: string, amountMicro: bigint, decimals: number, capMicro: bigint | undefined, holdId: string, kind: MppSpendKind, channelId?: string, voucherTotalMicro?: bigint, previousHighWaterMicro?: bigint): Promise<MppSpendHold> => {
     const reserved = channelId && voucherTotalMicro !== undefined
-      ? ledger.reserveChannel(scope, amountMicro, holdId, capMicro, 24 * 60 * 60 * 1000, now(), channelId, voucherTotalMicro)
-      : ledger.reserve(scope, amountMicro, holdId, capMicro, 24 * 60 * 60 * 1000, now());
+      ? await ledger.reserveChannelAsync(scope, amountMicro, holdId, capMicro, DAY_MS, now(), channelId, voucherTotalMicro)
+      : await ledger.reserveAsync(scope, amountMicro, holdId, capMicro, DAY_MS, now());
     if (!reserved) throw new Error("mpp_spend_cap_exceeded");
     return { holdId, scope, amountMicro, decimals, kind, ...(channelId ? { channelId } : {}), ...(voucherTotalMicro !== undefined ? { voucherTotalMicro } : {}), ...(previousHighWaterMicro !== undefined ? { previousHighWaterMicro } : {}) };
   };
   return {
     ledger,
-    reserveCharge({ scope = defaultScope, amount, decimals, capMicro, holdId = randomUUID() }) {
+    async reserveCharge({ scope = defaultScope, amount, decimals, capMicro, holdId = randomUUID() }) {
       if (!/^\d+$/.test(amount) || !Number.isInteger(decimals) || decimals < 0) throw new TypeError("invalid MPP charge amount/decimals");
       return makeHold(scope, tokenAmountToMicroUsdCeil(BigInt(amount), decimals), decimals, capMicro, holdId, "charge");
     },
-    reserveSession({ scope = defaultScope, channelId, voucherTotalBaseUnits, decimals, capMicro, holdId = randomUUID() }) {
+    async reserveSession({ scope = defaultScope, channelId, voucherTotalBaseUnits, decimals, capMicro, holdId = randomUUID() }) {
       if (!channelId || !/^\d+$/.test(voucherTotalBaseUnits) || !Number.isInteger(decimals) || decimals < 0) throw new TypeError("invalid MPP session voucher amount/decimals");
       // Compute against settled high-water. Concurrent uncommitted vouchers
       // reserve conservatively from the same settled point; if one is rejected,
-      // another cannot have under-reserved its eventual cumulative spend.
+      // another cannot have under-reserved its eventual cumulative spend. The
+      // commit re-derives the delta from the high-water under the lock.
       const previous = ledger.highestSpentMicroByChannel(channelId);
       const total = tokenAmountToMicroUsdCeil(BigInt(voucherTotalBaseUnits), decimals);
       const delta = total > previous ? total - previous : 0n;
       return makeHold(scope, delta, decimals, capMicro, holdId, "session", channelId, total, previous);
     },
-    markSigned(hold) { return ledger.markSigned(hold.holdId); },
-    recordResponse(hold, response) {
+    markSigned(hold) { return ledger.markSignedAsync(hold.holdId); },
+    async recordResponse(hold, response) {
       const receipt = headerReceipt(response);
       if (hold.kind === "charge") {
         const ref = receipt && receiptRef(receipt);
-        if (receipt && ref) return ledger.commit(hold.holdId, ref) ? "committed" : "duplicate";
-        if (!response.ok && !receipt) { ledger.release(hold.holdId); return "released"; }
+        if (receipt && ref) return await ledger.commitAsync(hold.holdId, ref) ? "committed" : "duplicate";
+        if (!response.ok && !receipt) { await ledger.releaseAsync(hold.holdId); return "released"; }
         return "pending";
       }
       if (receipt) {
@@ -76,8 +84,7 @@ export function createMppSpendAccounting(options: { spendLedgerFile?: string; sc
         let spentMicro: bigint;
         try {
           if (typeof rawSpent !== "string" || !/^\d+$/.test(rawSpent)) return "pending";
-          const cumulative = BigInt(rawSpent);
-          spentMicro = tokenAmountToMicroUsdCeil(cumulative, hold.decimals);
+          spentMicro = tokenAmountToMicroUsdCeil(BigInt(rawSpent), hold.decimals);
         } catch { return "pending"; }
         const prev = hold.previousHighWaterMicro ?? 0n;
         const delta = spentMicro > prev ? spentMicro - prev : 0n;
@@ -85,9 +92,9 @@ export function createMppSpendAccounting(options: { spendLedgerFile?: string; sc
         // Session receipts are cumulative. Their idempotency key is the hold
         // resolution plus channel high-water, not a potentially channel-wide
         // `reference` reused across vouchers.
-        return ledger.commit(hold.holdId, undefined, delta, hold.channelId, spentMicro) ? "committed" : "duplicate";
+        return await ledger.commitAsync(hold.holdId, undefined, delta, hold.channelId, spentMicro) ? "committed" : "duplicate";
       }
-      if ([409, 410, 429].includes(response.status)) { ledger.release(hold.holdId); return "released"; }
+      if ([409, 410, 429].includes(response.status)) { await ledger.releaseAsync(hold.holdId); return "released"; }
       return "pending";
     },
   };

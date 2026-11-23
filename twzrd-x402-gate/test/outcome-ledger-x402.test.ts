@@ -113,6 +113,23 @@ test("completed: signing row before the signer, complete() after PAYMENT-RESPONS
   assert.deepEqual(done.history.map((x) => x.state), ["approved", "signing", "completed"]);
 });
 
+test("x402 v1 paid response resolves the in-flight signing row without a v2 accepted field", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const binding = createOutcomeLedgerX402Binding({ ledger, settlement: CONFIRMED });
+  const payment = b64({ x402Version: 1, scheme: "exact", network: BASE, payload: { authorization: { to: SELLER, value: "40000" } } });
+  const responseHeader = b64({ success: true, transaction: TX, network: BASE, payer: "0x00000000000000000000000000000000000000b2" });
+  const response = await binding.bindCall(RESOURCE, undefined, async () => {
+    const opened = binding.open({ selectedRequirements: requirement } as never);
+    assert.ok(opened && "intentHash" in opened);
+    binding.close(opened.intentHash, undefined);
+    const paidTransport = binding.wrapTransport(async () => new Response("ok", { status: 200, headers: { "X-PAYMENT-RESPONSE": responseHeader } }));
+    return paidTransport(new Request(RESOURCE, { headers: { "X-PAYMENT": payment } }));
+  });
+  assert.equal(response.status, 200);
+  const [attempt] = ledger.unresolved();
+  assert.equal(attempt, undefined, "v1's missing `accepted` object must not strand the signing row");
+});
+
 test("unknown: paid leg throws after signing -> record unknown; the next call for the same intent aborts before the signer", async () => {
   const ledger = createMemoryOutcomeLedger();
   let fail = true;

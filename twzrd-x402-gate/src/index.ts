@@ -274,7 +274,7 @@ export {
   type SpendControlResult,
 } from "./spend-control.js";
 export { createFileSpendLedger } from "./spend-ledger-file.js";
-export { createMppSpendAccounting, mppUsdAmountToMicro, type MppSpendAccounting, type MppSpendHold, type MppSpendKind } from "./mpp-spend-accounting.js";
+export { createMppSpendAccounting, mppUsdAmountToMicro, type MppSpendAccounting, type MppSpendHold, type MppSpendKind, type MppSpendOutcome } from "./mpp-spend-accounting.js";
 export {
   OUTCOME_LEDGER_SCHEMA,
   UNRESOLVED_STATES as OUTCOME_UNRESOLVED_STATES,

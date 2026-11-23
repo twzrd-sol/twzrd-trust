@@ -137,7 +137,7 @@ export type OutcomeLedgerX402Options = {
 };
 
 /** `url` is the full canonical URL (hash input); the stored binding splits it. */
-export type BoundRequest = { method: string; bodyHash: string; url: string; operationId?: string };
+export type BoundRequest = { method: string; bodyHash: string; url: string; operationId?: string; intentHash?: string };
 
 /** Reason the pre-sign hook aborts when no buyer call is bound to it. */
 export const UNBOUND_REQUEST_REASON = "unbound_request";
@@ -347,6 +347,11 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
         }
         throw err;
       }
+      // v1 payment headers do not carry v2's `accepted` requirement object.
+      // Bind the approved intent to this AsyncLocalStorage call so its paid
+      // response resolves the same signing record without guessing. Only after
+      // begin() succeeded: a refused attempt must not name a record.
+      request.intentHash = h;
       return { intentHash: h };
     },
     close(h, result) {
@@ -382,10 +387,17 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
         // call the hook refused, so there is nothing to resolve.
         const request = calls.getStore();
         if (!request) return inner(input, init);
-        const terms = termsOf(payment.accepted);
-        const h = terms ? x402AttemptIntentHash(terms, request) : null;
+        const wireTerms = termsOf(payment.accepted);
+        const h = wireTerms ? x402AttemptIntentHash(wireTerms, request) : request.intentHash ?? null;
         const rec = h ? ledger.get(h) : null;
         const live = rec && rec.state === "signing" ? rec : null;
+        const terms = wireTerms ?? (live ? {
+          payTo: live.approval.payTo,
+          network: live.approval.network,
+          asset: live.approval.asset,
+          amountAtomic: live.approval.amountAtomic,
+          maxTimeoutSeconds: null,
+        } : null);
 
         let resp: Response;
         try {

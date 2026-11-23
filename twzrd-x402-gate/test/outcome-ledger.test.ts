@@ -45,6 +45,20 @@ test("happy path: approved -> signing -> completed", () => {
   assert.deepEqual(l.unresolved(), []);
 });
 
+test("positive validation reason codes are retained without marking paid delivery incomplete", () => {
+  const l = createMemoryOutcomeLedger();
+  l.begin({ intentHash: H(101), decisionId: "d101", approval: approval(), now: T0 });
+  l.markSigning(H(101), T0 + 1);
+  const done = l.complete(H(101), {
+    settlement: { settlementTx: "9".repeat(88), amountAtomic: "1000" },
+    validation: { ok: true, ruleVersion: "rules-2026-10-30", reasonCodes: ["receipt_verified"] },
+    now: T0 + 2,
+  });
+  assert.equal(done.state, "completed");
+  assert.deepEqual(done.reasonCodes, []);
+  assert.deepEqual(done.validation?.reasonCodes, ["receipt_verified"]);
+});
+
 test("refused before signing is terminal and never reached the signer", () => {
   const l = createMemoryOutcomeLedger();
   l.begin({ intentHash: H(2), decisionId: "d2", approval: approval(), now: T0 });

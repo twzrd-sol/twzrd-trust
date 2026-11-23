@@ -273,6 +273,17 @@ test("allow and warn reach the paying call, write local ledgers, and never buy o
   }
 });
 
+test("allowWarn defaults to true but an explicit false setting can refuse warn", async () => {
+  const defaults = setup({ preflight: "warn" });
+  assert.equal((await defaults.run()(URL)).status, 200);
+  assert.equal(defaults.state.signs, 1);
+
+  const strict = setup({ preflight: "warn" });
+  await assert.rejects(createBuyerFetch({ ...strict.config, allowWarn: false })(URL), /intel_warn_not_allowed/);
+  assert.equal(strict.state.signs, 0);
+  assert.equal(strict.state.paid, 0);
+});
+
 test("intel maximum_recommended_spend_usdc clamps the per-call cap after seller-bound preflight", async () => {
   const h = setup({ amount: "20000", preflight: "allow", maximumRecommendedSpend: 0.01 });
   await assert.rejects(h.run()(URL), /intel_recommended_cap_exceeded/);

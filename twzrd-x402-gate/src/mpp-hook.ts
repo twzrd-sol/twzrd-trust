@@ -925,7 +925,7 @@ export type MppOnChallengeOptions = {
   /** Optional settlement-accurate durable spend ledger. */
   spendAccounting?: MppSpendAccounting;
   spendScope?: string;
-  onSpendHold?: (context: { hold: MppSpendHold; challenge: MppChallenge; recordResponse: (response: Response) => "committed" | "released" | "pending" | "duplicate" }) => void;
+  onSpendHold?: (context: { hold: MppSpendHold; challenge: MppChallenge; recordResponse: (response: Response) => Promise<"committed" | "released" | "pending" | "duplicate"> }) => void;
 };
 
 /** Helpers passed by mppx to onChallenge. */
@@ -1005,9 +1005,9 @@ export function createTwzrdMppIntegration(
       );
     const normalizedChallenge = { ...challenge, realm: challenge.realm ?? "" };
     const spend = isMppCharge(normalizedChallenge)
-      ? spendAccounting.reserveCharge({ scope: options.spendScope, amount: String(challenge.request.amount), decimals: chargeDecimals(normalizedChallenge) })
+      ? await spendAccounting.reserveCharge({ scope: options.spendScope, amount: String(challenge.request.amount), decimals: chargeDecimals(normalizedChallenge) })
       : isMppSession(normalizedChallenge)
-        ? reserveSessionFromChallenge(spendAccounting, normalizedChallenge, options.spendScope)
+        ? await reserveSessionFromChallenge(spendAccounting, normalizedChallenge, options.spendScope)
         : undefined;
     return {
         disposition: evaluation.disposition,
@@ -1088,9 +1088,9 @@ export function createTwzrdMppOnChallenge(
     let hold: MppSpendHold | undefined;
     if (options.spendAccounting && (isMppCharge(challenge) || isMppSession(challenge))) {
       hold = isMppCharge(challenge)
-        ? options.spendAccounting.reserveCharge({ scope: options.spendScope, amount: String(challenge.request.amount), decimals: chargeDecimals(challenge) })
-        : reserveSessionFromChallenge(options.spendAccounting, challenge, options.spendScope);
-      options.spendAccounting.markSigned(hold);
+        ? await options.spendAccounting.reserveCharge({ scope: options.spendScope, amount: String(challenge.request.amount), decimals: chargeDecimals(challenge) })
+        : await reserveSessionFromChallenge(options.spendAccounting, challenge, options.spendScope);
+      await options.spendAccounting.markSigned(hold);
       try {
         options.onSpendHold?.({
           hold,
@@ -1113,7 +1113,7 @@ function isMppSession(challenge: MppChallenge): boolean {
   return challenge.intent === "session" && (challenge.method === "tempo" || challenge.method === "solana");
 }
 
-function reserveSessionFromChallenge(accounting: MppSpendAccounting, challenge: MppChallenge, scope?: string): MppSpendHold {
+async function reserveSessionFromChallenge(accounting: MppSpendAccounting, challenge: MppChallenge, scope?: string): Promise<MppSpendHold> {
   const request = challenge.request;
   const voucher = request.voucher && typeof request.voucher === "object" ? request.voucher as Record<string, unknown> : request;
   const channelId = voucher.channelId ?? voucher.channel_id ?? request.channelId ?? request.channel_id;
