@@ -25,7 +25,7 @@ import { getAddressDecoder, getBase64Decoder, none } from "@solana/kit";
 import { x402Client } from "@x402/core/client";
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 
-import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
+import { createGuardedX402Fetch } from "./guarded-fetch-fixture.js";
 
 const VERBOSE = process.env.PLUMBING_VERBOSE === "1";
 const addr = (fill: number) => getAddressDecoder().decode(new Uint8Array(32).fill(fill));

@@ -41,6 +41,13 @@ async function run() {
     assert.equal(resp.status, 402, "approved 402 is returned untouched for the caller to pay");
   }
 
+  // Intel's maximum cap applies to the quote wrapper too, including warn cards.
+  {
+    const cfg = resolveConfig({ fetch: preflightFetch({ decision: "warn", can_spend: false, trust_score: 45, recommended_cap_usdc: 0.01, maximum_recommended_spend_usdc: 0.001 }) });
+    const quote: typeof fetch = (async () => new Response(JSON.stringify({ x402Version: 2, accepts: [{ payTo: "MERCHANT_WALLET", amount: "3000", asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", network: "solana:mainnet" }] }), { status: 402 })) as typeof fetch;
+    await assert.rejects(() => wrapFetchWithTwzrdGate(quote, cfg)("https://merchant/paid"), /intel_recommended_cap_exceeded/);
+  }
+
   // 3. non-402 passes through; preflight is never called
   {
     let preflightCalled = false;

@@ -4,8 +4,10 @@ import {
   priceUsdcFromAmountMicro,
   requirementAsset,
   resolveRequirementFields,
+  isUsdcRequirement,
 } from "./payto.js";
 import { twzrdApprovePayment } from "./policy.js";
+import { toMicroUsd } from "./intent.js";
 
 /**
  * A fetch wrapper or MCP hook sees the whole 402 but not which accepts[] entry
@@ -84,6 +86,14 @@ export async function firstRefusedOffer(
       opts.config,
     );
     if (!approval.approved) return { offer, payTo: f.payTo, reason: approval.reason };
+    // Keep the quote-only wrappers aligned with buyerFetch: Intel's returned
+    // spend ceiling is authoritative even when can_spend=false on a warn.
+    if (isUsdcRequirement(offer) && f.amount !== undefined && /^\d+$/.test(f.amount)) {
+      const cap = approval.card.maximum_recommended_spend_usdc ?? approval.card.recommended_cap_usdc;
+      if (typeof cap === "number" && Number.isFinite(cap) && cap >= 0 && BigInt(f.amount) > toMicroUsd(String(cap))) {
+        return { offer, payTo: f.payTo, reason: "intel_recommended_cap_exceeded" };
+      }
+    }
   }
   return undefined;
 }

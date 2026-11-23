@@ -1078,8 +1078,12 @@ export function createTwzrdMppOnChallenge(
       options,
       Boolean(options.allowUnevaluated),
     );
-    if (!evaluation) return undefined; // explicit opt-out: mppx default flow, ungated
-    if (evaluation.disposition === "block")
+    // Session payment semantics are not yet a policy-evaluated MPP intent.
+    // When the caller explicitly opts into unevaluated MPP and supplies spend
+    // accounting, still reserve the cumulative voucher before credential
+    // creation; without that explicit opt-in, evaluateMppChallenge throws.
+    if (!evaluation && !isMppSession(challenge)) return undefined;
+    if (evaluation?.disposition === "block")
       throw paymentControlError(evaluation);
     let hold: MppSpendHold | undefined;
     if (options.spendAccounting && (isMppCharge(challenge) || isMppSession(challenge))) {

@@ -269,7 +269,9 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
       if (!approval.approved) return refuse(attempt, approval.reason.split(/[ (]/)[0]);
       const capUsdc = approval.card.maximum_recommended_spend_usdc ?? approval.card.recommended_cap_usdc;
       if (typeof capUsdc === "number" && Number.isFinite(capUsdc) && capUsdc >= 0) {
-        const capMicro = BigInt(Math.floor(capUsdc * 1_000_000 + 1e-7));
+        let capMicro: bigint;
+        try { capMicro = toMicroUsd(String(capUsdc)); }
+        catch { return refuse(attempt, "intel_recommended_cap_exceeded"); }
         if (micro > (capMicro < max ? capMicro : max)) return refuse(attempt, "intel_recommended_cap_exceeded");
       }
       if (approval.card.decision === "block") return refuse(attempt, "intel_decision_block");

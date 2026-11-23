@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { twzrdSentinelRefusal } from "./binding-plane.js";
-import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
+import { createHash, createPublicKey, randomUUID, verify as edVerify } from "node:crypto";
 import { isTwzrdAutoGateDisabled } from "./auto-gate.js";
 import { wrapFetchRecordFulfillment, type FulfillmentRecord } from "./fulfillment-record.js";
 import { UNRECORDABLE_REQUIREMENT_REASON, createOutcomeLedgerX402Binding, type OutcomeLedgerX402Options } from "./outcome-ledger-x402.js";
@@ -23,7 +23,8 @@ import {
   type InstallX402ClientHookOptions,
   type X402ClientLike,
 } from "./x402-client-hook.js";
-import { decodeBase64Strict } from "./strict-base64.js";
+import { base64ToUtf8Strict, decodeBase64Strict } from "./strict-base64.js";
+import { DEFAULT_SPEND_LEDGER_FILE, sharedFileSpendLedger } from "./spend-ledger-file.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const guardedClients = new WeakSet<object>();
@@ -37,6 +38,10 @@ export type GuardedX402FetchOptions = {
   maxPricePerCall?: number | string;
   /** Maximum spend in a rolling 60-minute window, in USDC. */
   hourlyBudgetCap?: number | string;
+  /** Durable v2 settlement ledger; defaults to .twzrd/spend-v2.jsonl. */
+  spendLedgerFile?: string;
+  /** Shared ledger budget partition. Defaults to `default`. */
+  budgetScope?: string;
   /** If provided, only these payTo values are allowed. An empty list denies all. */
   allowedRecipients?: readonly string[];
   /** Options passed to the existing TWZRD x402 pre-sign evaluator. */
@@ -70,8 +75,6 @@ export type GuardedX402FetchOptions = {
    */
   outcomeLedger?: OutcomeLedger | OutcomeLedgerX402Options;
 };
-
-type SpendEntry = { at: number; micro: bigint };
 
 function parseLimit(value: number | string | undefined, label: string): bigint | undefined {
   if (value === undefined) return undefined;
@@ -340,7 +343,8 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   // One store per call of the returned fetch: whether the pre-sign hook ran in
   // it, and the requirement the hook approved. The approval is for one payment;
   // the transport checks the payment header against it before the request is made.
-  const calls = new AsyncLocalStorage<{ checked: boolean; approved?: ApprovedRequirement; signal?: AbortSignal }>();
+  const calls = new AsyncLocalStorage<{ checked: boolean; approved?: ApprovedRequirement; signal?: AbortSignal; holdId?: string; signed?: boolean; recommendedCapMicro?: bigint }>();
+  const spendLedger = sharedFileSpendLedger(options.spendLedgerFile ?? DEFAULT_SPEND_LEDGER_FILE);
   const bound: typeof fetch = async (input, init) => {
     const call = calls.getStore();
     // Every request of this call goes out under the caller's own AbortSignal.
@@ -349,23 +353,44 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
     // signal after a garbage collection: the caller's timeout is then ignored
     // and a paid request that never answers hangs until the transport gives up.
     if (call?.signal) init = { ...init, signal: call.signal };
+    const payments = call?.checked ? paymentHeadersOf(requestHeadersOf(input, init)) : [];
     // A header on a call the hook never ran in is the caller's own; it is not ours to judge.
     if (call?.checked) {
-      const payments = paymentHeadersOf(requestHeadersOf(input, init));
       if (payments.length > 0) {
         if (!call.approved) throw new Error("[twzrd-guarded-fetch] payment_without_approval");
         for (const header of payments) {
-          const differs = paymentBindingRefusal(call.approved, header);
+          const differs = paymentBindingRefusal(call.approved!, header);
           if (differs !== undefined) throw new Error(`[twzrd-guarded-fetch] ${differs}`);
         }
       }
     }
-    return fulfilled(input, init);
+    const holdId = call?.holdId;
+    if (holdId && payments.length > 0) { spendLedger.markSigned(holdId); if (call) call.signed = true; }
+    const response = await fulfilled(input, init);
+    if (holdId && payments.length > 0) {
+      const raw = response.headers.get("PAYMENT-RESPONSE");
+      if (raw) {
+        let receipt: Record<string, unknown> | undefined;
+        try { receipt = JSON.parse(base64ToUtf8Strict(raw)) as Record<string, unknown>; } catch { /* preserve the response; unresolved signed hold recovers conservatively */ }
+        const reference = receipt && (typeof receipt.transaction === "string" ? receipt.transaction : typeof receipt.reference === "string" ? receipt.reference : typeof receipt.settlement_ref === "string" ? receipt.settlement_ref : undefined);
+        if (receipt?.success === true && reference) spendLedger.commit(holdId, reference);
+        else if (receipt?.success === false) spendLedger.release(holdId);
+      } else if (!response.ok) spendLedger.release(holdId);
+    } else if (holdId && !response.ok) spendLedger.release(holdId);
+    return response;
   };
   const fetchImpl = outcome ? outcome.wrapTransport(bound) : bound;
-  const entries: SpendEntry[] = [];
-  let pendingMicro = 0n;
-  const twzrdHook = createTwzrdPayKitBeforePaymentHook(options.twzrd);
+  const twzrdHook = createTwzrdPayKitBeforePaymentHook({
+    ...options.twzrd,
+    onApproval(approval) {
+      const supplied = options.twzrd?.onApproval;
+      try { supplied?.(approval); } catch { /* observer */ }
+      const cap = approval.card.maximum_recommended_spend_usdc ?? approval.card.recommended_cap_usdc;
+      const activeCall = calls.getStore();
+      try { if (activeCall) activeCall.recommendedCapMicro = typeof cap === "number" && Number.isFinite(cap) && cap >= 0 ? toMicroUsd(String(cap)) : undefined; }
+      catch { if (activeCall) activeCall.recommendedCapMicro = undefined; }
+    },
+  });
 
   // `.kill` / `.pause` are read here, not only inside the TWZRD evaluator:
   // switching the evaluator off (twzrd.disabled, TWZRD_AUTO_GATE=0,
@@ -378,6 +403,8 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
   const innerHook = async (
     context: BeforePaymentCreationContext,
   ): Promise<BeforePaymentCreationResult> => {
+    const activeCallAtStart = calls.getStore();
+    if (activeCallAtStart) activeCallAtStart.recommendedCapMicro = undefined;
     // On entry: a halted payment reserves no budget.
     const haltedOnEntry = sentinelAbort();
     if (haltedOnEntry) return haltedOnEntry;
@@ -409,31 +436,32 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       if (maxPerCall !== undefined && amountMicro > maxPerCall) {
         return abort("price_cap_exceeded");
       }
+    } else if (isUsdcRequirement(selected as Record<string, unknown>) && fields.amount !== undefined && /^\d+$/.test(fields.amount)) {
+      amountMicro = BigInt(fields.amount);
     }
 
     const recordedAt = now();
-    if (hourlyCap !== undefined && amountMicro !== undefined) {
-      const cutoff = recordedAt - HOUR_MS;
-      for (let i = entries.length - 1; i >= 0; i--) {
-        if (entries[i].at <= cutoff) entries.splice(i, 1);
-      }
-      const spent = entries.reduce((sum, entry) => sum + entry.micro, 0n);
-      if (spent + pendingMicro + amountMicro > hourlyCap) {
-        return abort("hourly_budget_exceeded");
-      }
-      // No await between the budget check and reservation: concurrent requests
-      // in this process see the reservation before entering the TWZRD hook.
-      pendingMicro += amountMicro;
-    }
-
-    let reservation = hourlyCap !== undefined && amountMicro !== undefined;
+    let durableHold: string | undefined;
+    let hookPassed = false;
     try {
+      // Reserve under the cross-process ledger lock before async preflight or
+      // signing. The lock is released immediately; network work never holds it.
+      if (amountMicro !== undefined && isUsdcRequirement(selected as Record<string, unknown>)) {
+        const id = randomUUID();
+        if (!spendLedger.reserve(`guarded:${options.budgetScope ?? "default"}`, amountMicro, id, hourlyCap, HOUR_MS, recordedAt)) return abort("hourly_budget_exceeded");
+        durableHold = id;
+        const activeCall = calls.getStore();
+        if (activeCall) activeCall.holdId = id;
+      }
       // Match installTwzrdAutoGate's switch semantics: disabling TWZRD's
       // reputation evaluation never disables these local hard spend controls.
       if (!isTwzrdAutoGateDisabled(options.twzrd)) {
         const result = await twzrdHook(context);
         if (result?.abort) return result;
       }
+
+      const dynamicCap = calls.getStore()?.recommendedCapMicro;
+      if (amountMicro !== undefined && dynamicCap !== undefined && amountMicro > dynamicCap) return abort("intel_recommended_cap_exceeded");
 
       // Last look, with the evaluator on or off. Nothing is awaited between
       // this read and the go-ahead the scheme signs on.
@@ -443,15 +471,10 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       // checks above were running): sign nothing and charge nothing for it.
       if (calls.getStore()?.signal?.aborted) return abort("request_aborted");
 
-      if (hourlyCap !== undefined && amountMicro !== undefined) {
-        entries.push({ at: recordedAt, micro: amountMicro });
-      }
+      hookPassed = true;
       return undefined;
     } finally {
-      if (reservation && amountMicro !== undefined) {
-        pendingMicro -= amountMicro;
-        reservation = false;
-      }
+      if (durableHold && !hookPassed) spendLedger.release(durableHold);
     }
   };
 
@@ -550,6 +573,8 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
       try {
         return await paying(input, init);
       } catch (error) {
+        const activeCall = calls.getStore();
+        if (activeCall?.holdId && !activeCall.signed) spendLedger.release(activeCall.holdId);
         throw explainCoreSpendControls(error);
       }
     };

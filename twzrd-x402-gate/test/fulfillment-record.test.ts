@@ -13,7 +13,7 @@ import {
   wrapFetchRecordFulfillment,
   type FulfillmentRecord,
 } from "../src/fulfillment-record.js";
-import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
+import { createGuardedX402Fetch } from "./guarded-fetch-fixture.js";
 
 const BASE = "eip155:8453";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";

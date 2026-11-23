@@ -40,7 +40,7 @@ try {
 
   const second = accounting.reserveSession({ scope: "session", channelId: "chan-A", voucherTotalBaseUnits: "100", decimals: 6, holdId: "sess-2" });
   accounting.markSigned(second);
-  assert.equal(accounting.recordResponse(second, response(200, { channelId: "chan-A", spent: "80", reference: "sess-ref-2" })), "committed");
+  assert.equal(accounting.recordResponse(second, response(200, { channelId: "chan-A", spent: "80", reference: "sess-ref-1" })), "committed", "cumulative session high-water is authoritative if a channel reference repeats");
   assert.equal(accounting.ledger.highestSpentMicroByChannel("chan-A"), 80n);
   assert.equal(createFileSpendLedger(file).spentMicro("session", 3_600_000, Date.now()), 80n);
 

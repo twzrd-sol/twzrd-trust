@@ -35,7 +35,7 @@ import { x402Client } from "@x402/core/client";
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 
 import { createSeededDecisionSigner } from "../src/decision-token.js";
-import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
+import { createGuardedX402Fetch } from "./guarded-fetch-fixture.js";
 import {
   decisionFromApproval,
   issuePaymentDecisionRecord,

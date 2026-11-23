@@ -34,6 +34,10 @@ try {
   assert.equal(afterCrash.spentMicro("crash", 3_600_000, Date.now()), 9n, "dead signed hold is conservatively committed");
   assert.equal(afterCrash.commit("dead-signed", "late-tx"), false, "orphan resolution prevents late double count");
 
+  const deadSession = `import {createFileSpendLedger} from ${JSON.stringify(modulePath)}; const l=createFileSpendLedger(process.argv[2]); l.reserveChannel('mpp',12n,'dead-channel',undefined,3600000,Date.now(),'channel-dead',12n); l.markSigned('dead-channel');`;
+  await spawnLedger(deadSession);
+  assert.equal(createFileSpendLedger(file).highestSpentMicroByChannel("channel-dead"), 12n, "orphan session commit restores channel high-water in the same read");
+
   const deadUnsigned = `import {createFileSpendLedger} from ${JSON.stringify(modulePath)}; const l=createFileSpendLedger(process.argv[2]); l.reserve('crash-u',11n,'dead-unsigned',undefined,3600000,Date.now());`;
   await spawnLedger(deadUnsigned);
   assert.equal(createFileSpendLedger(file).spentMicro("crash-u", 3_600_000, Date.now()), 0n, "dead unsigned hold is released");

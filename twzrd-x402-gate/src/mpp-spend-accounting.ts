@@ -72,7 +72,6 @@ export function createMppSpendAccounting(options: { spendLedgerFile?: string; sc
       if (receipt) {
         const rawSpent = receipt.spent;
         const receiptChannel = receipt.channelId;
-        const ref = receiptRef(receipt) ?? `mpp-session:${hold.channelId}:${String(rawSpent)}`;
         if (receiptChannel !== undefined && receiptChannel !== hold.channelId) return "pending";
         let spentMicro: bigint;
         try {
@@ -83,7 +82,10 @@ export function createMppSpendAccounting(options: { spendLedgerFile?: string; sc
         const prev = hold.previousHighWaterMicro ?? 0n;
         const delta = spentMicro > prev ? spentMicro - prev : 0n;
         if (hold.voucherTotalMicro !== undefined && spentMicro > hold.voucherTotalMicro) return "pending";
-        return ledger.commit(hold.holdId, ref, delta, hold.channelId, spentMicro) ? "committed" : "duplicate";
+        // Session receipts are cumulative. Their idempotency key is the hold
+        // resolution plus channel high-water, not a potentially channel-wide
+        // `reference` reused across vouchers.
+        return ledger.commit(hold.holdId, undefined, delta, hold.channelId, spentMicro) ? "committed" : "duplicate";
       }
       if ([409, 410, 429].includes(response.status)) { ledger.release(hold.holdId); return "released"; }
       return "pending";

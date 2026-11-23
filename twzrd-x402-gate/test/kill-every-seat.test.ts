@@ -46,7 +46,7 @@ import {
 import type { ResolvedTwzrdGateConfig } from "../src/config.js";
 import { createLocalDecisionSigner } from "../src/decision-token.js";
 import { evaluate_x402_resource } from "../src/evaluate.js";
-import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
+import { createGuardedX402Fetch } from "./guarded-fetch-fixture.js";
 import { x402RequirementsToIntent } from "../src/intent-adapters.js";
 import { createTwzrdMppOnChallenge, type MppChallenge, type MppOnChallengeHelpers } from "../src/mpp-hook.js";
 import { createTwzrdPayingFetch, TwzrdWashAbortError } from "../src/paying-fetch.js";

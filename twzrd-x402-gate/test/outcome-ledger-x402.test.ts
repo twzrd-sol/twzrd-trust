@@ -6,7 +6,7 @@ import { test } from "node:test";
 import type { SchemeNetworkClient } from "@x402/core/types";
 import { x402Client } from "@x402/fetch";
 import { tempDir } from "./helpers/tmpdir.js";
-import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
+import { createGuardedX402Fetch } from "./guarded-fetch-fixture.js";
 import { createFileOutcomeLedger, createMemoryOutcomeLedger } from "../src/outcome-ledger.js";
 import { MAX_APPROVAL_TTL_MS, MERCHANT_REPORTED_SETTLEMENT, MIN_APPROVAL_TTL_MS, UNRESOLVED_OPERATION_REASON, X402_PAID_RESPONSE_RULE_V1, createOutcomeLedgerX402Binding, operationKeyOf, x402AttemptIntentHash } from "../src/outcome-ledger-x402.js";
 

@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { intentHash } from "../src/intent.js";
 import { classifyNetwork } from "../src/network.js";
 import { createLocalDecisionSigner } from "../src/decision-token.js";
+import { createMppSpendAccounting } from "../src/mpp-spend-accounting.js";
 import { tempDir } from "./helpers/tmpdir.js";
 import {
   createTwzrdMppIntegration,
@@ -823,6 +824,23 @@ async function run() {
         }),
       (error: TwzrdMppBlockError) => error.code === "DECISION_LOG_UNAVAILABLE",
     );
+  }
+
+  /* Session accounting remains available only under the explicit unevaluated opt-in. */
+  {
+    const accounting = createMppSpendAccounting({ spendLedgerFile: join(tempDir("twzrd-mpp-session-spend-"), "spend-v2.jsonl") });
+    let heldAmount: bigint | undefined;
+    const { state, helpers } = stubHelpers();
+    const guard = createRawTwzrdMppOnChallenge({
+      signer: createLocalDecisionSigner(),
+      allowUnevaluated: true,
+      spendAccounting: accounting,
+      onSpendHold: ({ hold }) => { heldAmount = hold.amountMicro; },
+    });
+    const session: MppChallenge = { id: "session-1", realm: "api.example.com", method: "tempo", intent: "session", request: { channelId: "channel-1", amount: "12", decimals: 7 } };
+    await guard(session, helpers);
+    assert.equal(state.signerCount, 1);
+    assert.equal(heldAmount, 2n, "session voucher hold uses the challenge asset decimals and rounds up");
   }
 
   console.log("mpp-hook.test.ts: all assertions passed");

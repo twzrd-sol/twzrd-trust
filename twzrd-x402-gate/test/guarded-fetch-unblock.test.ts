@@ -3,7 +3,7 @@ import { x402Version } from "@x402/core";
 import type { PaymentRequired, SchemeNetworkClient } from "@x402/core/types";
 import { x402Client } from "@x402/fetch";
 import { findDefaultAsset } from "@x402/svm";
-import { createGuardedX402Fetch, explainCoreSpendControls } from "../src/guarded-x402-fetch.js";
+import { createGuardedX402Fetch, explainCoreSpendControls } from "./guarded-fetch-fixture.js";
 
 const SELLER = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
 const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" as const;

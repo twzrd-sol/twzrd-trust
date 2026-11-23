@@ -123,7 +123,13 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
         if (state.resolved.has(hold.id)) continue;
         append(state, hold.signed ? "commit" : "release", hold.scope, hold.signed ? hold.micro : 0n, Date.now(), hold);
         state.holds.delete(hold.id); state.resolved.add(hold.id);
-        if (hold.signed) state.ledger.record(hold.scope, hold.micro, Date.now());
+        if (hold.signed) {
+          state.ledger.record(hold.scope, hold.micro, Date.now());
+          if (hold.channelId && hold.voucherTotal !== undefined) {
+            const previous = state.channels.get(hold.channelId) ?? 0n;
+            if (hold.voucherTotal > previous) state.channels.set(hold.channelId, hold.voucherTotal);
+          }
+        }
       }
       return fn(state);
     } finally { release(); }
