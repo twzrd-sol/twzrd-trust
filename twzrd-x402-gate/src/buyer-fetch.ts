@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { resolveConfig } from "./config.js";
 import { sharedFileDecisionLedger, type DecisionLedgerRow } from "./decision-ledger-file.js";
@@ -14,7 +15,7 @@ import {
 import { isUsdcRequirement, resolveRequirementFields } from "./payto.js";
 import { twzrdApprovePayment, twzrdSentinelRefusal } from "./policy.js";
 import type { SpendLedger } from "./policy-runtime.js";
-import { sharedFileSpendLedger } from "./spend-ledger-file.js";
+import { DEFAULT_SPEND_LEDGER_FILE, sharedFileSpendLedger } from "./spend-ledger-file.js";
 import type { X402ClientLike } from "./x402-client-hook.js";
 import { base64ToUtf8Strict } from "./strict-base64.js";
 
@@ -46,6 +47,10 @@ export type BuyerFetchOptions = {
   decisionFile?: string;
   /** Defaults to .twzrd/spend.jsonl. One process must own each file. */
   spendLedgerFile?: string;
+  /** Optional base58 buyer wallet; omitted for EVM addresses rejected by Intel's base58 schema. */
+  buyerWallet?: string;
+  /** Proceed on Intel warn only when explicitly enabled. */
+  allowWarn?: boolean;
   /** Shared budget scope within the spend ledger. Default: default. */
   budgetScope?: string;
   /** Raw HTTP transport, never an already-paying fetch. */
@@ -83,6 +88,7 @@ type Attempt = {
   approved?: ApprovedRequirement;
   /** decision_id of the durable allow/warn row that permitted signing. */
   decisionId?: string;
+  reservationId?: string;
   input: { resource: string; pay_to?: string; network?: string; amount_micro?: string };
 };
 
@@ -120,7 +126,7 @@ async function expectedMicro(
 }
 
 /** `success` and `transaction` from a base64-JSON PAYMENT-RESPONSE; null when absent or unreadable. */
-function paymentResponseOf(response: Response): { success: boolean; transaction?: unknown; network?: unknown } | null {
+function paymentResponseOf(response: Response): { success: boolean; transaction?: unknown; reference?: unknown; network?: unknown } | null {
   const header = response.headers.get("PAYMENT-RESPONSE") || response.headers.get("X-PAYMENT-RESPONSE");
   if (!header) return null;
   try {
@@ -128,7 +134,7 @@ function paymentResponseOf(response: Response): { success: boolean; transaction?
     if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
     const settle = value as Record<string, unknown>;
     if (typeof settle.success !== "boolean") return null;
-    return { success: settle.success, transaction: settle.transaction, network: settle.network };
+    return { success: settle.success, transaction: settle.transaction, reference: settle.reference, network: settle.network };
   } catch { return null; }
 }
 
@@ -164,7 +170,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
   }
   const recipients = new Set(options.allowedRecipients.map(recipientKey));
   const decisionPath = resolve(options.decisionFile ?? ".twzrd/decisions.jsonl");
-  const spendPath = resolve(options.spendLedgerFile ?? ".twzrd/spend.jsonl");
+  const spendPath = resolve(options.spendLedgerFile ?? DEFAULT_SPEND_LEDGER_FILE);
   if (decisionPath === spendPath) throw new TypeError("decisionFile and spendLedgerFile must be different files");
   const ledger = sharedFileSpendLedger(spendPath);
   const decisions = sharedFileDecisionLedger(decisionPath, { flushBeforeExit: false });
@@ -209,6 +215,10 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
     }
   }
   async function refuse(attempt: Attempt, reason: string, cause?: unknown): Promise<never> {
+    if (attempt.reservationId) {
+      try { ledger.release(attempt.reservationId); } catch { /* fail closed below on decision write */ }
+      attempt.reservationId = undefined;
+    }
     await record(attempt, "block", reason);
     attempt.blocked = new BuyerFetchBlockedError(reason, cause === undefined ? undefined : { cause });
     throw attempt.blocked;
@@ -243,18 +253,26 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
       if (micro !== want) return refuse(attempt, "expected_amount_mismatch");
     }
     const now = Date.now();
-    if (hourly !== undefined && ledger.spentMicro(scope, HOUR_MS, now) + (inFlight.get(scope) ?? 0n) + micro > hourly) {
-      return refuse(attempt, "hourly_budget_exceeded");
-    }
-    // Check and reserve in the same tick, across wrappers sharing this ledger.
+    const holdId = randomUUID();
+    try {
+      if (!ledger.reserve(scope, micro, holdId, hourly, HOUR_MS, now)) return refuse(attempt, "hourly_budget_exceeded");
+    } catch (cause) { return refuse(attempt, "spend_ledger_unavailable", cause); }
+    attempt.reservationId = holdId;
     inFlight.set(scope, (inFlight.get(scope) ?? 0n) + micro);
     try {
       const approval = await twzrdApprovePayment({
         resourceUrl: attempt.resource, payTo: fields.payTo, chain: selected.network,
         asset: selected.asset, priceUsdc: Number(micro) / 1_000_000,
+        buyerWallet: options.buyerWallet,
         agentIntent: "buyer_fetch",
       }, cfg);
       if (!approval.approved) return refuse(attempt, approval.reason.split(/[ (]/)[0]);
+      const capUsdc = approval.card.maximum_recommended_spend_usdc ?? approval.card.recommended_cap_usdc;
+      if (typeof capUsdc === "number" && Number.isFinite(capUsdc) && capUsdc >= 0) {
+        const capMicro = BigInt(Math.floor(capUsdc * 1_000_000 + 1e-7));
+        if (micro > (capMicro < max ? capMicro : max)) return refuse(attempt, "intel_recommended_cap_exceeded");
+      }
+      if (approval.card.decision === "block") return refuse(attempt, "intel_decision_block");
       if (approval.card.decision !== "allow" && approval.card.decision !== "warn") {
         return refuse(attempt, "invalid_preflight_decision");
       }
@@ -265,8 +283,6 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
       // Same for the sentinels: the approval read them before that write was awaited.
       const halted = twzrdSentinelRefusal(cfg);
       if (halted !== undefined) return refuse(attempt, halted.split(/[ (]/)[0]);
-      try { ledger.record(scope, micro, Date.now()); }
-      catch { return refuse(attempt, "spend_ledger_unavailable"); }
       attempt.approved = approvedRequirementOf(selected);
     } finally {
       const left = (inFlight.get(scope) ?? 0n) - micro;
@@ -293,8 +309,29 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
         const differs = paymentBindingRefusal(current.approved, header);
         if (differs !== undefined) return refuse(current, differs);
       }
+      if (current.reservationId) {
+        try { ledger.markSigned(current.reservationId); }
+        catch (cause) { return refuse(current, "spend_ledger_unavailable", cause); }
+      }
     }
     const response = await raw(request, { redirect: "error" });
+    if (current?.reservationId) {
+      const settle = paymentResponseOf(response);
+      const ref = typeof settle?.transaction === "string" ? settle.transaction
+        : typeof settle?.reference === "string" ? settle.reference : undefined;
+      try {
+        if (settle?.success === true && ref) {
+          ledger.commit(current.reservationId, ref);
+          current.reservationId = undefined;
+        } else if (!response.ok && !response.headers.has("PAYMENT-RESPONSE") && !response.headers.has("X-PAYMENT-RESPONSE")) {
+          ledger.release(current.reservationId);
+          current.reservationId = undefined;
+        } else if (settle?.success === false) {
+          ledger.release(current.reservationId);
+          current.reservationId = undefined;
+        }
+      } catch { /* preserve the already-paid response; the unresolved hold is conservative */ }
+    }
     if (current?.approved && current.decisionId &&
       (request.headers.has("payment-signature") || request.headers.has("x-payment"))) {
       const settle = paymentResponseOf(response);

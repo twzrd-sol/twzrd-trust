@@ -73,15 +73,11 @@ async function run() {
     assert.equal(d.escalateOnWarn, undefined);
   }
 
-  // x402Fetch present → both flags default on.
+  // x402Fetch present → receipt verification remains opt-in until sellers sign.
   {
     const x402 = payingMock("defaults");
     const d = resolveBuyerPathADefaults({ x402Fetch: x402 });
-    assert.ok(d.requireReceipt && typeof d.requireReceipt === "object");
-    const receipt = d.requireReceipt;
-    assert.equal(receipt.materialWarnOnly, true);
-    assert.equal(receipt.minSpendUsdc, 2.5);
-    assert.equal(receipt.onWarn, false);
+    assert.equal(d.requireReceipt, false);
     assert.equal(typeof d.escalateOnWarn, "object");
   }
 

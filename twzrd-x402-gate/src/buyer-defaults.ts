@@ -53,7 +53,9 @@ export function resolveBuyerPathADefaults(opts: BuyerPathAFlags): BuyerPathAFlag
   if (typeof opts.x402Fetch !== "function") return opts;
   const next: BuyerPathAFlags = { ...opts };
   if (opts.requireReceipt === undefined) {
-    next.requireReceipt = { ...DEFAULT_BUYER_REQUIRE_RECEIPT };
+    // Sellers need to publish a verification key and signed delivery receipt
+    // before receipt enforcement can be enabled by default.
+    next.requireReceipt = false;
   }
   if (opts.escalateOnWarn === undefined) {
     next.escalateOnWarn = { ...DEFAULT_BUYER_ESCALATE_ON_WARN };

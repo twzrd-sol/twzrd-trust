@@ -1637,6 +1637,8 @@ reasons also refuse here.
 | `expected_amount_mismatch` | The amount is not exactly `expectedAmount`. |
 | `hourly_budget_exceeded` | The payment would take spend in the last hour above `hourlyBudgetCap`. |
 | `invalid_preflight_decision` | The preflight card's decision is neither `allow` nor `warn`. |
+| `intel_decision_block` | Intel preflight returned `decision: block`. |
+| `intel_recommended_cap_exceeded` | The amount is above Intel's recommended per-payment cap. |
 | `request_aborted` | The request's signal aborted before signing. |
 | `decision_log_unavailable` | The decision file could not be written and flushed. |
 | `spend_ledger_unavailable` | The spend could not be recorded before signing. |
