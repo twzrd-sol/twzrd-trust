@@ -7,7 +7,7 @@ import { createMemorySpendLedger, type SpendLedger } from "./policy-runtime.js";
 
 type Event = "hold" | "hold_signed" | "commit" | "release";
 type Row = { at: number; scope: string; micro: string; prev: string; v?: 2; type?: Event; hold_id?: string; pid?: number; hostname?: string; signed?: boolean; reference?: string; channel_id?: string; voucher_total_micro?: string };
-type Hold = { id: string; scope: string; micro: bigint; at: number; pid: number; hostname: string; signed: boolean };
+type Hold = { id: string; scope: string; micro: bigint; at: number; pid: number; hostname: string; signed: boolean; channelId?: string; voucherTotal?: bigint };
 type State = { ledger: ReturnType<typeof createMemorySpendLedger>; hash: string; holds: Map<string, Hold>; resolved: Set<string>; refs: Set<string>; channels: Map<string, bigint> };
 const GENESIS = "genesis";
 const LOCAL = hostname();
@@ -63,7 +63,7 @@ function replay(path: string): State {
     if (row.v !== 2) ledger.record(row.scope, amount, row.at);
     else {
       if (row.v !== 2 || !row.type || !row.hold_id) throw new Error(`[twzrd-x402-gate] spend ledger invalid v2 row: ${path}`);
-      if (row.type === "hold" && !resolved.has(row.hold_id)) holds.set(row.hold_id, { id: row.hold_id, scope: row.scope, micro: amount, at: row.at, pid: row.pid ?? 0, hostname: row.hostname ?? "", signed: row.signed === true });
+      if (row.type === "hold" && !resolved.has(row.hold_id)) holds.set(row.hold_id, { id: row.hold_id, scope: row.scope, micro: amount, at: row.at, pid: row.pid ?? 0, hostname: row.hostname ?? "", signed: row.signed === true, channelId: row.channel_id, voucherTotal: row.voucher_total_micro === undefined ? undefined : BigInt(row.voucher_total_micro) });
       else if (row.type === "hold_signed" && !resolved.has(row.hold_id)) {
         const hold = holds.get(row.hold_id); if (hold) hold.signed = true;
       } else if ((row.type === "commit" || row.type === "release") && !resolved.has(row.hold_id)) {
@@ -86,11 +86,13 @@ function replay(path: string): State {
 
 export type FileSpendLedger = SpendLedger & {
   reserve(scope: string, amount: bigint, holdId: string, cap: bigint | undefined, windowMs: number, at: number): boolean;
+  reserveChannel(scope: string, amount: bigint, holdId: string, cap: bigint | undefined, windowMs: number, at: number, channelId: string, voucherTotal: bigint): boolean;
   markSigned(holdId: string): boolean;
   commit(holdId: string, reference?: string, amount?: bigint, channelId?: string, voucherTotal?: bigint): boolean;
   release(holdId: string): boolean;
   commitSettlement(scope: string, amount: bigint, reference: string, at: number, channelId?: string, voucherTotal?: bigint): boolean;
   highestSpentMicroByChannel(channelId: string): bigint;
+  highestVoucherMicroByChannel(channelId: string): bigint;
   settlementReferenceSeen(reference: string): boolean;
 };
 
@@ -103,7 +105,7 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
   replay(path);
   const append = (state: State, type: Event, scope: string, micro: bigint, at: number, hold?: Hold, reference?: string, channelId?: string, voucherTotal?: bigint) => {
     const row: Row = { v: 2, type, hold_id: hold?.id ?? "", at, scope, micro: micro.toString(), prev: state.hash,
-      ...(hold ? { pid: hold.pid, hostname: hold.hostname, signed: hold.signed } : {}),
+      ...(hold ? { pid: hold.pid, hostname: hold.hostname, signed: hold.signed, ...(hold.channelId ? { channel_id: hold.channelId } : {}), ...(hold.voucherTotal !== undefined ? { voucher_total_micro: hold.voucherTotal.toString() } : {}) } : {}),
       ...(reference ? { reference } : {}), ...(channelId ? { channel_id: channelId } : {}),
       ...(voucherTotal !== undefined ? { voucher_total_micro: voucherTotal.toString() } : {}) };
     if (!row.hold_id) throw new Error("v2 spend row requires hold_id");
@@ -148,6 +150,16 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
       const hold: Hold = { id: holdId, scope, micro: amount, at, pid: process.pid, hostname: LOCAL, signed: false };
       append(s, "hold", scope, amount, at, hold); s.holds.set(holdId, hold); return true;
     }); },
+    reserveChannel(scope, amount, holdId, cap, windowMs, at, channelId, voucherTotal) { return withState(s => {
+      if (amount < 0n || voucherTotal < 0n) throw new RangeError("reservation amount must not be negative");
+      if (s.holds.has(holdId)) return true;
+      if (s.resolved.has(holdId)) return false;
+      let spent = s.ledger.spentMicro(scope, windowMs, at);
+      for (const h of s.holds.values()) if (h.scope === scope && at - h.at <= windowMs) spent += h.micro;
+      if (cap !== undefined && spent + amount > cap) return false;
+      const hold: Hold = { id: holdId, scope, micro: amount, at, pid: process.pid, hostname: LOCAL, signed: false, channelId, voucherTotal };
+      append(s, "hold", scope, amount, at, hold); s.holds.set(holdId, hold); return true;
+    }); },
     markSigned(holdId) { return withState(s => {
       const h = s.holds.get(holdId); if (!h || s.resolved.has(holdId) || h.signed) return false;
       h.signed = true; append(s, "hold_signed", h.scope, h.micro, Date.now(), h); return true;
@@ -155,11 +167,17 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
     commit(holdId, reference, amount, channelId, voucherTotal) { return withState(s => {
       const h = s.holds.get(holdId); if (!h || s.resolved.has(holdId)) return false;
       if (reference && s.refs.has(reference)) { append(s, "release", h.scope, 0n, Date.now(), h); s.holds.delete(holdId); s.resolved.add(holdId); return false; }
-      const value = amount ?? h.micro;
+      let value = amount ?? h.micro;
+      const boundChannel = channelId ?? h.channelId;
+      const boundVoucherTotal = voucherTotal ?? h.voucherTotal;
+      if (boundChannel && boundVoucherTotal !== undefined) {
+        const high = s.channels.get(boundChannel) ?? 0n;
+        value = boundVoucherTotal > high ? boundVoucherTotal - high : 0n;
+      }
       if (value < 0n) throw new RangeError("spend amount must not be negative");
-      append(s, "commit", h.scope, value, Date.now(), h, reference, channelId, voucherTotal);
+      append(s, "commit", h.scope, value, Date.now(), h, reference, boundChannel, boundVoucherTotal);
       s.holds.delete(holdId); s.resolved.add(holdId); s.ledger.record(h.scope, value, Date.now()); if (reference) s.refs.add(reference);
-      if (channelId && voucherTotal !== undefined) { const old = s.channels.get(channelId) ?? 0n; if (voucherTotal > old) s.channels.set(channelId, voucherTotal); }
+      if (boundChannel && boundVoucherTotal !== undefined) { const old = s.channels.get(boundChannel) ?? 0n; if (boundVoucherTotal > old) s.channels.set(boundChannel, boundVoucherTotal); }
       return true;
     }); },
     release(holdId) { return withState(s => {
@@ -178,6 +196,11 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
       return true;
     }); },
     highestSpentMicroByChannel(channelId) { return withState(s => s.channels.get(channelId) ?? 0n); },
+    highestVoucherMicroByChannel(channelId) { return withState(s => {
+      let high = s.channels.get(channelId) ?? 0n;
+      for (const h of s.holds.values()) if (h.channelId === channelId && h.voucherTotal !== undefined && h.voucherTotal > high) high = h.voucherTotal;
+      return high;
+    }); },
     settlementReferenceSeen(reference) { return withState(s => s.refs.has(reference)); },
   };
 }
