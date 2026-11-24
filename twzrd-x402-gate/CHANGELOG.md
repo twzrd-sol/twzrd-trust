@@ -2,7 +2,7 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
-## 0.28.1 (unreleased)
+## 0.28.1 (2026-11-24)
 
 Security patch on 0.28.0, which is deprecated on npm. 0.27.0 and earlier are not affected.
 Upgrade every process that writes a shared spend ledger file: a 0.28.0 writer still releases
