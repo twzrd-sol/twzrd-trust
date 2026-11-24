@@ -84,6 +84,10 @@ export type OutcomeValidator = (ctx: {
   response: Response;
   intentHash: string;
   approval: ApprovalBinding;
+  /** The settlement transaction the evidence check confirmed (a delivery receipt binds it). */
+  settlementTx?: string;
+  /** The exact request body bytes the buyer sent, when the binding could read them (a delivery receipt binds their digest). */
+  requestBody?: Uint8Array;
 }) => ValidationFact | Promise<ValidationFact>;
 
 /** What an independent settlement check can say about a relayed transaction. */
@@ -137,7 +141,7 @@ export type OutcomeLedgerX402Options = {
 };
 
 /** `url` is the full canonical URL (hash input); the stored binding splits it. */
-export type BoundRequest = { method: string; bodyHash: string; url: string; operationId?: string; intentHash?: string };
+export type BoundRequest = { method: string; bodyHash: string; url: string; operationId?: string; intentHash?: string; body?: Uint8Array };
 
 /** Reason the pre-sign hook aborts when no buyer call is bound to it. */
 export const UNBOUND_REQUEST_REASON = "unbound_request";
@@ -191,21 +195,23 @@ function rawUrlOf(input: Parameters<typeof fetch>[0]): string {
   return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 }
 
-async function bodyHashOf(input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<string> {
+/** The body's hash for the intent key, and its bytes when they can be read (kept for the validator). */
+async function bodyOf(input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<{ hash: string; bytes?: Uint8Array }> {
   const body = init?.body;
-  if (typeof body === "string") return sha256hex(body);
-  if (body instanceof Uint8Array) return sha256hex(body);
-  if (body instanceof ArrayBuffer) return sha256hex(new Uint8Array(body));
-  if (body instanceof URLSearchParams) return sha256hex(body.toString());
+  const utf8 = (s: string) => new TextEncoder().encode(s);
+  if (typeof body === "string") return { hash: sha256hex(body), bytes: utf8(body) };
+  if (body instanceof Uint8Array) return { hash: sha256hex(body), bytes: body };
+  if (body instanceof ArrayBuffer) { const bytes = new Uint8Array(body); return { hash: sha256hex(bytes), bytes }; }
+  if (body instanceof URLSearchParams) { const s = body.toString(); return { hash: sha256hex(s), bytes: utf8(s) }; }
   if (body == null && input instanceof Request && !input.bodyUsed) {
     try {
       const buf = new Uint8Array(await input.clone().arrayBuffer());
-      return buf.byteLength ? sha256hex(buf) : "";
+      return { hash: buf.byteLength ? sha256hex(buf) : "", bytes: buf };
     } catch {
-      return "";
+      return { hash: "" };
     }
   }
-  return body == null ? "" : "unhashable";
+  return body == null ? { hash: "", bytes: new Uint8Array(0) } : { hash: "unhashable" };
 }
 
 export type RequirementTerms = { payTo: string; network: string; asset: string; amountAtomic: string; maxTimeoutSeconds: number | null };
@@ -371,7 +377,8 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
       const url = canonicalRequestUrl(rawUrlOf(input));
       const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
       const named = options.operationId ? options.operationId(input, init) : null;
-      const bound: BoundRequest = { url, method, bodyHash: await bodyHashOf(input, init), ...(str(named) ? { operationId: str(named)! } : {}) };
+      const body = await bodyOf(input, init);
+      const bound: BoundRequest = { url, method, bodyHash: body.hash, ...(body.bytes ? { body: body.bytes } : {}), ...(str(named) ? { operationId: str(named)! } : {}) };
       return calls.run(bound, fn);
     },
     wrapTransport(inner) {
@@ -445,7 +452,7 @@ export function createOutcomeLedgerX402Binding(options: OutcomeLedgerX402Options
         }
         let validation: ValidationFact;
         try {
-          validation = await validate({ response: resp.clone(), intentHash: h, approval: live.approval });
+          validation = await validate({ response: resp.clone(), intentHash: h, approval: live.approval, settlementTx: tx, ...(request.body ? { requestBody: request.body } : {}) });
         } catch (err) {
           validation = { ok: false, ruleVersion, reasonCodes: ["validator_threw", String((err as Error)?.message ?? err)] };
         }

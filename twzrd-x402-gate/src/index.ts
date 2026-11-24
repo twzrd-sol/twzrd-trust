@@ -311,6 +311,14 @@ export {
   type SettlementEvidence,
 } from "./outcome-ledger-x402.js";
 export {
+  receiptValidationRule,
+  OUTBID_RECEIPT_RULE_V1,
+  type ReceiptExpectation,
+  type ReceiptValidationOptions,
+  type ReceiptVerifier,
+  type SseReceiptSplitter,
+} from "./receipt-validator.js";
+export {
   createFileDecisionLedger,
   createDefaultMppFulfillmentLedgerSink,
   createMppFulfillmentLedgerSink,

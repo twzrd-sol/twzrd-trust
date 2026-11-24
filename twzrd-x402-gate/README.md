@@ -179,9 +179,18 @@ makes reads and writes refuse instead of counting less.
 - **`createFileSpendLedger(path)`** still implements the synchronous
   `SpendLedger` interface used by Payment Control (`evaluateIntent`, a `ledger`
   option) and `spendControlSafeFetch`:
-  reads take no lock, and `record` blocks its thread for up to 3 s waiting for
-  the lock. Across processes, a `spentMicro` check followed by `record` is not
-  atomic; only the hold methods (`reserveAsync` and the rest) are.
+  reads take no lock, and `record` never waits: it tries the lock once, and
+  when another process holds it, writes the row to its own pending journal
+  (`<file>.pending.<host>.<pid>.<thread>`) instead. Every read counts journal
+  rows at once; a background flush on timers (`flushPending()`) or the next
+  locked write folds them into the chain, and a dead writer's journal is folded
+  by the next writer. A writer also folds its journal once, without waiting, as
+  its thread or process exits; a worker thread that exits while the lock is
+  held leaves its journal counted until its process exits. Rows in the chain and
+  in journals are appended without `fsync`: they survive a crash of the writing
+  process, and a power loss can drop the most recent ones. Across processes, a
+  `spentMicro` check followed by `record` is not atomic; only the hold methods
+  (`reserveAsync` and the rest) are.
 
 ### Bind the quote: `expectedAmount` (0.12.4)
 
@@ -1148,6 +1157,35 @@ const guardedFetch = createGuardedX402Fetch({ client, outcomeLedger: ledger });
 // Before paying again after a crash or timeout:
 for (const rec of ledger.unresolved()) console.log(rec.state, rec.intentHash);
 ```
+
+**Delivery receipts as the validation rule.** `receiptValidationRule()` returns
+`{ validate, ruleVersion }` for the `outcomeLedger` options. It runs after the
+settlement check confirmed the payment and checks a signed delivery receipt
+(Outbid-Receipt v1) against this request's body, method and path, the paid
+terms, the confirmed settlement transaction, your payer address and the exact
+response bytes. A valid receipt records `completed`; a missing, stale or
+mismatched one records `paid_incomplete` with a `receipt_*` reason. It
+refuses nothing (the payment already happened) and is unrelated to
+`requireReceipt`, which buys TWZRD's V7 trust receipt before paying. The gate
+pins no verifier: pass one, such as `outbid-receipt-verify`.
+
+```typescript
+import { verifyReceipt, splitSseReceipt } from "outbid-receipt-verify";
+import { createGuardedX402Fetch, receiptValidationRule } from "twzrd-x402-gate";
+
+const guardedFetch = createGuardedX402Fetch({
+  client,
+  outcomeLedger: {
+    ledger,
+    settlement: checkSettlementOnChain, // your independent check; without one nothing completes
+    ...receiptValidationRule({ verify: verifyReceipt, splitSse: splitSseReceipt, keys: sellerKeys, iss: "https://seller.example", payer: myAddress }),
+  },
+});
+```
+
+Pin `keys` at setup; never fetch them per call from the seller being checked.
+The request model defaults to the request body's JSON `model` (`model`
+option to override), and receipts older than 900 s fail (`maxAgeSeconds`).
 
 ### Networks (Solana mainnet and Base mainnet scored)
 

@@ -27,7 +27,11 @@ buyer Path A defaults; read the first three items before upgrading.
   (hostname plus, on Linux, PID namespace and boot id), so containers sharing a hostname are
   separate hosts; hosts sharing a file must keep their clocks in sync. The synchronous
   `SpendLedger` methods stay: reads take no lock and skip an unterminated last line only while
-  the lock is held (otherwise they refuse); `record` blocks up to 3 s for the lock. Every
+  the lock is held (otherwise they refuse); `record` never waits or sleeps the thread: when
+  another process holds the lock it writes the row to a per-writer pending journal that every
+  read counts at once and the next locked write (or `flushPending()`, or the writer's exit) folds
+  into the chain. Rows are appended without `fsync`: they survive a process crash, not a power
+  loss. Every
   operation still replays the whole file (about 150 ms at 100,000 rows on one machine).
 - **`createGuardedX402Fetch` hourly budget is durable.** It moves from process memory to the
   ledger above (`spendLedgerFile`, `budgetScope`), with the same hold/settle rules. It now reads
@@ -53,6 +57,13 @@ buyer Path A defaults; read the first three items before upgrading.
   binding resolves a v1 payment (`X-PAYMENT`, no `accepted` object) to its signing record
   through the bound call, set only after the attempt was recorded, so a v1 paid call no longer
   leaves an unresolved row.
+- **Delivery receipts as an outcome rule**: new `receiptValidationRule()` (and
+  `OUTBID_RECEIPT_RULE_V1`) returns `{ validate, ruleVersion }` for `outcomeLedger`. After a
+  confirmed settlement it verifies a signed Outbid-Receipt v1 (header, or SSE trailer with a
+  splitter) against the request, the paid terms, the settlement transaction, the payer and the
+  exact response bytes: `completed` with `receipt_verified`, otherwise `paid_incomplete` with a
+  `receipt_*` reason. The verifier is injected (no new dependency). The `OutcomeValidator`
+  context gains `settlementTx` and `requestBody` (the bytes the buyer sent, when readable).
 
 ## 0.27.0 (2026-11-18)
 

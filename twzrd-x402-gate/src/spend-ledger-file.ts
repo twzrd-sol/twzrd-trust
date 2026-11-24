@@ -13,10 +13,16 @@
  * - The synchronous `SpendLedger` methods never wait. `spentMicro` and
  *   `firstSeen` (and the channel/reference reads) replay a lock-free snapshot of
  *   complete rows (an unterminated last line counts as an append in progress
- *   only while the lock is held; otherwise the read refuses). `record` waits for the lock by sleeping the thread
- *   (it must stay synchronous for policy-runtime) and throws after 3 s. Within
- *   one process the lock never contends, so with one process per file, as in
- *   0.27.0, `record` never waits.
+ *   only while the lock is held; otherwise the read refuses). `record` (it must
+ *   stay synchronous for policy-runtime) tries the lock once: free, it appends to
+ *   the chain as before; held by another process, it appends the row to this
+ *   writer's pending journal (`<file>.pending.<host>.<pid>.<thread>`) and returns.
+ *   Every read counts journal rows the chain does not hold yet, so the spend is
+ *   visible at once, in every process. The journal is folded into the chain by a
+ *   background flush on timers (`flushPending`), or by the next locked write of
+ *   this writer; a dead writer's journal by the next locked write of any writer.
+ *   Within one process the lock never contends, so with one process per file, as
+ *   in 0.27.0, `record` never journals.
  * - Across processes, only the hold API checks a cap and holds the amount in
  *   one locked step. A synchronous `spentMicro` check followed by `record` is
  *   atomic within one process, not across processes.
@@ -26,9 +32,10 @@
  * a fresh `spendLedgerFile` when a file grows large (only the last window of
  * rows matters to a cap).
  */
-import { appendFileSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, readlinkSync, rmdirSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmdirSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { hostname } from "node:os";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { threadId } from "node:worker_threads";
 import { createHash, randomUUID } from "node:crypto";
 import { createMemorySpendLedger, type SpendLedger } from "./policy-runtime.js";
 
@@ -202,28 +209,15 @@ function lockError(lockPath: string): Error {
   return new Error(`[twzrd-x402-gate] spend ledger lock timeout: ${lockPath}${hint}`);
 }
 
-const sleeper = new Int32Array(new SharedArrayBuffer(4));
 const nextWait = (waitMs: number) => Math.min(40, waitMs * 2);
 const jitter = (waitMs: number) => waitMs + Math.floor(Math.random() * waitMs);
 
 /*
- * Both runners take the lock, run `fn`, and release it in one synchronous
- * stretch, so no other task in this process (not even a microtask) ever finds
- * this process's own lock held: within one process the lock never contends.
+ * Every locked step takes the lock, runs `fn`, and releases it in one
+ * synchronous stretch, so no other task in this process (not even a microtask)
+ * ever finds this process's own lock held: within one process the lock never
+ * contends. Nothing ever sleeps the thread waiting for it.
  */
-
-/** Blocking runner for the synchronous `record`: sleeps between attempts (Atomics.wait) and throws after the timeout. */
-function runLockedSync<T>(lockPath: string, fn: () => T, timeoutMs = LOCK_WAIT_MS): T {
-  const start = Date.now();
-  let waitMs = 2;
-  for (;;) {
-    const release = tryLock(lockPath);
-    if (release) { try { return fn(); } finally { release(); } }
-    if (Date.now() - start >= timeoutMs) throw lockError(lockPath);
-    Atomics.wait(sleeper, 0, 0, jitter(waitMs));
-    waitMs = nextWait(waitMs);
-  }
-}
 
 /** Runner for the hold API: waits on timers, so the event loop keeps running, and rejects after the timeout. */
 async function runLocked<T>(lockPath: string, fn: () => T, timeoutMs = LOCK_WAIT_MS): Promise<T> {
@@ -333,6 +327,84 @@ function heldAndSpent(s: State, scope: string, windowMs: number, now: number): b
 }
 
 /* ------------------------------------------------------------------ */
+/* Pending journals                                                     */
+/* ------------------------------------------------------------------ */
+
+/** A committed spend a contended synchronous `record` wrote outside the chain. */
+type PendingRow = { id: string; scope: string; micro: string; at: number; pid: number; hostname: string };
+type PendingFile = { file: string; rows: PendingRow[]; own: boolean; dead: boolean };
+
+/** Host identity tag in journal names: a pid in a name is judged only by the host that wrote it. */
+const PENDING_TAG = sha256(LOCAL).slice(0, 16);
+const pendingPrefix = (path: string) => `${basename(path)}.pending.`;
+/** One journal per writer (host, pid, thread): nothing else ever appends to it. */
+const ownPendingPath = (path: string) => `${path}.pending.${PENDING_TAG}.${process.pid}.${threadId}`;
+
+/**
+ * Every journal of this ledger, oldest name first. A writer is dead when its
+ * pid is gone on this host, or (another host) when its journal is older than
+ * the cross-host hold timeout. A last line without its newline is an append in
+ * progress from a live writer (left out) and a crashed one from a dead writer
+ * (refused, as the chain refuses one).
+ */
+function readPending(path: string): PendingFile[] {
+  const dir = dirname(path), prefix = pendingPrefix(path), own = ownPendingPath(path);
+  let names: string[];
+  try { names = readdirSync(dir); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return []; throw err; }
+  const out: PendingFile[] = [];
+  for (const name of names.filter(n => n.startsWith(prefix)).sort()) {
+    const file = join(dir, name);
+    let raw: string, mtimeMs: number;
+    try { raw = readFileSync(file, "utf8"); mtimeMs = statSync(file).mtimeMs; }
+    catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") continue; throw err; } // merged meanwhile
+    const [tag, pidText] = name.slice(prefix.length).split(".");
+    const pid = Number(pidText);
+    const dead = tag === PENDING_TAG ? !(Number.isSafeInteger(pid) && pid > 0 && pidAlive(pid)) : Date.now() - mtimeMs > CROSS_HOST_HOLD_TIMEOUT_MS;
+    const end = raw.lastIndexOf("\n") + 1;
+    if (end < raw.length && dead) throw new Error(`[twzrd-x402-gate] spend ledger pending journal corrupt row (unterminated last line): ${file}`);
+    const rows: PendingRow[] = [];
+    for (const line of raw.slice(0, end).split("\n")) {
+      if (!line) continue;
+      let row: PendingRow;
+      try { row = JSON.parse(line) as PendingRow; } catch { throw new Error(`[twzrd-x402-gate] spend ledger pending journal corrupt row: ${file}`); }
+      if (!row || typeof row !== "object" || typeof row.id !== "string" || !row.id || typeof row.scope !== "string" || typeof row.micro !== "string" || !Number.isFinite(row.at)) {
+        throw new Error(`[twzrd-x402-gate] spend ledger pending journal corrupt row: ${file}`);
+      }
+      amountOf(row.micro, file);
+      rows.push(row);
+    }
+    out.push({ file, rows, own: file === own, dead });
+  }
+  return out;
+}
+
+/** Count the journal rows the chain does not hold yet (by hold id, so a merged row is never counted twice). */
+function countPending(state: State, files: PendingFile[]): void {
+  const seen = new Set<string>();
+  for (const f of files) for (const row of f.rows) {
+    if (state.resolved.has(row.id) || seen.has(row.id)) continue;
+    seen.add(row.id);
+    state.ledger.record(row.scope, BigInt(row.micro), row.at);
+  }
+}
+
+/** Ledgers with rows still journaled: each folds once more, without waiting, as its thread or process exits. */
+const exitFolds = new Set<() => void>();
+let exitHooked = false;
+function foldAtExit(fold: () => void): void {
+  exitFolds.add(fold);
+  if (exitHooked) return;
+  exitHooked = true;
+  process.once("exit", () => {
+    for (const f of exitFolds) { try { f(); } catch { /* the journal stays on disk, counted, for the next writer */ } }
+  });
+}
+
+const pauseUnref = (ms: number) => new Promise<void>((done) => { const t = setTimeout(done, ms); (t as { unref?: () => void }).unref?.(); });
+/** How long a background flush keeps trying before it leaves the journal to the next locked write. */
+const FLUSH_GIVE_UP_MS = 30_000;
+
+/* ------------------------------------------------------------------ */
 /* Ledger                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -341,6 +413,13 @@ export type FileSpendLedger = SpendLedger & {
   highestSpentMicroByChannel(channelId: string): bigint;
   highestVoucherMicroByChannel(channelId: string): bigint;
   settlementReferenceSeen(reference: string): boolean;
+  /**
+   * Fold this writer's pending journal (rows a contended `record` wrote) into
+   * the chain. Waits on unref'd timers; resolves true once nothing of this
+   * writer is pending, false if the lock stayed busy for 30 s (the rows stay
+   * journaled, counted by every read, and merged by the next locked write).
+   */
+  flushPending(): Promise<boolean>;
   /**
    * Writes. Each waits for the file lock with timer backoff (the event loop
    * keeps running) and rejects if the lock is not free within 3 s.
@@ -376,7 +455,34 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
     const line = JSON.stringify(row); appendFileSync(path, `${line}\n`, { mode: 0o600 }); state.hash = sha256(line);
   };
   const settleOrphans = (state: State) => resolveOrphans(state, (hold, at, value) => append(state, hold.signed ? "commit" : "release", hold.scope, value, at, hold));
+  const ownPending = ownPendingPath(path);
+  /**
+   * Under the lock: fold this writer's journal and every dead writer's journal
+   * into the chain and remove them; count a live writer's rows (its owner folds
+   * them). A crash between the append and the removal leaves rows the chain
+   * already holds: they are skipped by hold id.
+   */
+  const mergePending = (state: State) => {
+    const seen = new Set<string>();
+    for (const f of readPending(path)) {
+      const fold = f.own || f.dead;
+      for (const row of f.rows) {
+        if (state.resolved.has(row.id) || seen.has(row.id)) continue;
+        seen.add(row.id);
+        const micro = BigInt(row.micro);
+        if (fold) {
+          append(state, "commit", row.scope, micro, row.at, { id: row.id, scope: row.scope, micro, at: row.at, pid: row.pid, hostname: row.hostname, signed: true });
+          state.resolved.add(row.id);
+        }
+        state.ledger.record(row.scope, micro, row.at);
+      }
+      if (fold) { try { unlinkSync(f.file); } catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; } }
+    }
+  };
   const snapshot = (): State => {
+    // Journals before the chain: a row merged in between is then found in the
+    // chain (and skipped in the journal), never in neither.
+    const pending = readPending(path);
     let state = replay(path, "ignore");
     // An unterminated last line with no lock held is not an append in
     // progress: it is a crashed one. Look once more (the writer may have just
@@ -385,16 +491,17 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
       state = replay(path, "ignore");
       if (state.torn && !existsSync(lockPath)) throw new Error(`[twzrd-x402-gate] spend ledger corrupt row (unterminated last line): ${path}`);
     }
+    countPending(state, pending);
     resolveOrphans(state);
     return state;
   };
   const locked = <T>(fn: (state: State) => T) => (): T => {
     const state = replay(path, "refuse"); // every byte other processes appended
+    mergePending(state);
     settleOrphans(state);
     return fn(state);
   };
   // The lock is never held across an await: not across network work, and not across another task's turn.
-  const withStateSync = <T>(fn: (state: State) => T): T => runLockedSync(lockPath, locked(fn));
   const withState = <T>(fn: (state: State) => T): Promise<T> => runLocked(lockPath, locked(fn));
 
   const reserve = (s: State, scope: string, amount: bigint, holdId: string, cap: bigint | undefined, windowMs: number, at: number, channelId?: string, voucherTotal?: bigint): boolean => {
@@ -442,14 +549,49 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
     return true;
   };
 
+  /** One fold of this writer's journal if the lock is free now; never waits. */
+  const foldOnce = (): boolean => {
+    if (!existsSync(ownPending)) { exitFolds.delete(foldOnce); return true; }
+    const release = tryLock(lockPath);
+    if (!release) return false;
+    try { locked(() => undefined)(); } finally { release(); }
+    exitFolds.delete(foldOnce);
+    return true;
+  };
+  /** Background fold of this writer's journal: tries the lock on unref'd timers, so it never holds the process open. */
+  const flushNow = async (): Promise<boolean> => {
+    const start = Date.now();
+    for (let waitMs = 5; ; waitMs = Math.min(500, waitMs * 2)) {
+      try { if (foldOnce()) return true; } catch { return false; }
+      if (Date.now() - start >= FLUSH_GIVE_UP_MS) return false;
+      await pauseUnref(jitter(waitMs));
+    }
+  };
+  let flushing: Promise<boolean> | undefined;
+  const scheduleFlush = () => {
+    if (flushing) return;
+    flushing = flushNow().catch(() => false).finally(() => { flushing = undefined; });
+  };
+
   return {
     spentMicro: (scope, windowMs, now) => heldAndSpent(snapshot(), scope, windowMs, now),
     firstSeen: (scope) => snapshot().ledger.firstSeen(scope),
     record(scope, amount, at) {
       if (amount < 0n) throw new RangeError("spend amount must not be negative");
       const hold: Hold = { id: `legacy-${process.pid}-${randomUUID()}`, scope, micro: amount, at, pid: process.pid, hostname: LOCAL, signed: true };
-      withStateSync(s => append(s, "commit", scope, amount, at, hold));
+      // One attempt that never waits.
+      const release = tryLock(lockPath);
+      if (release) {
+        try { locked(s => append(s, "commit", scope, amount, at, hold))(); } finally { release(); }
+        return;
+      }
+      // Another process holds the lock: journal the row (every read counts it from here on) and fold it in later.
+      const row: PendingRow = { id: hold.id, scope, micro: amount.toString(), at, pid: process.pid, hostname: LOCAL };
+      appendFileSync(ownPending, `${JSON.stringify(row)}\n`, { mode: 0o600 });
+      foldAtExit(foldOnce);
+      scheduleFlush();
     },
+    flushPending: () => flushing ?? flushNow(),
     highestSpentMicroByChannel: (channelId) => snapshot().channels.get(channelId) ?? 0n,
     highestVoucherMicroByChannel(channelId) {
       const s = snapshot();

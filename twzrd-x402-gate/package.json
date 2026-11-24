@@ -151,6 +151,7 @@
     "@x402/fetch": "^2.26.0",
     "@x402/svm": "^2.26.0",
     "js-sha3": "^0.13.0",
+    "outbid-receipt-verify": "0.1.0",
     "tsx": "^4.23.12",
     "typescript": "^5.4.0",
     "x402-solana": "^3.0.1"
