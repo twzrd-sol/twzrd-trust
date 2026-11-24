@@ -13,7 +13,7 @@ HTTP paths below use https://intel.twzrd.xyz. Replace wallet/pubkey with the sel
   Send resource_url or seller_wallet; add price_usdc only for a known unit price, not an upto cap. Read `readiness_card.decision` and `readiness_card.recommended_cap_usdc`. unknown_subject: use the selected 402 payTo and re-check. Honor block; allow still needs your policy.
 - **Free merchant card:** `GET /v1/intel/merchant_card/{wallet}`
   Seller risk, wash flag and freshness. wash_flagged=true stops payment; `wash_flagged=null` means unevaluated, not clean. The separate /v1/intel/merchant costs 0.05 USDC.
-- **Buyer enforcement (core product):** `npm i twzrd-x402-gate@0.26.0 @x402/core @x402/fetch @x402/svm`
+- **Buyer enforcement (core product):** `npm i twzrd-x402-gate@0.28.1 @x402/core @x402/fetch @x402/svm`
   `createBuyerFetch({ client, maxPricePerCall: "1.00", allowedRecipients: [sellerPayTo] })` requires a configured x402Client, a USDC decimal-string cap and an explicit recipient array. Optional: hourlyBudgetCap.
   Runs at onBeforePaymentCreation. Refuses over-cap/off-allowlist quotes, exhausted configured budgets, preflight blocks/errors, and flagged/unknown/unreachable wash checks. An uncapped warn refuses; permitted warn attempts stay within the returned cap and are logged in local JSONL before signing.
   Adapter: `installTwzrdAutoGate(client)`; defaults differ. See /skill.md.
@@ -21,7 +21,7 @@ HTTP paths below use https://intel.twzrd.xyz. Replace wallet/pubkey with the sel
   Risk lookup without a signed receipt.
 - **Optional signed V7 proof, 0.05 USDC:** `GET /v1/intel/trust/{pubkey}`
   Ed25519 reputation receipt binds subject, score, timestamp and settlement anchor. The selected 402 accepts entry determines network, asset, amount and payTo.
-- **Offline verification:** install `twzrd-receipt-verifier@^1.4.0`, then run:
+- **Offline verification:** install `twzrd-receipt-verifier@^1.4.6`, then run:
   `verify-twzrd-receipt receipt.json --pubkey Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS`
   Installed verification uses no network; installation may. Exit 0 valid, 1 invalid. Hosted: `POST /v1/receipts/verify`. Free sample: GET /v1/receipts/example.
 
@@ -35,3 +35,4 @@ HTTP paths below use https://intel.twzrd.xyz. Replace wallet/pubkey with the sel
 - [Full reference](https://intel.twzrd.xyz/llms-full.txt): MPP/Tempo scope, tools, policy, fixtures, watches and examples.
 - [Gate source](https://github.com/twzrd-sol/twzrd-trust): SDK.
 - [Verifier source](https://github.com/twzrd-sol/twzrd-receipt-verifier): CLI.
+- [Paid inference](https://outbid.sh/llms.txt): Outbid, a separate product; check its payTo like any seller.
