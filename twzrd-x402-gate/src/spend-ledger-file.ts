@@ -400,7 +400,8 @@ function foldAtExit(fold: () => void): void {
   });
 }
 
-const pauseUnref = (ms: number) => new Promise<void>((done) => { const t = setTimeout(done, ms); (t as { unref?: () => void }).unref?.(); });
+/** A pause; unref'd for the background flush (it never holds the process open), ref'd when a caller awaits flushPending(). */
+const pauseFor = (ms: number, ref: boolean) => new Promise<void>((done) => { const t = setTimeout(done, ms); if (!ref) (t as { unref?: () => void }).unref?.(); });
 /** How long a background flush keeps trying before it leaves the journal to the next locked write. */
 const FLUSH_GIVE_UP_MS = 30_000;
 
@@ -415,7 +416,8 @@ export type FileSpendLedger = SpendLedger & {
   settlementReferenceSeen(reference: string): boolean;
   /**
    * Fold this writer's pending journal (rows a contended `record` wrote) into
-   * the chain. Waits on unref'd timers; resolves true once nothing of this
+   * the chain. Retries the lock on timers that keep the process alive until it
+   * answers (the automatic background flush never does); resolves true once nothing of this
    * writer is pending, false if the lock stayed busy for 30 s (the rows stay
    * journaled, counted by every read, and merged by the next locked write).
    */
@@ -558,19 +560,23 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
     exitFolds.delete(foldOnce);
     return true;
   };
-  /** Background fold of this writer's journal: tries the lock on unref'd timers, so it never holds the process open. */
-  const flushNow = async (): Promise<boolean> => {
+  /**
+   * Fold this writer's journal, retrying the lock on timers. The background
+   * flush uses unref'd timers so it never holds the process open; an explicit
+   * flushPending() call keeps the event loop alive until it answers.
+   */
+  const flushNow = async (ref: boolean): Promise<boolean> => {
     const start = Date.now();
     for (let waitMs = 5; ; waitMs = Math.min(500, waitMs * 2)) {
       try { if (foldOnce()) return true; } catch { return false; }
       if (Date.now() - start >= FLUSH_GIVE_UP_MS) return false;
-      await pauseUnref(jitter(waitMs));
+      await pauseFor(jitter(waitMs), ref);
     }
   };
   let flushing: Promise<boolean> | undefined;
   const scheduleFlush = () => {
     if (flushing) return;
-    flushing = flushNow().catch(() => false).finally(() => { flushing = undefined; });
+    flushing = flushNow(false).catch(() => false).finally(() => { flushing = undefined; });
   };
 
   return {
@@ -591,7 +597,7 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
       foldAtExit(foldOnce);
       scheduleFlush();
     },
-    flushPending: () => flushing ?? flushNow(),
+    flushPending: () => flushNow(true),
     highestSpentMicroByChannel: (channelId) => snapshot().channels.get(channelId) ?? 0n,
     highestVoucherMicroByChannel(channelId) {
       const s = snapshot();

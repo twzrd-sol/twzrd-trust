@@ -230,6 +230,24 @@ test("a writer whose lock clears before it exits folds its own journal at exit, 
   assert.equal(createFileSpendLedger(file).spentMicro("s", 60_000, Date.now()), 3n);
 });
 
+test("an awaited flushPending keeps the process alive until the lock frees (the background flush alone would not)", async () => {
+  const file = tmpLedger("flush-ref");
+  const identity = await localIdentity();
+  const marker = join(dirname(file), "flushed");
+  // The lock is cleared by an unref'd timer: only flushPending's own timers keep this child running until then.
+  await recordChild(file, `
+    const { writeFileSync, unlinkSync } = await import("node:fs");
+    const lock = ${JSON.stringify(`${file}.lock`)};
+    writeFileSync(lock, JSON.stringify({ pid: ${process.pid}, hostname: ${JSON.stringify(identity)}, acquiredAt: Date.now(), token: "test" }));
+    ledger.record("s", 5n, Date.now());
+    setTimeout(() => unlinkSync(lock), 150).unref();
+    const ok = await ledger.flushPending();
+    writeFileSync(${JSON.stringify(marker)}, String(ok));`);
+  assert.equal(readFileSync(marker, "utf8"), "true");
+  assert.equal(journals(file).filter(n => !n.endsWith("flushed")).length, 0);
+  assert.equal(createFileSpendLedger(file).spentMicro("s", 60_000, Date.now()), 5n);
+});
+
 test("journal rows are idempotent by id across files, and a malformed complete row fails closed even from a live writer", async () => {
   const identity = await localIdentity();
   const row = (id: string, micro = "4") => JSON.stringify({ id, scope: "s", micro, at: Date.now(), pid: 1, hostname: identity }) + "\n";
