@@ -91,6 +91,7 @@ import {
   type TwzrdIntelligenceOptions,
 } from "./intelligence.js";
 import { TEMPO_USD_ASSETS } from "./tempo-assets.js";
+import { createMppSpendAccounting, type MppSpendAccounting, type MppSpendHold } from "./mpp-spend-accounting.js";
 import {
   evaluateIntent,
   type IntelligenceProvider,
@@ -921,6 +922,10 @@ export type MppOnChallengeOptions = {
    * refused for a fatal reason (see `isFatalGateRefusal`).
    */
   tripPauseOnBlockMs?: number;
+  /** Optional settlement-accurate durable spend ledger. */
+  spendAccounting?: MppSpendAccounting;
+  spendScope?: string;
+  onSpendHold?: (context: { hold: MppSpendHold; challenge: MppChallenge; recordResponse: (response: Response) => Promise<"committed" | "released" | "pending" | "duplicate"> }) => void;
 };
 
 /** Helpers passed by mppx to onChallenge. */
@@ -949,9 +954,10 @@ export type TwzrdMppIntegrationChallenge = {
 
 export type TwzrdMppIntegrationOptions = Omit<
   MppOnChallengeOptions,
-  "allowUnevaluated"
+  "allowUnevaluated" | "spendAccounting"
 > & {
   intelligenceOptions?: TwzrdIntelligenceOptions;
+  spendLedgerFile?: string;
   /** Explicit opt-in to unscored networks; requires policy.maxAmountUsd. */
   allowUnscoredNetwork?: boolean;
 };
@@ -989,6 +995,7 @@ export function createTwzrdMppIntegration(
         : {}),
     }),
   };
+  const spendAccounting = createMppSpendAccounting({ spendLedgerFile: options.spendLedgerFile, scope: options.spendScope });
   return {
     twzrdMppIntegration: true as const,
     gate: async (challenge: TwzrdMppIntegrationChallenge) => {
@@ -996,13 +1003,21 @@ export function createTwzrdMppIntegration(
         { ...challenge, realm: challenge.realm ?? "" },
         integrationOptions,
       );
-      return {
+    const normalizedChallenge = { ...challenge, realm: challenge.realm ?? "" };
+    const spend = isMppCharge(normalizedChallenge)
+      ? await spendAccounting.reserveCharge({ scope: options.spendScope, amount: String(challenge.request.amount), decimals: chargeDecimals(normalizedChallenge) })
+      : isMppSession(normalizedChallenge)
+        ? await reserveSessionFromChallenge(spendAccounting, normalizedChallenge, options.spendScope)
+        : undefined;
+    return {
         disposition: evaluation.disposition,
         decisionId: evaluation.decision.decisionId,
         intentHash: evaluation.decision.intentHash,
         reasonCodes: evaluation.decision.reasonCodes,
+      ...(spend ? { hold: { ...spend, amountMicro: spend.amountMicro.toString(), voucherTotalMicro: spend.voucherTotalMicro?.toString(), previousHighWaterMicro: spend.previousHighWaterMicro?.toString() }, markSigned: () => spendAccounting.markSigned(spend), recordResponse: (response: Response) => spendAccounting.recordResponse(spend, response) } : {}),
       } as const;
     },
+    spendAccounting,
     onFulfillment: createDefaultMppFulfillmentLedgerSink(decisionFile),
     flush: ledger.flush,
   };
@@ -1063,13 +1078,63 @@ export function createTwzrdMppOnChallenge(
       options,
       Boolean(options.allowUnevaluated),
     );
-    if (!evaluation) return undefined; // explicit opt-out: mppx default flow, ungated
-    if (evaluation.disposition === "block")
+    // Session payment semantics are not yet a policy-evaluated MPP intent.
+    // When the caller explicitly opts into unevaluated MPP and supplies spend
+    // accounting, still reserve the cumulative voucher before credential
+    // creation; without that explicit opt-in, evaluateMppChallenge throws.
+    if (!evaluation && !isMppSession(challenge)) return undefined;
+    if (evaluation?.disposition === "block")
       throw paymentControlError(evaluation);
+    let hold: MppSpendHold | undefined;
+    if (options.spendAccounting && (isMppCharge(challenge) || isMppSession(challenge))) {
+      hold = isMppCharge(challenge)
+        ? await options.spendAccounting.reserveCharge({ scope: options.spendScope, amount: String(challenge.request.amount), decimals: chargeDecimals(challenge) })
+        : await reserveSessionFromChallenge(options.spendAccounting, challenge, options.spendScope);
+      await options.spendAccounting.markSigned(hold);
+      try {
+        options.onSpendHold?.({
+          hold,
+          challenge: frozenClone(challenge),
+          recordResponse: (response) => options.spendAccounting!.recordResponse(hold!, response),
+        });
+      } catch { /* observation must not change the payment path */ }
+    }
     // allow (or warn, when not treated as block): create the credential for the
     // EXACT challenge evaluated.
     return helpers.createCredential();
   };
+}
+
+function isMppCharge(challenge: MppChallenge): boolean {
+  return challenge.intent === "charge" && (challenge.method === "solana" || challenge.method === "tempo");
+}
+
+function isMppSession(challenge: MppChallenge): boolean {
+  return challenge.intent === "session" && (challenge.method === "tempo" || challenge.method === "solana");
+}
+
+async function reserveSessionFromChallenge(accounting: MppSpendAccounting, challenge: MppChallenge, scope?: string): Promise<MppSpendHold> {
+  const request = challenge.request;
+  const voucher = request.voucher && typeof request.voucher === "object" ? request.voucher as Record<string, unknown> : request;
+  const channelId = voucher.channelId ?? voucher.channel_id ?? request.channelId ?? request.channel_id;
+  const total = voucher.amount ?? voucher.spent ?? voucher.total ?? request.voucherTotal;
+  const decimals = voucher.decimals ?? request.decimals ?? 6;
+  if (typeof channelId !== "string" || typeof total !== "string" || typeof decimals !== "number") {
+    throw new TwzrdMppBlockError("MALFORMED_CHALLENGE", "[twzrd] MPP session requires channelId, cumulative voucher amount, and asset decimals");
+  }
+  return accounting.reserveSession({ scope, channelId, voucherTotalBaseUnits: total, decimals });
+}
+
+function chargeDecimals(challenge: MppChallenge): number {
+  if (challenge.method === "tempo") return 6; // Supported Tempo USD TIP-20 amounts use six decimals.
+  const raw = challenge.request;
+  const details = raw.methodDetails && typeof raw.methodDetails === "object"
+    ? raw.methodDetails as Record<string, unknown> : {};
+  const decimals = typeof raw.decimals === "number" ? raw.decimals : details.decimals;
+  if (typeof decimals !== "number" || !Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
+    throw new TwzrdMppBlockError("MALFORMED_CHALLENGE", "[twzrd] MPP charge decimals missing or invalid");
+  }
+  return decimals;
 }
 
 async function evaluateMppChallenge(

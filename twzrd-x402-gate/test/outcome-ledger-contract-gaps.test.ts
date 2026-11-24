@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { x402Client } from '@x402/fetch';
 import type { SchemeNetworkClient } from '@x402/core/types';
-import { createGuardedX402Fetch } from '../src/guarded-x402-fetch.js';
+import { createGuardedX402Fetch } from './guarded-fetch-fixture.js';
 import { createMemoryOutcomeLedger } from '../src/outcome-ledger.js';
 
 const resource = 'https://offline.example/headers';

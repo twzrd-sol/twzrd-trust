@@ -21,14 +21,16 @@ function setup(options: {
   recipient?: string;
   preflight?: "allow" | "warn" | "block" | "down" | "invalid" | "hang";
   recommendedCap?: number;
+  maximumRecommendedSpend?: number;
   hourlyBudgetCap?: string;
   dir?: string;
   signerFails?: boolean;
   coreDefaults?: boolean;
   paymentResponse?: Record<string, unknown>;
+  paymentStatus?: number;
 } = {}) {
   const dir = options.dir ?? mkdtempSync(join(tmpdir(), "twzrd-buyer-test-"));
-  const state = { signs: 0, paid: 0, preflights: 0, network: [] as string[] };
+  const state = { signs: 0, paid: 0, preflights: 0, preflightBodies: [] as Record<string, unknown>[], network: [] as string[] };
   const client = new x402Client();
   if (!options.coreDefaults) client.setSpendControls(false);
   const scheme: SchemeNetworkClient = {
@@ -52,11 +54,13 @@ function setup(options: {
     state.network.push(request.url);
     if (request.url.includes("/v1/intel/preflight")) {
       state.preflights++;
+      state.preflightBodies.push(await request.json() as Record<string, unknown>);
       if (options.preflight === "down") return new Response("down", { status: 503 });
       if (options.preflight === "hang") return new Promise<Response>(() => {});
       const card = options.preflight === "invalid" ? { decision: "nonsense", trust_score: 99 } : {
         decision: options.preflight ?? "allow", trust_score: 90, seller_wallet: SELLER,
         recommended_cap_usdc: options.recommendedCap ?? 1,
+        ...(options.maximumRecommendedSpend === undefined ? {} : { maximum_recommended_spend_usdc: options.maximumRecommendedSpend }),
       };
       return Response.json({ readiness_card: card });
     }
@@ -65,7 +69,7 @@ function setup(options: {
     if (request.headers.has("payment-signature")) {
       state.paid++;
       if (!options.paymentResponse) return Response.json({ ok: true });
-      return Response.json({ ok: true }, { headers: {
+      return Response.json({ ok: true }, { status: options.paymentStatus ?? 200, headers: {
         "payment-response": Buffer.from(JSON.stringify(options.paymentResponse)).toString("base64"),
       } });
     }
@@ -261,8 +265,52 @@ test("allow and warn reach the paying call, write local ledgers, and never buy o
     assert.equal(h.rows()[0].signer_invocations, 0);
     assert.equal(h.rows()[0].settlement, undefined);
     assert.equal(createFileSpendLedger(h.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 1000n);
+    assert.equal(h.state.preflightBodies[0]?.seller_wallet, SELLER);
+    assert.equal(h.state.preflightBodies[0]?.resource_url, URL);
+    assert.equal(h.state.preflightBodies[0]?.price_usdc, 0.001);
+    assert.equal(h.state.preflightBodies[0]?.chain, NETWORK);
     assert.ok(h.state.network.every(url => url === URL || /\/v1\/intel\/(preflight|merchant_card\/)/.test(url)));
   }
+});
+
+test("allowWarn defaults to true but an explicit false setting can refuse warn", async () => {
+  const defaults = setup({ preflight: "warn" });
+  assert.equal((await defaults.run()(URL)).status, 200);
+  assert.equal(defaults.state.signs, 1);
+
+  const strict = setup({ preflight: "warn" });
+  await assert.rejects(createBuyerFetch({ ...strict.config, allowWarn: false })(URL), /intel_warn_not_allowed/);
+  assert.equal(strict.state.signs, 0);
+  assert.equal(strict.state.paid, 0);
+});
+
+test("intel maximum_recommended_spend_usdc clamps the per-call cap after seller-bound preflight", async () => {
+  const h = setup({ amount: "20000", preflight: "allow", maximumRecommendedSpend: 0.01 });
+  await assert.rejects(h.run()(URL), /intel_recommended_cap_exceeded/);
+  assert.equal(h.state.signs, 0);
+  assert.equal(h.state.preflightBodies[0]?.seller_wallet, SELLER);
+  assert.equal(h.state.preflightBodies[0]?.resource_url, URL);
+  assert.equal(h.state.preflightBodies[0]?.price_usdc, 0.02);
+  assert.equal(createFileSpendLedger(h.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 0n,
+    "a denied preflight releases its persistent hold");
+});
+
+test("PAYMENT-RESPONSE success=false on HTTP 402 releases rather than counting the hold", async () => {
+  const h = setup({ paymentResponse: { success: false, errorReason: "rejected" }, paymentStatus: 402 });
+  const response = await h.run()(URL);
+  assert.equal(response.status, 402);
+  assert.equal(h.state.signs, 1);
+  assert.equal(createFileSpendLedger(h.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 0n);
+});
+
+test("PAYMENT-RESPONSE success=true commits a non-200 delivery and deduplicates settlement references", async () => {
+  const paymentResponse = { success: true, transaction: "0x" + "ab".repeat(32), network: NETWORK };
+  const first = setup({ paymentResponse, paymentStatus: 503 });
+  assert.equal((await first.run()(URL)).status, 503);
+  assert.equal(createFileSpendLedger(first.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 1000n);
+  const second = setup({ dir: first.dir, paymentResponse, paymentStatus: 503 });
+  assert.equal((await second.run()(URL)).status, 503);
+  assert.equal(createFileSpendLedger(second.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 1000n);
 });
 
 test("shared durable hourly cap reserves across concurrent wrappers and survives ledger replay", async () => {

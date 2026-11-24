@@ -23,6 +23,8 @@ export type TwzrdReadinessCard = {
   null_reason?: string | null;
   /** Server-recommended ceiling for a single spend against this seller, in USDC. */
   recommended_cap_usdc?: number | null;
+  /** Live intel preflight per-payment ceiling (preferred over the legacy alias). */
+  maximum_recommended_spend_usdc?: number | null;
   /** Seller has real non-wash inbound settlements in the corpus. */
   clean_inbound_history?: boolean;
   proof?: unknown;

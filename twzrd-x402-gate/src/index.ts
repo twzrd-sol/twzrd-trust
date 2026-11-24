@@ -274,6 +274,7 @@ export {
   type SpendControlResult,
 } from "./spend-control.js";
 export { createFileSpendLedger } from "./spend-ledger-file.js";
+export { createMppSpendAccounting, mppUsdAmountToMicro, type MppSpendAccounting, type MppSpendHold, type MppSpendKind, type MppSpendOutcome } from "./mpp-spend-accounting.js";
 export {
   OUTCOME_LEDGER_SCHEMA,
   UNRESOLVED_STATES as OUTCOME_UNRESOLVED_STATES,
@@ -309,6 +310,14 @@ export {
   type SettlementChecker,
   type SettlementEvidence,
 } from "./outcome-ledger-x402.js";
+export {
+  receiptValidationRule,
+  OUTBID_RECEIPT_RULE_V1,
+  type ReceiptExpectation,
+  type ReceiptValidationOptions,
+  type ReceiptVerifier,
+  type SseReceiptSplitter,
+} from "./receipt-validator.js";
 export {
   createFileDecisionLedger,
   createDefaultMppFulfillmentLedgerSink,

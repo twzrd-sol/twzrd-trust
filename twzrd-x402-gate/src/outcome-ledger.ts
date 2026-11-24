@@ -423,11 +423,14 @@ function createLedger(records: Map<string, AttemptRecord>, usedDecisions: Set<st
       }
       const all = atomic(settlement.amountAtomic, "settlement.amountAtomic") + atomic(settlement.feesAtomic, "settlement.feesAtomic", "0");
       const cap = atomic(cur.approval.maxAllInAtomic, "approval.maxAllInAtomic", cur.approval.amountAtomic);
-      const reasons: string[] = [...(validation.reasonCodes ?? [])];
+      // reasonCodes can carry positive evidence (for example receipt_verified).
+      // Validation status is authoritative; only use its codes as failures when
+      // ok is false. Rule mismatch and over-cap are independent failures.
+      const reasons: string[] = validation.ok ? [] : [...(validation.reasonCodes ?? [])];
       if (!validation.ok && reasons.length === 0) reasons.push("validation_failed");
       if (validation.ruleVersion !== cur.approval.validation.ruleVersion) reasons.push("validation_rule_mismatch");
       if (all > cap) reasons.push("spend_exceeds_approval");
-      const to: AttemptState = validation.ok && reasons.length === 0 ? "completed" : "paid_incomplete";
+      const to: AttemptState = reasons.length === 0 ? "completed" : "paid_incomplete";
       return transition(intentHash, to, { settlement, validation, reason_codes: reasons }, now);
     },
     markNotSettled(intentHash, { reasonCodes = [], now = Date.now() }) {

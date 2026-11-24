@@ -2,6 +2,69 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.28.0 (2026-11-24)
+
+Minor release. Behavior changes for `createBuyerFetch`, `createGuardedX402Fetch` and the
+buyer Path A defaults; read the first three items before upgrading.
+
+- **Durable, settlement-aware spend ledger v2 (`.twzrd/spend-v2.jsonl`).** Buyer spend is now a
+  hold written before signing and settled from the paid response: a settlement header with
+  `success: true` and a transaction commits it; `success: false`, or a failed response with no
+  settlement header, releases it; anything else stays held and counted. A hold whose process
+  died is committed if it was signed and released if not; another host's hold after 15 minutes.
+  `createBuyerFetch` moves from `.twzrd/spend.jsonl` to `.twzrd/spend-v2.jsonl`: spend recorded
+  in the old file is not counted unless `spendLedgerFile` points at it. 0.27.0 rows replay as
+  committed spend, and hold rows keep `micro: "0"` (amount in `hold_micro`) so a 0.27.0 reader
+  of a v2 file counts committed spend only.
+- **Cross-process budgets.** Ledger writes take `<file>.lock`, created whole by hard-linking a
+  fully written temp file and held for one read plus one append, never across network work. The
+  hold API (`reserveAsync`, `reserveChannelAsync`, `markSignedAsync`, `commitAsync`,
+  `releaseAsync`, `commitSettlementAsync`) waits on timers and rejects after 3 s with
+  `spend ledger lock timeout`, which refuses the payment. Stale locks (a dead pid on this host
+  after 5 s, another host after 15 minutes, an unreadable lock after 5 s) are removed under a
+  `<file>.lock.reaper` mutex that re-checks the lock before removing it; a reaper left by a
+  crash is named in the timeout error. A pid is trusted only for the same host identity
+  (hostname plus, on Linux, PID namespace and boot id), so containers sharing a hostname are
+  separate hosts; hosts sharing a file must keep their clocks in sync. The synchronous
+  `SpendLedger` methods stay: reads take no lock and skip an unterminated last line only while
+  the lock is held (otherwise they refuse); `record` never waits or sleeps the thread: when
+  another process holds the lock it writes the row to a per-writer pending journal that every
+  read counts at once and the next locked write (or `flushPending()`, or the writer's exit) folds
+  into the chain. Rows are appended without `fsync`: they survive a process crash, not a power
+  loss. Every
+  operation still replays the whole file (about 150 ms at 100,000 rows on one machine).
+- **`createGuardedX402Fetch` hourly budget is durable.** It moves from process memory to the
+  ledger above (`spendLedgerFile`, `budgetScope`), with the same hold/settle rules. It now reads
+  v1 `X-PAYMENT-RESPONSE` as well as `PAYMENT-RESPONSE`, and a ledger write that fails after a
+  paid response no longer replaces that response with an error.
+- **Path A default: no `/trust` purchase.** With a paying `x402Fetch`, `requireReceipt` now
+  defaults to `false`; it was the $2.50 material-allow rule (`DEFAULT_BUYER_REQUIRE_RECEIPT`,
+  still exported). The $0.001 `/quick` hop on warn is unchanged.
+- **Intel's recommended cap is enforced.** `createBuyerFetch`, `createGuardedX402Fetch` and
+  the quote-only offer helpers refuse an amount above the card's
+  `maximum_recommended_spend_usdc` (or `recommended_cap_usdc`) with
+  `intel_recommended_cap_exceeded`, converted exactly instead of through a float.
+- **`createBuyerFetch`**: new `buyerWallet` (sent to preflight as given), `allowWarn` (default
+  `true`; `false` refuses a warn with `intel_warn_not_allowed`); a `decision: block` card
+  refuses with `intel_decision_block`.
+- **MPP settlement accounting**: new `createMppSpendAccounting` (charge and session holds on the
+  same ledger; session spend follows the channel's cumulative high-water and never reconciles
+  downward), wired into the MPP hook via `spendAccounting`, `spendScope`, `spendLedgerFile` and
+  `onSpendHold`. Its methods return Promises, and `onSpendHold`'s `recordResponse` resolves the
+  outcome.
+- **Outcome ledger**: `complete()` with a passing validation records `completed` with empty
+  reason codes, and a failing validation with no codes records `validation_failed`. The x402
+  binding resolves a v1 payment (`X-PAYMENT`, no `accepted` object) to its signing record
+  through the bound call, set only after the attempt was recorded, so a v1 paid call no longer
+  leaves an unresolved row.
+- **Delivery receipts as an outcome rule**: new `receiptValidationRule()` (and
+  `OUTBID_RECEIPT_RULE_V1`) returns `{ validate, ruleVersion }` for `outcomeLedger`. After a
+  confirmed settlement it verifies a signed Outbid-Receipt v1 (header, or SSE trailer with a
+  splitter) against the request, the paid terms, the settlement transaction, the payer and the
+  exact response bytes: `completed` with `receipt_verified`, otherwise `paid_incomplete` with a
+  `receipt_*` reason. The verifier is injected (no new dependency). The `OutcomeValidator`
+  context gains `settlementTx` and `requestBody` (the bytes the buyer sent, when readable).
+
 ## 0.27.0 (2026-11-18)
 
 Minor release. **BREAKING** for callers that relied on the fallback route: it is now opt-in, and

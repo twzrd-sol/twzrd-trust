@@ -1,0 +1,41 @@
+{
+  "about": "Live Outbid-Receipt v1 (sent in the X-Outbid-Receipt header) from outbid.sh, 2026-11-23T04:40:51Z, for one $0.001 USDC payment on Base. body is base64 and request_body is UTF-8; both must be passed as bytes. Every value is full length; the token is the source of truth.",
+  "token": "v1.eyJpc3MiOiJodHRwczovL291dGJpZC5zaCIsImtpZCI6Im91dGJpZC1yZWNlaXB0LWVkMjU1MTktdjEiLCJpc3N1ZWRfYXQiOjE3OTU0MDg4NTEsInJlcXVlc3QiOnsibWV0aG9kIjoiUE9TVCIsInBhdGgiOiIvdjEvY2hhdC9jb21wbGV0aW9ucyIsInNoYTI1NiI6IjJjZjg0MTljYTFkYWJmY2Q5MjBlMjI1MGNlMDhiYjE3MGE2YjZiYjdjM2I1YjM1MjZmNjIyZjYzYWM0MGQ1YWMifSwibmV0d29yayI6ImVpcDE1NTo4NDUzIiwicGF5ZXIiOiIweGZiOTgxOTQ1NmJkOTI0OGE5ZDNjOWUxMmY0Y2I3YmJkYTVmYzI1NzgiLCJwYXllZSI6IjB4YjM2ZTgzYWI1ZTYxMjhiYzBlMWI3NmIzZjU5ZmUyZmQ0NDNmMDc4OCIsImFzc2V0IjoiMHg4MzM1ODlmY2Q2ZWRiNmUwOGY0YzdjMzJkNGY3MWI1NGJkYTAyOTEzIiwiYW1vdW50X2F0b21pYyI6IjEwMDAiLCJzZXR0bGVtZW50X3JlZiI6IjB4NjczNGVjNmQ2Yzg1MTg1YWVhZTc4YWY2MTEzMjA5OGI4NWM4MDY2ZGM3M2JlMzZlYWVjMDkxMDBmZDdhOTQ1OCIsInJlc29sdmVkX21vZGVsIjoicGFpZC9ncHQtb3NzLTEyMGIiLCJib2R5X3NoYTI1NiI6Ijg5Njk3MTI1MzkyYTUwZDQ2YzRlZmI4ZTE0NTFmNTQ2YzFiYjY2NTBiMTgwNjQ3ZDAwOWM0YjA1ZTEwYzg5ZTYifQ.DOFq8s1sj4uxK5rbp8PeOptLBE0Z3H6WE28DsOp8NpulsEawtOdpeM7oTSNb4VjohisBm2f_fAakSYajbshTAQ",
+  "keys": [
+    {
+      "kid": "outbid-receipt-ed25519-v1",
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "ICBryAsE65fJ8MQ0qD50gLVR16m-IcxexM6_rzCLEu8",
+      "not_before": null,
+      "retired_at": null
+    }
+  ],
+  "iss": "https://outbid.sh",
+  "expect": {
+    "body_base64": "eyJpZCI6Imdlbi0xNzk1NDA4ODUwLVRxa0dxd2tBaFlmeWFmd2M5RFVaIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY3JlYXRlZCI6MTc5NTQwODg1MCwibW9kZWwiOiJvcGVuYWkvZ3B0LW9zcy0xMjBiIiwicHJvdmlkZXIiOiJHb29nbGUiLCJzeXN0ZW1fZmluZ2VycHJpbnQiOm51bGwsInNlcnZpY2VfdGllciI6bnVsbCwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImxvZ3Byb2JzIjpudWxsLCJmaW5pc2hfcmVhc29uIjoic3RvcCIsIm5hdGl2ZV9maW5pc2hfcmVhc29uIjoic3RvcCIsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJvayIsInJlZnVzYWwiOm51bGx9fV0sInVzYWdlIjp7InByb21wdF90b2tlbnMiOjc0LCJjb21wbGV0aW9uX3Rva2VucyI6MjksInRvdGFsX3Rva2VucyI6MTAzLCJjb3N0IjowLjAwMDAxNzEsImlzX2J5b2siOmZhbHNlLCJwcm9tcHRfdG9rZW5zX2RldGFpbHMiOnsiY2FjaGVkX3Rva2VucyI6NjQsImNhY2hlX3dyaXRlX3Rva2VucyI6MCwiYXVkaW9fdG9rZW5zIjowLCJ2aWRlb190b2tlbnMiOjB9LCJjb3N0X2RldGFpbHMiOnsidXBzdHJlYW1faW5mZXJlbmNlX2Nvc3QiOjAuMDAwMDE3MSwidXBzdHJlYW1faW5mZXJlbmNlX3Byb21wdF9jb3N0IjowLjAwMDAwNjY2LCJ1cHN0cmVhbV9pbmZlcmVuY2VfY29tcGxldGlvbnNfY29zdCI6MC4wMDAwMTA0NH0sImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOnsicmVhc29uaW5nX3Rva2VucyI6MTgsImltYWdlX3Rva2VucyI6MCwiYXVkaW9fdG9rZW5zIjowfX19",
+    "request_body_utf8": "{\"model\":\"paid/gpt-oss-120b\",\"max_tokens\":16,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the single word: ok\"}]}",
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "network": "eip155:8453",
+    "payer": "0xfB9819456bd9248A9D3c9E12F4cb7bBda5fc2578",
+    "payee": "0xB36e83aB5E6128bC0E1b76b3F59Fe2fD443F0788",
+    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "amount_atomic": "1000",
+    "settlement_ref": "0x6734ec6d6c85185aeae78af61132098b85c8066dc73be36eaec09100fd7a9458",
+    "model": "paid/gpt-oss-120b"
+  },
+  "max_age_seconds": 900,
+  "now_seconds": 1795408852,
+  "result": {
+    "ok": true,
+    "kid": "outbid-receipt-ed25519-v1"
+  },
+  "onchain": {
+    "network": "eip155:8453",
+    "tx": "0x6734ec6d6c85185aeae78af61132098b85c8066dc73be36eaec09100fd7a9458",
+    "status": "0x1",
+    "block": 61092378,
+    "usdc_transfer_payer_to_payee_atomic": "1000"
+  }
+}

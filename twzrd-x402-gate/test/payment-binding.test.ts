@@ -28,7 +28,7 @@ import { x402Client } from "@x402/fetch";
 import { BuyerFetchBlockedError, createBuyerFetch } from "../src/buyer-fetch.js";
 import { createLocalDecisionSigner } from "../src/decision-token.js";
 import { evaluate_x402_resource } from "../src/evaluate.js";
-import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
+import { createGuardedX402Fetch } from "./guarded-fetch-fixture.js";
 import { x402RequirementsToIntent } from "../src/intent-adapters.js";
 import {
   PAYMENT_DIFFERS_FROM_APPROVAL,

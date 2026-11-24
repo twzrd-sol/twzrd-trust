@@ -14,7 +14,7 @@ import v8 from 'node:v8';
 import vm from 'node:vm';
 import { x402Client } from '@x402/fetch';
 import type { SchemeNetworkClient } from '@x402/core/types';
-import { createGuardedX402Fetch } from '../src/guarded-x402-fetch.js';
+import { createGuardedX402Fetch } from './guarded-fetch-fixture.js';
 
 v8.setFlagsFromString('--expose-gc');
 const collect = vm.runInNewContext('gc') as () => void;

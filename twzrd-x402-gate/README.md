@@ -26,10 +26,13 @@ pipeline in `src/safe-fetch.ts`, not this row.
 is legacy and stays for callers that already use it. They are not the same
 wrapper:
 
-- The hourly ledger in `createBuyerFetch` is a JSONL file (`spendLedgerFile`,
-  default `.twzrd/spend.jsonl`) shared by every fetch that points at that path,
-  including after a restart. `createGuardedX402Fetch` keeps its rolling hour in
-  memory for the life of that returned fetch and drops it when the process ends.
+- Both keep their rolling hour in a durable spend ledger, a JSONL file
+  (`spendLedgerFile`, default `.twzrd/spend-v2.jsonl`) shared by every fetch, in
+  any process, that points at that path, and kept across a restart. Each holds
+  its own budget there: `buyer-fetch:<budgetScope>` and
+  `guarded:<budgetScope>`. Until 0.28.0 `createGuardedX402Fetch` kept its hour in
+  memory, and `createBuyerFetch` defaulted to `.twzrd/spend.jsonl`. See
+  [Spend ledger file](#spend-ledger-file).
 - `createBuyerFetch` requires `maxPricePerCall` and `allowedRecipients`, and it
   sets `unsupportedNetworkMode: "strict"`. A network the scorer marks unscored
   is refused. That includes a name containing `devnet`, `testnet`, or
@@ -45,9 +48,10 @@ proceeding `warn` buys the $0.001 `GET /v1/intel/quick/{payTo}` and re-decides
 on that score: below the floor, the payment is refused. The fetch/payWrap form
 of `installTwzrdAutoGate` uses your payWrap as that fetch. The x402 client,
 `"x402-solana"` and `"pay-kit"` seats, and `withTwzrdGuard`, do it when you
-pass `x402Fetch`. With a paying fetch, the same defaults also buy the $0.05
-`/trust` receipt before an allowed payment above $2.50 (a warn takes `/quick`
-instead). `escalateOnWarn: false` and `requireReceipt: false` turn those off.
+pass `x402Fetch`. `escalateOnWarn: false` turns it off. Since 0.28.0 the
+defaults no longer buy the $0.05 `/trust` receipt before an allowed payment of
+$2.50 or more: pass `requireReceipt: DEFAULT_BUYER_REQUIRE_RECEIPT` (exported)
+to keep that rule, or `autoReceipt: true`.
 `createBuyerFetch` makes no paid call, and the `"mpp"` seat has no paid hop. Details:
 [First paid hop on warn](#first-paid-hop-on-warn-revenue-path).
 
@@ -78,7 +82,7 @@ sentinels: an install with evaluation off still refuses while one is in force.
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.27.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.28.0 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -115,7 +119,8 @@ const guardedFetch = createBuyerFetch({
   allowedRecipients: [sellerPayTo],// explicit payTo allowlist; required
   hourlyBudgetCap: "1.00",         // optional rolling cumulative cap
   decisionFile: ".twzrd/decisions.jsonl",
-  spendLedgerFile: ".twzrd/spend.jsonl",
+  spendLedgerFile: ".twzrd/spend-v2.jsonl",
+  // allowWarn: false,             // refuse an Intel warn too (default: a warn proceeds within Intel's cap)
 });
 
 try {
@@ -129,6 +134,63 @@ Caps and recipients are checked against the selected requirement at
 `onBeforePaymentCreation`. Supported payment assets are USDC on scored Solana
 mainnet and Base mainnet; unscored networks refuse. EVM recipient comparison
 ignores case; Solana comparison preserves case. An empty allowlist refuses all.
+
+### Spend ledger file
+
+`spendLedgerFile` (default `.twzrd/spend-v2.jsonl`) is the append-only JSONL
+file behind the hourly budgets of `createBuyerFetch` and
+`createGuardedX402Fetch` and behind `createMppSpendAccounting`. Each row
+carries the SHA-256 of the row before it. An edited, dropped or reordered row
+makes reads and writes refuse instead of counting less.
+
+- **Holds.** An approved payment's amount is written as a `hold` row before
+  signing, then settled by a `hold_signed`, `commit` or `release` row. Open
+  holds count against the budget. A hold whose process has died is settled by
+  the next writer: committed if it was signed, released if not. A hold from
+  another host is settled the same way after 15 minutes. A settled session
+  voucher counts only what it adds above the channel's committed high-water.
+- **Several processes.** Writes take `<file>.lock`, which is created whole (a
+  temp file, hard-linked into place) and held for one read and one append,
+  never across a network call. A waiter backs off on timers, so the event loop
+  keeps running, and gives up after 3 s with `spend ledger lock timeout`; the
+  payment is then refused. A lock left by a dead process on this host is
+  removed once it is 5 s old, one from another host after 15 minutes. If a
+  crash leaves `<file>.lock.reaper` behind, the timeout error names it: remove
+  it only when no process is using the ledger. A crash in the middle of an
+  append leaves an unterminated last row; reads and writes then refuse until
+  the file is repaired.
+- **Hosts.** A pid is checked only for an owner with the same host identity:
+  the hostname plus, on Linux, the PID namespace and boot id. Containers that
+  share a hostname but not a PID namespace count as separate hosts, as does
+  the same machine before a reboot. Another host's lock and holds are judged on
+  its own clock, so hosts that share one file must keep their clocks in sync,
+  and an owner that stalls for 15 minutes can lose its lock and its unsigned
+  holds.
+- **Older readers.** Hold rows carry their amount in `hold_micro` with
+  `micro: "0"`, so 0.27.0, which sums `micro` over every row, counts committed
+  spend only. 0.28.0 reads 0.27.0 rows as committed spend. The file name
+  changed (0.27.0's `createBuyerFetch` default was `.twzrd/spend.jsonl`), so
+  spend recorded there is not counted unless you point `spendLedgerFile` at it.
+- **Cost.** Every write and every budget read re-reads and re-hashes the whole
+  file. Measured on one machine: about 15 ms per operation at 10,000 rows
+  (2 MB) and 150 ms at 100,000 rows (22 MB), and a payment takes three or four
+  such writes. There is no compaction. Start a new file when it grows: a budget
+  only reads the last hour (a day for MPP holds).
+- **`createFileSpendLedger(path)`** still implements the synchronous
+  `SpendLedger` interface used by Payment Control (`evaluateIntent`, a `ledger`
+  option) and `spendControlSafeFetch`:
+  reads take no lock, and `record` never waits: it tries the lock once, and
+  when another process holds it, writes the row to its own pending journal
+  (`<file>.pending.<host>.<pid>.<thread>`) instead. Every read counts journal
+  rows at once; a background flush on timers (`flushPending()`) or the next
+  locked write folds them into the chain, and a dead writer's journal is folded
+  by the next writer. A writer also folds its journal once, without waiting, as
+  its thread or process exits; a worker thread that exits while the lock is
+  held leaves its journal counted until its process exits. Rows in the chain and
+  in journals are appended without `fsync`: they survive a crash of the writing
+  process, and a power loss can drop the most recent ones. Across processes, a
+  `spentMicro` check followed by `record` is not atomic; only the hold methods
+  (`reserveAsync` and the rest) are.
 
 ### Bind the quote: `expectedAmount` (0.12.4)
 
@@ -176,11 +238,13 @@ not URL paths/queries, credentials, signatures or response bodies. The
 an allow row; it does not claim an allowed call stayed unsigned or settled.
 Free preflight still sends the requested seller, resource URL and price to intel.
 
-The spend ledger counts authorized signing attempts, including signer errors
-and uncertain payment outcomes. It does not claim confirmed settlement or
-refunds. A supplied hourly budget survives process restarts. Pending calls
-share reservations within one process. Use separate files per process or
-serialize externally; these ledgers are not a multi-process budget service.
+The spend ledger holds each approved payment's amount before signing. A
+settlement header with `success: true` and a transaction commits it;
+`success: false`, or a failed response with no settlement header, releases it.
+Anything else, including a signer error or an uncertain outcome, stays held
+and counts against the budget. It does not claim confirmed settlement or
+refunds. A supplied hourly budget survives process restarts and holds across
+processes that share the file ([Spend ledger file](#spend-ledger-file)).
 Local write failures refuse signing. HTTP redirects and pre-signed input
 headers are refused. Configure the client before wrapping it, use the returned
 fetch for payments, and do not add bypass/recovery hooks or mutate its signer
@@ -366,7 +430,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.27.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.28.0 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -405,7 +469,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.27.0
+npm install twzrd-x402-gate@0.28.0
 ```
 
 ```typescript
@@ -450,7 +514,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.27.0
+npm install twzrd-x402-gate@0.28.0
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -472,7 +536,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.27.0 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.28.0 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -1019,10 +1083,15 @@ recipient matching is case-insensitive; Solana base58 matching is
 case-sensitive. Supplying an empty `allowedRecipients` array denies every
 recipient.
 
-The hourly ledger is in memory for the lifetime of this returned fetch and is
-shared by concurrent calls through it. Spend is reserved while TWZRD evaluates
-the challenge and recorded before the pre-sign hook returns, so a later signer
-failure still consumes the budget. It resets when the process restarts. The
+The hourly budget lives in the durable spend ledger (`spendLedgerFile`, default
+`.twzrd/spend-v2.jsonl`, budget `guarded:<budgetScope>`). It is shared by
+concurrent calls, by other processes that use the same file, and across a
+restart. The amount is held before TWZRD evaluates the challenge. A refusal, or
+a failure before the payment is signed, releases it. A signed payment keeps it
+until the response settles it: `PAYMENT-RESPONSE` (or v1 `X-PAYMENT-RESPONSE`)
+with `success: true` and a transaction commits it, and `success: false` or a
+failed response with no settlement header releases it. A signed hold that is
+never settled stays counted, and once its process is gone it is committed. The
 existing `TWZRD_AUTO_GATE=0` / `TWZRD_GATE_ENABLED=false` switches disable the
 remote TWZRD evaluation only; local caps, the recipient allowlist and the
 `.kill` / `.pause` sentinels remain on (a halted payment reserves no budget).
@@ -1088,6 +1157,35 @@ const guardedFetch = createGuardedX402Fetch({ client, outcomeLedger: ledger });
 // Before paying again after a crash or timeout:
 for (const rec of ledger.unresolved()) console.log(rec.state, rec.intentHash);
 ```
+
+**Delivery receipts as the validation rule.** `receiptValidationRule()` returns
+`{ validate, ruleVersion }` for the `outcomeLedger` options. It runs after the
+settlement check confirmed the payment and checks a signed delivery receipt
+(Outbid-Receipt v1) against this request's body, method and path, the paid
+terms, the confirmed settlement transaction, your payer address and the exact
+response bytes. A valid receipt records `completed`; a missing, stale or
+mismatched one records `paid_incomplete` with a `receipt_*` reason. It
+refuses nothing (the payment already happened) and is unrelated to
+`requireReceipt`, which buys TWZRD's V7 trust receipt before paying. The gate
+pins no verifier: pass one, such as `outbid-receipt-verify`.
+
+```typescript
+import { verifyReceipt, splitSseReceipt } from "outbid-receipt-verify";
+import { createGuardedX402Fetch, receiptValidationRule } from "twzrd-x402-gate";
+
+const guardedFetch = createGuardedX402Fetch({
+  client,
+  outcomeLedger: {
+    ledger,
+    settlement: checkSettlementOnChain, // your independent check; without one nothing completes
+    ...receiptValidationRule({ verify: verifyReceipt, splitSse: splitSseReceipt, keys: sellerKeys, iss: "https://seller.example", payer: myAddress }),
+  },
+});
+```
+
+Pin `keys` at setup; never fetch them per call from the seller being checked.
+The request model defaults to the request body's JSON `model` (`model`
+option to override), and receipts older than 900 s fail (`maxAgeSeconds`).
 
 ### Networks (Solana mainnet and Base mainnet scored)
 
@@ -1637,6 +1735,9 @@ reasons also refuse here.
 | `expected_amount_mismatch` | The amount is not exactly `expectedAmount`. |
 | `hourly_budget_exceeded` | The payment would take spend in the last hour above `hourlyBudgetCap`. |
 | `invalid_preflight_decision` | The preflight card's decision is neither `allow` nor `warn`. |
+| `intel_decision_block` | Intel preflight returned `decision: block`. |
+| `intel_warn_not_allowed` | Intel preflight returned `decision: warn` and `allowWarn` is `false`. |
+| `intel_recommended_cap_exceeded` | The amount is above Intel's recommended per-payment cap. |
 | `request_aborted` | The request's signal aborted before signing. |
 | `decision_log_unavailable` | The decision file could not be written and flushed. |
 | `spend_ledger_unavailable` | The spend could not be recorded before signing. |
@@ -1656,6 +1757,7 @@ Abort reason `[twzrd-guarded-fetch] <reason>`; these run before the buyer approv
 | `amount_field_conflict`, `payto_field_conflict`, `svm_splits_refused` | As in the client hook table. |
 | `recipient_missing` | `allowedRecipients` is set and the requirement names no recipient. |
 | `unauthorized_recipient` | `allowedRecipients` is set and `payTo` is not in it. |
+| `intel_recommended_cap_exceeded` | After TWZRD's evaluation: the price is above Intel's recommended per-payment cap. |
 | `amount_missing_or_malformed` | A spend rule is set and the amount is not a base-unit integer. |
 | `unsupported_or_non_usdc_asset` | A spend rule is set and the asset is not USDC on that network. |
 | `unresolved_attempt:<intent hash> (<state> since <time>)` | `outcomeLedger` is set and an earlier attempt on this exact intent (same terms, URL, method and body) is still `approved`, `signing` or `unknown`. Reconcile it first; a fresh call does not bypass it. |

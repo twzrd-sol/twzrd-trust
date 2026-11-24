@@ -6,8 +6,11 @@ import { test } from "node:test";
 import type { SchemeNetworkClient } from "@x402/core/types";
 import { x402Client } from "@x402/fetch";
 import { tempDir } from "./helpers/tmpdir.js";
-import { createGuardedX402Fetch } from "../src/guarded-x402-fetch.js";
+import { createGuardedX402Fetch } from "./guarded-fetch-fixture.js";
 import { createFileOutcomeLedger, createMemoryOutcomeLedger } from "../src/outcome-ledger.js";
+import { generateKeyPairSync } from "node:crypto";
+import { sha256Hex, signReceipt, verifyReceipt } from "outbid-receipt-verify";
+import { OUTBID_RECEIPT_RULE_V1, receiptValidationRule } from "../src/receipt-validator.js";
 import { MAX_APPROVAL_TTL_MS, MERCHANT_REPORTED_SETTLEMENT, MIN_APPROVAL_TTL_MS, UNRESOLVED_OPERATION_REASON, X402_PAID_RESPONSE_RULE_V1, createOutcomeLedgerX402Binding, operationKeyOf, x402AttemptIntentHash } from "../src/outcome-ledger-x402.js";
 
 const BASE = "eip155:8453";
@@ -113,6 +116,23 @@ test("completed: signing row before the signer, complete() after PAYMENT-RESPONS
   assert.deepEqual(done.history.map((x) => x.state), ["approved", "signing", "completed"]);
 });
 
+test("x402 v1 paid response resolves the in-flight signing row without a v2 accepted field", async () => {
+  const ledger = createMemoryOutcomeLedger();
+  const binding = createOutcomeLedgerX402Binding({ ledger, settlement: CONFIRMED });
+  const payment = b64({ x402Version: 1, scheme: "exact", network: BASE, payload: { authorization: { to: SELLER, value: "40000" } } });
+  const responseHeader = b64({ success: true, transaction: TX, network: BASE, payer: "0x00000000000000000000000000000000000000b2" });
+  const response = await binding.bindCall(RESOURCE, undefined, async () => {
+    const opened = binding.open({ selectedRequirements: requirement } as never);
+    assert.ok(opened && "intentHash" in opened);
+    binding.close(opened.intentHash, undefined);
+    const paidTransport = binding.wrapTransport(async () => new Response("ok", { status: 200, headers: { "X-PAYMENT-RESPONSE": responseHeader } }));
+    return paidTransport(new Request(RESOURCE, { headers: { "X-PAYMENT": payment } }));
+  });
+  assert.equal(response.status, 200);
+  const [attempt] = ledger.unresolved();
+  assert.equal(attempt, undefined, "v1's missing `accepted` object must not strand the signing row");
+});
+
 test("unknown: paid leg throws after signing -> record unknown; the next call for the same intent aborts before the signer", async () => {
   const ledger = createMemoryOutcomeLedger();
   let fail = true;
@@ -207,6 +227,53 @@ test("relayed success:false is unknown (not not_settled); paid_incomplete: valid
   assert.deepEqual(p5?.reasonCodes, ["http_500"]);
   assert.equal(h.signs(), 3, "the blocked retry never reached the signer");
   assert.equal(ledger.unresolved().length, 1);
+});
+
+test("receiptValidationRule: a delivery receipt over these exact bytes completes the attempt; a tampered or absent one is paid_incomplete", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const keys = [{ kid: "test-key", kty: "OKP", crv: "Ed25519", x: publicKey.export({ format: "jwk" }).x }];
+  const ISS = "https://data.example";
+  const PAYER = "0x00000000000000000000000000000000000000b2";
+  let mode: "good" | "tampered" | "missing" = "good";
+  const h = harness(async (req) => {
+    const requestBody = new Uint8Array(await req.arrayBuffer());
+    const body = new TextEncoder().encode(JSON.stringify({ rows: [1, 2] }));
+    const signed = signReceipt({
+      iss: ISS, kid: "test-key", issued_at: Math.floor(Date.now() / 1000),
+      request: { method: "POST", path: "/v1/dataset", sha256: sha256Hex(requestBody) },
+      network: BASE, payer: PAYER, payee: SELLER.toLowerCase(), asset: USDC_BASE.toLowerCase(), amount_atomic: "40000",
+      settlement_ref: TX, resolved_model: "paid/rows", body_sha256: sha256Hex(body),
+    }, privateKey);
+    assert.equal(signed.ok, true, signed.reason);
+    const headers: Record<string, string> = { "content-type": "application/json", "PAYMENT-RESPONSE": settledOk };
+    if (mode !== "missing") headers["Outbid-Receipt"] = signed.token;
+    return new Response(mode === "tampered" ? new TextEncoder().encode(JSON.stringify({ rows: [1, 3] })) : body, { status: 200, headers });
+  });
+  const ledger = createMemoryOutcomeLedger();
+  const guarded = createGuardedX402Fetch({
+    client: h.client, fetch: h.transport, twzrd: { disabled: true },
+    outcomeLedger: { ledger, settlement: CONFIRMED, ...receiptValidationRule({ verify: verifyReceipt, keys, iss: ISS, payer: PAYER }) },
+  });
+  const body = (q: string) => JSON.stringify({ q, model: "paid/rows" });
+  const key = (q: string) => x402AttemptIntentHash(TERMS, { url: RESOURCE, method: "POST", bodyHash: sha(body(q)) });
+
+  const r1 = await guarded(RESOURCE, { ...POST, body: body("good") });
+  assert.deepEqual(await r1.json(), { rows: [1, 2] }, "the caller still gets the body");
+  const ok = ledger.get(key("good"));
+  assert.equal(ok?.state, "completed");
+  assert.deepEqual(ok?.reasonCodes, [], "a passing validation's positive code is not a failure reason");
+  assert.equal(ok?.approval.validation.ruleVersion, OUTBID_RECEIPT_RULE_V1);
+
+  mode = "tampered";
+  await guarded(RESOURCE, { ...POST, body: body("tampered") });
+  assert.equal(ledger.get(key("tampered"))?.state, "paid_incomplete");
+  assert.deepEqual(ledger.get(key("tampered"))?.reasonCodes, ["receipt_mismatch:body_sha256"]);
+
+  mode = "missing";
+  await guarded(RESOURCE, { ...POST, body: body("missing") });
+  assert.equal(ledger.get(key("missing"))?.state, "paid_incomplete");
+  assert.deepEqual(ledger.get(key("missing"))?.reasonCodes, ["receipt_missing"]);
+  assert.equal(h.signs(), 3);
 });
 
 test("unknown: a paid 200 without any PAYMENT-RESPONSE header is not a completion", async () => {

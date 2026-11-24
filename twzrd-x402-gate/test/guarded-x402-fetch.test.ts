@@ -11,7 +11,7 @@ import {
   SETTLEMENT_USDC_MINT,
   VAULT_PROGRAM_ID,
   type HeldVaultSpendCopy,
-} from "../src/guarded-x402-fetch.js";
+} from "./guarded-fetch-fixture.js";
 import { PAYMENT_DECISION_SCHEMA } from "../src/payment-decision.js";
 
 const SELLER = "sLJ4uneGcD1mg6hKtkLYsY5HCw1nJ8GpNAmbzBWPBgk";
