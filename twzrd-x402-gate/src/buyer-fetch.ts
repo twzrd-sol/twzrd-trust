@@ -92,6 +92,8 @@ type Attempt = {
   /** decision_id of the durable allow/warn row that permitted signing. */
   decisionId?: string;
   reservationId?: string;
+  /** The reservation was marked signed: from here only a settlement resolves it. */
+  signed?: boolean;
   input: { resource: string; pay_to?: string; network?: string; amount_micro?: string };
 };
 
@@ -318,6 +320,7 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
       if (current.reservationId) {
         try { await ledger.markSignedAsync(current.reservationId); }
         catch (cause) { return refuse(current, "spend_ledger_unavailable", cause); }
+        current.signed = true;
       }
     }
     const response = await raw(request, { redirect: "error" });
@@ -329,13 +332,14 @@ export function createBuyerFetch(options: BuyerFetchOptions): typeof fetch {
         if (settle?.success === true && ref) {
           await ledger.commitAsync(current.reservationId, ref);
           current.reservationId = undefined;
-        } else if (!response.ok && !response.headers.has("PAYMENT-RESPONSE") && !response.headers.has("X-PAYMENT-RESPONSE")) {
-          await ledger.releaseAsync(current.reservationId);
-          current.reservationId = undefined;
-        } else if (settle?.success === false) {
+        } else if (!current.signed && (settle?.success === false ||
+          (!response.ok && !response.headers.has("PAYMENT-RESPONSE") && !response.headers.has("X-PAYMENT-RESPONSE")))) {
           await ledger.releaseAsync(current.reservationId);
           current.reservationId = undefined;
         }
+        // A signed hold stays held and counted on anything but a settlement: `success: false`,
+        // a failure status and a missing header are the seller's word, and the seller can
+        // still settle what was signed.
       } catch { /* preserve the already-paid response; the unresolved hold is conservative */ }
     }
     if (current?.approved && current.decisionId &&

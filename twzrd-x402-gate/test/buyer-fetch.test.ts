@@ -68,7 +68,7 @@ function setup(options: {
     if (request.url !== URL) throw new Error(`Unexpected request: ${request.url}`);
     if (request.headers.has("payment-signature")) {
       state.paid++;
-      if (!options.paymentResponse) return Response.json({ ok: true });
+      if (!options.paymentResponse) return Response.json({ ok: true }, { status: options.paymentStatus ?? 200 });
       return Response.json({ ok: true }, { status: options.paymentStatus ?? 200, headers: {
         "payment-response": Buffer.from(JSON.stringify(options.paymentResponse)).toString("base64"),
       } });
@@ -295,22 +295,66 @@ test("intel maximum_recommended_spend_usdc clamps the per-call cap after seller-
     "a denied preflight releases its persistent hold");
 });
 
-test("PAYMENT-RESPONSE success=false on HTTP 402 releases rather than counting the hold", async () => {
+test("PAYMENT-RESPONSE success=false on HTTP 402 keeps the signed hold counted", async () => {
   const h = setup({ paymentResponse: { success: false, errorReason: "rejected" }, paymentStatus: 402 });
   const response = await h.run()(URL);
   assert.equal(response.status, 402);
   assert.equal(h.state.signs, 1);
-  assert.equal(createFileSpendLedger(h.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 0n);
+  assert.equal(createFileSpendLedger(h.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 1000n,
+    "the seller can still settle what was signed");
 });
 
-test("PAYMENT-RESPONSE success=true commits a non-200 delivery and deduplicates settlement references", async () => {
+for (const [name, options] of [
+  ["another 402 with no settlement header", { paymentStatus: 402 }],
+  ["success=false", { paymentResponse: { success: false, errorReason: "rejected" }, paymentStatus: 402 }],
+  ["200 OK with success=false", { paymentResponse: { success: false, errorReason: "settlement_failed" }, paymentStatus: 200 }],
+  ["one settlement reference reused for every payment", { paymentResponse: { success: true, transaction: "0x" + "cd".repeat(32), network: NETWORK } }],
+] as const) {
+  test(`a seller answering every paid request with ${name} gets cap/price signatures`, async () => {
+    const h = setup({ amount: "1000", hourlyBudgetCap: "0.005", ...options });
+    const pay = h.run();
+    let overBudget = 0;
+    for (let i = 0; i < 100; i++) {
+      try { await (await pay(URL)).arrayBuffer(); }
+      catch (error) { if (error instanceof BuyerFetchBlockedError && error.reason === "hourly_budget_exceeded") overBudget++; else throw error; }
+    }
+    assert.equal(h.state.signs, 5);
+    assert.equal(overBudget, 95);
+    assert.equal(createFileSpendLedger(h.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 5000n);
+  });
+}
+
+test("100 refusals before signing sign nothing and leave the hour intact for a valid call", async () => {
+  const over = setup({ amount: "50001", hourlyBudgetCap: "0.005" });
+  const refuse = over.run();
+  let refused = 0;
+  for (let i = 0; i < 100; i++) {
+    try { await refuse(URL); }
+    catch (error) { if (error instanceof BuyerFetchBlockedError && error.reason === "price_cap_exceeded") refused++; else throw error; }
+  }
+  assert.equal(refused, 100);
+  assert.equal(over.state.signs, 0);
+  assert.equal(createFileSpendLedger(over.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 0n);
+  const valid = setup({ dir: over.dir, amount: "1000", hourlyBudgetCap: "0.005", paymentResponse: { success: true, transaction: "0x" + "ab".repeat(32), network: NETWORK } });
+  const pay = valid.run();
+  const statuses: number[] = [];
+  for (let i = 0; i < 5; i++) statuses.push((await pay(URL)).status);
+  assert.deepEqual(statuses, [200, 200, 200, 200, 200]);
+  assert.equal(valid.state.signs, 5, "the whole hour was still available after 100 refusals");
+});
+
+test("PAYMENT-RESPONSE success=true commits a non-200 delivery; a reused reference still counts the second payment", async () => {
   const paymentResponse = { success: true, transaction: "0x" + "ab".repeat(32), network: NETWORK };
   const first = setup({ paymentResponse, paymentStatus: 503 });
   assert.equal((await first.run()(URL)).status, 503);
   assert.equal(createFileSpendLedger(first.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 1000n);
   const second = setup({ dir: first.dir, paymentResponse, paymentStatus: 503 });
   assert.equal((await second.run()(URL)).status, 503);
-  assert.equal(createFileSpendLedger(second.spendLedgerFile).spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 1000n);
+  // Two signatures cannot share one settlement: the reuse is the seller's word, so the
+  // second signed payment is counted at its own amount and the reference only once.
+  const ledger = createFileSpendLedger(second.spendLedgerFile);
+  assert.equal(ledger.spentMicro("buyer-fetch:default", 3_600_000, Date.now()), 2000n);
+  assert.equal(ledger.settlementReferenceSeen(paymentResponse.transaction), true);
 });
 
 test("shared durable hourly cap reserves across concurrent wrappers and survives ledger replay", async () => {

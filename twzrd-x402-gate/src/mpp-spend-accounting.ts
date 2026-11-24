@@ -4,6 +4,13 @@ import { DEFAULT_SPEND_LEDGER_FILE, sharedFileSpendLedger, tokenAmountToMicroUsd
 
 export type MppSpendKind = "charge" | "session";
 export type MppSpendHold = { holdId: string; scope: string; amountMicro: bigint; decimals: number; kind: MppSpendKind; channelId?: string; voucherTotalMicro?: bigint; previousHighWaterMicro?: bigint };
+/**
+ * `committed`: a receipt settled the hold. `duplicate`: the hold was already resolved, or its
+ * receipt reused a counted reference (the hold is then counted at its own amount).
+ * `released`: a hold never marked signed was freed by a failed response. `pending`: the hold
+ * stays held and counted. A signed hold is never released: whatever the seller answers, it can
+ * still settle a signed credential.
+ */
 export type MppSpendOutcome = "committed" | "released" | "pending" | "duplicate";
 /**
  * Every method writes the shared spend ledger under its cross-process file lock
@@ -74,7 +81,7 @@ export function createMppSpendAccounting(options: { spendLedgerFile?: string; sc
       if (hold.kind === "charge") {
         const ref = receipt && receiptRef(receipt);
         if (receipt && ref) return await ledger.commitAsync(hold.holdId, ref) ? "committed" : "duplicate";
-        if (!response.ok && !receipt) { await ledger.releaseAsync(hold.holdId); return "released"; }
+        if (!response.ok && !receipt) return await ledger.releaseAsync(hold.holdId) ? "released" : "pending";
         return "pending";
       }
       if (receipt) {
@@ -86,15 +93,19 @@ export function createMppSpendAccounting(options: { spendLedgerFile?: string; sc
           if (typeof rawSpent !== "string" || !/^\d+$/.test(rawSpent)) return "pending";
           spentMicro = tokenAmountToMicroUsdCeil(BigInt(rawSpent), hold.decimals);
         } catch { return "pending"; }
-        const prev = hold.previousHighWaterMicro ?? 0n;
-        const delta = spentMicro > prev ? spentMicro - prev : 0n;
         if (hold.voucherTotalMicro !== undefined && spentMicro > hold.voucherTotalMicro) return "pending";
+        // The seller can redeem the whole signed voucher, so the channel high-water is the larger of
+        // the signed total and the receipt's `spent`: a receipt reporting less cannot lower the
+        // spend other channels and charges in the same cap see.
+        const counted = hold.voucherTotalMicro !== undefined && hold.voucherTotalMicro > spentMicro ? hold.voucherTotalMicro : spentMicro;
+        const prev = hold.previousHighWaterMicro ?? 0n;
+        const delta = counted > prev ? counted - prev : 0n;
         // Session receipts are cumulative. Their idempotency key is the hold
         // resolution plus channel high-water, not a potentially channel-wide
         // `reference` reused across vouchers.
-        return await ledger.commitAsync(hold.holdId, undefined, delta, hold.channelId, spentMicro) ? "committed" : "duplicate";
+        return await ledger.commitAsync(hold.holdId, undefined, delta, hold.channelId, counted) ? "committed" : "duplicate";
       }
-      if ([409, 410, 429].includes(response.status)) { await ledger.releaseAsync(hold.holdId); return "released"; }
+      if ([409, 410, 429].includes(response.status)) return await ledger.releaseAsync(hold.holdId) ? "released" : "pending";
       return "pending";
     },
   };

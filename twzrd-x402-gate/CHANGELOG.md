@@ -2,6 +2,46 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
+## 0.28.1 (unreleased)
+
+Security patch on 0.28.0, which is deprecated on npm. 0.27.0 and earlier are not affected.
+Upgrade every process that writes a shared spend ledger file: a 0.28.0 writer still releases
+signed holds in it.
+
+- **A signed payment stays counted until it settles.** 0.28.0 released a buyer spend hold after
+  the payment was signed on four seller-controlled signals:
+  1. `success: false` in the settlement header, at any status, `200 OK` included;
+  2. a failed response with no settlement header;
+  3. `success: true` with a settlement reference the ledger had already counted;
+  4. in `createMppSpendAccounting`, a failed charge with no receipt, or a 409/410/429
+     rejection of a session voucher.
+
+  The seller can still settle a signed payment, so a seller that never delivered could take a
+  fresh signature on every retry, past the hourly budget and every other cumulative cap on the
+  ledger. The per-call price cap still held. Now only a hold that never signed is released. A
+  signed hold is committed by a settlement, or when its process is gone, and otherwise counts
+  for its window. `createBuyerFetch`, `createGuardedX402Fetch` and `createMppSpendAccounting`
+  all follow this. The ledger's `releaseAsync` returns `false` for a signed hold, and the MPP
+  `recordResponse` returns `pending` where it returned `released`. A settlement reference
+  already counted commits the new signed hold at its own amount, without the reference:
+  `commitAsync` resolves `false` and MPP reports `duplicate`.
+- **Recovery signatures are counted.** `createGuardedX402Fetch` keeps its documented
+  `onPaymentResponse` recovery behaviour. Each signature, the first and every recovery retry,
+  reserves and marks its own hold, and none of them is released by the seller's answer, so 100
+  calls against a seller that always asks again sign 5 times under a $0.005 hour at $0.001.
+- **MPP session high-water is the signed voucher total.** A session commit now records
+  `max(signed voucher total, receipt spent)` as the channel high-water. In 0.28.0 a seller
+  reporting `spent` below the voucher it holds lowered the spend that other channels and
+  charges in the same cap window saw. A receipt claiming more than was signed still leaves the
+  hold pending. A committed voucher resolves, at zero, the signed holds on the same channel
+  whose totals its high-water covers, as orphan resolution already did, so a rejected voucher
+  does not stay counted beside the voucher that replaced it.
+- New `test/signed-hold-stays-counted.test.ts` and extended `buyer-fetch` and
+  `mpp-spend-accounting` tests: 100 hostile calls (402, `200` with `success: false`, 403,
+  500, a reused reference, a recovery hook) give 5 signatures; 100 MPP charges answered 402,
+  403 or not at all create 5 credentials under a $0.005 cap; 100 refusals before signing sign
+  nothing and leave the hour for a valid call.
+
 ## 0.28.0 (2026-11-24)
 
 Minor release. Behavior changes for `createBuyerFetch`, `createGuardedX402Fetch` and the

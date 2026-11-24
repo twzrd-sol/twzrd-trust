@@ -378,9 +378,12 @@ export function createGuardedX402Fetch(options: GuardedX402FetchOptions): typeof
           try { receipt = JSON.parse(base64ToUtf8Strict(raw)) as Record<string, unknown>; } catch { /* preserve the response; unresolved signed hold recovers conservatively */ }
           const reference = receipt && (typeof receipt.transaction === "string" ? receipt.transaction : typeof receipt.reference === "string" ? receipt.reference : typeof receipt.settlement_ref === "string" ? receipt.settlement_ref : undefined);
           if (receipt?.success === true && reference) await spendLedger.commitAsync(holdId, reference);
-          else if (receipt?.success === false) await spendLedger.releaseAsync(holdId);
-        } else if (!response.ok) await spendLedger.releaseAsync(holdId);
-      } else if (holdId && !response.ok) await spendLedger.releaseAsync(holdId);
+        }
+        // Nothing else resolves a signed hold. `success: false`, a failure status and a
+        // missing header are the seller's word, and the seller can still settle what was
+        // signed: the hold stays counted, so a seller that never delivers cannot take a
+        // fresh signature on every retry.
+      } else if (holdId && !call?.signed && !response.ok) await spendLedger.releaseAsync(holdId);
     } catch { /* see above */ }
     return response;
   };

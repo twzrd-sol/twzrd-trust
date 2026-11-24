@@ -82,7 +82,7 @@ sentinels: an install with evaluation off still refuses while one is in force.
 `createBuyerFetch` and `twzrd-buyer-demo` ship from 0.12.3, and `expectedAmount` from 0.12.4. In an ESM project:
 
 ```bash
-npm install twzrd-x402-gate@0.28.0 @x402/core @x402/fetch
+npm install twzrd-x402-gate@0.28.1 @x402/core @x402/fetch
 npx twzrd-buyer-demo
 ```
 
@@ -239,10 +239,12 @@ an allow row; it does not claim an allowed call stayed unsigned or settled.
 Free preflight still sends the requested seller, resource URL and price to intel.
 
 The spend ledger holds each approved payment's amount before signing. A
-settlement header with `success: true` and a transaction commits it;
-`success: false`, or a failed response with no settlement header, releases it.
-Anything else, including a signer error or an uncertain outcome, stays held
-and counts against the budget. It does not claim confirmed settlement or
+settlement header with `success: true` and a transaction commits it. A refusal
+before signing releases it. Once the payment is signed, nothing the seller sends
+releases it: `success: false`, a failed response with no settlement header and
+a settlement reference already counted all leave it held and counted against
+the budget, because the seller can still settle a signed payment. A signer
+error or an uncertain outcome stays held too. It does not claim confirmed settlement or
 refunds. A supplied hourly budget survives process restarts and holds across
 processes that share the file ([Spend ledger file](#spend-ledger-file)).
 Local write failures refuse signing. HTTP redirects and pre-signed input
@@ -430,7 +432,7 @@ refuse. Protects the **payer** from a risky **merchant** (`payTo`). Chain-neutra
 ### Default-on AutoGate (5 lines)
 
 ```bash
-npm install twzrd-x402-gate@0.28.0 @x402/core @x402/fetch @x402/svm
+npm install twzrd-x402-gate@0.28.1 @x402/core @x402/fetch @x402/svm
 ```
 
 ```typescript
@@ -469,7 +471,7 @@ transfer on-chain. Wash/sybil edges are primarily discounted in TWZRD scoring, n
 revenue refusal.
 
 ```bash
-npm install twzrd-x402-gate@0.28.0
+npm install twzrd-x402-gate@0.28.1
 ```
 
 ```typescript
@@ -514,7 +516,7 @@ Fixture-backed SVM extract tests live in `test/seller-hook.test.ts` +
 Install the published gate and run against wash fixtures:
 
 ```bash
-npm install twzrd-x402-gate@0.28.0
+npm install twzrd-x402-gate@0.28.1
 # from package root after install, or from a checkout:
 npm run wash-dogfood
 ```
@@ -536,7 +538,7 @@ Gate dogfood: `approved=false` `reason=twzrd_decision_block`, **USDC spent = 0**
 
 **Accurate paste line:**
 
-> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.28.0 && npm run wash-dogfood` or gist above.
+> Preflight returned decision=block on wash seller 7G73PL… / HuSiSpc… (preflight_id 378468 / 378469, wash_flagged=true). Gate approved=false reason=twzrd_decision_block. No USDC spent. No tx broadcast. Repro: `npm i twzrd-x402-gate@0.28.1 && npm run wash-dogfood` or gist above.
 
 This is a **reproducible demonstration** that the free gate blocks known wash sellers with stamped `preflight_id`s and zero spend. It is **not** proof that external agents already default to this path at scale.
 
@@ -1089,9 +1091,11 @@ concurrent calls, by other processes that use the same file, and across a
 restart. The amount is held before TWZRD evaluates the challenge. A refusal, or
 a failure before the payment is signed, releases it. A signed payment keeps it
 until the response settles it: `PAYMENT-RESPONSE` (or v1 `X-PAYMENT-RESPONSE`)
-with `success: true` and a transaction commits it, and `success: false` or a
-failed response with no settlement header releases it. A signed hold that is
-never settled stays counted, and once its process is gone it is committed. The
+with `success: true` and a transaction commits it. `success: false`, a failed
+response with no settlement header and a reused settlement reference do not
+release it: those come from the seller, which can still settle what was signed.
+A signed hold that is never settled stays counted for its hour, and once its
+process is gone it is committed. The
 existing `TWZRD_AUTO_GATE=0` / `TWZRD_GATE_ENABLED=false` switches disable the
 remote TWZRD evaluation only; local caps, the recipient allowlist and the
 `.kill` / `.pause` sentinels remain on (a halted payment reserves no budget).

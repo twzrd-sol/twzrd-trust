@@ -22,9 +22,15 @@ try {
   assert.equal(ledger.spentMicro("buyer", 3_600_000, Date.now()), 75n, "open holds count toward caps");
   assert.equal(await ledger.reserveAsync("buyer", 30n, "hold-over", 100n, 3_600_000, Date.now()), false, "a hold past the cap is refused");
   assert.equal(await ledger.markSignedAsync("hold-live"), true);
-  assert.equal(await ledger.releaseAsync("hold-live"), true);
-  assert.equal(await ledger.commitAsync("hold-live", "tx-late"), false, "first resolution is final");
-  assert.equal(ledger.spentMicro("buyer", 3_600_000, Date.now()), 0n, "released hold never commits late");
+  assert.equal(await ledger.releaseAsync("hold-live"), false, "a signed hold is never released: the payment can still settle");
+  assert.equal(ledger.spentMicro("buyer", 3_600_000, Date.now()), 75n, "the signed hold stays counted");
+  assert.equal(await ledger.commitAsync("hold-live", "tx-late"), true, "a late settlement commits it");
+  assert.equal(await ledger.commitAsync("hold-live", "tx-later"), false, "first resolution is final");
+  assert.equal(ledger.spentMicro("buyer", 3_600_000, Date.now()), 75n);
+  assert.equal(await ledger.reserveAsync("buyer-u", 75n, "hold-unsigned", 100n, 3_600_000, Date.now()), true);
+  assert.equal(await ledger.releaseAsync("hold-unsigned"), true, "an unsigned hold is released");
+  assert.equal(await ledger.commitAsync("hold-unsigned", "tx-late-u"), false, "first resolution is final");
+  assert.equal(ledger.spentMicro("buyer-u", 3_600_000, Date.now()), 0n, "released hold never commits late");
 
   const lockScript = `${load} const id='r'+process.pid; const ok=await l.reserveAsync('race',75n,id,100n,3600000,Date.now()); if(ok) await l.markSignedAsync(id); console.log(ok?'reserved':'refused');`;
   const contenders = await Promise.all([spawnLedger(lockScript), spawnLedger(lockScript)]);

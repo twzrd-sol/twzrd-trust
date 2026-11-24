@@ -518,15 +518,22 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
     const h = s.holds.get(holdId); if (!h || s.resolved.has(holdId) || h.signed) return false;
     h.signed = true; append(s, "hold_signed", h.scope, h.micro, Date.now(), h); return true;
   };
+  // Only a hold that never signed can be released. A signed payment can still be settled by
+  // whoever holds it, and every signal after signing (a failure status, `success: false`, a
+  // missing settlement header, a reused reference) comes from the seller. A signed hold stays
+  // counted until a settlement commits it, its owner dies (committed), or its window passes.
   const release = (s: State, holdId: string): boolean => {
-    const h = s.holds.get(holdId); if (!h || s.resolved.has(holdId)) return false;
+    const h = s.holds.get(holdId); if (!h || s.resolved.has(holdId) || h.signed) return false;
     append(s, "release", h.scope, 0n, Date.now(), h); s.holds.delete(holdId); s.resolved.add(holdId); return true;
   };
   const commit = (s: State, holdId: string, reference?: string, amount?: bigint, channelId?: string, voucherTotal?: bigint): boolean => {
     const h = s.holds.get(holdId); if (!h || s.resolved.has(holdId)) return false;
-    // A settlement reference already counted is not counted twice.
-    if (reference && s.refs.has(reference)) { release(s, holdId); return false; }
-    let value = amount ?? h.micro;
+    // A settlement reference already counted is not counted twice. This hold is another
+    // signature, though, so it is committed at its own amount without the reference
+    // (resolving false): the reuse is the seller's word, and that signature can still settle.
+    const duplicate = reference !== undefined && s.refs.has(reference);
+    if (duplicate && !h.signed) { release(s, holdId); return false; }
+    let value = duplicate ? h.micro : amount ?? h.micro;
     const boundChannel = channelId ?? h.channelId;
     const boundVoucherTotal = voucherTotal ?? h.voucherTotal;
     if (boundChannel && boundVoucherTotal !== undefined) {
@@ -535,10 +542,21 @@ export function createFileSpendLedger(filePath: string): FileSpendLedger {
     }
     if (value < 0n) throw new RangeError("spend amount must not be negative");
     const at = Date.now();
-    append(s, "commit", h.scope, value, at, h, reference, boundChannel, boundVoucherTotal);
-    s.holds.delete(holdId); s.resolved.add(holdId); s.ledger.record(h.scope, value, at); if (reference) s.refs.add(reference);
-    if (boundChannel && boundVoucherTotal !== undefined) raiseChannel(s, boundChannel, boundVoucherTotal);
-    return true;
+    append(s, "commit", h.scope, value, at, h, duplicate ? undefined : reference, boundChannel, boundVoucherTotal);
+    s.holds.delete(holdId); s.resolved.add(holdId); s.ledger.record(h.scope, value, at); if (reference && !duplicate) s.refs.add(reference);
+    if (boundChannel && boundVoucherTotal !== undefined) {
+      raiseChannel(s, boundChannel, boundVoucherTotal);
+      // Session vouchers are cumulative: a signed voucher on this channel whose total the
+      // committed high-water now covers can add nothing more. Commit it at zero, as orphan
+      // resolution would, instead of leaving it counted for the rest of its window.
+      const high = s.channels.get(boundChannel) ?? 0n;
+      for (const other of [...s.holds.values()]) {
+        if (!other.signed || other.channelId !== boundChannel || other.voucherTotal === undefined || other.voucherTotal > high) continue;
+        append(s, "commit", other.scope, 0n, at, other, undefined, boundChannel, other.voucherTotal);
+        s.holds.delete(other.id); s.resolved.add(other.id); s.ledger.record(other.scope, 0n, at);
+      }
+    }
+    return !duplicate;
   };
   const commitSettlement = (s: State, scope: string, amount: bigint, reference: string, at: number, channelId?: string, voucherTotal?: bigint): boolean => {
     if (amount < 0n || (voucherTotal !== undefined && voucherTotal < 0n)) throw new RangeError("spend amount must not be negative");
