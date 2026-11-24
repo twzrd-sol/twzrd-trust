@@ -70,6 +70,8 @@ export type ReceiptValidationOptions = {
 };
 
 const DEFAULT_HEADERS = ["Outbid-Receipt", "X-Outbid-Receipt"] as const;
+/** RFC 8037 Appendix A's Ed25519 public key: its private key is printed in the RFC, so anyone can sign with it. */
+const RFC8037_TEST_KEY_X = "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo";
 
 function requestModel(requestBody: Uint8Array): string | undefined {
   try {
@@ -81,6 +83,9 @@ function requestModel(requestBody: Uint8Array): string | undefined {
 }
 
 export function receiptValidationRule(options: ReceiptValidationOptions): { validate: OutcomeValidator; ruleVersion: string } {
+  if (options.keys.some((k) => (k as { x?: unknown } | null)?.x === RFC8037_TEST_KEY_X)) {
+    throw new TypeError("[twzrd-x402-gate] receiptValidationRule: keys include the RFC 8037 test key, whose private key is public");
+  }
   const ruleVersion = options.ruleVersion ?? OUTBID_RECEIPT_RULE_V1;
   const names = options.headers ?? DEFAULT_HEADERS;
   const fail = (code: string): ValidationFact => ({ ok: false, ruleVersion, reasonCodes: [code] });

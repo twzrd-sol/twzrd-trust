@@ -2,7 +2,7 @@
 
 All notable changes to `twzrd-x402-gate`. Dates are npm publish dates (UTC).
 
-## Unreleased (0.28.0)
+## 0.28.0 (2026-11-24)
 
 Minor release. Behavior changes for `createBuyerFetch`, `createGuardedX402Fetch` and the
 buyer Path A defaults; read the first three items before upgrading.

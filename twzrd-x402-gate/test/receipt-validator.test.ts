@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sha256Hex, signReceipt, splitSseReceipt, sseTrailer, verifyReceipt } from "outbid-receipt-verify";
 import type { ApprovalBinding } from "../src/outcome-ledger.js";
@@ -58,6 +59,30 @@ test("what it cannot check is a failure, never a pass", async () => {
   assert.deepEqual(await codes(rule().validate(ctx(res(), { requestBody: undefined }))), [false, "receipt_unverifiable:no_request_body"]);
   assert.deepEqual(await codes(rule().validate(ctx(res(), { requestBody: enc("not json") }))), [false, "receipt_unverifiable:no_model"]);
   assert.deepEqual(await codes(rule({ verify: () => { throw new Error("boom"); } }).validate(ctx(res()))), [false, "receipt_verifier_threw"]);
+});
+
+test("the live outbid.sh receipt of 2026-11-23 verifies under its published key one second after issue; a changed byte does not", async () => {
+  const fx = JSON.parse(readFileSync(new URL("./fixtures/outbid-receipt-live-20261123.json", import.meta.url), "utf8")) as {
+    token: string; keys: unknown[]; iss: string;
+    expect: { body_base64: string; request_body_utf8: string; method: string; path: string; network: string; payer: string; payee: string; asset: string; amount_atomic: string; settlement_ref: string; model: string };
+  };
+  const payload = JSON.parse(Buffer.from(fx.token.split(".")[1]!, "base64url").toString("utf8")) as { issued_at: number };
+  const e = fx.expect;
+  const live = {
+    payTo: e.payee, network: e.network, asset: e.asset, amountAtomic: e.amount_atomic, maxAllInAtomic: e.amount_atomic,
+    request: { method: e.method, url: `${fx.iss}${e.path}`, bodyHash: sha256Hex(e.request_body_utf8), queryHash: "" },
+    expiresAt: new Date().toISOString(), validation: { ruleVersion: OUTBID_RECEIPT_RULE_V1 },
+  } as unknown as ApprovalBinding;
+  const body = new Uint8Array(Buffer.from(e.body_base64, "base64"));
+  const { validate } = receiptValidationRule({ verify: verifyReceipt, keys: fx.keys, iss: fx.iss, payer: e.payer, now: () => (payload.issued_at + 1) * 1000 });
+  const run = (b: Uint8Array) => validate({ response: new Response(b, { headers: { "Outbid-Receipt": fx.token } }), intentHash: "h", approval: live, settlementTx: e.settlement_ref, requestBody: enc(e.request_body_utf8) });
+  assert.deepEqual(await run(body), { ok: true, ruleVersion: OUTBID_RECEIPT_RULE_V1, reasonCodes: ["receipt_verified"] });
+  const flipped = body.slice(); flipped[flipped.length - 2] ^= 1;
+  assert.deepEqual((await run(flipped)).reasonCodes, ["receipt_mismatch:body_sha256"]);
+});
+
+test("the RFC 8037 test key (private key public) is refused at setup", () => {
+  assert.throws(() => receiptValidationRule({ verify: verifyReceipt, keys: [{ kid: "t", kty: "OKP", crv: "Ed25519", x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo" }], iss: ISS, payer: PAYER }), /RFC 8037 test key/);
 });
 
 test("a stream: the receipt in the SSE trailer covers every byte before it", async () => {
