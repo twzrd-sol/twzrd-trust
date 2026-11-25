@@ -63,17 +63,22 @@ the block path: a recorded example, not a live run. The hosted MCP is also [list
 
 Paid tools are **opt-in on both runtimes**: they sign only when you set
 `TWZRD_MCP_PAYMENTS_ENABLED=1` **and** provide a wallet key. For free tools, omit
-both — the server runs read-only and never signs. Spend is bounded by per-call and
-session caps.
+both — the server runs read-only and never signs. Spend is bounded by a per-call cap
+and a cumulative cap (Node: over any rolling hour, kept on disk; Python: per session).
 
-Before any Solana signature the Node server runs `twzrd-x402-gate@0.27.0` wash
-default (the Python `twzrd-mcp` client does the same `merchant_card` check on the 402
-`payTo`): abort iff `wash_flagged===true`, and fail closed if intel cannot answer
-(timeout, 5xx/429, unreadable body): an outage is never read as clean. That is
-the paying-client brake, not a Path A shop.
+Before any Solana signature the Node server pays through `twzrd-x402-gate@0.28.1`
+`createBuyerFetch`: a recipient allowlist, a USDC-only price cap, a durable hourly
+reservation and the gate's pinned fail-closed preflight. Its own `merchant_card`
+check runs first, on the option the x402 client selected (the Python `twzrd-mcp`
+client does the same check on the 402 `payTo`). It continues only on
+`wash_flagged === false`. `wash_flagged: true` refuses (`twzrd_wash_flagged`). A seller
+intel has not evaluated (`wash_flagged` null or absent, no card) refuses
+(`twzrd_wash_unknown`): "not evaluated" is never read as clean. If intel cannot answer
+(timeout, 5xx/429, unreadable body), the payment fails closed: an outage is never
+read as clean either. That is the paying-client brake, not a Path A shop.
 
-`twzrd-mcp-server@0.6.6` pins gate 0.27.0 exactly (GHSA-6cqg-vwmj-qw2v); 0.6.5 and 0.6.4 pin 0.26.0, and
-0.6.3 and earlier pin older gates. An existing installation keeps its pinned gate until it upgrades.
+`twzrd-mcp-server@0.6.7` pins gate 0.28.1 exactly; 0.6.6 pins 0.27.0 (GHSA-6cqg-vwmj-qw2v), 0.6.5 and 0.6.4 pin 0.26.0, and 0.6.3 and earlier pin older gates.
+An existing installation keeps its pinned gate until it upgrades.
 
 ### Python — `pip install twzrd-mcp`
 
@@ -110,18 +115,24 @@ the paying-client brake, not a Path A shop.
 | `TWZRD_MCP_PAYMENTS_ENABLED` | unset (off) | set `1` to arm paid tools — **required on both runtimes** |
 | `TWZRD_WALLET_SECRET_KEY` (Node) / `TWZRD_WALLET_KEYPAIR` (Python) | — | signer for paid tools |
 | `TWZRD_MAX_USDC_PER_CALL` | `0.05` | per-call spend cap |
-| `TWZRD_MAX_USDC_TOTAL` | `1.00` | cumulative session spend cap |
-| `TWZRD_RPC_URL` | **none — required for paid tools** | Solana RPC. Paid tools refuse to arm without it: the public RPC is rate-limited and loses x402 races (stale blockhash / sponsored feePayer between the 402 challenge and the signed retry), and a rejected settle can still move USDC. Free tools need no RPC. The Solana Foundation public endpoints (`api.mainnet-beta`, `api.devnet` and `api.testnet` `.solana.com`, trailing dots ignored) and any URL with a `/public` path segment are refused, by the Node server and by the Python client; other shared public RPCs are not detected, so choose a dedicated one. `TWZRD_ALLOW_PUBLIC_RPC` no longer enables a refused URL. |
+| `TWZRD_MAX_USDC_TOTAL` | `1.00` | cumulative spend cap. **Node:** over any rolling hour, kept in the gate's crash-safe spend ledger on disk, so a restart does not reset it, and a payment whose outcome is unknown after signing stays counted. **Python:** per process session. |
+| `TWZRD_ALLOWED_RECIPIENTS` (Node) | TWZRD intel's payTo `GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs` | comma-separated Solana payTo allowlist; any other recipient is refused before signing. An entry that is not a Solana address disarms paid tools. |
+| `TWZRD_MCP_SPEND_LEDGER_FILE` (Node) | `~/.twzrd/mcp/spend-v2.jsonl` | spend ledger. Processes that share the file share the hourly cap (holds are written under a cross-process lock). |
+| `TWZRD_MCP_DECISION_FILE` (Node) | `~/.twzrd/mcp/decisions.jsonl` | local allow/block decision log, append-only and never sent anywhere. Every server process appends to this one file (a stdio server is a new process per client session); it rotates at 64 MiB. Set it to give a server its own log. |
+| `TWZRD_INTEL_BASE` (Node) | `https://intel.twzrd.xyz` | intel for the pre-sign preflight and `merchant_card` lookups. |
+| `TWZRD_RPC_URL` | **none — required for paid tools** | Solana RPC. Paid tools refuse to arm without it: the public RPC is rate-limited and loses x402 races (stale blockhash / sponsored feePayer between the 402 challenge and the signed retry), and a rejected settle can still move USDC. Free tools need no RPC. The Solana Foundation public endpoints (`api.mainnet-beta`, `api.devnet` and `api.testnet` `.solana.com`, trailing dots ignored) and any URL with a `/public` path segment are refused, by the Node server and by the Python client; other shared public RPCs are not detected, so choose a dedicated one. `TWZRD_ALLOW_PUBLIC_RPC` no longer enables a refused URL. The Python client also refuses hosts it cannot read exactly as the Node parser does: IDN hosts (Unicode or `xn--`), IPv4 not written as a dotted quad (such as `127.1`), and hosts with unusual characters; give it an ASCII hostname. |
 
 ## Safety
 
 - **Opt-in payments** — paid tools sign only with `TWZRD_MCP_PAYMENTS_ENABLED=1`; a wallet key alone never arms spending.
-- **Spend caps** — per-call and session caps enforced in the payment selector *before* any signature. Caps use the mint's **true** decimals, never merchant-declared `extra.decimals`. A mismatched declaration is refused. A malformed cap env (e.g. `"$0.05"`) falls back to the default; it never becomes NaN and disables the cap.
-- **Known-asset only** — pay only known USD-pegged stables (USDC/USDT); unknown SPL mints are refused.
-- **Identifiable recipient** — a challenge with no `payTo` is refused.
+- **Spend caps** — per-call and cumulative caps enforced *before* any signature. Caps use the mint's **true** decimals, never merchant-declared `extra.decimals`. A mismatched declaration is refused. A malformed cap env (e.g. `"$0.05"`) falls back to the default; it never becomes NaN and disables the cap. On Node the cumulative cap lives in the on-disk spend ledger (see `TWZRD_MAX_USDC_TOTAL`), not in process memory.
+- **Known-asset only** — the Node server pays USDC only. The Python client pays known USD-pegged stablecoins (USDC/USDT). Unknown SPL mints are refused by both.
+- **Identifiable, allowlisted recipient** — a challenge with no `payTo` is refused. On Node a `payTo` outside `TWZRD_ALLOWED_RECIPIENTS` is refused by the selector and again by the gate.
+- **Unevaluated sellers refused** — on both runtimes a seller with no boolean `wash_flagged` answer is refused (`twzrd_wash_unknown`). On Node the gate also refuses a preflight that did not evaluate the seller (`twzrd_unevaluated_subject_*`).
+- **Outbound guard (Node)** — every request is `https` to a host that resolves only to public addresses (private, loopback, link-local, CGNAT and cloud-metadata ranges are refused), with `redirect: "error"`. A seller cannot redirect a paid call or probe to another host. A residual remains: the name is resolved once for the check and again when fetch connects.
 - **Solana-only** — a non-`exact` / non-`solana:` challenge is refused, never mis-signed.
-- **Single-shot retry** — at most one signed retry per tool call; a second 402 is surfaced, not silently re-paid.
-- **One option, checked and signed** — the payment option is chosen once from the 402, wash-checked, and handed to the x402 client alone. The built payment must name that same option (`payTo`, `amount`, `asset`, `network`, `scheme`) or it is not sent. A 402 whose first Solana `exact` option the client cannot pay is refused; it is never paid through a later option that was not checked.
+- **Single-shot retry** — at most one payment per tool call; a second 402 is surfaced, not silently re-paid.
+- **One option, checked and signed** — on Node the wash check and the gate run as before-payment hooks on the option the x402 client actually selected, so the `payTo` that is checked is the `payTo` that is signed. The payment header that leaves must name that approved option (`payTo`, `amount`, `asset`, `network`, `scheme`) or it is refused.
 - **Free tools never enter the payment path.**
 
 ## Verify receipts offline (trust no one)

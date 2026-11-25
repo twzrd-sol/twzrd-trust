@@ -16,6 +16,17 @@ export function parseCap(raw, fallback, name) {
     }
     return n;
 }
+const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+export function parseAllowedRecipients(raw, fallback) {
+    if (raw === undefined || raw.trim() === "")
+        return [...fallback];
+    const entries = raw.split(/[\s,]+/).filter(Boolean);
+    const bad = entries.filter((e) => !SOLANA_ADDRESS.test(e));
+    if (bad.length > 0) {
+        throw new Error(`TWZRD_ALLOWED_RECIPIENTS has entries that are not Solana addresses: ${JSON.stringify(bad.slice(0, 3))}`);
+    }
+    return [...new Set(entries)];
+}
 export function selectSolanaExact(_x402Version, accepts, caps) {
     const req = (accepts || []).find((a) => {
         const row = a;
@@ -52,8 +63,12 @@ export function selectSolanaExact(_x402Version, accepts, caps) {
     if (amountUsdc > caps.maxPerCall) {
         throw new Error(`Refusing: call price $${amountUsdc} exceeds per-call cap $${caps.maxPerCall}`);
     }
-    if (caps.spentUsdc + amountUsdc > caps.maxTotal) {
-        throw new Error(`Refusing: would exceed session cap $${caps.maxTotal} (spent $${caps.spentUsdc})`);
+    const spent = caps.spentUsdc ?? 0;
+    if (caps.maxTotal !== undefined && spent + amountUsdc > caps.maxTotal) {
+        throw new Error(`Refusing: would exceed session cap $${caps.maxTotal} (spent $${spent})`);
+    }
+    if (!Array.isArray(caps.allowedRecipients) || !caps.allowedRecipients.includes(payTo)) {
+        throw new Error(`Refusing to pay: payTo ${payTo} is not on the recipient allowlist (TWZRD_ALLOWED_RECIPIENTS)`);
     }
     return { req, amountUsdc };
 }
