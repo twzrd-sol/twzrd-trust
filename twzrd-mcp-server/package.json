@@ -1,6 +1,6 @@
 {
   "name": "twzrd-mcp-server",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Local, spend-capped Solana x402 client for TWZRD Agent Intelligence; prefer the hosted MCP.",
   "type": "module",
   "bin": {
@@ -11,7 +11,9 @@
     "dist/index.js",
     "dist/rpc-url.js",
     "dist/select-solana-exact.js",
-    "dist/bound-payment.js",
+    "dist/paid-fetch.js",
+    "dist/outbound.js",
+    "dist/ssrf.js",
     "dist/wash-before-pay.js",
     "dist/leftover-wash-oracle.js",
     "examples/agent-drop-in.mjs",
@@ -46,10 +48,11 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@solana/kit": "^8.6.0",
     "@x402/core": "^2.29.0",
+    "@x402/fetch": "^2.31.0",
     "@x402/svm": "^2.29.0",
     "bs58": "^6.0.0",
     "twzrd-receipt-verifier": "^1.4.0",
-    "twzrd-x402-gate": "0.27.0"
+    "twzrd-x402-gate": "0.28.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

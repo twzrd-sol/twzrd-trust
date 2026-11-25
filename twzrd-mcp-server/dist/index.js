@@ -3,15 +3,14 @@ import { privateRpcUrl } from "./rpc-url.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
-import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { ExactSvmScheme, SOLANA_MAINNET_CAIP2 } from "@x402/svm";
 import { createKeyPairSignerFromBytes } from "@solana/kit";
 import { createRequire } from "node:module";
 import bs58 from "bs58";
-import { createCheckedPaymentPayload } from "./bound-payment.js";
 import { leftoverWashOracle } from "./leftover-wash-oracle.js";
-import { parseCap, selectSolanaExact as pickSolanaExact } from "./select-solana-exact.js";
-import { refuseWashBeforePay } from "./wash-before-pay.js";
+import { createGuardedFetch } from "./outbound.js";
+import { TWZRD_INTEL_PAYTO, createPaidFetch, createPaymentClient, defaultLedgerPaths, describePaymentError, } from "./paid-fetch.js";
+import { parseAllowedRecipients, parseCap } from "./select-solana-exact.js";
 const VERSION = createRequire(import.meta.url)("../package.json").version;
 function printHelp() {
     console.log(`twzrd-mcp-server v${VERSION}
@@ -31,7 +30,9 @@ Paid tools require (opt-in):
   TWZRD_WALLET_SECRET_KEY=<base58 Solana secret key>
   TWZRD_RPC_URL=<dedicated mainnet Solana RPC — required for paid tools>
   TWZRD_MAX_USDC_PER_CALL=0.05
-  TWZRD_MAX_USDC_TOTAL=1.00
+  TWZRD_MAX_USDC_TOTAL=1.00      (cap over any rolling hour, kept on disk)
+  TWZRD_ALLOWED_RECIPIENTS=<payTo,...>  (default: TWZRD intel's payTo)
+  TWZRD_MCP_SPEND_LEDGER_FILE=~/.twzrd/mcp/spend-v2.jsonl
 
 MCP config:
   {
@@ -58,6 +59,8 @@ if (process.argv.includes("--version") || process.argv.includes("-v")) {
     process.exit(0);
 }
 const API_BASE = process.env.TWZRD_API_URL || "https://intel.twzrd.xyz";
+const INTEL_BASE = process.env.TWZRD_INTEL_BASE || "https://intel.twzrd.xyz";
+const outbound = createGuardedFetch();
 const MAX_PER_CALL = parseCap(process.env.TWZRD_MAX_USDC_PER_CALL, 0.05, "TWZRD_MAX_USDC_PER_CALL");
 const MAX_TOTAL = parseCap(process.env.TWZRD_MAX_USDC_TOTAL, 1.00, "TWZRD_MAX_USDC_TOTAL");
 const PAYMENTS_ENABLED = process.env.TWZRD_MCP_PAYMENTS_ENABLED === "1";
@@ -65,16 +68,6 @@ const RPC_URL = privateRpcUrl(process.env.TWZRD_RPC_URL);
 const RPC_URL_REJECTED = Boolean(process.env.TWZRD_RPC_URL?.trim()) && !RPC_URL;
 const SECRET = process.env.TWZRD_WALLET_SECRET_KEY || "";
 const RECEIPT_PUBKEY = process.env.TWZRD_RECEIPT_PUBKEY || "Ak5SQwHpuQAqU7ty7ZWX7qgF39A9yi72c22KNn8sHzvS";
-let spentUsdc = 0;
-function selectSolanaExact(_x402Version, accepts) {
-    const { req, amountUsdc } = pickSolanaExact(_x402Version, accepts || [], {
-        maxPerCall: MAX_PER_CALL,
-        maxTotal: MAX_TOTAL,
-        spentUsdc,
-    });
-    spentUsdc += amountUsdc;
-    return req;
-}
 let paidFetch = null;
 let paymentInitError = "";
 if (SECRET && PAYMENTS_ENABLED && !RPC_URL) {
@@ -93,43 +86,30 @@ if (SECRET && PAYMENTS_ENABLED && !RPC_URL) {
 }
 else if (SECRET && PAYMENTS_ENABLED) {
     try {
+        const allowedRecipients = parseAllowedRecipients(process.env.TWZRD_ALLOWED_RECIPIENTS, [TWZRD_INTEL_PAYTO]);
+        const ledgers = defaultLedgerPaths();
         const secretBytes = bs58.decode(SECRET);
         const signer = await createKeyPairSignerFromBytes(secretBytes);
-        const scheme = new ExactSvmScheme(signer, { rpcUrl: RPC_URL });
-        const client = new x402Client(selectSolanaExact);
-        client.register(SOLANA_MAINNET_CAIP2, scheme);
-        const httpClient = new x402HTTPClient(client);
-        paidFetch = (async (input, init) => {
-            const first = await fetch(input, init);
-            if (first.status !== 402)
-                return first;
-            let challengeBody;
-            try {
-                const text = await first.text();
-                if (text)
-                    challengeBody = JSON.parse(text);
-            }
-            catch {
-            }
-            const paymentRequired = httpClient.getPaymentRequiredResponse((name) => first.headers.get(name), challengeBody);
-            const payload = await createCheckedPaymentPayload(paymentRequired, {
-                select: (version, accepts) => pickSolanaExact(version, accepts, {
-                    maxPerCall: MAX_PER_CALL,
-                    maxTotal: MAX_TOTAL,
-                    spentUsdc,
-                }).req,
-                check: refuseWashBeforePay,
-                createPaymentPayload: (required) => client.createPaymentPayload(required),
-            });
-            const headers = httpClient.encodePaymentSignatureHeader(payload);
-            const retry = new Request(input, init);
-            for (const [key, value] of Object.entries(headers)) {
-                retry.headers.set(key, value);
-            }
-            retry.headers.set("Access-Control-Expose-Headers", "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE");
-            return fetch(retry);
+        const client = createPaymentClient({
+            scheme: new ExactSvmScheme(signer, { rpcUrl: RPC_URL }),
+            network: SOLANA_MAINNET_CAIP2,
+            maxPerCallUsdc: MAX_PER_CALL,
+            allowedRecipients,
         });
-        console.error(`TWZRD MCP: auto-pay armed (payer ${signer.address}) caps $${MAX_PER_CALL}/call $${MAX_TOTAL}/session`);
+        paidFetch = createPaidFetch({
+            client,
+            maxPerCallUsdc: MAX_PER_CALL,
+            hourlyCapUsdc: MAX_TOTAL,
+            allowedRecipients,
+            spendLedgerFile: ledgers.spendLedgerFile,
+            decisionFile: ledgers.decisionFile,
+            intelBase: INTEL_BASE,
+            fetch: outbound,
+            buyerWallet: signer.address,
+        });
+        console.error(`TWZRD MCP: auto-pay armed (payer ${signer.address}) caps $${MAX_PER_CALL}/call ` +
+            `$${MAX_TOTAL}/rolling hour, ledger ${ledgers.spendLedgerFile}, ` +
+            `recipients ${allowedRecipients.join(",")}`);
     }
     catch (e) {
         paymentInitError = e instanceof Error ? e.message : String(e);
@@ -154,15 +134,20 @@ async function twzrdFetch(path, opts) {
                     : `auto-pay unavailable: ${paymentInitError}`;
             throw new Error(reason);
         }
-        return paidFetch(url, init);
+        try {
+            return await paidFetch(url, init);
+        }
+        catch (e) {
+            throw new Error(describePaymentError(e));
+        }
     }
-    return fetch(url, init);
+    return outbound(url, init);
 }
 async function verifyReceiptByWallet(wallet) {
     const require = createRequire(import.meta.url);
     const V = require("twzrd-receipt-verifier/verify_twzrd_receipt.js");
     const url = `https://twzrd.xyz/r/${wallet}.json`;
-    const receipt = JSON.parse(await (await fetch(url)).text());
+    const receipt = JSON.parse(await (await outbound(url)).text());
     if (!receipt.cnft_minted) {
         return JSON.stringify({ wallet, valid: false, reason: "no cNFT Receipt minted for this wallet", source: url });
     }
@@ -233,7 +218,7 @@ function attachOfflineVerification(trustText) {
 async function authorizeSpend(wallet, provider, amountMicro) {
     const baseUrl = process.env.TWZRD_API_URL || "https://api.twzrd.xyz";
     try {
-        const resp = await fetch(`${baseUrl}/v1/spend/authorize`, {
+        const resp = await outbound(`${baseUrl}/v1/spend/authorize`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ wallet, provider, amount_micro: amountMicro }),
@@ -318,4 +303,4 @@ function selfTestVerifier() {
 selfTestVerifier();
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`TWZRD MCP (Solana x402) — paid=${paidFetch ? "enabled" : "disabled"} caps: $${MAX_PER_CALL}/call $${MAX_TOTAL}/session`);
+console.error(`TWZRD MCP (Solana x402) — paid=${paidFetch ? "enabled" : "disabled"} caps: $${MAX_PER_CALL}/call $${MAX_TOTAL}/rolling hour`);
