@@ -186,6 +186,7 @@ Registry `latest` as read on 2026-11-18; killswitch container pin last rechecked
 | `twzrd-preflight` | npm 0.5.1 | separate repository | OpenClaw wrapped-fetch adapter |
 | `twzrd-agent-intel` | PyPI 0.5.14 | not in this repository | Server package behind the hosted checks |
 | `twzrd-log-verifier` | npm 0.5.4 | 0.5.4 | Offline transparency-log verifier: `npx -y twzrd-log-verifier selftest`. 0.5.4 refuses a proof path entry that is not a string; 0.5.3 and later refuse a leaf that is not a string; 0.5.2 and later require a receipt checked beside an inclusion proof to name its own leaf; 0.5.1 and later do not follow redirects from the log. Upgrade from 0.4.0 or earlier: 0.5.0 verifies the anchor transaction bytes and the authority's signature locally, where 0.4.0 trusts the RPC's parsed response; 0.3.0 also reports a failing different-size consistency path as proven equivocation |
+| `@twzrd1111/mandate` | npm 0.1.1 | 0.1.1 (source in `twzrd-mandate/`) | Signed spend mandates and the loopback sidecar that enforces them (MCP proxy, paid-HTTP proxy, control API); [SPEC.md](./twzrd-mandate/SPEC.md) |
 | `@twzrd1111/agent-killswitch` | npm **0.5.0**; `ghcr.io/twzrd-sol/agent-killswitch:0.2.1` | 0.5.0 | Local OpenAI-compatible proxy with token and dollar ceilings, a file kill switch and a JSONL spend ledger |
 
 ## Endpoints and prices
@@ -440,12 +441,16 @@ sha256:903d0d041e2d82fc0dd6f5252b4e904121e113e498d00b7385cad6061b4881af
 | `twzrd-receipt-verifier` | **@^1.4.0** | Standalone offline verifier for Ed25519 V7 receipts (V5 and V6 still verify) |
 | `twzrd-mcp-server` | **@0.6.7** | Local spend-capped auto-pay client (6 tools); prefer hosted MCP |
 | `@wzrd_sol/plugin-trustgate` | **@^0.3.12** | Eliza / facilitator adapter |
+| `@twzrd1111/mandate` | **@0.1.1** | Signed spend mandates and the sidecar that enforces them (scoped package; source in [`twzrd-mandate/`](./twzrd-mandate/README.md)) |
+| `outbid-receipt-verify` | **@0.1.0** | Offline Outbid-Receipt v1 verifier (seller-signed delivery receipt); separate repository [outbid-receipt](https://github.com/twzrd-sol/outbid-receipt) |
+| `agentcash-seatbelt` | **@0.3.0** | Zero-dependency fetch preload for AgentCash and other x402/MPP clients: duplicate-payment block, spend caps, Outbid-Receipt v1 verification (unscoped; not in this repository) |
 
 - **Document index (what is current, what is history):** [docs/README.md](./docs/README.md)
 - **Commerce loop (don't sign blind):** [docs/COMMERCE-KIT.md](./docs/COMMERCE-KIT.md)
 - **Step-by-step Guide:** [QUICKSTART.md](./QUICKSTART.md)
 - **Concepts & Architecture:** [docs/taxonomy.md](./docs/taxonomy.md)
 - **Receipt Specification (V7, with the V6 lineage):** [docs/receipt-v6-spec.md](./docs/receipt-v6-spec.md)
+- **Delivery receipts (Outbid-Receipt v1, not the V7 receipt):** [SPEC.md](https://github.com/twzrd-sol/outbid-receipt/blob/main/SPEC.md), keys at [`https://outbid.sh/.well-known/outbid-receipt-keys.json`](https://outbid.sh/.well-known/outbid-receipt-keys.json), checked by `outbid-receipt-verify` and by the gate's `receiptValidationRule()`
 - **Receipt Transparency Log:** [docs/transparency-log.md](./docs/transparency-log.md) (`twzrd-log-verifier` on npm, source in this repository)
 - **Receipt Verification & Ground Truth:** [REVIEW.md](./REVIEW.md)
 - **Supported path and ownership:** [docs/SUPPORT_MATRIX.md](./docs/SUPPORT_MATRIX.md) · [docs/ACCESS_AND_RECOVERY.md](./docs/ACCESS_AND_RECOVERY.md)
