@@ -1,6 +1,6 @@
 {
   "name": "@twzrd1111/mandate",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Signed spend mandates for agent runtimes, and a loopback sidecar that enforces them: MCP proxy, paid-HTTP proxy and control API, built on twzrd-x402-gate and @twzrd1111/agent-killswitch.",
   "license": "MIT",
   "author": "TWZRD",
@@ -61,7 +61,7 @@
   "dependencies": {
     "@twzrd1111/agent-killswitch": "0.5.0",
     "twzrd-log-verifier": "0.5.4",
-    "twzrd-x402-gate": "0.26.0"
+    "twzrd-x402-gate": "0.28.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
