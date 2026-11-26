@@ -1,0 +1,12 @@
+{
+  "name": "r1-x402-fetch",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@x402/core": "2.32.0",
+    "@x402/evm": "2.32.0",
+    "@x402/fetch": "2.32.0",
+    "twzrd-x402-gate": "0.28.1",
+    "viem": "2.58.4"
+  }
+}
