@@ -16,6 +16,6 @@
     "@x402/core": "2.31.0",
     "@x402/fetch": "2.31.0",
     "twzrd-receipt-verifier": "1.4.6",
-    "twzrd-x402-gate": "0.26.0"
+    "twzrd-x402-gate": "0.28.1"
   }
 }

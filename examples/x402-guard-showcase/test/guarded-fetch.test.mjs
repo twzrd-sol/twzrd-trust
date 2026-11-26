@@ -90,6 +90,8 @@ function wire({ seller, client, files = sentinelFiles(), ...options }) {
     maxPricePerCall: "0.10",
     allowedRecipients: [RAILS.base.sellers.good],
     twzrd: { disabled: true, ...files },
+    // twzrd-x402-gate 0.28.0+ keeps the hourly budget in a ledger file; keep it in the scratch dir, not the working directory.
+    spendLedgerFile: join(files.stateDir, "spend-v2.jsonl"),
     onDecision: (record) => events.decisions.push(record),
     onKill: (record) => events.kills.push(record),
     onReceiptVerified: (event) => events.receipts.push(event),

@@ -8,7 +8,7 @@
 // loopback seller and (x402-solana) the loopback RPC stub saw. Every purchase
 // is also one decision record in the trace (TRACE_SCHEMA), handed to onEvent
 // as it happens.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +18,7 @@ import {
   AGENT_ID,
   MAX_SPEND,
   SEATS,
+  SPEND_LEDGER_FILE,
   SEAT_RAILS,
   X402_SOLANA_SETUP,
   createSafeFetchAgent,
@@ -191,6 +192,10 @@ export async function runShowcase({ dataDir, acts = ACTS, beforeAct, afterAct, o
     throw new TypeError(`acts must name one or more of: ${ACTS.join(", ")}`);
   }
   prepareDataDir(dataDir);
+  // Each run starts with an empty spend ledger: the x402-fetch seat's hourly
+  // budget is a file since twzrd-x402-gate 0.28.0, and a previous run's demo
+  // purchases would otherwise count against this one.
+  rmSync(join(dataDir, SPEND_LEDGER_FILE), { force: true });
   const guard = installNetGuard();
   const killSwitch = createKillSwitch(dataDir);
   let seller;
@@ -204,6 +209,8 @@ export async function runShowcase({ dataDir, acts = ACTS, beforeAct, afterAct, o
     return await play({ dataDir, selected, guard, killSwitch, seller, rpc, seats, skippedSeats, x402Solana, beforeAct, afterAct, onEvent });
   } finally {
     killSwitch.disengageIfOurs();
+    // The ledger is scratch for this run only; the run leaves nothing in the data dir but the transcript.
+    rmSync(join(dataDir, SPEND_LEDGER_FILE), { force: true });
     await rpc?.close();
     await seller?.close();
     guard.uninstall();
