@@ -49,6 +49,7 @@
       "items": { "enum": ["solana", "base"] }
     },
     "minTrustScore": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "trustScreen": { "enum": ["required", "off"] },
     "allowedCounterparties": { "$ref": "#/$defs/recipients" },
     "blockedCounterparties": { "$ref": "#/$defs/recipients" },
     "allowedTools": {
@@ -77,6 +78,10 @@
       "if": { "properties": { "issuerMode": { "const": "ephemeral-session" } }, "required": ["issuerMode"] },
       "then": { "required": ["task"] },
       "else": { "not": { "required": ["task"] } }
+    },
+    {
+      "if": { "properties": { "trustScreen": { "const": "off" } }, "required": ["trustScreen"] },
+      "then": { "properties": { "minTrustScore": { "const": 0 } } }
     },
     {
       "if": { "properties": { "requireMerkleInclusion": { "const": true } }, "required": ["requireMerkleInclusion"] },

@@ -15,6 +15,7 @@ import {
   type MandateBody,
   type MandateChain,
   type MandateErrorCode,
+  type TrustScreen,
   MANDATE_SCHEMA,
   formatUtcSecond,
   mandateSigningBytes,
@@ -35,6 +36,8 @@ export interface IssueMandateInput {
   monthlyCeilingUsd?: string;
   allowedChains: MandateChain[];
   minTrustScore: number;
+  /** "off" skips the TWZRD trust lookup (needs minTrustScore 0). Omitted means "required". */
+  trustScreen?: TrustScreen;
   allowedCounterparties?: string[];
   blockedCounterparties?: string[];
   allowedTools: string[];
@@ -81,6 +84,7 @@ export function issueMandate(input: IssueMandateInput): Mandate {
     },
     allowedChains: [...input.allowedChains],
     minTrustScore: input.minTrustScore,
+    ...(input.trustScreen !== undefined ? { trustScreen: input.trustScreen } : {}),
     ...(input.allowedCounterparties?.length ? { allowedCounterparties: [...input.allowedCounterparties] } : {}),
     ...(input.blockedCounterparties?.length ? { blockedCounterparties: [...input.blockedCounterparties] } : {}),
     allowedTools: [...input.allowedTools],
