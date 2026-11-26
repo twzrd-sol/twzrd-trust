@@ -7,6 +7,7 @@ export * from "./keys.js";
 export * from "./mandate.js";
 export * from "./ledger.js";
 export * from "./challenge.js";
+export * from "./delivery.js";
 export * from "./receipts.js";
 export * from "./runtime.js";
 export * from "./heartbeat.js";

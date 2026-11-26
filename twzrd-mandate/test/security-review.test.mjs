@@ -229,9 +229,15 @@ test("7: an old receipt, a repeated receipt and a receipt about a query-string w
   try {
     assert.equal((await replay.buy("ok")).outcome, "settled");
     assert.equal(fs.readFileSync(path.join(replay.stateDir, RECEIPT_LEAVES_FILE), "utf8").trim(), fresh.leaf);
+    // The identical retry never reaches the receipt check: the purchase
+    // dedupe refuses it first, with zero new signatures.
     const again = await replay.buy("ok");
-    assert.deepEqual([again.outcome, again.refusal.code], ["violation", "receipt_invalid"]);
-    assert.match(again.record.detail, /already accepted/);
+    assert.deepEqual([again.outcome, again.refusal.code, again.signatures], ["refused", "duplicate_purchase", 0]);
+    // A different purchase returning the same fixture receipt still hits the
+    // receipt-replay refusal on the runtime path.
+    const sameReceipt = await replay.buy("ok2");
+    assert.deepEqual([sameReceipt.outcome, sameReceipt.refusal.code], ["violation", "receipt_invalid"]);
+    assert.match(sameReceipt.record.detail, /already accepted/);
   } finally {
     Date.now = real;
     await replay.close();

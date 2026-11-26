@@ -169,7 +169,10 @@ test("layer 4: per-call cap, then the daily budget, then the monthly ceiling", a
 test("layer 4: twenty concurrent calls cannot pass the daily ceiling", async () => {
   const rig = await makeRig({ mandate: { maxPerCallUsd: "0.01", dailyCeilingUsd: "0.05" } });
   try {
-    const results = await Promise.all(Array.from({ length: 20 }, () => rig.buy("ok")));
+    // Same-length distinct bodies: twenty different purchases, so the
+    // purchase dedupe stays out of the way and the ceiling is what binds.
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) =>
+      rig.runtime.call({ tool: rig.tool, url: rig.world.url("ok"), method: "POST", body: Buffer.from(`{"n":${String(i).padStart(2, "0")}}`) })));
     const settled = results.filter((r) => r.outcome === "settled");
     const refused = results.filter((r) => r.outcome === "refused");
     assert.equal(settled.length, 5, results.map((r) => `${r.outcome}:${r.record.code}`).join(" "));

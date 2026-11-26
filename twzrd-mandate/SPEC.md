@@ -57,6 +57,7 @@ describes the shape; the cross-field rules below are enforced in code.
 | `limits.monthlyCeilingUsd` | no | decimal string |
 | `allowedChains` | yes | non-empty, no duplicates, each `solana` or `base` (mainnet only) |
 | `minTrustScore` | yes | integer 0 to 100 |
+| `trustScreen` | no | `"on"` (default) or `"off"`; off skips the layer-5 preflight and records a `trust_screen_off` control line — fail-open, operator's explicit choice |
 | `allowedCounterparties` | no | when non-empty, only these recipients may be paid |
 | `blockedCounterparties` | no | recipients that are never paid |
 | `allowedTools` | yes | non-empty list of exact tool names; there is no wildcard |
@@ -173,8 +174,8 @@ verify-breakers` proves each on loopback.
 | 1 Mandate integrity | `mandate_expired`, `mandate_signature_invalid`, `mandate_unsigned`, `mandate_malformed`, `mandate_issuer_untrusted` |
 | 2 Halt switches | `kill_switch`, `payment_gate_halt` |
 | 3 Tool allow-list | `tool_not_allowed` |
-| 4 Spend caps | `per_request_cap`, `budget_exceeded`, `monthly_ceiling_exceeded` |
-| 5 Trust screen | `chain_not_allowed`, `counterparty_blocked`, `counterparty_not_allowed`, `trust_gate_refused` (wash flag, score below `minTrustScore`, intel block or outage) |
+| 4 Spend caps | `per_request_cap`, `budget_exceeded`, `monthly_ceiling_exceeded`, `duplicate_purchase` (same method, url, body, payTo, amount, network inside 60 s) |
+| 5 Trust screen | `chain_not_allowed`, `counterparty_blocked`, `counterparty_not_allowed`, `trust_gate_refused` (wash flag, score below `minTrustScore`, intel block or outage). `trust_screen_off` is a control line, not a refusal: the screen was skipped by operator choice |
 | 6 Challenge integrity | `payment_required_unreadable`, `unpriced_offer`, `offer_changed_after_approval`, `no_payer_configured` |
 
 A refusal is one of these codes at one of these layers, and the ledger line

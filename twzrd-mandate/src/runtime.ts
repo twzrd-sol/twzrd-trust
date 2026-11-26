@@ -45,7 +45,121 @@ export const STATE_FILES = {
   gateLedger: "payment-spend-ledger.jsonl",
   decisionLedger: "mandate-ledger.jsonl",
   heartbeat: "heartbeat.json",
+  purchaseDedupe: "purchase-dedupe.jsonl",
 } as const;
+
+/**
+ * How long a signed purchase suppresses an identical retry. An identical
+ * purchase inside the window is the same purchase, not a new one: a timeout
+ * or a second call site must not sign it twice. Matches the seatbelt's
+ * default intent window; the two layers agree instead of drifting.
+ */
+export const PURCHASE_DEDUPE_WINDOW_MS = 60_000;
+const MAX_DEDUPE_LINES = 10_000;
+
+/** The identity of one purchase: same bytes, same money, same destination. */
+export function purchaseDedupeKey(parts: {
+  method: string;
+  url: string;
+  bodyHash: string;
+  payTo: string;
+  amountMicro: bigint;
+  network: string;
+}): string {
+  return crypto
+    .createHash("sha256")
+    .update(
+      [parts.method, parts.url, parts.bodyHash, parts.payTo.toLowerCase(), String(parts.amountMicro), parts.network].join("\n"),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+interface PurchaseDedupeEntry {
+  key: string;
+  at: number;
+}
+
+/** Read live entries, pruning expired ones (and compacting the file when any expired). */
+function readPurchaseDedupe(dir: string, nowMs: number): Map<string, number> {
+  const file = path.join(dir, STATE_FILES.purchaseDedupe);
+  const live = new Map<string, number>();
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return live;
+    throw err;
+  }
+  let pruned = false;
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let entry: PurchaseDedupeEntry;
+    try {
+      entry = JSON.parse(line) as PurchaseDedupeEntry;
+    } catch {
+      continue;
+    }
+    if (typeof entry.key !== "string" || typeof entry.at !== "number") continue;
+    if (nowMs - entry.at >= PURCHASE_DEDUPE_WINDOW_MS) {
+      pruned = true;
+      continue;
+    }
+    if (!live.has(entry.key)) live.set(entry.key, entry.at);
+  }
+  if (pruned) {
+    const compacted = [...live].map(([key, at]) => JSON.stringify({ key, at })).join("\n") + (live.size ? "\n" : "");
+    fs.writeFileSync(file, compacted, { mode: 0o600 });
+  }
+  if (live.size >= MAX_DEDUPE_LINES) {
+    throw new Error("the purchase dedupe ledger is full; refusing rather than forgetting a purchase");
+  }
+  return live;
+}
+
+/**
+ * Reserve one purchase. Returns false when the same purchase already paid
+ * inside the window: the caller must refuse with `duplicate_purchase` and
+ * sign nothing. Runs under the state directory lock, so two processes
+ * sharing the directory cannot both reserve it.
+ */
+export function reservePurchase(dir: string, key: string, nowMs: number): boolean {
+  const live = readPurchaseDedupe(dir, nowMs);
+  if (live.has(key)) return false;
+  fs.appendFileSync(path.join(dir, STATE_FILES.purchaseDedupe), JSON.stringify({ key, at: nowMs }) + "\n", { mode: 0o600 });
+  live.set(key, nowMs);
+  return true;
+}
+
+/**
+ * Whether the key already paid inside the window, without reserving. Used on
+ * the unpaid 402 so a duplicate quote is refused before the payer ever sees
+ * it: zero signatures, zero settlement. The payment-time `reservePurchase`
+ * stays as the atomic backstop for two quotes that pass at once.
+ */
+export function hasPurchase(dir: string, parts: {
+  method: string;
+  url: string;
+  bodyHash: string;
+  payTo: string;
+  amountMicro: bigint;
+  network: string;
+}, nowMs: number): boolean {
+  return readPurchaseDedupe(dir, nowMs).has(purchaseDedupeKey(parts));
+}
+
+/** The dedupe identity of the call this context was approved for. */
+function approvedPurchaseKey(request: CallRequest, target: URL, offer: PricedOffer): string {
+  const bodyHash = crypto.createHash("sha256").update(request.body ?? new Uint8Array(0)).digest("hex");
+  return purchaseDedupeKey({
+    method: (request.method ?? "GET").toUpperCase(),
+    url: target.href,
+    bodyHash,
+    payTo: offer.payTo,
+    amountMicro: offer.amountMicro,
+    network: offer.caip2,
+  });
+}
 
 /** Largest request or response body the runtime will buffer. */
 export const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -211,6 +325,10 @@ export interface MandateRuntime {
 interface CallContext {
   approved: PricedOffer;
   targetUrl: string;
+  /** Upper-cased request method, for the purchase dedupe key. */
+  method: string;
+  /** SHA-256 hex of the request body (empty string hashed when none), for the purchase dedupe key. */
+  bodyHash: string;
   paymentRequests: number;
   refusal: Refusal | null;
   transport: typeof fetch;
@@ -534,18 +652,23 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
 
   // Every setting that decides whether a seller is paid is stated here, so an
   // environment variable on the host cannot loosen what the mandate says.
+  // Off means the operator accepts unevaluated counterparties: an intel outage
+  // is waved through and unknown wash status does not block. A positive wash
+  // flag still blocks, malformed offers are never signed, and halts still
+  // halt. The control line records that this mode is on.
+  const trustScreenOff = mandate.trustScreen === "off";
   const gateConfig = resolveConfig({
     intelBase,
     stateDir,
     fetch: baseFetch,
     preflightMinScore: mandate.minTrustScore,
     blockDecisions: ["block"],
-    failOpen: false,
+    failOpen: trustScreenOff,
     gateOnCanSpend: false,
-    refuseUnevaluated: true,
+    refuseUnevaluated: !trustScreenOff,
     refuseUncappedWarn: true,
     refuseWashFlagged: true,
-    refuseWashUnknown: true,
+    refuseWashUnknown: !trustScreenOff,
     washMaxUsdc: null,
     unsupportedNetworkMode: "strict",
     tripPauseOnBlockMs: 0,
@@ -596,16 +719,41 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       ctx.refusal = { layer: 6, code: read.code, detail: read.detail };
       throw new TwzrdWashAbortError(PAYMENT_REQUIRED_UNREADABLE);
     }
+    let matched: Record<string, unknown> | null = null;
     for (const raw of read.challenge.accepts) {
       const offer = readOffer(raw);
-      if (offer.ok && sameOffer(ctx.approved, offer.offer)) return narrowChallenge(resp, read.challenge, raw);
+      if (offer.ok && sameOffer(ctx.approved, offer.offer)) {
+        matched = raw;
+        break;
+      }
     }
-    ctx.refusal = {
-      layer: 6,
-      code: "offer_changed_after_approval",
-      detail: "the seller's second 402 no longer carries the offer that was approved",
-    };
-    throw new TwzrdWashAbortError("offer_changed_after_approval");
+    if (matched === null) {
+      ctx.refusal = {
+        layer: 6,
+        code: "offer_changed_after_approval",
+        detail: "the seller's second 402 no longer carries the offer that was approved",
+      };
+      throw new TwzrdWashAbortError("offer_changed_after_approval");
+    }
+    // The quote names an approved, already-paid purchase: refuse it here, on
+    // the unpaid 402, so the payer never sees it and signs nothing. The
+    // payment-time reserve stays as the backstop for two quotes in flight.
+    if (hasPurchase(stateDir, {
+      method: ctx.method,
+      url: ctx.targetUrl,
+      bodyHash: ctx.bodyHash,
+      payTo: ctx.approved.payTo,
+      amountMicro: ctx.approved.amountMicro,
+      network: ctx.approved.caip2,
+    }, clock())) {
+      ctx.refusal = {
+        layer: 4,
+        code: "duplicate_purchase",
+        detail: "the same purchase (method, url, body, payTo, amount, network) already paid inside the 60 s window",
+      };
+      throw new TwzrdWashAbortError("duplicate_purchase");
+    }
+    return narrowChallenge(resp, read.challenge, matched);
   };
 
   const wrapPay = options.wrapPay;
@@ -655,7 +803,10 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         killFilePath: killFile,
         pauseFilePath: pauseFile,
         intelBase,
-        failOpen: false,
+        // Off means the operator accepts unevaluated counterparties: an intel
+        // outage proceeds instead of refusing. Positive wash flags, malformed
+        // offers and halts still refuse.
+        failOpen: trustScreenOff,
         refuseWashFlagged: true,
         washMaxUsdc: null,
         topUrl: "http://mandate.invalid/top",
@@ -927,6 +1078,22 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
     const quotedUsd = microToUsd(offer.amountMicro);
     const beforePayment = (): Refusal | null => {
       try {
+        // The same purchase twice is one purchase: refuse the retry before
+        // anything is booked or signed. The key covers the request bytes, so
+        // a timeout that retries with a fresh call still matches. The quote
+        // path already refused known duplicates; this reserve is the atomic
+        // backstop for two quotes that passed at once.
+        const key = approvedPurchaseKey(request, target, offer);
+        let fresh = false;
+        try {
+          fresh = reservePurchase(stateDir, key, clock());
+        } catch (err) {
+          pause(SPEND_RECORD_PAUSE_REASON);
+          return { layer: null, code: "dedupe_record_failed", detail: `the purchase ledger is unreadable, so nothing was paid: ${(err as Error).message}` };
+        }
+        if (!fresh) {
+          return { layer: 4, code: "duplicate_purchase", detail: "the same purchase (method, url, body, payTo, amount, network) already paid inside the 60 s window" };
+        }
         held = false;
         // The signed amount, booked in the hour and day windows before the payment can leave.
         hold.settle(worstCaseUsd);
@@ -961,9 +1128,23 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       }
       return null;
     };
-    const ctx: CallContext = { approved: offer, targetUrl: target.href, paymentRequests: 0, refusal: null, transport, beforePayment };
+    const ctx: CallContext = {
+      approved: offer,
+      targetUrl: target.href,
+      method: (request.method ?? "GET").toUpperCase(),
+      bodyHash: crypto.createHash("sha256").update(request.body ?? new Uint8Array(0)).digest("hex"),
+      paymentRequests: 0,
+      refusal: null,
+      transport,
+      beforePayment,
+    };
     try {
       // Layer 5: the trust screen. A free preflight; nothing is signed for it.
+      // Off means off by operator choice, recorded on the ledger: the
+      // preflight is skipped and the payment proceeds without it.
+      if (trustScreenOff) {
+        control("trust_screen_off", "the mandate runs with the trust screen off; the preflight was skipped by operator choice");
+      } else {
       let approval;
       try {
         approval = await twzrdApprovePayment(
@@ -990,6 +1171,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         releaseHold();
         return finish({ outcome: "refused", request, status: 403, offer, refusal: { layer: 5, code: "trust_gate_refused", detail: approval.reason } });
       }
+      } // trustScreen === "off" skips the block above; the control line is already on the ledger.
       // Layers 4 and 6 again inside the paying fetch, then the payer.
       try {
         resp = await callStore.run(ctx, () => policyFetch(target.href, init));

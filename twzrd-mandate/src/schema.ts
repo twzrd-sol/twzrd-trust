@@ -47,6 +47,13 @@ export interface MandateBody {
   limits: MandateLimits;
   allowedChains: MandateChain[];
   minTrustScore: number;
+  /**
+   * The trust screen (layer 5 preflight). `"on"` is the default and the only
+   * behavior older mandates know. `"off"` skips the preflight by explicit
+   * operator choice and records a `trust_screen_off` control line per
+   * payment; it is fail-open and must never be the default.
+   */
+  trustScreen?: "on" | "off";
   allowedCounterparties?: string[];
   blockedCounterparties?: string[];
   allowedTools: string[];
@@ -81,6 +88,7 @@ const BODY_KEYS = new Set([
   "limits",
   "allowedChains",
   "minTrustScore",
+  "trustScreen",
   "allowedCounterparties",
   "blockedCounterparties",
   "allowedTools",
@@ -233,6 +241,11 @@ export function parseMandateBody(input: unknown): ParseResult<MandateBody> {
 
   if (typeof input.minTrustScore !== "number" || !Number.isInteger(input.minTrustScore) || input.minTrustScore < 0 || input.minTrustScore > 100) {
     return bad("minTrustScore must be an integer from 0 to 100");
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "trustScreen")) {
+    if (input.trustScreen !== "on" && input.trustScreen !== "off") {
+      return bad('trustScreen must be "on" or "off"');
+    }
   }
 
   for (const name of ["allowedCounterparties", "blockedCounterparties"] as const) {

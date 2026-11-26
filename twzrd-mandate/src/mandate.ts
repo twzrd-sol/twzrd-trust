@@ -35,6 +35,8 @@ export interface IssueMandateInput {
   monthlyCeilingUsd?: string;
   allowedChains: MandateChain[];
   minTrustScore: number;
+  /** Skip the layer-5 trust screen and record it. Default `"on"`. Fail-open: use only with eyes open. */
+  trustScreen?: "on" | "off";
   allowedCounterparties?: string[];
   blockedCounterparties?: string[];
   allowedTools: string[];
@@ -81,6 +83,7 @@ export function issueMandate(input: IssueMandateInput): Mandate {
     },
     allowedChains: [...input.allowedChains],
     minTrustScore: input.minTrustScore,
+    ...(input.trustScreen !== undefined ? { trustScreen: input.trustScreen } : {}),
     ...(input.allowedCounterparties?.length ? { allowedCounterparties: [...input.allowedCounterparties] } : {}),
     ...(input.blockedCounterparties?.length ? { blockedCounterparties: [...input.blockedCounterparties] } : {}),
     allowedTools: [...input.allowedTools],
