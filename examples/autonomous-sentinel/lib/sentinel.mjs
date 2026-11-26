@@ -7,6 +7,7 @@
 //
 // The sentinel decides nothing about money. Every limit lives in the
 // mandate, and every refusal comes from the runtime in @twzrd1111/mandate.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -287,9 +288,12 @@ export async function runCycle(sentinel, opts = {}) {
     if (found.outcome === "free") tasks = tasksFromCatalog(bodyJson(found), sentinel.tasks).slice(0, sentinel.maxTasks);
 
     // 2. Each task: screen, hold, pay once, verify, reconcile. All of it is the runtime's.
+    // Each cycle buys its tasks afresh, so it names itself with one Idempotency-Key:
+    // a retry inside the cycle is the same purchase, the next cycle is a new one.
+    const cycleKey = `sentinel-cycle-${crypto.randomUUID()}`;
     for (const task of tasks) {
       if (runtime.precheck() !== null) break;
-      const result = await runtime.call({ tool: task.tool, url: task.url });
+      const result = await runtime.call({ tool: task.tool, url: task.url, headers: { "idempotency-key": cycleKey } });
       add(task.title, "paid-task", task.tool, result);
     }
   }

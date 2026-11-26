@@ -56,6 +56,8 @@ export const UNRESOLVED_PAUSE_REASON = "mandate_payment_unresolved";
 /** Receipt leaves this state directory has accepted, one per line. */
 export const RECEIPT_LEAVES_FILE = "receipt-leaves.txt";
 export const DEFAULT_RECEIPT_MAX_AGE_SECONDS = 900;
+export const DEFAULT_DEDUPE_WINDOW_SECONDS = 60;
+export const MAX_DEDUPE_WINDOW_SECONDS = 86_400;
 const MIN_TRIP_PAUSE_MS = 60_000;
 const GUARD_MAX_TRIP_PAUSE_MS = 86_400_000;
 const MICRO = 1_000_000;
@@ -132,10 +134,13 @@ export interface RuntimeStatus {
     limits: Mandate["limits"];
     allowedChains: string[];
     minTrustScore: number;
+    trustScreen: "required" | "off";
     allowedTools: string[];
     requireV7Receipt: boolean;
     requireMerkleInclusion: boolean;
   };
+  /** Seconds an identical purchase is refused for after its payment left; 0 when the check is off. */
+  dedupeWindowSeconds: number;
   halt: { active: boolean; mode: string | null; reason: string | null; untilUnixMs: number | null };
   spend: { hourUsd: string; dayUsd: string; remainingHourUsd: string; remainingDayUsd: string };
   counters: { decisions: number; refusals: number; settled: number; free: number; violations: number; errors: number; settledUsd: string; signatures: number };
@@ -178,6 +183,14 @@ export interface MandateRuntimeOptions {
   refuseReceiptReplay?: boolean;
   /** Time allowed for each outbound request. Default two minutes. */
   requestTimeoutMs?: number;
+  /**
+   * Refuse a purchase identical to one whose payment left within this many
+   * seconds (`duplicate_purchase`). Identical means the same method, full
+   * target URL, request body, Idempotency-Key header, recipient, chain, asset
+   * and amount: an agent that means to buy the same thing again sends a new
+   * Idempotency-Key. Default 60; 0 turns the check off; at most 86400.
+   */
+  dedupeWindowSeconds?: number;
   now?: () => number;
 }
 
@@ -444,6 +457,75 @@ function tally(counters: RuntimeCounters, row: DecisionRecord): void {
   if (row.outcome === "settled" || row.outcome === "violation") counters.settledMicro += usdStringToMicro(row.settledUsd);
 }
 
+function sha256Hex(bytes: Uint8Array | string): string {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * The purchase a paid call makes, as one hash: what is asked for (method,
+ * full target URL with its query, request body, the agent's Idempotency-Key)
+ * and what would be paid (recipient, chain, asset, amount). Only the hash goes
+ * on the ledger, so a query string never does.
+ */
+/** JSON with object keys sorted at every depth, so equal values give equal text. */
+function sortedJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(sortedJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    return `{${Object.keys(obj).sort().filter((k) => obj[k] !== undefined).map((k) => `${JSON.stringify(k)}:${sortedJson(obj[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+/** The `_meta` member an MCP client sets to buy the same tool call again on purpose. */
+export const MCP_IDEMPOTENCY_META = "twzrd/idempotency-key";
+
+/**
+ * What a call buys, as the dedupe sees it. Over MCP the body is a JSON-RPC
+ * message whose `id` and `_meta` change on every retry, so a `tools/call`
+ * is reduced to its tool name and arguments; its idempotency key is
+ * `params._meta["twzrd/idempotency-key"]`, since MCP has no request headers.
+ */
+function purchasedBody(request: Pick<CallRequest, "tool" | "headers" | "body">): { digest: string; idempotencyKey: string | null } {
+  let idempotencyKey: string | null = null;
+  for (const [name, value] of Object.entries(request.headers ?? {})) {
+    if (name.toLowerCase() === "idempotency-key") idempotencyKey = value;
+  }
+  const body = request.body && request.body.length > 0 ? request.body : new Uint8Array(0);
+  if (request.tool?.startsWith("mcp:")) {
+    try {
+      const message = JSON.parse(Buffer.from(body).toString("utf8")) as { method?: unknown; params?: { name?: unknown; arguments?: unknown; _meta?: Record<string, unknown> } };
+      if (message && message.method === "tools/call" && message.params && typeof message.params === "object") {
+        const meta = message.params._meta?.[MCP_IDEMPOTENCY_META];
+        return {
+          digest: sha256Hex(sortedJson(["tools/call", message.params.name ?? null, message.params.arguments ?? null])),
+          idempotencyKey: typeof meta === "string" ? meta : null,
+        };
+      }
+    } catch {
+      // Not JSON: hash the bytes as they are.
+    }
+  }
+  return { digest: sha256Hex(body), idempotencyKey };
+}
+
+export function purchaseKey(request: Pick<CallRequest, "tool" | "method" | "headers" | "body">, target: URL, offer: Pick<PricedOffer, "payTo" | "caip2" | "asset" | "amountMicro">): string {
+  const { digest, idempotencyKey } = purchasedBody(request);
+  return sha256Hex(
+    JSON.stringify([
+      "twzrd.mandate.purchase.v1",
+      (request.method ?? "GET").toUpperCase(),
+      target.href,
+      digest,
+      idempotencyKey,
+      offer.payTo,
+      offer.caip2,
+      offer.asset,
+      offer.amountMicro.toString(),
+    ]),
+  );
+}
+
 /** Open the runtime for a verified mandate. Throws when the state directory cannot be used. */
 export function createMandateRuntime(options: MandateRuntimeOptions): MandateRuntime {
   const { mandate } = options;
@@ -463,6 +545,12 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
   const receiptMaxAgeSeconds =
     options.receiptMaxAgeSeconds === undefined ? DEFAULT_RECEIPT_MAX_AGE_SECONDS : options.receiptMaxAgeSeconds;
   const refuseReceiptReplay = options.refuseReceiptReplay ?? true;
+  const dedupeWindowSeconds = options.dedupeWindowSeconds ?? DEFAULT_DEDUPE_WINDOW_SECONDS;
+  if (!Number.isInteger(dedupeWindowSeconds) || dedupeWindowSeconds < 0 || dedupeWindowSeconds > MAX_DEDUPE_WINDOW_SECONDS) {
+    throw new Error(`dedupeWindowSeconds must be a whole number from 0 to ${MAX_DEDUPE_WINDOW_SECONDS}`);
+  }
+  const dedupeWindowMs = dedupeWindowSeconds * 1000;
+  const trustScreenOff = mandate.trustScreen === "off";
   const receiptLeavesPath = path.join(stateDir, RECEIPT_LEAVES_FILE);
   const baseFetch: typeof fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
   const intelBase = (options.intelBase ?? "https://intel.twzrd.xyz").replace(/\/+$/, "");
@@ -491,6 +579,19 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
     throw err;
   }
   const counters = replayCounters(ledger);
+  // When each purchase last had a payment leave, from the pending lines: a
+  // restart does not forget a payment that went out a moment ago.
+  // An entry is in flight from its claim until its call ends; the window
+  // then runs from the end of the call, and only the call that claimed an
+  // entry may change it.
+  type PurchaseClaim = { at: number; inFlight: boolean; owner: symbol | null };
+  const recentPurchases = new Map<string, PurchaseClaim>();
+  for (const row of ledger.tail(Number.MAX_SAFE_INTEGER)) {
+    // pending: a payment left; settled/violation: the call that paid it ended (the window runs from there).
+    if (!(row.outcome === "pending" || row.outcome === "settled" || row.outcome === "violation") || typeof row.dedupeKey !== "string") continue;
+    const at = Date.parse(row.at);
+    if (Number.isFinite(at) && at > (recentPurchases.get(row.dedupeKey)?.at ?? -Infinity)) recentPurchases.set(row.dedupeKey, { at, inFlight: false, owner: null });
+  }
 
   function rememberLeaf(leaf: string): void {
     const fd = fs.openSync(receiptLeavesPath, "a", 0o600);
@@ -613,7 +714,8 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
     ? createTwzrdPolicyFetch({
         signer: createLocalDecisionSigner(),
         policy: {
-          refuseWashFlagged: true,
+          // With the trust screen off the gate asks the trust service nothing either.
+          refuseWashFlagged: !trustScreenOff,
           maxAmountUsd: mandate.limits.maxPerCallUsd,
           dailyCeilingUsd: mandate.limits.dailyCeilingUsd,
           ...(mandate.blockedCounterparties?.length ? { blocklist: mandate.blockedCounterparties } : {}),
@@ -656,7 +758,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         pauseFilePath: pauseFile,
         intelBase,
         failOpen: false,
-        refuseWashFlagged: true,
+        refuseWashFlagged: !trustScreenOff,
         washMaxUsdc: null,
         topUrl: "http://mandate.invalid/top",
         routeUrl: "http://mandate.invalid/route",
@@ -713,6 +815,10 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
     detail?: string | null;
     /** The seq of this call's `pending` line, when a payment left. */
     ref?: number | null;
+    /** The purchase's dedupe key, once an offer was chosen. */
+    dedupeKey?: string;
+    /** The bytes a signed payment bought, hashed onto the outcome line. */
+    responseBody?: Uint8Array;
   }
 
   function finish(f: Finish): CallResult {
@@ -735,6 +841,8 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       // Error text can quote the target with its credentials and query: cut every URL down.
       detail: redactOrNull(refusal?.detail ?? f.detail ?? null),
       ref: f.ref ?? null,
+      ...(f.dedupeKey !== undefined ? { dedupeKey: f.dedupeKey } : {}),
+      ...(signatures > 0 && f.responseBody !== undefined ? { responseSha256: sha256Hex(f.responseBody) } : {}),
     });
     const headers = new Headers();
     f.headers?.forEach((value, key) => {
@@ -904,14 +1012,46 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       });
     }
 
+    // Layer 4: the same purchase, paid a moment ago, is not paid again.
+    // From this check to the claim below nothing awaits, so two identical
+    // calls in flight together cannot both pass it.
+    const dedupeKey = purchaseKey(request, target, offer);
+    if (dedupeWindowMs > 0) {
+      const last = recentPurchases.get(dedupeKey);
+      // |age|: a clock stepped back blocks for at most one window, not the step plus a window.
+      const age = last === undefined ? Infinity : clock() - last.at;
+      if (last !== undefined && (last.inFlight || Math.abs(age) < dedupeWindowMs)) {
+        const ago = Math.max(0, Math.floor(age / 1000));
+        const said = last.inFlight
+          ? "an identical purchase is in flight"
+          : `the same purchase had a payment end ${ago} s ago (window ${dedupeWindowSeconds} s)`;
+        return finish({
+          outcome: "refused",
+          request,
+          status: 403,
+          offer,
+          dedupeKey,
+          refusal: {
+            layer: 4,
+            code: "duplicate_purchase",
+            detail: `${said}; to buy it again send a new Idempotency-Key header (over MCP, params._meta["${MCP_IDEMPOTENCY_META}"])`,
+          },
+        });
+      }
+    }
+
     // Layers 2 to 4, atomically: kill, pause, allow-list, per-call cap, hour and day budget. Holds the worst case.
     const worstCaseUsd = Number(offer.amountMicro) / MICRO;
     const decision = guard.authorize({ tool: request.tool, worstCaseUsd, requestId });
     if (!decision.allowed || decision.hold === null) {
       const code = decision.code ?? "budget_exceeded";
       const layer = code === "kill_switch" || code === "payment_gate_halt" ? 2 : code === "tool_not_allowed" ? 3 : code === "unbounded_cost" ? 6 : 4;
-      return finish({ outcome: "refused", request, status: 403, offer, refusal: { layer, code, detail: decision.message } });
+      return finish({ outcome: "refused", request, status: 403, offer, dedupeKey, refusal: { layer, code, detail: decision.message } });
     }
+    // Claimed now; given back in `finally` if no payment leaves.
+    const priorPurchase = recentPurchases.get(dedupeKey);
+    const claimOwner = Symbol("purchase");
+    if (dedupeWindowMs > 0) recentPurchases.set(dedupeKey, { at: clock(), inFlight: true, owner: claimOwner });
     const hold: ToolHold = decision.hold;
     let resp: Response | undefined;
     let respBody: Uint8Array | undefined;
@@ -954,6 +1094,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
           receipt: null,
           inclusion: null,
           detail: "a payment is leaving; this call's outcome follows on a later line",
+          dedupeKey,
         });
       } catch (err) {
         pause(SPEND_RECORD_PAUSE_REASON);
@@ -964,31 +1105,36 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
     const ctx: CallContext = { approved: offer, targetUrl: target.href, paymentRequests: 0, refusal: null, transport, beforePayment };
     try {
       // Layer 5: the trust screen. A free preflight; nothing is signed for it.
-      let approval;
-      try {
-        approval = await twzrdApprovePayment(
-          { sellerWallet: offer.payTo, priceUsdc: worstCaseUsd, chain: offer.caip2, asset: offer.asset, resourceUrl: publicUrl(target.href) },
-          gateConfig,
-        );
-      } catch (err) {
-        releaseHold();
-        return finish({
-          outcome: "refused",
-          request,
-          status: 403,
-          offer,
-          refusal: stopNow() ?? { layer: 5, code: "trust_gate_refused", detail: `the trust check could not run: ${(err as Error).message}` },
-        });
-      }
-      // The lookup took time: the mandate may have expired or been halted while it ran.
-      const stoppedDuringLookup = stopNow();
-      if (stoppedDuringLookup) {
-        releaseHold();
-        return finish({ outcome: "refused", request, status: 403, offer, refusal: stoppedDuringLookup });
-      }
-      if (!approval.approved) {
-        releaseHold();
-        return finish({ outcome: "refused", request, status: 403, offer, refusal: { layer: 5, code: "trust_gate_refused", detail: approval.reason } });
+      // A mandate signed with trustScreen "off" makes no lookup; the chain and
+      // counterparty lists were already applied when the offer was chosen.
+      if (!trustScreenOff) {
+        let approval;
+        try {
+          approval = await twzrdApprovePayment(
+            { sellerWallet: offer.payTo, priceUsdc: worstCaseUsd, chain: offer.caip2, asset: offer.asset, resourceUrl: publicUrl(target.href) },
+            gateConfig,
+          );
+        } catch (err) {
+          releaseHold();
+          return finish({
+            dedupeKey,
+            outcome: "refused",
+            request,
+            status: 403,
+            offer,
+            refusal: stopNow() ?? { layer: 5, code: "trust_gate_refused", detail: `the trust check could not run: ${(err as Error).message}` },
+          });
+        }
+        // The lookup took time: the mandate may have expired or been halted while it ran.
+        const stoppedDuringLookup = stopNow();
+        if (stoppedDuringLookup) {
+          releaseHold();
+          return finish({ dedupeKey, outcome: "refused", request, status: 403, offer, refusal: stoppedDuringLookup });
+        }
+        if (!approval.approved) {
+          releaseHold();
+          return finish({ dedupeKey, outcome: "refused", request, status: 403, offer, refusal: { layer: 5, code: "trust_gate_refused", detail: approval.reason } });
+        }
       }
       // Layers 4 and 6 again inside the paying fetch, then the payer.
       try {
@@ -1003,8 +1149,9 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         releaseHold();
         if (thrown !== undefined) {
           const refusal = ctx.refusal ?? refusalFromAbort(thrown);
-          if (refusal && refusal.layer !== null) return finish({ outcome: "refused", request, status: 403, offer, refusal });
+          if (refusal && refusal.layer !== null) return finish({ dedupeKey, outcome: "refused", request, status: 403, offer, refusal });
           return finish({
+            dedupeKey,
             outcome: "error",
             request,
             status: 502,
@@ -1013,9 +1160,9 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
           });
         }
         if ((resp as Response).status === 402) {
-          return finish({ outcome: "refused", request, status: 403, offer, refusal: { layer: 6, code: "payment_not_made", detail: "the pay module returned the 402 without paying it" } });
+          return finish({ dedupeKey, outcome: "refused", request, status: 403, offer, refusal: { layer: 6, code: "payment_not_made", detail: "the pay module returned the 402 without paying it" } });
         }
-        return finish({ outcome: "free", request, status: (resp as Response).status, headers: (resp as Response).headers, body: respBody as Uint8Array });
+        return finish({ dedupeKey, outcome: "free", request, status: (resp as Response).status, headers: (resp as Response).headers, body: respBody as Uint8Array });
       }
 
       // A payment left, and its spend was booked before it did (beforePayment). What is
@@ -1027,7 +1174,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
       if (failed) {
         pause(SETTLEMENT_PAUSE_REASON);
         const why = thrown !== undefined ? `the paid request failed: ${(thrown as Error).message}` : `the seller answered ${(resp as Response).status} to a signed payment`;
-        return finish({
+        return finish({ dedupeKey, responseBody: respBody,
           outcome: "violation",
           request,
           status: 502,
@@ -1070,7 +1217,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
           rememberLeaf(receipt.leaf);
         } catch (err) {
           pause(SPEND_RECORD_PAUSE_REASON);
-          return finish({
+          return finish({ dedupeKey, responseBody: respBody,
             outcome: "violation",
             request,
             status: 502,
@@ -1097,7 +1244,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         pause(RECEIPT_PAUSE_REASON);
         const code = receiptFailed ? (receipt.status === "absent" ? "receipt_missing" : "receipt_invalid") : "inclusion_unproven";
         const detail = receiptFailed ? receipt.detail : inclusion.detail;
-        return finish({
+        return finish({ dedupeKey, responseBody: respBody,
           outcome: "violation",
           request,
           status: 502,
@@ -1111,7 +1258,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         });
       }
       if (tripped) {
-        return finish({
+        return finish({ dedupeKey, responseBody: respBody,
           outcome: "violation",
           request,
           status: paid.status,
@@ -1126,7 +1273,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
           refusal: { layer: null, code: "settlement_tripped", detail: `${tripReason ?? bill.detail}; spending is paused` },
         });
       }
-      return finish({
+      return finish({ dedupeKey, responseBody: respBody,
         outcome: "settled",
         request,
         status: paid.status,
@@ -1143,6 +1290,13 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
     } finally {
       // A hold must never outlive its call.
       releaseHold();
+      // No payment left: this call never bought anything, so it blocks nothing.
+      // A payment left: the window runs from now, the end of the call.
+      if (dedupeWindowMs > 0 && recentPurchases.get(dedupeKey)?.owner === claimOwner) {
+        if (ctx.paymentRequests > 0) recentPurchases.set(dedupeKey, { at: clock(), inFlight: false, owner: claimOwner });
+        else if (priorPurchase === undefined) recentPurchases.delete(dedupeKey);
+        else recentPurchases.set(dedupeKey, priorPurchase);
+      }
     }
   }
 
@@ -1205,6 +1359,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         limits: mandate.limits,
         allowedChains: [...mandate.allowedChains],
         minTrustScore: mandate.minTrustScore,
+        trustScreen: trustScreenOff ? "off" : "required",
         allowedTools: [...mandate.allowedTools],
         requireV7Receipt: mandate.requireV7Receipt,
         requireMerkleInclusion: mandate.requireMerkleInclusion,
@@ -1229,6 +1384,7 @@ export function createMandateRuntime(options: MandateRuntimeOptions): MandateRun
         signatures: counters.signatures,
       },
       ledger: { path: ledger.filePath, lines: ledger.count(), head: ledger.head() },
+      dedupeWindowSeconds,
       payer: policyFetch ? "configured" : "none",
       stateDir,
     };

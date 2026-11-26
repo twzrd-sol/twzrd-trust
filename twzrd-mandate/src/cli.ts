@@ -51,6 +51,8 @@ Issue
     --hourly <usd>           hourly ceiling (default: the daily ceiling)
     --monthly <usd>          30-day ceiling (default: none)
     --min-trust <0-100>      lowest TWZRD trust score a seller may have (default 75)
+    --trust-screen off       make no TWZRD trust lookup at all (needs --min-trust 0, which it
+                             then defaults to); caps, chain and counterparty lists still apply
     --chains solana,base     chains a payment may use (default solana)
     --tools a,b              tools the agent may call; no wildcard. Default: http:intel.twzrd.xyz and
                              the TWZRD trust tools over MCP (mcp:evaluate_x402_resource,
@@ -75,6 +77,8 @@ Run
       --allow-self-mandate           accept a self-signed mandate even when issuers are pinned
       --receipt-max-age 900          oldest receipt accepted, in seconds ("off": loopback only)
       --allow-receipt-replay         accept a receipt already seen (loopback only)
+      --dedupe-window 60             refuse an identical purchase for this many seconds after its
+                                     payment left ("off" turns the check off; at most 86400)
       --port 4029                    loopback only
       --pay-module ./pay.mjs         a module exporting wrapPay(guardedFetch): the payer.
                                      Without one, every 402 is refused (no_payer_configured).
@@ -137,6 +141,7 @@ const ISSUE_OPTIONS = {
   hourly: { type: "string" },
   monthly: { type: "string" },
   "min-trust": { type: "string" },
+  "trust-screen": { type: "string" },
   chains: { type: "string" },
   tools: { type: "string" },
   "allow-counterparty": { type: "string", multiple: true },
@@ -158,8 +163,11 @@ function issue(mode: IssuerMode, argv: string[]): number {
   const daily = usd("daily", values.daily) ?? fail("--daily <usd> is required: the most this agent may spend in a day");
   const dailyMicro = usdToMicro(daily) as bigint;
   const perCall = usd("per-call", values["per-call"]) ?? microToUsd(dailyMicro < 100_000n ? dailyMicro : 100_000n);
-  const minTrust = values["min-trust"] === undefined ? 75 : Number(values["min-trust"]);
+  const trustScreen = values["trust-screen"];
+  if (trustScreen !== undefined && trustScreen !== "off" && trustScreen !== "required") fail('--trust-screen takes "off" or "required"');
+  const minTrust = values["min-trust"] === undefined ? (trustScreen === "off" ? 0 : 75) : Number(values["min-trust"]);
   if (!Number.isInteger(minTrust) || minTrust < 0 || minTrust > 100) fail("--min-trust takes a whole number from 0 to 100");
+  if (trustScreen === "off" && minTrust !== 0) fail("--trust-screen off checks no score, so --min-trust must be 0");
   const chains = (list(values.chains) ?? ["solana"]) as MandateChain[];
   for (const chain of chains) if (!MANDATE_CHAINS.includes(chain)) fail(`--chains takes solana and base, not "${chain}"`);
   const created: string[] = [];
@@ -219,6 +227,7 @@ function issue(mode: IssuerMode, argv: string[]): number {
   if (values["allow-counterparty"]?.length) input.allowedCounterparties = values["allow-counterparty"];
   if (values["block-counterparty"]?.length) input.blockedCounterparties = values["block-counterparty"];
   if (values.task !== undefined) input.task = values.task;
+  if (trustScreen === "off") input.trustScreen = "off";
 
   const mandate = issueMandate(input);
   try {
@@ -234,7 +243,9 @@ function issue(mode: IssuerMode, argv: string[]): number {
     `  agent     ${mandate.agent}`,
     `  limits    ${mandate.limits.maxPerCallUsd} USD a call, ${mandate.limits.hourlyCeilingUsd ?? mandate.limits.dailyCeilingUsd} an hour, ${mandate.limits.dailyCeilingUsd} a day` +
       (mandate.limits.monthlyCeilingUsd ? `, ${mandate.limits.monthlyCeilingUsd} in 30 days` : ""),
-    `  trust     sellers scoring ${mandate.minTrustScore} or more, on ${mandate.allowedChains.join(" and ")}`,
+    mandate.trustScreen === "off"
+      ? `  trust     no trust lookup (trustScreen off), on ${mandate.allowedChains.join(" and ")}`
+      : `  trust     sellers scoring ${mandate.minTrustScore} or more, on ${mandate.allowedChains.join(" and ")}`,
     `  tools     ${mandate.allowedTools.join(", ")}`,
     `  expires   ${mandate.expiresAt}`,
     ...created.map((file) => `  new key   ${file} (mode 0600; keep it out of version control)`),
@@ -254,6 +265,7 @@ const RUNTIME_OPTIONS = {
   "allow-self-mandate": { type: "boolean" },
   "receipt-max-age": { type: "string" },
   "allow-receipt-replay": { type: "boolean" },
+  "dedupe-window": { type: "string" },
   "pay-module": { type: "string" },
   "intel-base": { type: "string" },
   "mcp-upstream": { type: "string" },
@@ -268,6 +280,7 @@ interface RuntimeFlags {
   "allow-self-mandate"?: boolean;
   "receipt-max-age"?: string;
   "allow-receipt-replay"?: boolean;
+  "dedupe-window"?: string;
   "pay-module"?: string;
   "intel-base"?: string;
   "mcp-upstream"?: string;
@@ -314,6 +327,14 @@ async function openRuntime(flags: RuntimeFlags): Promise<{ runtime: MandateRunti
     else fail('--receipt-max-age takes a whole number of seconds, or "off"');
   }
   if (receiptMaxAgeSeconds === null) process.stderr.write("warning: receipt age is not checked (--receipt-max-age off); use it only against a loopback seller\n");
+  let dedupeWindowSeconds: number | undefined;
+  const dedupe = flags["dedupe-window"];
+  if (dedupe !== undefined) {
+    if (dedupe === "off") dedupeWindowSeconds = 0;
+    else if (/^[1-9][0-9]{0,4}$/.test(dedupe) && Number(dedupe) <= 86_400) dedupeWindowSeconds = Number(dedupe);
+    else fail('--dedupe-window takes a whole number of seconds up to 86400, or "off"');
+  }
+  if (dedupeWindowSeconds === 0) process.stderr.write("warning: an identical purchase can be paid twice (--dedupe-window off)\n");
   if (flags["allow-receipt-replay"] === true) process.stderr.write("warning: a receipt seen before is accepted again (--allow-receipt-replay); use it only against a loopback seller\n");
   const runtime = createMandateRuntime({
     mandate: loaded.mandate,
@@ -321,6 +342,7 @@ async function openRuntime(flags: RuntimeFlags): Promise<{ runtime: MandateRunti
     stateDir: loaded.stateDir,
     ...(receiptMaxAgeSeconds !== undefined ? { receiptMaxAgeSeconds } : {}),
     ...(flags["allow-receipt-replay"] === true ? { refuseReceiptReplay: false } : {}),
+    ...(dedupeWindowSeconds !== undefined ? { dedupeWindowSeconds } : {}),
     ...(wrapPay ? { wrapPay } : {}),
     ...(agentKey ? { agentKey } : {}),
     ...(flags["intel-base"] !== undefined ? { intelBase: flags["intel-base"] } : {}),

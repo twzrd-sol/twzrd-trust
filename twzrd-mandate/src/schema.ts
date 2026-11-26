@@ -14,6 +14,9 @@ export const ISSUER_MODES = ["human-operator", "self-mandated", "ephemeral-sessi
 export type IssuerMode = (typeof ISSUER_MODES)[number];
 export const MANDATE_CHAINS = ["solana", "base"] as const;
 export type MandateChain = (typeof MANDATE_CHAINS)[number];
+/** Whether layer 5 asks the TWZRD trust service about the seller. Absent means "required". */
+export const TRUST_SCREENS = ["required", "off"] as const;
+export type TrustScreen = (typeof TRUST_SCREENS)[number];
 
 /** Longest lifetime of a standing mandate, and of an ephemeral session. */
 export const MAX_LIFETIME_MS = 366 * 24 * 60 * 60 * 1000;
@@ -47,6 +50,12 @@ export interface MandateBody {
   limits: MandateLimits;
   allowedChains: MandateChain[];
   minTrustScore: number;
+  /**
+   * "off": no trust lookup is made and no seller is scored; the chain and
+   * counterparty lists, the caps and the 402 checks still apply. Needs
+   * `minTrustScore` 0. Absent means "required".
+   */
+  trustScreen?: TrustScreen;
   allowedCounterparties?: string[];
   blockedCounterparties?: string[];
   allowedTools: string[];
@@ -81,6 +90,7 @@ const BODY_KEYS = new Set([
   "limits",
   "allowedChains",
   "minTrustScore",
+  "trustScreen",
   "allowedCounterparties",
   "blockedCounterparties",
   "allowedTools",
@@ -233,6 +243,11 @@ export function parseMandateBody(input: unknown): ParseResult<MandateBody> {
 
   if (typeof input.minTrustScore !== "number" || !Number.isInteger(input.minTrustScore) || input.minTrustScore < 0 || input.minTrustScore > 100) {
     return bad("minTrustScore must be an integer from 0 to 100");
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "trustScreen")) {
+    if (!(TRUST_SCREENS as readonly unknown[]).includes(input.trustScreen)) return bad('trustScreen must be "required" or "off"');
+    // A signed mandate must not name a score that nothing checks.
+    if (input.trustScreen === "off" && input.minTrustScore !== 0) return bad('trustScreen "off" needs minTrustScore 0');
   }
 
   for (const name of ["allowedCounterparties", "blockedCounterparties"] as const) {

@@ -10,6 +10,7 @@
 //   6 receipt         V7 under the pinned key, and inclusion in the receipt log
 //   7 reconciliation  three ledgers verify and agree with what the seller was paid
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -268,7 +269,8 @@ test("vector: twenty calls racing for a budget that holds five", async () => {
   const stack = await startStack({ maxPerCallUsd: "0.05", dailyCeilingUsd: "0.25" });
   try {
     stack.world.product("race").priceMicro = 50_000;
-    const responses = await Promise.all(Array.from({ length: 20 }, () => stack.pay("race")));
+    // Twenty different purchases (one Idempotency-Key each) racing for one budget.
+    const responses = await Promise.all(Array.from({ length: 20 }, (_, i) => stack.pay("race", { headers: { "idempotency-key": `race-${i}` } })));
     const settled = responses.filter((r) => r.status === 200).length;
     const errors = await Promise.all(responses.filter((r) => r.status !== 200).map(refusal));
     assert.equal(settled, 5);
@@ -285,10 +287,36 @@ test("vector: twenty calls racing for a budget that holds five", async () => {
   }
 });
 
+test("vector: twenty identical calls racing (a retry storm) pay once", async () => {
+  const stack = await startStack({ maxPerCallUsd: "0.05", dailyCeilingUsd: "0.25" });
+  try {
+    stack.world.product("storm").priceMicro = 50_000;
+    const responses = await Promise.all(Array.from({ length: 20 }, () => stack.pay("storm", { headers: { "idempotency-key": "one-purchase" } })));
+    const settled = responses.filter((r) => r.status === 200);
+    assert.equal(settled.length, 1);
+    const paid = await settled[0].arrayBuffer();
+    const errors = await Promise.all(responses.filter((r) => r.status !== 200).map(refusal));
+    assert.deepEqual([...new Set(errors.map((e) => `${e.layer}:${e.code}:${e.signatures}`))], ["4:duplicate_purchase:0"]);
+    assert.deepEqual([stack.signatures(), stack.world.paidCount, stack.world.receivedMicro], [1, 1, 50_000]);
+    const books = reconcile(stack.stateDir, stack.world, stack.mandate.mandateId);
+    assert.deepEqual(books.mismatches, []);
+    assert.deepEqual([books.decisionMicro, books.rows.length], [50_000, 21]); // 20 decisions + 1 pending line
+    // The settled line names the bytes the agent was handed.
+    const lines = fs.readFileSync(path.join(stack.stateDir, "mandate-ledger.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const settledLine = lines.find((l) => l.outcome === "settled");
+    assert.equal(settledLine.responseSha256, crypto.createHash("sha256").update(Buffer.from(paid)).digest("hex"));
+    assert.equal(lines.filter((l) => l.code === "duplicate_purchase" && l.dedupeKey === settledLine.dedupeKey).length, 19);
+  } finally {
+    await stack.close();
+  }
+});
+
 test("vector: .kill and .pause stop every route before anything is signed, and only the control token resumes", async () => {
   const stack = await startStack({}, { inference: true });
+  // Each lookup here is a new purchase; dedupe has its own vector below.
+  const lookup = () => stack.pay("lookup", { headers: { "idempotency-key": crypto.randomUUID() } });
   try {
-    assert.equal((await stack.pay("lookup")).status, 200);
+    assert.equal((await lookup()).status, 200);
     assert.equal((await stack.chat()).status, 200);
     const hits = stack.world.hits.length;
     const upstreamRequests = stack.upstream.requests;
@@ -296,7 +324,7 @@ test("vector: .kill and .pause stop every route before anything is signed, and o
 
     // .kill, written the way the documentation says: a file in the state directory.
     fs.writeFileSync(path.join(stack.stateDir, ".kill"), "e2e\n");
-    const killed = await stack.pay("lookup");
+    const killed = await lookup();
     assert.deepEqual([killed.status, await refusal(killed).then((e) => [e.layer, e.code, e.signatures])], [403, [2, "kill_switch", 0]]);
     assert.equal((await stack.mcp("paid_lookup")).result.structuredContent.twzrd_mandate.code, "kill_switch");
     assert.equal((await stack.mcp("echo", 2)).result.structuredContent.twzrd_mandate.code, "kill_switch");
@@ -307,13 +335,13 @@ test("vector: .kill and .pause stop every route before anything is signed, and o
 
     // The agent can reach the port, so the port alone cannot resume.
     assert.equal((await fetch(`${stack.url}/mandate/resume`, { method: "POST", headers: { authorization: "Bearer guess" } })).status, 401);
-    assert.equal((await stack.pay("lookup")).status, 403);
+    assert.equal((await lookup()).status, 403);
     assert.equal((await stack.resume()).status, 200);
-    assert.equal((await stack.pay("lookup")).status, 200);
+    assert.equal((await lookup()).status, 200);
 
     // .pause, as the payment gate writes it when it trips.
     writePauseSentinel(path.join(stack.stateDir, ".pause"), { reason: "e2e pause", ttlMs: 60_000 });
-    const paused = await stack.pay("lookup");
+    const paused = await lookup();
     assert.deepEqual([paused.status, await refusal(paused).then((e) => [e.layer, e.code, e.signatures])], [403, [2, "payment_gate_halt", 0]]);
     const pausedChat = await stack.chat();
     assert.deepEqual([pausedChat.status, (await refusal(pausedChat)).code], [403, "payment_gate_halt"]);
@@ -322,7 +350,7 @@ test("vector: .kill and .pause stop every route before anything is signed, and o
     // Kill over the control API needs no token; it is always allowed to stop.
     assert.equal((await stack.resume()).status, 200);
     assert.equal((await fetch(`${stack.url}/mandate/kill`, { method: "POST" })).status, 200);
-    assert.equal((await stack.pay("lookup")).status, 403);
+    assert.equal((await lookup()).status, 403);
 
     const books = reconcile(stack.stateDir, stack.world, stack.mandate.mandateId);
     assert.deepEqual(books.mismatches, []);

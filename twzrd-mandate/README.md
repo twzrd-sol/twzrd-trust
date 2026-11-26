@@ -69,6 +69,7 @@ npx @twzrd1111/mandate verify-breakers
 | `limits.maxPerCallUsd`, `hourlyCeilingUsd`, `dailyCeilingUsd`, `monthlyCeilingUsd` | spend caps, as decimal strings |
 | `allowedChains` | `solana`, `base` (mainnet USDC only) |
 | `minTrustScore` | lowest TWZRD trust score a seller may have, 0 to 100 |
+| `trustScreen` | `"off"` makes no TWZRD trust lookup (needs `minTrustScore` 0; `init --trust-screen off`); absent means required |
 | `allowedCounterparties`, `blockedCounterparties` | recipients that may, or may never, be paid |
 | `allowedTools` | exact tool names; there is no wildcard |
 | `requireV7Receipt`, `requireMerkleInclusion` | a paid answer must carry a verifying receipt, proven in the log |
@@ -133,14 +134,26 @@ Without `--pay-module`, every 402 is refused with `no_payer_configured`.
 | 1 Mandate integrity | the mandate is expired, edited, unsigned, malformed, or its issuer is not pinned |
 | 2 Halt switches | `.kill` or `.pause` is present |
 | 3 Tool allow-list | the tool is not named in `allowedTools` |
-| 4 Spend caps | the price is over the per-call cap, or would pass the hourly, daily or monthly ceiling |
-| 5 Trust screen | the chain or recipient is not allowed, the seller is wash-flagged or below `minTrustScore`, or the trust service cannot be reached |
+| 4 Spend caps | the price is over the per-call cap, would pass the hourly, daily or monthly ceiling, or the same purchase was paid within the dedupe window (`duplicate_purchase`) |
+| 5 Trust screen | the chain or recipient is not allowed, the seller is wash-flagged or below `minTrustScore`, or the trust service cannot be reached (no lookup at all under `trustScreen: "off"`) |
 | 6 Challenge integrity | the 402 cannot be read strictly, has no USDC price, changed after approval, or there is no payer |
 
 A refusal is HTTP 403 with
 `{ "error": { "type": "twzrd_mandate_refused", "layer", "code", "detail", "signatures": 0, "mandateId", "ledgerSeq" } }`;
 on `/mcp` it is a tool result with `isError: true` and the same fields
 under `structuredContent.twzrd_mandate`.
+
+### Paying twice for one purchase
+
+A retry, a timeout or two copies of an agent asking for the same thing is
+one purchase. The runtime hashes each paid call (method, full URL, request
+body, `Idempotency-Key` header, recipient, chain, asset, amount) and
+refuses an identical one while the first is in flight and for 60 seconds
+after a paid one ends, with `duplicate_purchase` and nothing signed. To buy
+the same thing again on purpose, send a new `Idempotency-Key` (over MCP,
+where a retry has a new JSON-RPC id, the key is the tool name and arguments,
+and `params._meta["twzrd/idempotency-key"]` names a new purchase). `serve --dedupe-window <seconds>`
+changes the window; `--dedupe-window off` turns the check off.
 
 ## After a payment
 

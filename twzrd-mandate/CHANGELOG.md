@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- A purchase is paid at most once inside the dedupe window. Each paid call
+  is hashed (method, full URL, request body, `Idempotency-Key` header,
+  recipient, chain, asset, amount); an identical one whose payment left in
+  the last 60 seconds is refused at layer 4 with `duplicate_purchase` and
+  nothing signed. The window runs from the end of the paid call, and an
+  identical call is refused for as long as one is in flight. Over MCP a
+  `tools/call` is keyed on tool name and arguments, not the JSON-RPC id;
+  `params._meta["twzrd/idempotency-key"]` names a new purchase. Identical calls in flight together pay once, and a restart
+  rebuilds the window from the decision ledger. A call that paid nothing
+  does not count. Behaviour change: an agent that buys the same URL twice a
+  minute on purpose must now send a new `Idempotency-Key`, or the operator
+  sets `serve --dedupe-window off` (`dedupeWindowSeconds: 0`).
+- The outcome line of a call that signed a payment carries `responseSha256`,
+  the SHA-256 of the bytes the payment bought, and the `pending` and
+  outcome lines carry `dedupeKey`. Both are optional members; existing
+  ledgers verify unchanged.
+- `trustScreen: "off"` (optional mandate member; `init --trust-screen off`)
+  makes no trust lookup: the runtime skips the preflight and the gate's
+  wash lookup. (With `requireMerkleInclusion` set, receipt inclusion proofs
+  are still fetched from the receipt log, which defaults to the intel host.) It needs `minTrustScore` 0. The
+  chain and counterparty lists, caps and 402 checks still apply. A mandate
+  without the member is "required", and its signed bytes are unchanged.
+
 ## 0.1.1 (2026-11-18)
 
 Security: depends on `twzrd-x402-gate` 0.26.0. 0.1.0 pinned 0.24.0, which is

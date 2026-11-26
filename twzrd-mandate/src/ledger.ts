@@ -43,6 +43,18 @@ export interface DecisionRecord {
   detail: string | null;
   /** The `seq` of the `pending` line this line answers, or null. */
   ref: number | null;
+  /**
+   * SHA-256 (hex) of the purchase: method, full target URL, request body,
+   * Idempotency-Key, recipient, chain, asset and amount. On the `pending`
+   * line of a paid call, its outcome line, and a `duplicate_purchase`
+   * refusal. Absent on lines that carry no purchase.
+   */
+  dedupeKey?: string;
+  /**
+   * SHA-256 (hex) of the response body a signed payment bought, as the
+   * runtime handed it back. On the outcome line of a call that signed a payment.
+   */
+  responseSha256?: string;
   prev: string;
 }
 

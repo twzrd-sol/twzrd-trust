@@ -87,7 +87,10 @@ export async function makeRig(opts = {}) {
     guard,
     mandate: verified.mandate,
     expiresAtMs: verified.expiresAtMs,
-    buy: (name, extra = {}) => runtime.call({ tool, url: world.url(name), ...extra }),
+    // Each buy is its own purchase (a fresh Idempotency-Key), so tests of other
+    // layers are not refused as duplicates. Pass `headers` to choose the key.
+    buy: (name, extra = {}) =>
+      runtime.call({ tool, url: world.url(name), ...extra, headers: extra.headers ?? { "idempotency-key": crypto.randomUUID() } }),
     async close() {
       runtime.close();
       await world.close();

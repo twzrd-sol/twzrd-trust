@@ -57,6 +57,7 @@ describes the shape; the cross-field rules below are enforced in code.
 | `limits.monthlyCeilingUsd` | no | decimal string |
 | `allowedChains` | yes | non-empty, no duplicates, each `solana` or `base` (mainnet only) |
 | `minTrustScore` | yes | integer 0 to 100 |
+| `trustScreen` | no | `"required"` (the default when absent) or `"off"`; `"off"` needs `minTrustScore` 0 |
 | `allowedCounterparties` | no | when non-empty, only these recipients may be paid |
 | `blockedCounterparties` | no | recipients that are never paid |
 | `allowedTools` | yes | non-empty list of exact tool names; there is no wildcard |
@@ -133,6 +134,7 @@ is sent. A mandate that expires while a call is in flight stops that call.
 | `maxPerCallUsd`, daily and monthly ceilings | `createTwzrdPolicyFetch` (`twzrd-x402-gate`) on its own file ledger | before the 402 reaches the signer |
 | `allowedChains`, counterparties | the mandate runtime, on the quoted offer and again on the 402 handed to the signer | before the signer |
 | `minTrustScore`, wash screen | `twzrdApprovePayment` (`twzrd-x402-gate`), free preflight | before the signer |
+| `trustScreen: "off"` | the runtime skips the preflight, and the gate's wash lookup is turned off: no trust lookup is made. A mandate that also sets `requireMerkleInclusion` still fetches each receipt's inclusion proof from the receipt log (`logBaseUrl`, which defaults to the TWZRD intel host) | — |
 | `killswitchDir` | `.kill` and `.pause` are read by the guard, the gate and the runtime | every step |
 | `requireV7Receipt` | `verifyReceiptBinding` under the pinned issuer key, no key fetch | after the paid response, before it is handed to the agent |
 | `requireMerkleInclusion` | `twzrd-log-verifier` under the pinned log key | after the receipt check |
@@ -173,14 +175,16 @@ verify-breakers` proves each on loopback.
 | 1 Mandate integrity | `mandate_expired`, `mandate_signature_invalid`, `mandate_unsigned`, `mandate_malformed`, `mandate_issuer_untrusted` |
 | 2 Halt switches | `kill_switch`, `payment_gate_halt` |
 | 3 Tool allow-list | `tool_not_allowed` |
-| 4 Spend caps | `per_request_cap`, `budget_exceeded`, `monthly_ceiling_exceeded` |
-| 5 Trust screen | `chain_not_allowed`, `counterparty_blocked`, `counterparty_not_allowed`, `trust_gate_refused` (wash flag, score below `minTrustScore`, intel block or outage) |
+| 4 Spend caps | `per_request_cap`, `budget_exceeded`, `monthly_ceiling_exceeded`, `duplicate_purchase` |
+| 5 Trust screen | `chain_not_allowed`, `counterparty_blocked`, `counterparty_not_allowed`, `trust_gate_refused` (wash flag, score below `minTrustScore`, intel block or outage; never under `trustScreen: "off"`) |
 | 6 Challenge integrity | `payment_required_unreadable`, `unpriced_offer`, `offer_changed_after_approval`, `no_payer_configured` |
 
 A refusal is one of these codes at one of these layers, and the ledger line
 for it carries `signatures: 0`. Two layer-4 codes are reached only after
 earlier spend: `budget_exceeded` and `monthly_ceiling_exceeded` are refused
-with no signature for the refused call.
+with no signature for the refused call. `duplicate_purchase` likewise needs
+an earlier payment for the same purchase, so `verify-breakers`, which
+signs nothing, does not exercise it; the package tests do.
 
 ## Tool names
 
@@ -204,8 +208,28 @@ from how it arrives; an agent does not choose it.
 3. Each offer is priced. Only an exact-amount USDC offer on Solana mainnet
    or Base mainnet has a price. The cheapest offer that passes the chain and
    counterparty lists and the per-call cap is the approved offer.
-4. A hold for the approved amount is taken (layer 4).
-5. The trust lookup runs (layer 5).
+4. The purchase is hashed (`dedupeKey`: method, full target URL with its
+   query, SHA-256 of the request body, the agent's `Idempotency-Key`
+   header, recipient, CAIP-2 chain, asset and amount). The call is refused
+   (`duplicate_purchase`, layer 4) while an identical call is in flight,
+   and for the dedupe window (default 60 seconds, `dedupeWindowSeconds`,
+   `serve --dedupe-window`; 0 or `off` turns it off) after an identical
+   call that had a payment leave has ended. The window runs from the end of
+   that call, so a seller slower than the window does not reopen it, and a
+   clock stepped back holds it for at most one window. It is rebuilt from
+   the decision ledger's `pending`, `settled` and `violation` lines when
+   a runtime opens the state directory. A call that ends with no payment
+   leaving does not count. An agent that means to buy the same thing again
+   sends a new `Idempotency-Key`. Over `/mcp` there are no request
+   headers and the JSON-RPC `id` and `_meta` change on every retry, so a
+   `tools/call` is keyed on its tool name and its arguments (key order
+   does not matter), and its idempotency key is
+   `params._meta["twzrd/idempotency-key"]`. Then a hold for the approved amount is taken
+   (layer 4); the dedupe check and the hold are taken with nothing awaited
+   between them, so identical calls in flight together pay at most once.
+5. The trust lookup runs (layer 5), unless the mandate says
+   `trustScreen: "off"`. The chain and counterparty lists were applied in
+   step 3 either way.
 6. The payer is handed a 402 that carries the approved offer and no other.
    If the seller's next 402 no longer carries that offer at that price or
    less, the call is refused (`offer_changed_after_approval`).
@@ -297,7 +321,17 @@ regard to case, and would read a different method or tool from it.
 and target (query string and credentials removed), `outcome`, `layer`,
 `code`, `detail` (every URL in it cut to scheme, host and path), `quotedUsd`,
 `settledUsd`, `signatures`, `payTo`, `receipt`, `inclusion` and `ref` (the
-`seq` of the `pending` line this line answers, or null).
+`seq` of the `pending` line this line answers, or null). Two members are
+present only when they apply: `dedupeKey` (step 4 above) on a `pending`
+line, on the outcome line of a call that chose an offer, and on a
+`duplicate_purchase` refusal; and `responseSha256`, the SHA-256 (hex) of
+the response body as the runtime handed it back (after transfer decoding;
+over `/mcp`, the result message before the gateway puts the client's
+JSON-RPC `id` back on it, so a stdio client receives different bytes), on the outcome line of a
+call that signed a payment (`settled` or `violation`). With `ref` it ties
+what was received to the payment that bought it, under the same chain and
+heartbeat as every other member. It is not proof the content is correct:
+only a signature from the seller could say that.
 
 | Outcome | Meaning |
 | --- | --- |
