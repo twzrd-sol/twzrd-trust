@@ -87,6 +87,9 @@ export async function loadX402Solana() {
   return { available: true, createX402Client };
 }
 
+/** The x402-fetch seat's spend ledger, in the data dir (twzrd-x402-gate 0.28.0+ keeps the hourly budget on disk). */
+export const SPEND_LEDGER_FILE = "spend-v2.jsonl";
+
 const sentinelFiles = (dataDir) => ({
   // Sentinel files live in this example's data dir only. Explicit paths win
   // over TWZRD_STATE_DIR, KILLSWITCH_KILL_FILE and KILLSWITCH_PAUSE_FILE, so a
@@ -222,6 +225,12 @@ export function createX402Agent({ rail, dataDir, sellerOrigin }) {
     fetch: sellerTransport(sellerOrigin, tag),
     maxPricePerCall: MAX_SPEND,
     hourlyBudgetCap: MAX_SPEND,
+    // Since twzrd-x402-gate 0.28.0 this hourly budget is a durable ledger file
+    // (default .twzrd/spend-v2.jsonl in the working directory). Keep it in this
+    // run's data dir, one budget per seat and rail; runShowcase starts each run
+    // with a fresh file.
+    spendLedgerFile: join(dataDir, SPEND_LEDGER_FILE),
+    budgetScope: tag,
     allowedRecipients: [rail.sellers.good],
     // The TWZRD evaluator calls TWZRD's live preflight, so this offline run
     // switches it off. .kill and .pause stay on: the gate reads them with the

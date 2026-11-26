@@ -8,7 +8,7 @@
     "test": "node --test \"test/*.test.mjs\""
   },
   "dependencies": {
-    "twzrd-x402-gate": "0.26.0"
+    "twzrd-x402-gate": "0.28.1"
   },
   "engines": {
     "node": ">=20"
