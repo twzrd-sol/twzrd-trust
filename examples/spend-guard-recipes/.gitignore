@@ -1,0 +1,3 @@
+node_modules/
+verify/*/run-*/
+verify/*/verify-output*.txt

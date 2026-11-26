@@ -1,0 +1,10 @@
+{
+  "name": "r2-mppx",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "mppx": "0.21.4",
+    "twzrd-x402-gate": "0.28.1",
+    "viem": "2.58.4"
+  }
+}
