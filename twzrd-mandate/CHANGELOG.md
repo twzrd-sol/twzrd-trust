@@ -25,6 +25,17 @@
   chain and counterparty lists, caps and 402 checks still apply. A mandate
   without the member is "required", and its signed bytes are unchanged.
 
+## 0.1.2 (2026-11-26)
+
+Security: depends on `twzrd-x402-gate` 0.28.1. 0.1.1 pinned 0.26.0, which is
+inside GHSA-6cqg-vwmj-qw2v (fallback routing paid an unallowlisted route by
+default) and is deprecated on npm. The mandate's payment transport already
+refused any request that is not the call's own target, so a mandate never took
+a fallback route; this release removes the deprecated dependency, and the
+`"overrides"` workaround, for installs. The mandate's own code is unchanged
+since 0.1.0; the gate's CHANGELOG (0.27.0 to 0.28.1) lists what changes
+underneath.
+
 ## 0.1.1 (2026-11-18)
 
 Security: depends on `twzrd-x402-gate` 0.26.0. 0.1.0 pinned 0.24.0, which is
